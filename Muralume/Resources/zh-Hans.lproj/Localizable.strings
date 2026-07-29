@@ -1,5 +1,7 @@
 "app.name" = "Muralume";
 "window.title" = "Muralume";
+"window.close" = "关闭窗口";
+"window.minimize" = "最小化窗口";
 "prototype.badge" = "动态桌面播放器";
 "prototype.description" = "让本地视频在播放器和桌面上流动。";
 "media.choose" = "选择视频";

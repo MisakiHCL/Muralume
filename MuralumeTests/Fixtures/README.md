@@ -1,22 +1,48 @@
 # Test Media
 
-`sample-h264.mp4` is a silent, two-second synthetic test pattern created with
-FFmpeg for automated playback and thumbnail tests. It contains no third-party
-footage or audio and is distributed under the repository's MIT License.
+The fixtures are silent synthetic test patterns created with FFmpeg. They
+contain no third-party footage or audio and are distributed under the
+repository's MIT License.
 
-An equivalent fixture can be regenerated with:
+Both fixtures are twenty seconds long, use low-resolution H.264 at 15fps, and
+comfortably exceed the player chrome's auto-hide delay. The matching names make
+windowed/full-screen and landscape/portrait comparisons straightforward:
+
+- `landscape-20s-h264.mp4`: 320×180
+- `portrait-20s-h264.mp4`: 180×320
+
+Regenerate the landscape fixture with:
 
 ```sh
 ffmpeg \
   -f lavfi \
-  -i "testsrc2=size=320x180:rate=30" \
-  -t 2 \
+  -i "testsrc2=size=320x180:rate=15" \
+  -t 20 \
   -an \
   -c:v libx264 \
+  -preset slow \
+  -crf 38 \
   -profile:v main \
   -pix_fmt yuv420p \
   -movflags +faststart \
-  sample-h264.mp4
+  landscape-20s-h264.mp4
+```
+
+Regenerate the portrait fixture with:
+
+```sh
+ffmpeg \
+  -f lavfi \
+  -i "testsrc2=size=180x320:rate=15" \
+  -t 20 \
+  -an \
+  -c:v libx264 \
+  -preset slow \
+  -crf 38 \
+  -profile:v main \
+  -pix_fmt yuv420p \
+  -movflags +faststart \
+  portrait-20s-h264.mp4
 ```
 
 Encoded bytes may differ between FFmpeg versions; tests depend on the format,

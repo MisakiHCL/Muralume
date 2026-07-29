@@ -67,12 +67,16 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
 
     private func applyWindowChrome(to window: NSWindow) {
         window.appearance = NSAppearance(named: .darkAqua)
-        window.backgroundColor = MuralumeTheme.Colors.windowNSColor
+        window.isOpaque = false
+        window.backgroundColor = .clear
         window.styleMask.insert(.fullSizeContentView)
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
+        window.isMovableByWindowBackground = true
         window.toolbar?.showsBaselineSeparator = false
+        window.toolbar = nil
+        hideSystemWindowControls(in: window)
     }
 
     func hide() {
@@ -102,6 +106,14 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
         window?.toggleFullScreen(nil)
     }
 
+    func close() {
+        window?.performClose(nil)
+    }
+
+    func minimize() {
+        window?.miniaturize(nil)
+    }
+
     @objc
     private func mainWindowWillClose(_ notification: Notification) {
         guard let closingWindow = notification.object as? NSWindow,
@@ -121,11 +133,23 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
               changedWindow === window else {
             return
         }
-        applyWindowChrome(to: changedWindow)
+
+        hideSystemWindowControls(in: changedWindow)
         if notification.name == NSWindow.didEnterFullScreenNotification {
             publishFullScreenState(true)
         } else if notification.name == NSWindow.didExitFullScreenNotification {
             publishFullScreenState(false)
+        }
+    }
+
+    private func hideSystemWindowControls(in window: NSWindow) {
+        let buttons = [
+            window.standardWindowButton(.closeButton),
+            window.standardWindowButton(.miniaturizeButton),
+            window.standardWindowButton(.zoomButton)
+        ].compactMap { $0 }
+        for button in buttons {
+            button.isHidden = true
         }
     }
 

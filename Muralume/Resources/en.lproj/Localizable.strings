@@ -1,5 +1,7 @@
 "app.name" = "Muralume";
 "window.title" = "Muralume";
+"window.close" = "Close Window";
+"window.minimize" = "Minimize Window";
 "prototype.badge" = "Dynamic Desktop Player";
 "prototype.description" = "Bring local video to your player and desktop.";
 "media.choose" = "Choose Video";

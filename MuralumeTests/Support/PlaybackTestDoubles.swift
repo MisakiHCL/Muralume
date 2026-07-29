@@ -108,7 +108,7 @@ final class TestPlaybackEngine: PlaybackEngine {
 }
 
 enum TestMediaFixture {
-    static let duration: TimeInterval = 2
+    static let duration: TimeInterval = 20
     static let readinessProbeNanoseconds: UInt64 = 50_000_000
     static let frameProbeTime: TimeInterval = 0.5
     static let timeScale: CMTimeScale = 600
@@ -123,7 +123,7 @@ enum TestMediaFixture {
     static func h264URL(for testClass: AnyClass) throws -> URL {
         try XCTUnwrap(
             Bundle(for: testClass).url(
-                forResource: "sample-h264",
+                forResource: "landscape-20s-h264",
                 withExtension: "mp4"
             )
         )
@@ -248,6 +248,8 @@ final class TestMainWindowPresenter: MainWindowPresenting {
     private(set) var prepareForReturnCount = 0
     private(set) var showCount = 0
     private(set) var hideAfterFailedReturnCount = 0
+    private(set) var closeCount = 0
+    private(set) var minimizeCount = 0
     private(set) var toggleFullScreenCount = 0
 
     func hide() {
@@ -268,5 +270,13 @@ final class TestMainWindowPresenter: MainWindowPresenting {
 
     func toggleFullScreen() {
         toggleFullScreenCount += 1
+    }
+
+    func close() {
+        closeCount += 1
+    }
+
+    func minimize() {
+        minimizeCount += 1
     }
 }

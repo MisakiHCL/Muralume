@@ -10,9 +10,9 @@ struct PlayerScreen<PlayerSurface: View>: View {
     let playerSurface: PlayerSurface
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.locale) private var locale
     @State private var isPlaylistPresented = true
     @State private var isPlayerChromeVisible = true
-    @State private var isPointerOverPlayerChrome = false
     @State private var playerChromeActivitySequence = 0
     @State private var restoresPlaylistAfterFullScreen = false
 
@@ -42,7 +42,8 @@ struct PlayerScreen<PlayerSurface: View>: View {
                     }
                 )
                 .frame(maxWidth: 560)
-                .padding(MuralumeTheme.Spacing.large)
+                .padding(.horizontal, MuralumeTheme.Spacing.large)
+                .padding(.top, playerTopContentInset)
                 .frame(
                     maxWidth: .infinity,
                     maxHeight: .infinity,
@@ -61,7 +62,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
                         setPlaylistPresented(false)
                     }
                 )
-                .padding(.top, MuralumeTheme.Spacing.large)
+                .padding(.top, playerTopContentInset)
                 .padding(.trailing, MuralumeTheme.Spacing.large)
                 .padding(
                     .bottom,
@@ -104,20 +105,21 @@ struct PlayerScreen<PlayerSurface: View>: View {
             .opacity(isPlayerChromeVisible ? 1 : 0)
             .allowsHitTesting(isPlayerChromeVisible)
             .accessibilityHidden(!isPlayerChromeVisible)
-            .onHover { isHovering in
-                isPointerOverPlayerChrome = isHovering
-                if isHovering {
-                    recordPlayerChromeActivity()
-                } else {
-                    restartPlayerChromeAutoHideCountdown()
-                }
-            }
             .zIndex(4)
+
+            playerTopBar
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity,
+                    alignment: .top
+                )
+                .zIndex(5)
         }
         .frame(
             minWidth: AppConfiguration.minimumWindowWidth,
             minHeight: AppConfiguration.minimumWindowHeight
         )
+        .ignoresSafeArea(.container, edges: .top)
         .onChange(of: playback.isActuallyPlaying) {
             handlePlayerChromePolicyChange()
         }
@@ -148,15 +150,38 @@ struct PlayerScreen<PlayerSurface: View>: View {
             setPlayerChromeVisible(false)
         }
         .foregroundStyle(MuralumeTheme.Colors.textPrimary)
-        .toolbar {
-            PlayerToolbar(playback: playback)
-        }
-        .toolbarBackground(
-            MuralumeTheme.Colors.window,
-            for: .windowToolbar
+    }
+
+    private var playerTopContentInset: CGFloat {
+        MuralumeTheme.Size.playerTopBarHeight
+            + MuralumeTheme.Spacing.large
+    }
+
+    private var playerTopBar: some View {
+        PlayerTopBar(
+            playback: playback,
+            isFullScreen: isFullScreen,
+            actions: actions
         )
-        .toolbarBackground(.visible, for: .windowToolbar)
-        .toolbarColorScheme(.dark, for: .windowToolbar)
+        .offset(
+            y: isPlayerChromeVisible
+                ? 0
+                : -MuralumeTheme.Spacing.xLarge
+        )
+        .opacity(isPlayerChromeVisible ? 1 : 0)
+        .allowsHitTesting(isPlayerChromeVisible)
+        .accessibilityHidden(!isPlayerChromeVisible)
+        .environment(\.locale, locale)
+        .preferredColorScheme(.dark)
+        .animation(
+            reduceMotion
+                ? nil
+                : .easeOut(
+                    duration: MuralumeTheme.Motion
+                        .playerChromeTransitionDuration
+                ),
+            value: isPlayerChromeVisible
+        )
     }
 
     private var shouldAutoHidePlayerChrome: Bool {
@@ -166,7 +191,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
         guard playback.isActuallyPlaying, !isPlaylistPresented else {
             return false
         }
-        return isFullScreen || !isPointerOverPlayerChrome
+        return true
     }
 
     private func handleFullScreenChange() {
@@ -205,13 +230,6 @@ struct PlayerScreen<PlayerSurface: View>: View {
 
     private func recordPlayerChromeActivity() {
         setPlayerChromeVisible(true)
-        playerChromeActivitySequence += 1
-    }
-
-    private func restartPlayerChromeAutoHideCountdown() {
-        guard shouldAutoHidePlayerChrome else {
-            return
-        }
         playerChromeActivitySequence += 1
     }
 

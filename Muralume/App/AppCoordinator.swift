@@ -81,6 +81,14 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         mainWindowPresenter.toggleFullScreen()
     }
 
+    func closeMainWindow() {
+        mainWindowPresenter.close()
+    }
+
+    func minimizeMainWindow() {
+        mainWindowPresenter.minimize()
+    }
+
     func showMainWindow() {
         mainWindowPresenter.show()
     }

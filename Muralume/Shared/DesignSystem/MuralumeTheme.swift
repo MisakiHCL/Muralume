@@ -54,7 +54,12 @@ enum MuralumeTheme {
     }
 
     enum Size {
-        static let toolbarBrandMark: CGFloat = 28
+        static let playerTopBarHeight: CGFloat = 40
+        static let playerTopBarBrandMark: CGFloat = 28
+        static let playerTopBarSourceHeight: CGFloat = 28
+        static let playerTopBarSourceMaximumWidth: CGFloat = 320
+        static let windowControlClusterWidth: CGFloat = 60
+        static let compactControl: CGFloat = 28
         static let settingsBrandMark: CGFloat = 48
         static let emptyBrandMark: CGFloat = 88
         static let icon: CGFloat = 16
@@ -72,7 +77,6 @@ enum MuralumeTheme {
         static let playlistArtworkWidth: CGFloat = 84
         static let playlistArtworkHeight: CGFloat = 48
         static let queueFooterHeight: CGFloat = 36
-        static let toolbarSourceHeight: CGFloat = 28
     }
 
     enum Motion {
@@ -81,8 +85,8 @@ enum MuralumeTheme {
     }
 
     enum Glass {
-        static let standardTintOpacity = 0.58
-        static let playerOverlayTintOpacity = 0.28
+        static let standardTintOpacity = 0.42
+        static let playerOverlayTintOpacity = 0.14
     }
 
     enum Shadow {
@@ -111,6 +115,7 @@ enum MuralumeAsset {
 
 enum MuralumeAccessibilityIdentifier {
     static let brandMark = "muralume.brand-mark"
+    static let playerTopBar = "muralume.player-top-bar"
     static let videoViewport = "muralume.video-viewport"
     static let playerControls = "muralume.player-controls"
     static let playbackTimeline = "muralume.playback-timeline"
@@ -124,6 +129,9 @@ enum MuralumeAccessibilityIdentifier {
     static let playbackOrderButton = "muralume.playback-order"
     static let librarySortButton = "muralume.library-sort"
     static let openSettingsButton = "muralume.open-settings"
+    static let closeWindowButton = "muralume.window-close"
+    static let minimizeWindowButton = "muralume.window-minimize"
+    static let fullScreenWindowButton = "muralume.window-fullscreen"
     static let settingsView = "muralume.settings-view"
     static let languagePicker = "muralume.language-picker"
 }
@@ -215,6 +223,8 @@ private struct MuralumePanelBackground: View {
 
     let cornerRadius: CGFloat
     let style: MuralumePanelStyle
+    let showsBorder: Bool
+    let showsShadow: Bool
 
     var body: some View {
         let shape = RoundedRectangle(
@@ -237,16 +247,29 @@ private struct MuralumePanelBackground: View {
                     )
             }
         }
-        .overlay(shape.stroke(MuralumeTheme.Colors.border, lineWidth: 1))
+        .overlay {
+            if showsBorder {
+                shape.stroke(MuralumeTheme.Colors.border, lineWidth: 1)
+            }
+        }
         .shadow(
-            color: Color.black.opacity(0.32),
-            radius: MuralumeTheme.Shadow.panelRadius,
-            y: MuralumeTheme.Shadow.panelY
+            color: Color.black.opacity(showsShadow ? 0.32 : 0),
+            radius: showsShadow ? MuralumeTheme.Shadow.panelRadius : 0,
+            y: showsShadow ? MuralumeTheme.Shadow.panelY : 0
         )
     }
 }
 
 extension View {
+    @ViewBuilder
+    func muralumeHidesSystemWindowToolbar() -> some View {
+        if #available(macOS 15.0, *) {
+            toolbarVisibility(.hidden, for: .windowToolbar)
+        } else {
+            toolbar(.hidden, for: .windowToolbar)
+        }
+    }
+
     func muralumePanel(
         cornerRadius: CGFloat = MuralumeTheme.Radius.large,
         style: MuralumePanelStyle = .standard
@@ -254,7 +277,20 @@ extension View {
         background {
             MuralumePanelBackground(
                 cornerRadius: cornerRadius,
-                style: style
+                style: style,
+                showsBorder: true,
+                showsShadow: true
+            )
+        }
+    }
+
+    func muralumePlayerTopChrome() -> some View {
+        background {
+            MuralumePanelBackground(
+                cornerRadius: 0,
+                style: .playerOverlay,
+                showsBorder: false,
+                showsShadow: false
             )
         }
     }
@@ -334,12 +370,22 @@ struct MuralumeControlButtonStyle: ButtonStyle {
         case accent
     }
 
+    enum Scale {
+        case standard
+        case compact
+    }
+
     @Environment(\.isEnabled) private var isEnabled
 
     let kind: Kind
+    let scale: Scale
 
-    init(kind: Kind = .standard) {
+    init(
+        kind: Kind = .standard,
+        scale: Scale = .standard
+    ) {
         self.kind = kind
+        self.scale = scale
     }
 
     func makeBody(configuration: Configuration) -> some View {
@@ -411,7 +457,10 @@ struct MuralumeControlButtonStyle: ButtonStyle {
     }
 
     private var controlSize: CGFloat {
-        kind == .prominent
+        if scale == .compact {
+            return MuralumeTheme.Size.compactControl
+        }
+        return kind == .prominent
             ? MuralumeTheme.Size.primaryControl
             : MuralumeTheme.Size.control
     }
@@ -423,7 +472,10 @@ struct MuralumeControlButtonStyle: ButtonStyle {
     }
 
     private var cornerRadius: CGFloat {
-        kind == .prominent
+        if scale == .compact {
+            return MuralumeTheme.Radius.small
+        }
+        return kind == .prominent
             ? MuralumeTheme.Size.primaryControl / 2
             : MuralumeTheme.Radius.medium
     }

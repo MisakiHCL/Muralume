@@ -35,6 +35,12 @@ struct MuralumeApp: App {
                     enterDesktop: {
                         coordinator.enterDesktop()
                     },
+                    closeWindow: {
+                        coordinator.closeMainWindow()
+                    },
+                    minimizeWindow: {
+                        coordinator.minimizeMainWindow()
+                    },
                     toggleFullScreen: {
                         coordinator.toggleFullScreen()
                     }
@@ -58,6 +64,7 @@ struct MuralumeApp: App {
                 .environment(\.locale, localization.locale)
                 .tint(MuralumeTheme.Colors.controlAccent)
                 .preferredColorScheme(.dark)
+                .muralumeHidesSystemWindowToolbar()
                 .background {
                     WindowReader { window in
                         coordinator.attachMainWindow(window)
@@ -69,8 +76,8 @@ struct MuralumeApp: App {
             width: AppConfiguration.preferredWindowWidth,
             height: AppConfiguration.preferredWindowHeight
         )
+        .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
-        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button(localization.localized("library.add.folder")) {

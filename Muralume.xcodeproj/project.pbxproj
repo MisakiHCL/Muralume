@@ -49,7 +49,8 @@
 		D0A0FBE24BAF468290B1E7D1 /* SystemNotificationName.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC6DCFAE93B6413084C9C561 /* SystemNotificationName.swift */; };
 		E970F932ED084EA2B4F95281 /* MuralumeTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F8A5E9E12614B138608DC0E /* MuralumeTheme.swift */; };
 		D411CD1097024403912B986C /* PlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82C43CDEEC83437E807E0533 /* PlaybackEngine.swift */; };
-		E6922A8E550A848735A52CBB /* sample-h264.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = 24127E2E6C60122900648F42 /* sample-h264.mp4 */; };
+		E6922A8E550A848735A52CBB /* landscape-20s-h264.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = 24127E2E6C60122900648F42 /* landscape-20s-h264.mp4 */; };
+		B10000000000000000000001 /* portrait-20s-h264.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* portrait-20s-h264.mp4 */; };
 		E717858177BC0998AEFA7C6D /* SystemLifecycleMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99BCF9A2B1F6168D3933C8FE /* SystemLifecycleMonitor.swift */; };
 		EC1CFBA860414E00B01FF30C /* PlayerSurfaceRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD7D228FCC544D595B5400F /* PlayerSurfaceRepresentable.swift */; };
 		FB5A108E387E4C458059F7EC /* MediaAccessSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB72BF1D775C4A099B2A2552 /* MediaAccessSession.swift */; };
@@ -113,7 +114,8 @@
 		1938F4614147B77072AD7F91 /* MuralumeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MuralumeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1B99EA2BF7FCEAB71E376F38 /* Debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		1D3E98E0E1DCE91699F8422D /* Muralume.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = Muralume.entitlements; sourceTree = "<group>"; };
-		24127E2E6C60122900648F42 /* sample-h264.mp4 */ = {isa = PBXFileReference; includeInIndex = 1; path = "sample-h264.mp4"; sourceTree = "<group>"; };
+		24127E2E6C60122900648F42 /* landscape-20s-h264.mp4 */ = {isa = PBXFileReference; includeInIndex = 1; path = "landscape-20s-h264.mp4"; sourceTree = "<group>"; };
+		B10000000000000000000002 /* portrait-20s-h264.mp4 */ = {isa = PBXFileReference; includeInIndex = 1; path = "portrait-20s-h264.mp4"; sourceTree = "<group>"; };
 		25EA2A620F0248ECAA3D369A /* AVFoundationPlaybackEngineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AVFoundationPlaybackEngineTests.swift; sourceTree = "<group>"; };
 		26FCE9077E4742A29B26FBC6 /* PlaybackPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackPolicy.swift; sourceTree = "<group>"; };
 		2F8A5E9E12614B138608DC0E /* MuralumeTheme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MuralumeTheme.swift; sourceTree = "<group>"; };
@@ -396,7 +398,8 @@
 		66C0B95E037D5CB2F5A03486 /* Fixtures */ = {
 			isa = PBXGroup;
 			children = (
-				24127E2E6C60122900648F42 /* sample-h264.mp4 */,
+				24127E2E6C60122900648F42 /* landscape-20s-h264.mp4 */,
+				B10000000000000000000002 /* portrait-20s-h264.mp4 */,
 			);
 			name = Fixtures;
 			path = Fixtures;
@@ -823,7 +826,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E6922A8E550A848735A52CBB /* sample-h264.mp4 in Resources */,
+				E6922A8E550A848735A52CBB /* landscape-20s-h264.mp4 in Resources */,
+				B10000000000000000000001 /* portrait-20s-h264.mp4 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

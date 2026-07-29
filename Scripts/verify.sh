@@ -294,7 +294,8 @@ check_bundled_resources() {
         "${app_bundle}/Contents/Resources/Assets.car"
         "${app_bundle}/Contents/Resources/en.lproj/Localizable.strings"
         "${app_bundle}/Contents/Resources/zh-Hans.lproj/Localizable.strings"
-        "${test_bundle}/Contents/Resources/sample-h264.mp4"
+        "${test_bundle}/Contents/Resources/landscape-20s-h264.mp4"
+        "${test_bundle}/Contents/Resources/portrait-20s-h264.mp4"
     )
     local resource_path
 

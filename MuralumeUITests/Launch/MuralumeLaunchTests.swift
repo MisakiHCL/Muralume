@@ -9,6 +9,12 @@ final class MuralumeLaunchTests: XCTestCase {
         static let maximumControlRowEdgeOffset: CGFloat = 2
         static let playerControlRowSpacing: CGFloat = 12
         static let maximumControlRowSpacingOffset: CGFloat = 2
+        static let maximumTopBarHeightDifference: CGFloat = 1
+        static let maximumTopBarLeadingInsetDifference: CGFloat = 2
+        static let maximumWindowControlVerticalOffset: CGFloat = 2
+        static let minimumBrandControlGap: CGFloat = 8
+        static let maximumBrandControlGap: CGFloat = 16
+        static let maximumWindowEdgeOffset: CGFloat = 2
         static let fullScreenTransitionTimeout: TimeInterval = 5
     }
 
@@ -85,6 +91,11 @@ final class MuralumeLaunchTests: XCTestCase {
         XCTAssertTrue(videoViewport.waitForExistence(timeout: 5))
         XCTAssertTrue(transportControls.waitForExistence(timeout: 5))
         XCTAssertEqual(
+            videoViewport.frame.minY,
+            application.windows.firstMatch.frame.minY,
+            accuracy: LayoutExpectation.maximumWindowEdgeOffset
+        )
+        XCTAssertEqual(
             transportControls.frame.midX,
             videoViewport.frame.midX,
             accuracy: LayoutExpectation.maximumTransportCenterOffset
@@ -153,16 +164,49 @@ final class MuralumeLaunchTests: XCTestCase {
     }
 
     @MainActor
-    func testSettingsRemainsTopTrailingInFullScreen() {
+    func testFullScreenReusesPlayerTopBar() {
         let application = launchEmptyLibrary()
         let window = application.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 5))
 
-        let settingsButton = application.buttons[
+        let playerTopBar = application
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.player-top-bar")
+            .firstMatch
+        let windowedSettingsButton = application.buttons[
             "muralume.open-settings"
         ].firstMatch
-        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
-        assertTopTrailing(settingsButton, in: window)
+        let windowedBrandMark = playerTopBar
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.brand-mark")
+            .firstMatch
+        let closeWindowButton = application.buttons[
+            "muralume.window-close"
+        ].firstMatch
+        let minimizeWindowButton = application.buttons[
+            "muralume.window-minimize"
+        ].firstMatch
+        let fullScreenWindowButton = application.buttons[
+            "muralume.window-fullscreen"
+        ].firstMatch
+        XCTAssertTrue(playerTopBar.waitForExistence(timeout: 5))
+        XCTAssertTrue(windowedSettingsButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(windowedBrandMark.waitForExistence(timeout: 5))
+        XCTAssertTrue(closeWindowButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(minimizeWindowButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(fullScreenWindowButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(closeWindowButton.isEnabled)
+        XCTAssertTrue(minimizeWindowButton.isEnabled)
+        XCTAssertTrue(fullScreenWindowButton.isEnabled)
+        assertTopTrailing(windowedSettingsButton, in: window)
+        assertWindowControlsAlignWithBrand(
+            closeButton: closeWindowButton,
+            fullScreenButton: fullScreenWindowButton,
+            brand: windowedBrandMark
+        )
+        let windowedTopBarHeight = playerTopBar.frame.height
+        let windowedBrandLeadingInset =
+            windowedBrandMark.frame.minX - window.frame.minX
 
         let windowedFrame = window.frame
         let viewMenu = application.menuBars.menuBarItems["View"]
@@ -186,8 +230,45 @@ final class MuralumeLaunchTests: XCTestCase {
         )
         XCTAssertEqual(transitionResult, .completed)
 
-        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
-        assertTopTrailing(settingsButton, in: window)
+        XCTAssertTrue(playerTopBar.waitForExistence(timeout: 5))
+        let fullScreenSettingsButton = playerTopBar
+            .descendants(matching: .button)
+            .matching(identifier: "muralume.open-settings")
+            .firstMatch
+        let fullScreenBrandMark = playerTopBar
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.brand-mark")
+            .firstMatch
+        XCTAssertTrue(
+            fullScreenSettingsButton.waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(fullScreenBrandMark.waitForExistence(timeout: 5))
+        XCTAssertTrue(closeWindowButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(minimizeWindowButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(fullScreenWindowButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(closeWindowButton.isEnabled)
+        XCTAssertFalse(minimizeWindowButton.isEnabled)
+        XCTAssertTrue(fullScreenWindowButton.isEnabled)
+        assertTopTrailing(
+            fullScreenSettingsButton,
+            in: window
+        )
+        assertWindowControlsAlignWithBrand(
+            closeButton: closeWindowButton,
+            fullScreenButton: fullScreenWindowButton,
+            brand: fullScreenBrandMark
+        )
+        XCTAssertEqual(
+            playerTopBar.frame.height,
+            windowedTopBarHeight,
+            accuracy: LayoutExpectation.maximumTopBarHeightDifference
+        )
+        XCTAssertEqual(
+            fullScreenBrandMark.frame.minX - window.frame.minX,
+            windowedBrandLeadingInset,
+            accuracy: LayoutExpectation
+                .maximumTopBarLeadingInsetDifference
+        )
     }
 
     @MainActor
@@ -224,6 +305,36 @@ final class MuralumeLaunchTests: XCTestCase {
         XCTAssertLessThanOrEqual(
             element.frame.minY - window.frame.minY,
             LayoutExpectation.maximumToolbarInset,
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertWindowControlsAlignWithBrand(
+        closeButton: XCUIElement,
+        fullScreenButton: XCUIElement,
+        brand: XCUIElement,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(
+            closeButton.frame.midY,
+            brand.frame.midY,
+            accuracy: LayoutExpectation.maximumWindowControlVerticalOffset,
+            file: file,
+            line: line
+        )
+        let brandControlGap =
+            brand.frame.minX - fullScreenButton.frame.maxX
+        XCTAssertGreaterThanOrEqual(
+            brandControlGap,
+            LayoutExpectation.minimumBrandControlGap,
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            brandControlGap,
+            LayoutExpectation.maximumBrandControlGap,
             file: file,
             line: line
         )

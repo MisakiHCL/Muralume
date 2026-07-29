@@ -3,6 +3,8 @@ import Combine
 
 private enum DesktopStatusMenuLayout {
     static let iconSize = NSSize(width: 18, height: 18)
+    static let currentPlaybackMaximumWidth: CGFloat = 360
+    static let truncationMarker = "…"
 }
 
 private enum DesktopStatusMenuAsset {
@@ -186,11 +188,16 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
     private func updateMenu() {
         let state = stateProvider?()
         if let state {
-            currentItem?.title = String(
+            let fullCurrentTitle = String(
                 format: localized("desktop.current"),
                 locale: localization.locale,
                 state.sourceName
             )
+            currentItem?.title = currentPlaybackTitle(
+                sourceName: state.sourceName
+            )
+            currentItem?.toolTip = fullCurrentTitle
+            currentItem?.setAccessibilityLabel(fullCurrentTitle)
             togglePlaybackItem?.title = localized(
                 state.isPlaying ? "desktop.pause" : "desktop.resume"
             )
@@ -225,6 +232,83 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         quitItem?.title = localized("desktop.quit")
         statusItem?.button?.toolTip = localized("app.name")
         statusItem?.button?.setAccessibilityLabel(localized("app.name"))
+    }
+
+    private func currentPlaybackTitle(sourceName: String) -> String {
+        let format = localized("desktop.current")
+        let font = NSFont.menuFont(ofSize: 0)
+        let fullTitle = formattedCurrentPlaybackTitle(
+            format: format,
+            sourceName: sourceName
+        )
+        guard textWidth(fullTitle, font: font)
+                > DesktopStatusMenuLayout.currentPlaybackMaximumWidth else {
+            return fullTitle
+        }
+
+        let characters = Array(sourceName)
+        let marker = DesktopStatusMenuLayout.truncationMarker
+        var lowerBound = 0
+        var upperBound = characters.count
+        while lowerBound < upperBound {
+            let keptCharacterCount = (lowerBound + upperBound + 1) / 2
+            let candidateSourceName = middleTruncationCandidate(
+                characters,
+                keptCharacterCount: keptCharacterCount,
+                marker: marker
+            )
+            let candidateTitle = formattedCurrentPlaybackTitle(
+                format: format,
+                sourceName: candidateSourceName
+            )
+            if textWidth(candidateTitle, font: font)
+                <= DesktopStatusMenuLayout.currentPlaybackMaximumWidth {
+                lowerBound = keptCharacterCount
+            } else {
+                upperBound = keptCharacterCount - 1
+            }
+        }
+
+        let visibleSourceName = middleTruncationCandidate(
+            characters,
+            keptCharacterCount: lowerBound,
+            marker: marker
+        )
+        return formattedCurrentPlaybackTitle(
+            format: format,
+            sourceName: visibleSourceName
+        )
+    }
+
+    private func formattedCurrentPlaybackTitle(
+        format: String,
+        sourceName: String
+    ) -> String {
+        String(
+            format: format,
+            locale: localization.locale,
+            sourceName
+        )
+    }
+
+    private func middleTruncationCandidate(
+        _ characters: [Character],
+        keptCharacterCount: Int,
+        marker: String
+    ) -> String {
+        let prefixCount = (keptCharacterCount + 1) / 2
+        let suffixCount = keptCharacterCount / 2
+        return String(characters.prefix(prefixCount))
+            + marker
+            + String(characters.suffix(suffixCount))
+    }
+
+    private func textWidth(_ text: String, font: NSFont) -> CGFloat {
+        ceil(
+            (text as NSString).size(
+                withAttributes: [.font: font]
+            ).width
+        )
     }
 
     private func makePlaybackRateItem() -> NSMenuItem {

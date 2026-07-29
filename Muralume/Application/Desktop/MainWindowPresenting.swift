@@ -4,5 +4,7 @@ protocol MainWindowPresenting: AnyObject {
     func prepareForReturn()
     func show()
     func hideAfterFailedReturn()
+    func close()
+    func minimize()
     func toggleFullScreen()
 }

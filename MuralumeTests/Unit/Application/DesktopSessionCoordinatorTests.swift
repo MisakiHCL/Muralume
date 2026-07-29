@@ -6,6 +6,7 @@ import XCTest
 final class DesktopSessionCoordinatorTests: XCTestCase {
     private enum TestPolicy {
         static let statePropagationAttempts = 100
+        static let currentMenuTitleMaximumWidth: CGFloat = 360
     }
 
     func testDesktopRoundTripDelegatesWindowAndStatusPresentation() async {
@@ -422,6 +423,63 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             await Task.yield()
         }
         XCTFail("Timed out waiting for the expected coordinator state")
+    }
+
+    func testStatusMenuMiddleTruncatesLongCurrentSourceName() throws {
+        let localization = AppLocalizationController(
+            storage: DesktopTestAppLanguageStore(language: .english)
+        )
+        let controller = DesktopStatusMenuController(
+            localization: localization
+        )
+        let sourceName = String(
+            repeating: "A-Very-Long-Descriptive-Video-Name-",
+            count: 20
+        ) + "final-cut.mp4"
+        controller.stateProvider = {
+            DesktopStatusState(
+                sourceName: sourceName,
+                isPlaying: true,
+                isTransitioning: false,
+                canPlayNext: false,
+                playbackRate: PlaybackRate(rawValue: 1),
+                videoContentMode: .cover
+            )
+        }
+
+        let menu = controller.makeMenu()
+        controller.menuNeedsUpdate(menu)
+        let currentItem = try XCTUnwrap(menu.items.first)
+        let fullEnglishTitle = "Now Playing: \(sourceName)"
+
+        XCTAssertTrue(currentItem.title.hasPrefix("Now Playing: "))
+        XCTAssertTrue(currentItem.title.contains("…"))
+        XCTAssertTrue(currentItem.title.hasSuffix("final-cut.mp4"))
+        XCTAssertNotEqual(currentItem.title, fullEnglishTitle)
+        XCTAssertEqual(currentItem.toolTip, fullEnglishTitle)
+        XCTAssertLessThanOrEqual(
+            menuTitleWidth(currentItem.title),
+            TestPolicy.currentMenuTitleMaximumWidth
+        )
+
+        localization.selectLanguage(.simplifiedChinese)
+
+        XCTAssertTrue(currentItem.title.hasPrefix("正在播放："))
+        XCTAssertTrue(currentItem.title.contains("…"))
+        XCTAssertTrue(currentItem.title.hasSuffix("final-cut.mp4"))
+        XCTAssertEqual(currentItem.toolTip, "正在播放：\(sourceName)")
+        XCTAssertLessThanOrEqual(
+            menuTitleWidth(currentItem.title),
+            TestPolicy.currentMenuTitleMaximumWidth
+        )
+    }
+
+    private func menuTitleWidth(_ title: String) -> CGFloat {
+        ceil(
+            (title as NSString).size(
+                withAttributes: [.font: NSFont.menuFont(ofSize: 0)]
+            ).width
+        )
     }
 
     private func actionName(_ item: NSMenuItem) -> String? {
