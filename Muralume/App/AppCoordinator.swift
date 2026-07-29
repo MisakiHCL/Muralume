@@ -9,10 +9,6 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     let mediaThumbnailProvider: any MediaThumbnailProviding
     @Published private(set) var isMainWindowFullScreen = false
 
-    var shouldRouteReopenToDesktopSession: Bool {
-        desktopSession.isActive || desktopSession.isTransitioning
-    }
-
     private let mainWindowPresenter: MacMainWindowPresenter
     private var isShutDown = false
 
@@ -38,8 +34,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         desktopSession.playNextHandler = { [weak self] in
             self?.library.playNext()
         }
-        mainWindowPresenter.mainWindowCloseHandler = { [weak self] in
-            self?.requestQuit()
+        mainWindowPresenter.unexpectedWindowCloseHandler = { [weak self] in
+            self?.dismissMainWindow()
         }
         mainWindowPresenter.fullScreenStateHandler = { [weak self] state in
             guard let self, isMainWindowFullScreen != state else {
@@ -81,16 +77,30 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         mainWindowPresenter.toggleFullScreen()
     }
 
-    func closeMainWindow() {
-        mainWindowPresenter.close()
+    func dismissMainWindow() {
+        desktopSession.dismissMainWindow()
     }
 
     func minimizeMainWindow() {
         mainWindowPresenter.minimize()
     }
 
-    func showMainWindow() {
+    func reopenMainWindow() {
+        if desktopSession.isActive || desktopSession.isTransitioning {
+            desktopSession.returnToPlayer()
+            return
+        }
+
+        playback.restorePlayerWindow()
         mainWindowPresenter.show()
+    }
+
+    func handleCloseCommand(for window: NSWindow?) -> Bool {
+        guard mainWindowPresenter.isPresenting(window) else {
+            return false
+        }
+        dismissMainWindow()
+        return true
     }
 
     func requestQuit() {

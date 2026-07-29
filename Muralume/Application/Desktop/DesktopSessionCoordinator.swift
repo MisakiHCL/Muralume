@@ -16,6 +16,9 @@ final class DesktopSessionCoordinator: ObservableObject {
     var quitHandler: (() -> Void)?
 
     var isTransitioning: Bool {
+        if transitionTask != nil {
+            return true
+        }
         if case .switching = playback.presentation {
             return true
         }
@@ -109,7 +112,14 @@ final class DesktopSessionCoordinator: ObservableObject {
     }
 
     func returnToPlayer() {
-        guard transitionTask == nil, isActive, !isShutDown else {
+        guard !isShutDown else {
+            return
+        }
+        if transitionTask != nil {
+            recoverPlayerWindowFromTransition()
+            return
+        }
+        guard isActive else {
             return
         }
 
@@ -119,6 +129,7 @@ final class DesktopSessionCoordinator: ObservableObject {
             return
         }
 
+        playback.restorePlayerWindow()
         mainWindow.prepareForReturn()
         transitionGeneration &+= 1
         let generation = transitionGeneration
@@ -148,6 +159,32 @@ final class DesktopSessionCoordinator: ObservableObject {
                 transitionTask = nil
             }
         }
+    }
+
+    func dismissMainWindow() {
+        guard !isShutDown else {
+            return
+        }
+
+        transientFailure = nil
+        let wasDesktopPresentationRelevant =
+            isActive
+            || isTransitioning
+            || playback.presentation == .desktop
+        invalidateTransition()
+        playback.dismissPlayerWindow()
+
+        if wasDesktopPresentationRelevant {
+            let restoredStandardPresence =
+                applicationPresence.setMode(.standard)
+            desktopHost.close()
+            if restoredStandardPresence {
+                statusMenu.remove()
+            }
+            isActive = !restoredStandardPresence
+        }
+
+        mainWindow.dismiss()
     }
 
     func setVideoContentMode(_ contentMode: DesktopVideoContentMode) {
@@ -313,6 +350,22 @@ final class DesktopSessionCoordinator: ObservableObject {
         if reportFailure {
             transientFailure = .surfaceTimeout
         }
+    }
+
+    private func recoverPlayerWindowFromTransition() {
+        transientFailure = nil
+        guard applicationPresence.setMode(.standard) else {
+            transientFailure = .surfaceTimeout
+            return
+        }
+
+        invalidateTransition()
+        playback.dismissPlayerWindow()
+        playback.restorePlayerWindow()
+        mainWindow.show()
+        desktopHost.close()
+        statusMenu.remove()
+        isActive = false
     }
 
     private func invalidateTransition() {

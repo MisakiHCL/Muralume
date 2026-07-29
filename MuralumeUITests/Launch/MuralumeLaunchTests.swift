@@ -18,6 +18,12 @@ final class MuralumeLaunchTests: XCTestCase {
         static let fullScreenTransitionTimeout: TimeInterval = 5
     }
 
+    private enum LifecycleExpectation {
+        static let windowTransitionTimeout: TimeInterval = 5
+        static let processTerminationObservationTimeout: TimeInterval = 1
+        static let finderBundleIdentifier = "com.apple.finder"
+    }
+
     @MainActor
     func testApplicationLaunchesWithAWindow() {
         let application = launchEmptyLibrary()
@@ -69,6 +75,7 @@ final class MuralumeLaunchTests: XCTestCase {
         )
         XCTAssertTrue(application.staticTexts["Playlist"].exists)
         XCTAssertTrue(application.sliders["Playback Position"].exists)
+        assertApplicationMenuStructure(application)
 
         let playbackOrderButton = application.buttons[
             "muralume.playback-order"
@@ -209,11 +216,11 @@ final class MuralumeLaunchTests: XCTestCase {
             windowedBrandMark.frame.minX - window.frame.minX
 
         let windowedFrame = window.frame
-        let viewMenu = application.menuBars.menuBarItems["View"]
-        XCTAssertTrue(viewMenu.waitForExistence(timeout: 5))
-        viewMenu.click()
+        let actionsMenu = application.menuBars.menuBarItems["Actions"]
+        XCTAssertTrue(actionsMenu.waitForExistence(timeout: 5))
+        actionsMenu.click()
         let enterFullScreenItem = application.menuItems[
-            "Enter Full Screen"
+            "Toggle Full Screen"
         ]
         XCTAssertTrue(enterFullScreenItem.waitForExistence(timeout: 5))
         enterFullScreenItem.click()
@@ -272,6 +279,183 @@ final class MuralumeLaunchTests: XCTestCase {
     }
 
     @MainActor
+    func testSoftClosePreservesStateAndRestoresSingleMainWindow() {
+        let application = launchEmptyLibrary()
+        let mainWindow = application.windows.firstMatch
+        let didLaunchMainWindow = mainWindow.waitForExistence(
+            timeout: LifecycleExpectation.windowTransitionTimeout
+        )
+        XCTAssertTrue(didLaunchMainWindow)
+        guard didLaunchMainWindow else {
+            return
+        }
+        XCTAssertEqual(application.windows.count, 1)
+        let initialWindowFrame = mainWindow.frame
+        let launchedApplicationState = application.state
+        XCTAssertNotEqual(launchedApplicationState, .notRunning)
+
+        let playbackOrderButton = application.buttons[
+            "muralume.playback-order"
+        ]
+        XCTAssertTrue(
+            playbackOrderButton.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        playbackOrderButton.click()
+        XCTAssertEqual(playbackOrderButton.label, "Shuffle")
+        XCTAssertTrue(playbackOrderButton.isSelected)
+
+        let playlistToggle = application.buttons[
+            "muralume.playlist-toggle"
+        ]
+        XCTAssertTrue(
+            playlistToggle.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        playlistToggle.click()
+        XCTAssertEqual(playlistToggle.label, "Show Playlist")
+        XCTAssertFalse(playlistToggle.isSelected)
+
+        application.typeKey("w", modifierFlags: .command)
+
+        let didHideMainWindow = mainWindow.waitForNonExistence(
+            timeout: LifecycleExpectation.windowTransitionTimeout
+        )
+        XCTAssertTrue(didHideMainWindow)
+        guard didHideMainWindow else {
+            return
+        }
+        XCTAssertEqual(application.windows.count, 0)
+        XCTAssertFalse(
+            application.wait(
+                for: .notRunning,
+                timeout: LifecycleExpectation
+                    .processTerminationObservationTimeout
+            )
+        )
+
+        let finder = XCUIApplication(
+            bundleIdentifier: LifecycleExpectation.finderBundleIdentifier
+        )
+        finder.activate()
+        XCTAssertTrue(
+            application.wait(
+                for: .runningBackground,
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+
+        application.activate()
+
+        XCTAssertTrue(
+            application.wait(
+                for: .runningForeground,
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        let didRestoreMainWindow = mainWindow.waitForExistence(
+            timeout: LifecycleExpectation.windowTransitionTimeout
+        )
+        XCTAssertTrue(didRestoreMainWindow)
+        guard didRestoreMainWindow else {
+            return
+        }
+        XCTAssertEqual(application.windows.count, 1)
+        XCTAssertEqual(mainWindow.frame, initialWindowFrame)
+        XCTAssertEqual(playbackOrderButton.label, "Shuffle")
+        XCTAssertTrue(playbackOrderButton.isSelected)
+        XCTAssertEqual(playlistToggle.label, "Show Playlist")
+        XCTAssertFalse(playlistToggle.isSelected)
+
+        let closeWindowButton = application.buttons[
+            "muralume.window-close"
+        ].firstMatch
+        XCTAssertTrue(
+            closeWindowButton.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        closeWindowButton.click()
+
+        XCTAssertTrue(
+            mainWindow.waitForNonExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        XCTAssertFalse(
+            application.wait(
+                for: .notRunning,
+                timeout: LifecycleExpectation
+                    .processTerminationObservationTimeout
+            )
+        )
+        finder.activate()
+        XCTAssertTrue(
+            application.wait(
+                for: .runningBackground,
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        application.activate()
+        XCTAssertTrue(
+            application.wait(
+                for: .runningForeground,
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        XCTAssertTrue(
+            mainWindow.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        XCTAssertEqual(application.windows.count, 1)
+        XCTAssertEqual(playbackOrderButton.label, "Shuffle")
+        XCTAssertFalse(playlistToggle.isSelected)
+    }
+
+    @MainActor
+    func testCommandWClosesSettingsWithoutDismissingMainWindow() {
+        let application = launchEmptyLibrary()
+        let mainWindow = application.windows.firstMatch
+        XCTAssertTrue(
+            mainWindow.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        let settingsButton = application.buttons[
+            "muralume.open-settings"
+        ].firstMatch
+        XCTAssertTrue(
+            settingsButton.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+
+        settingsButton.click()
+        let settingsView = application
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.settings-view")
+            .firstMatch
+        XCTAssertTrue(
+            settingsView.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+
+        application.typeKey("w", modifierFlags: .command)
+
+        XCTAssertTrue(
+            settingsView.waitForNonExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        XCTAssertTrue(mainWindow.exists)
+        XCTAssertEqual(application.windows.count, 1)
+    }
+
+    @MainActor
     private func launchEmptyLibrary() -> XCUIApplication {
         let application = XCUIApplication()
         application.launchArguments += [
@@ -308,6 +492,83 @@ final class MuralumeLaunchTests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    @MainActor
+    private func assertApplicationMenuStructure(
+        _ application: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertFalse(
+            application.menuBars.menuBarItems["File"].exists,
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(
+            application.menuBars.menuBarItems["Edit"].exists,
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(
+            application.menuBars.menuBarItems["Format"].exists,
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(
+            application.menuBars.menuBarItems["View"].exists,
+            file: file,
+            line: line
+        )
+
+        let actionsMenu = application.menuBars.menuBarItems["Actions"]
+        XCTAssertTrue(
+            actionsMenu.waitForExistence(timeout: 5),
+            file: file,
+            line: line
+        )
+        actionsMenu.click()
+        XCTAssertTrue(
+            application.menuItems["Add Folder"].exists,
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            application.menuItems["Toggle Full Screen"].exists,
+            file: file,
+            line: line
+        )
+        application.typeKey(.escape, modifierFlags: [])
+
+        let windowMenu = application.menuBars.menuBarItems["Window"]
+        XCTAssertTrue(
+            windowMenu.waitForExistence(timeout: 5),
+            file: file,
+            line: line
+        )
+        windowMenu.click()
+        application.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(windowMenu.exists, file: file, line: line)
+        XCTAssertTrue(actionsMenu.exists, file: file, line: line)
+
+        let appMenu = application.menuBars.menuBarItems["Muralume"]
+        XCTAssertTrue(
+            appMenu.waitForExistence(timeout: 5),
+            file: file,
+            line: line
+        )
+        appMenu.click()
+        XCTAssertTrue(
+            application.menuItems["Settings…"].exists,
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(
+            application.menuItems["Settings"].exists,
+            file: file,
+            line: line
+        )
+        application.typeKey(.escape, modifierFlags: [])
     }
 
     private func assertWindowControlsAlignWithBrand(

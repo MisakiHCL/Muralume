@@ -45,15 +45,30 @@ final class TestPlaybackEngine: PlaybackEngine {
     private(set) var rate = PlaybackPolicy.defaultRate
     private(set) var loadedSources: [ResolvedMediaSource] = []
     var loadErrorsByURL: [URL: PlaybackEngineError] = [:]
+    var shouldBlockLoads = false
     var shouldBlockAttachments = false
+    private(set) var didBeginBlockedLoad = false
     private(set) var didBeginBlockedAttachment = false
+    private var blockedLoadContinuation:
+        CheckedContinuation<TimeInterval, any Error>?
 
     func load(_ source: ResolvedMediaSource) async throws -> TimeInterval {
         loadedSources.append(source)
         if let error = loadErrorsByURL[source.url] {
             throw error
         }
+        if shouldBlockLoads {
+            didBeginBlockedLoad = true
+            return try await withCheckedThrowingContinuation { continuation in
+                blockedLoadContinuation = continuation
+            }
+        }
         return 120
+    }
+
+    func finishBlockedLoad(duration: TimeInterval = 120) {
+        blockedLoadContinuation?.resume(returning: duration)
+        blockedLoadContinuation = nil
     }
 
     func attach(to surface: any PlaybackRenderSurface) async throws {
@@ -248,7 +263,7 @@ final class TestMainWindowPresenter: MainWindowPresenting {
     private(set) var prepareForReturnCount = 0
     private(set) var showCount = 0
     private(set) var hideAfterFailedReturnCount = 0
-    private(set) var closeCount = 0
+    private(set) var dismissCount = 0
     private(set) var minimizeCount = 0
     private(set) var toggleFullScreenCount = 0
 
@@ -272,8 +287,8 @@ final class TestMainWindowPresenter: MainWindowPresenting {
         toggleFullScreenCount += 1
     }
 
-    func close() {
-        closeCount += 1
+    func dismiss() {
+        dismissCount += 1
     }
 
     func minimize() {

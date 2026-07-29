@@ -55,25 +55,45 @@ final class MacMainWindowPresenterTests: XCTestCase {
         XCTAssertTrue(buttons.allSatisfy(\.isHidden))
     }
 
-    func testClosePerformsTheBoundWindowCloseAction() {
+    func testDismissHidesBoundWindowWithoutClosingIt() async {
         let window = makeWindow()
-        window.isReleasedWhenClosed = false
         let presenter = MacMainWindowPresenter()
-        var closeCount = 0
-        presenter.mainWindowCloseHandler = {
-            closeCount += 1
+        var unexpectedCloseCount = 0
+        presenter.unexpectedWindowCloseHandler = {
+            unexpectedCloseCount += 1
         }
         presenter.attach(window)
         window.orderFront(nil)
+        let willClose = expectation(
+            forNotification: NSWindow.willCloseNotification,
+            object: window
+        )
+        willClose.isInverted = true
 
-        presenter.close()
+        presenter.dismiss()
 
-        XCTAssertEqual(closeCount, 1)
+        await fulfillment(of: [willClose], timeout: 0.1)
+        XCTAssertFalse(window.isVisible)
+        XCTAssertTrue(presenter.isPresenting(window))
+        XCTAssertEqual(unexpectedCloseCount, 0)
     }
 
-    func testMinimizeMiniaturizesTheBoundWindow() async {
+    func testShowRestoresTheSameDismissedWindow() {
         let window = makeWindow()
-        window.isReleasedWhenClosed = false
+        let presenter = MacMainWindowPresenter()
+        presenter.attach(window)
+        window.orderFront(nil)
+
+        presenter.dismiss()
+        presenter.show()
+
+        XCTAssertTrue(window.isVisible)
+        XCTAssertTrue(presenter.isPresenting(window))
+        window.orderOut(nil)
+    }
+
+    func testShowRestoresMiniaturizedBoundWindow() async {
+        let window = makeWindow()
         let presenter = MacMainWindowPresenter()
         presenter.attach(window)
         window.orderFront(nil)
@@ -86,11 +106,46 @@ final class MacMainWindowPresenterTests: XCTestCase {
 
         await fulfillment(of: [didMiniaturize], timeout: 2)
         XCTAssertTrue(window.isMiniaturized)
-        window.deminiaturize(nil)
+
+        let didDeminiaturize = expectation(
+            forNotification: NSWindow.didDeminiaturizeNotification,
+            object: window
+        )
+        presenter.show()
+
+        await fulfillment(of: [didDeminiaturize], timeout: 2)
+        XCTAssertFalse(window.isMiniaturized)
+        XCTAssertTrue(window.isVisible)
         window.orderOut(nil)
     }
 
-    func testAttachedMainWindowCloseIsObservedOnce() {
+    func testWindowIdentityMatchesOnlyAttachedMainWindow() {
+        let attachedWindow = makeWindow()
+        let unrelatedWindow = makeWindow()
+        let presenter = MacMainWindowPresenter()
+
+        presenter.attach(attachedWindow)
+
+        XCTAssertTrue(presenter.isPresenting(attachedWindow))
+        XCTAssertFalse(presenter.isPresenting(unrelatedWindow))
+        XCTAssertFalse(presenter.isPresenting(nil))
+    }
+
+    func testAttachingReplacementWindowHidesThePreviousInstance() {
+        let firstWindow = makeWindow()
+        let replacementWindow = makeWindow()
+        let presenter = MacMainWindowPresenter()
+        presenter.attach(firstWindow)
+        firstWindow.orderFront(nil)
+
+        presenter.attach(replacementWindow)
+
+        XCTAssertFalse(firstWindow.isVisible)
+        XCTAssertFalse(presenter.isPresenting(firstWindow))
+        XCTAssertTrue(presenter.isPresenting(replacementWindow))
+    }
+
+    func testUnexpectedAttachedMainWindowCloseIsObservedOnce() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1_120, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -99,7 +154,7 @@ final class MacMainWindowPresenterTests: XCTestCase {
         )
         let presenter = MacMainWindowPresenter()
         var closeCount = 0
-        presenter.mainWindowCloseHandler = {
+        presenter.unexpectedWindowCloseHandler = {
             closeCount += 1
         }
 

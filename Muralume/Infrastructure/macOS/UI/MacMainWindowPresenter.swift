@@ -11,7 +11,7 @@ private enum MainWindowNotification {
 
 @MainActor
 final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
-    var mainWindowCloseHandler: (() -> Void)?
+    var unexpectedWindowCloseHandler: (() -> Void)?
     var fullScreenStateHandler: ((Bool) -> Void)? {
         didSet {
             if let window {
@@ -23,8 +23,10 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
         }
     }
 
-    private weak var window: NSWindow?
+    private var window: NSWindow?
     private var lastPublishedFullScreenState: Bool?
+    private var isDismissalPending = false
+    private var hasObservedUnexpectedClose = false
 
     override init() {
         super.init()
@@ -35,11 +37,15 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
             return
         }
         if let currentWindow = self.window {
+            currentWindow.orderOut(nil)
             stopObserving(currentWindow)
         }
 
         self.window = window
+        window.isReleasedWhenClosed = false
         lastPublishedFullScreenState = nil
+        isDismissalPending = false
+        hasObservedUnexpectedClose = false
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(mainWindowWillClose(_:)),
@@ -80,10 +86,12 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
     }
 
     func hide() {
+        isDismissalPending = false
         window?.orderOut(nil)
     }
 
     func prepareForReturn() {
+        isDismissalPending = false
         window?.alphaValue = 0.01
         window?.orderBack(nil)
     }
@@ -92,12 +100,18 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
         guard let window else {
             return
         }
+        isDismissalPending = false
+        hasObservedUnexpectedClose = false
         window.alphaValue = 1
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func hideAfterFailedReturn() {
+        isDismissalPending = false
         window?.orderOut(nil)
         window?.alphaValue = 1
     }
@@ -106,25 +120,42 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
         window?.toggleFullScreen(nil)
     }
 
-    func close() {
-        window?.performClose(nil)
+    func dismiss() {
+        guard let window, !isDismissalPending else {
+            return
+        }
+        guard window.styleMask.contains(.fullScreen) else {
+            window.orderOut(nil)
+            return
+        }
+
+        isDismissalPending = true
+        window.toggleFullScreen(nil)
     }
 
     func minimize() {
         window?.miniaturize(nil)
     }
 
+    func isPresenting(_ candidate: NSWindow?) -> Bool {
+        guard let candidate, let window else {
+            return false
+        }
+        return candidate === window
+    }
+
     @objc
     private func mainWindowWillClose(_ notification: Notification) {
         guard let closingWindow = notification.object as? NSWindow,
-              closingWindow === window else {
+              closingWindow === window,
+              !hasObservedUnexpectedClose else {
             return
         }
 
-        stopObserving(closingWindow)
-        window = nil
+        hasObservedUnexpectedClose = true
+        isDismissalPending = false
         publishFullScreenState(false)
-        mainWindowCloseHandler?()
+        unexpectedWindowCloseHandler?()
     }
 
     @objc
@@ -139,6 +170,10 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
             publishFullScreenState(true)
         } else if notification.name == NSWindow.didExitFullScreenNotification {
             publishFullScreenState(false)
+            if isDismissalPending {
+                isDismissalPending = false
+                changedWindow.orderOut(nil)
+            }
         }
     }
 

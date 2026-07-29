@@ -1,6 +1,7 @@
 import CoreGraphics
 
 enum AppConfiguration {
+    static let mainWindowSceneID = "main-window"
     static let minimumWindowWidth: CGFloat = 880
     static let minimumWindowHeight: CGFloat = 600
     static let preferredWindowWidth: CGFloat = 1_120

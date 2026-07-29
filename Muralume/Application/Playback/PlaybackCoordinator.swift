@@ -19,9 +19,12 @@ final class PlaybackCoordinator: ObservableObject {
         isMuted: false,
         rate: PlaybackPolicy.defaultRate
     )
+    private(set) var isPlayerWindowDismissed = false
 
     var canPresentOnDesktop: Bool {
-        readiness == .ready && presentation == .player
+        readiness == .ready
+            && presentation == .player
+            && !isPlayerWindowDismissed
     }
 
     var isSystemSuspended: Bool {
@@ -55,7 +58,9 @@ final class PlaybackCoordinator: ObservableObject {
     func registerPlayerSurface(_ surface: any PlaybackRenderSurface) {
         cancelPlayerSurfaceAttachment()
         playerSurface = surface
-        guard presentation == .player, readiness == .ready else {
+        guard presentation == .player,
+              readiness == .ready,
+              !isPlayerWindowDismissed else {
             return
         }
         let expectedGeneration = transitionGeneration
@@ -64,6 +69,7 @@ final class PlaybackCoordinator: ObservableObject {
             guard let self,
                   presentation == .player,
                   readiness == .ready,
+                  !isPlayerWindowDismissed,
                   isCurrentPlayerSurface(surface),
                   transitionGeneration == expectedGeneration else {
                 return
@@ -73,6 +79,7 @@ final class PlaybackCoordinator: ObservableObject {
                 try Task.checkCancellation()
                 guard presentation == .player,
                       readiness == .ready,
+                      !isPlayerWindowDismissed,
                       isCurrentPlayerSurface(surface),
                       transitionGeneration == expectedGeneration else {
                     return
@@ -84,7 +91,8 @@ final class PlaybackCoordinator: ObservableObject {
             } catch {
                 guard presentation == .player,
                       transitionGeneration == expectedGeneration,
-                      readiness == .ready else {
+                      readiness == .ready,
+                      !isPlayerWindowDismissed else {
                     return
                 }
                 fail(with: .surfaceTimeout)
@@ -103,6 +111,8 @@ final class PlaybackCoordinator: ObservableObject {
         }
 
         cancelPlayerSurfaceAttachment()
+        let loadGeneration = transitionGeneration
+        let canAutoplayWhenLoaded = !isPlayerWindowDismissed
         self.source = source
         readiness = .loading
         currentTime = 0
@@ -122,10 +132,15 @@ final class PlaybackCoordinator: ObservableObject {
         }
 
         duration = loadedDuration
-        if presentation == .player, let playerSurface {
+        if presentation == .player,
+           !isPlayerWindowDismissed,
+           let playerSurface {
             do {
                 try await engine.attach(to: playerSurface)
                 try Task.checkCancellation()
+                if isPlayerWindowDismissed {
+                    engine.detachAll()
+                }
             } catch let error as PlaybackEngineError
                 where error == .superseded {
                 return .cancelled
@@ -139,8 +154,12 @@ final class PlaybackCoordinator: ObservableObject {
         }
 
         readiness = .ready
-        gate.setIntent(autoplay ? .playing : .paused)
-        isPlaybackRequested = autoplay
+        let shouldAutoplay = autoplay
+            && canAutoplayWhenLoaded
+            && loadGeneration == transitionGeneration
+            && !isPlayerWindowDismissed
+        gate.setIntent(shouldAutoplay ? .playing : .paused)
+        isPlaybackRequested = shouldAutoplay
         applyPlaybackGate()
         return .loaded
     }
@@ -227,7 +246,7 @@ final class PlaybackCoordinator: ObservableObject {
             }
             restorePlayerSettings()
             presentation = .player
-            if let playerSurface {
+            if let playerSurface, !isPlayerWindowDismissed {
                 try? await engine.attach(to: playerSurface)
             }
             applyPlaybackGate()
@@ -273,6 +292,40 @@ final class PlaybackCoordinator: ObservableObject {
         }
     }
 
+    func dismissPlayerWindow() {
+        guard presentation != .terminating else {
+            return
+        }
+
+        cancelPlayerSurfaceAttachment()
+        transitionGeneration &+= 1
+        isPlayerWindowDismissed = true
+        gate.setIntent(.paused)
+        isPlaybackRequested = false
+        restorePlayerSettings()
+        presentation = .player
+        engine.pause()
+        engine.detachAll()
+        isActuallyPlaying = false
+    }
+
+    func restorePlayerWindow() {
+        guard presentation != .terminating else {
+            return
+        }
+
+        isPlayerWindowDismissed = false
+        guard presentation == .player,
+              readiness == .ready,
+              let playerSurface else {
+            applyPlaybackGate()
+            return
+        }
+
+        registerPlayerSurface(playerSurface)
+        applyPlaybackGate()
+    }
+
     func stop() {
         cancelPlayerSurfaceAttachment()
         transitionGeneration &+= 1
@@ -297,6 +350,7 @@ final class PlaybackCoordinator: ObservableObject {
         transitionGeneration &+= 1
         presentation = .terminating
         gate.terminate()
+        isPlayerWindowDismissed = true
         isActuallyPlaying = false
         isPlaybackRequested = false
         engine.stop()
@@ -310,7 +364,7 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     private func applyPlaybackGate() {
-        guard readiness == .ready else {
+        guard readiness == .ready, !isPlayerWindowDismissed else {
             engine.pause()
             isActuallyPlaying = false
             return

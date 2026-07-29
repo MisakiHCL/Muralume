@@ -199,6 +199,71 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertEqual(reportedFailure, .cannotOpen)
     }
 
+    func testDismissingPlayerWindowPausesWithoutClearingProcessState() async {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        let source = ResolvedMediaSource(
+            url: URL(fileURLWithPath: "/tmp/example.mp4"),
+            displayName: "Example"
+        )
+        coordinator.registerPlayerSurface(playerSurface)
+        await coordinator.load(source)
+        engine.progressHandler?(42)
+
+        coordinator.dismissPlayerWindow()
+
+        XCTAssertTrue(coordinator.isPlayerWindowDismissed)
+        XCTAssertEqual(coordinator.source, source)
+        XCTAssertEqual(coordinator.readiness, .ready)
+        XCTAssertEqual(coordinator.presentation, .player)
+        XCTAssertEqual(coordinator.currentTime, 42)
+        XCTAssertFalse(coordinator.isPlaybackRequested)
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertNil(engine.attachedSurfaceID)
+
+        coordinator.restorePlayerWindow()
+        await Task.yield()
+
+        XCTAssertFalse(coordinator.isPlayerWindowDismissed)
+        XCTAssertEqual(coordinator.source, source)
+        XCTAssertEqual(coordinator.currentTime, 42)
+        XCTAssertFalse(coordinator.isPlaybackRequested)
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertEqual(engine.attachedSurfaceID, .player)
+    }
+
+    func testDismissDuringLoadRevokesAutoplayAfterImmediateReopen() async {
+        let engine = TestPlaybackEngine()
+        engine.shouldBlockLoads = true
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        coordinator.registerPlayerSurface(playerSurface)
+        let source = ResolvedMediaSource(
+            url: URL(fileURLWithPath: "/tmp/example.mp4"),
+            displayName: "Example"
+        )
+
+        let loadTask = Task {
+            await coordinator.load(source)
+        }
+        while !engine.didBeginBlockedLoad {
+            await Task.yield()
+        }
+
+        coordinator.dismissPlayerWindow()
+        coordinator.restorePlayerWindow()
+        engine.finishBlockedLoad()
+
+        let loadResult = await loadTask.value
+        XCTAssertEqual(loadResult, .loaded)
+        XCTAssertEqual(coordinator.readiness, .ready)
+        XCTAssertFalse(coordinator.isPlayerWindowDismissed)
+        XCTAssertFalse(coordinator.isPlaybackRequested)
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertEqual(engine.attachedSurfaceID, .player)
+    }
+
     func testShutdownCannotBeRolledBackByACancelledTransition() async {
         let engine = TestPlaybackEngine()
         let coordinator = PlaybackCoordinator(engine: engine)

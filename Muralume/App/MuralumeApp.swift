@@ -12,16 +12,16 @@ struct MuralumeApp: App {
         let localization = AppLocalizationController(
             storage: UserDefaultsAppLanguageStore()
         )
-        _localization = StateObject(wrappedValue: localization)
-        _coordinator = StateObject(
-            wrappedValue: AppCompositionRoot.makeAppCoordinator(
-                localization: localization
-            )
+        let coordinator = AppCompositionRoot.makeAppCoordinator(
+            localization: localization
         )
+        _localization = StateObject(wrappedValue: localization)
+        _coordinator = StateObject(wrappedValue: coordinator)
+        appDelegate.coordinator = coordinator
     }
 
     var body: some Scene {
-        WindowGroup {
+        Window("app.name", id: AppConfiguration.mainWindowSceneID) {
             PlayerScreen(
                 playback: coordinator.playback,
                 desktopSession: coordinator.desktopSession,
@@ -36,7 +36,7 @@ struct MuralumeApp: App {
                         coordinator.enterDesktop()
                     },
                     closeWindow: {
-                        coordinator.closeMainWindow()
+                        coordinator.dismissMainWindow()
                     },
                     minimizeWindow: {
                         coordinator.minimizeMainWindow()
@@ -68,7 +68,6 @@ struct MuralumeApp: App {
                 .background {
                     WindowReader { window in
                         coordinator.attachMainWindow(window)
-                        appDelegate.coordinator = coordinator
                     }
                 }
         }
@@ -78,19 +77,17 @@ struct MuralumeApp: App {
         )
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
-        .commands {
-            CommandGroup(replacing: .newItem) {
+        .commandsReplaced {
+            CommandMenu(localization.localized("menu.actions")) {
                 Button(localization.localized("library.add.folder")) {
                     coordinator.addFolders()
                 }
                 .keyboardShortcut("o", modifiers: .command)
-            }
 
-            CommandGroup(replacing: .appSettings) {
-                SettingsLink {
-                    Text(localization.localized("settings.title"))
+                Button(localization.localized("player.fullscreen")) {
+                    coordinator.toggleFullScreen()
                 }
-                .keyboardShortcut(",", modifiers: .command)
+                .keyboardShortcut("f", modifiers: [.control, .command])
             }
         }
 

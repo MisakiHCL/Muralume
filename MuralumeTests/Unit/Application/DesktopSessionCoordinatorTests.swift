@@ -120,6 +120,91 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         XCTAssertTrue(engine.isPlaying)
     }
 
+    func testDismissMainWindowPausesWithoutDiscardingPlayerState() async {
+        let engine = TestPlaybackEngine()
+        let playback = PlaybackCoordinator(engine: engine)
+        let desktopHost = TestDesktopHost()
+        let statusMenu = TestDesktopStatusPresenter()
+        let mainWindow = TestMainWindowPresenter()
+        let applicationPresence = TestApplicationPresenceController()
+        let session = DesktopSessionCoordinator(
+            playback: playback,
+            desktopHost: desktopHost,
+            statusMenu: statusMenu,
+            videoContentModeStore: TestDesktopVideoContentModeStore(),
+            lifecycleMonitor: TestSystemLifecycleMonitor(),
+            mainWindow: mainWindow,
+            applicationPresence: applicationPresence
+        )
+        defer {
+            session.shutdown()
+        }
+        let source = ResolvedMediaSource(
+            url: URL(fileURLWithPath: "/tmp/example.mp4"),
+            displayName: "Example"
+        )
+        let playerSurface = TestPlaybackSurface(id: .player)
+        playback.registerPlayerSurface(playerSurface)
+        await playback.load(source)
+
+        session.dismissMainWindow()
+
+        XCTAssertEqual(mainWindow.dismissCount, 1)
+        XCTAssertEqual(playback.source, source)
+        XCTAssertEqual(playback.readiness, .ready)
+        XCTAssertTrue(playback.isPlayerWindowDismissed)
+        XCTAssertFalse(playback.isPlaybackRequested)
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertTrue(applicationPresence.appliedModes.isEmpty)
+        XCTAssertEqual(desktopHost.closeCount, 0)
+        XCTAssertEqual(statusMenu.removeCount, 0)
+    }
+
+    func testDismissMainWindowLeavesDesktopModeWithoutShowingPlayer() async {
+        let engine = TestPlaybackEngine()
+        let playback = PlaybackCoordinator(engine: engine)
+        let desktopHost = TestDesktopHost()
+        let statusMenu = TestDesktopStatusPresenter()
+        let mainWindow = TestMainWindowPresenter()
+        let applicationPresence = TestApplicationPresenceController()
+        let session = DesktopSessionCoordinator(
+            playback: playback,
+            desktopHost: desktopHost,
+            statusMenu: statusMenu,
+            videoContentModeStore: TestDesktopVideoContentModeStore(),
+            lifecycleMonitor: TestSystemLifecycleMonitor(),
+            mainWindow: mainWindow,
+            applicationPresence: applicationPresence
+        )
+        defer {
+            session.shutdown()
+        }
+        let source = ResolvedMediaSource(
+            url: URL(fileURLWithPath: "/tmp/example.mp4"),
+            displayName: "Example"
+        )
+        let playerSurface = TestPlaybackSurface(id: .player)
+        playback.registerPlayerSurface(playerSurface)
+        await playback.load(source)
+        session.enterDesktop()
+        await waitUntil { session.isActive }
+
+        session.dismissMainWindow()
+
+        XCTAssertFalse(session.isActive)
+        XCTAssertEqual(playback.presentation, .player)
+        XCTAssertEqual(playback.source, source)
+        XCTAssertTrue(playback.isPlayerWindowDismissed)
+        XCTAssertEqual(mainWindow.dismissCount, 1)
+        XCTAssertEqual(mainWindow.showCount, 0)
+        XCTAssertEqual(desktopHost.closeCount, 1)
+        XCTAssertEqual(statusMenu.removeCount, 1)
+        XCTAssertEqual(
+            applicationPresence.appliedModes,
+            [.menuBarOnly, .standard]
+        )
+    }
+
     func testChangingVideoContentModeUpdatesActiveDesktopAndPersistence() async {
         let engine = TestPlaybackEngine()
         let playback = PlaybackCoordinator(engine: engine)
