@@ -1,0 +1,35 @@
+# Internal product and development documents
+/docs/
+
+# macOS
+.DS_Store
+
+# Xcode
+DerivedData/
+build/
+/dist/
+*.xcarchive
+*.xcresult
+*.dSYM
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Local signing and release credentials
+/Config/Local.xcconfig
+/Config/Release.local.mk
+*.cer
+*.p12
+*.p8
+*.key
+*.pem
+*.mobileprovision
+*.provisionprofile
+.env
+.env.*
+!.env.example

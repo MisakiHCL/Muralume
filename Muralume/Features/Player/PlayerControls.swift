@@ -1,0 +1,38 @@
+import SwiftUI
+
+struct PlayerControls: View {
+    @ObservedObject var playback: PlaybackCoordinator
+    @ObservedObject var library: MediaLibraryCoordinator
+    let actions: PlayerActions
+    let isPlaylistPresented: Bool
+    let togglePlaylist: () -> Void
+
+    var body: some View {
+        VStack(spacing: MuralumeTheme.Spacing.medium) {
+            PlaybackTimeline(playback: playback)
+                .frame(maxWidth: .infinity)
+
+            if playback.isSystemSuspended {
+                Label("status.paused.system", systemImage: "moon.zzz")
+                    .font(.caption)
+                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+
+            PlayerControlBar(
+                playback: playback,
+                library: library,
+                actions: actions,
+                isPlaylistPresented: isPlaylistPresented,
+                togglePlaylist: togglePlaylist
+            )
+            .frame(maxWidth: .infinity)
+        }
+        .padding(MuralumeTheme.Spacing.large)
+        .muralumePanel(style: .playerOverlay)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(
+            MuralumeAccessibilityIdentifier.playerControls
+        )
+    }
+}

@@ -1,0 +1,6 @@
+#include "Base.xcconfig"
+
+SWIFT_COMPILATION_MODE = wholemodule
+SWIFT_OPTIMIZATION_LEVEL = -O
+DEAD_CODE_STRIPPING = YES
+CODE_SIGN_STYLE = Automatic

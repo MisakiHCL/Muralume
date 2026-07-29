@@ -1,0 +1,1225 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0E52592AFDBBF0442F013A57 /* MuralumeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0CC3587489E907CEC082535 /* MuralumeApp.swift */; };
+		03DFE42FCA314D64B3B0A234 /* PlayerControlBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B4E56E210B4EFEB277753E /* PlayerControlBar.swift */; };
+		1927ADD01DEB7CE72C348E6F /* AppConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D32A61D760BE7B80916FCEB /* AppConfiguration.swift */; };
+		19C57C0C558AA0B34670E630 /* UserSelectedMediaSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBDE8DA0223CDA8FF84002AF /* UserSelectedMediaSession.swift */; };
+		1C30BD5F8F7F1CABEF883DCB /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80A4C361A03E9F2F46155A6C /* AppDelegate.swift */; };
+		2471A0C9790F4BD3A0BF8A31 /* DesktopSessionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25C19E5FB9B403F8E1080FB /* DesktopSessionCoordinatorTests.swift */; };
+		38DAF1886E669E9AD8629B01 /* MacDesktopHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EADC3367C34613B9AB4302 /* MacDesktopHost.swift */; };
+		353A5218136446D38C6974E8 /* PlayerActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C68D1172DDA349E29EDAE7B2 /* PlayerActions.swift */; };
+		3F17219CF978658459118E51 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D3F2E5966FB709EA70C9D0D3 /* Cocoa.framework */; };
+		4B9EC4249AD1406990161515 /* AVFoundationPlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D4159ECB84CD3F4C1A1703 /* AVFoundationPlaybackEngine.swift */; };
+		503929CB4E9F4F67A28AB24C /* DesktopHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04EA790966A046CEBC7029BF /* DesktopHosting.swift */; };
+		50E148045D234891BF594BBE /* AppCompositionRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9EDF0C412B646C199C77E26 /* AppCompositionRoot.swift */; };
+		5213CB1B3B66BACA9F1B129F /* PlaybackSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A8CD24644F62AEA01414D9 /* PlaybackSettings.swift */; };
+		9D80EF3DD4AC4552A41321D7 /* PlayerFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5053B5F0E3334478B49B2E6A /* PlayerFormatting.swift */; };
+		59A747D39B0D485767C9F57B /* MuralumeLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E822D51DC4B3787E4B76B0B /* MuralumeLaunchTests.swift */; };
+		60083F2F8C964BFC9443A988 /* PlaybackRenderSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 024CA620068D40FBB0ADBA3B /* PlaybackRenderSurface.swift */; };
+		61F9D4963CFD4D2B81DF24E5 /* MacMediaFolderPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73D7A7472A543B7BDA43C33 /* MacMediaFolderPicker.swift */; };
+		628DEF8A0A9BCE74862C63C4 /* PlaybackGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 889EFC2BF9A60D84ADA53D6E /* PlaybackGateTests.swift */; };
+		6BAFFA0BA75F4B36B605F189 /* SystemLifecycleMonitoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF3B5F8401B401A9D228F6E /* SystemLifecycleMonitoring.swift */; };
+		7307CB8B7E79E97D580FF729 /* WindowReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC57C2D5C1B19433C063C606 /* WindowReader.swift */; };
+		74CB2874C8E84DCB9FB68E95 /* PlaybackFailure+Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB15C81943B4BFA922B551A /* PlaybackFailure+Localization.swift */; };
+		7853A770F99714259B9C1495 /* PlaybackCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9766A9110451BE38E5212969 /* PlaybackCoordinator.swift */; };
+		7DFB6DBE3AD24C5E84DAE527 /* MainWindowPresenting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98AD3D8641D84124BEF6ECE4 /* MainWindowPresenting.swift */; };
+		830486FEDB044884B2D283C5 /* PlaybackTestDoubles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7573A17FB1034C7A95BA8906 /* PlaybackTestDoubles.swift */; };
+		91DA9116CF36487AAF9244F6 /* VideoViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D382901D037C4949AA2E1090 /* VideoViewport.swift */; };
+		8B219C03A6BB4C95BECB2374 /* DesktopStatusPresenting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A5203BC7984913AC2EB88C /* DesktopStatusPresenting.swift */; };
+		9DDE2F09B8C64CF4AB689811 /* RealAVPlayerLayerRoundTripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEAFFBCADB9C4DDF8A43DB08 /* RealAVPlayerLayerRoundTripTests.swift */; };
+		93721C5583C9ED8CB12703DD /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D3F2E5966FB709EA70C9D0D3 /* Cocoa.framework */; };
+		A1824F202FA1473D90ECDD65 /* ResolvedMediaSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31A7E6B1E1B0450EA9D35735 /* ResolvedMediaSource.swift */; };
+		A4F0A61C4AB24AF3830DDADE /* PlayerControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C1719B3EBF498C8A5CCF6E /* PlayerControls.swift */; };
+		A4D6BA374089486495FAEF0B /* PlaybackTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4FE718E54F942A296B9CED2 /* PlaybackTimeline.swift */; };
+		A81963B767464C4EA9C5E7A6 /* DesktopSessionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57303ACF6F0F43E7804B20A3 /* DesktopSessionCoordinator.swift */; };
+		A68650D9162A708D93F5F453 /* PlayerLayerSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6DA3CA7D3E688ED8F03C2D4 /* PlayerLayerSurfaceView.swift */; };
+		B9EC7ACAFF914BACAE9DAD42 /* MediaFolderSelecting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C938D35DD4C4CF79373B48D /* MediaFolderSelecting.swift */; };
+		CBAE2D90CBAF4D3B841E29CB /* PlaybackGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90DC35EE1FBC46039A7DEAB4 /* PlaybackGate.swift */; };
+		C6DBF6DE819EA069738D38D6 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D3F2E5966FB709EA70C9D0D3 /* Cocoa.framework */; };
+		CD94D20452E0790A183D3EC0 /* PlaybackCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2D6934434FD592F47EA3C97 /* PlaybackCoordinatorTests.swift */; };
+		CC34534632EF4E559B7A26E0 /* PlaybackState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B45D5363784459EA36A0566 /* PlaybackState.swift */; };
+		D0E3643141099DD2E8F3DF6D /* PlayerScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED645770F764AF0E6A40DE45 /* PlayerScreen.swift */; };
+		D0A0FBE24BAF468290B1E7D1 /* SystemNotificationName.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC6DCFAE93B6413084C9C561 /* SystemNotificationName.swift */; };
+		E970F932ED084EA2B4F95281 /* MuralumeTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F8A5E9E12614B138608DC0E /* MuralumeTheme.swift */; };
+		D411CD1097024403912B986C /* PlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82C43CDEEC83437E807E0533 /* PlaybackEngine.swift */; };
+		E6922A8E550A848735A52CBB /* sample-h264.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = 24127E2E6C60122900648F42 /* sample-h264.mp4 */; };
+		E717858177BC0998AEFA7C6D /* SystemLifecycleMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99BCF9A2B1F6168D3933C8FE /* SystemLifecycleMonitor.swift */; };
+		EC1CFBA860414E00B01FF30C /* PlayerSurfaceRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD7D228FCC544D595B5400F /* PlayerSurfaceRepresentable.swift */; };
+		FB5A108E387E4C458059F7EC /* MediaAccessSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB72BF1D775C4A099B2A2552 /* MediaAccessSession.swift */; };
+		F52129EF7CDA0DFCABB9582F /* DesktopStatusMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C29C21DB3FE1DEF3EE73B56A /* DesktopStatusMenuController.swift */; };
+		F7A7C9CD00C045C7A453F68E /* PlayerTopBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86E216DE6D7D47E596F8A97D /* PlayerTopBar.swift */; };
+		F53454E4DD4EAD1FBA7DDD3D /* AppCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08363CE1AF64721E4BB431EB /* AppCoordinator.swift */; };
+		004C99C5AE9B45B3AE32AB2A /* AVFoundationPlaybackEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25EA2A620F0248ECAA3D369A /* AVFoundationPlaybackEngineTests.swift */; };
+		1115775F8C2E48549F71E259 /* PlaybackPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26FCE9077E4742A29B26FBC6 /* PlaybackPolicy.swift */; };
+		5238BB82977C4E3E95EEDE9C /* MacMainWindowPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB91AD47A5964E75A6BE6AC6 /* MacMainWindowPresenter.swift */; };
+		F8669EC8157A2D6B426D64E3 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = CCB0920EA9C7D76809E4B7D6 /* Localizable.strings */; };
+		CD3E5428B18F4A41A00C9FD2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B7A3F1C8282945F09D215A01 /* Assets.xcassets */; };
+		AA0000000000000000000011 /* PlaybackQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000001 /* PlaybackQueue.swift */; };
+		AA0000000000000000000012 /* MediaLibraryModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000002 /* MediaLibraryModels.swift */; };
+		AA0000000000000000000013 /* MediaLibraryScanning.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000003 /* MediaLibraryScanning.swift */; };
+		AA0000000000000000000014 /* MediaLibrarySort.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000004 /* MediaLibrarySort.swift */; };
+		AA0000000000000000000015 /* MediaLibraryCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000005 /* MediaLibraryCoordinator.swift */; };
+		AA0000000000000000000016 /* FileSystemMediaLibraryScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000006 /* FileSystemMediaLibraryScanner.swift */; };
+		AA0000000000000000000017 /* LibraryQueueSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000007 /* LibraryQueueSidebar.swift */; };
+		AA0000000000000000000018 /* PlaybackQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000008 /* PlaybackQueueTests.swift */; };
+		AA0000000000000000000019 /* MediaLibrarySortTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000009 /* MediaLibrarySortTests.swift */; };
+		AA000000000000000000001A /* MediaLibraryCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000000A /* MediaLibraryCoordinatorTests.swift */; };
+		AA000000000000000000001B /* FileSystemMediaLibraryScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000000B /* FileSystemMediaLibraryScannerTests.swift */; };
+		AB0000000000000000000002 /* UserSelectedMediaSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000001 /* UserSelectedMediaSessionTests.swift */; };
+		AC0000000000000000000011 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000001 /* AppLanguage.swift */; };
+		AC0000000000000000000012 /* AppLocalizationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000002 /* AppLocalizationController.swift */; };
+		AC0000000000000000000013 /* UserDefaultsAppLanguageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000003 /* UserDefaultsAppLanguageStore.swift */; };
+		AC0000000000000000000014 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000004 /* SettingsView.swift */; };
+		AC0000000000000000000015 /* AppLocalizationControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000005 /* AppLocalizationControllerTests.swift */; };
+		AC0000000000000000000016 /* MacMainWindowPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000006 /* MacMainWindowPresenterTests.swift */; };
+		AD0000000000000000000011 /* ApplicationPresenceControlling.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD0000000000000000000001 /* ApplicationPresenceControlling.swift */; };
+		AD0000000000000000000012 /* MacApplicationPresenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD0000000000000000000002 /* MacApplicationPresenceController.swift */; };
+		AE0000000000000000000011 /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0000000000000000000001 /* AppDelegateTests.swift */; };
+		AF1000000000000000000011 /* MediaThumbnailProviding.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000001 /* MediaThumbnailProviding.swift */; };
+		AF1000000000000000000012 /* QuickLookMediaThumbnailProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000002 /* QuickLookMediaThumbnailProvider.swift */; };
+		AF1000000000000000000013 /* LibraryMediaThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000003 /* LibraryMediaThumbnail.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		73FCDB29EAC7B1E4BE943225 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = ECCFB39E6F0E8E3B9127C246 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 73B95C1246FFB615BACCFD62;
+			remoteInfo = Muralume;
+		};
+		D3B7CD78E8AC46A13E22E11E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = ECCFB39E6F0E8E3B9127C246 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 73B95C1246FFB615BACCFD62;
+			remoteInfo = Muralume;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		024CA620068D40FBB0ADBA3B /* PlaybackRenderSurface.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackRenderSurface.swift; sourceTree = "<group>"; };
+		04EA790966A046CEBC7029BF /* DesktopHosting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopHosting.swift; sourceTree = "<group>"; };
+		08363CE1AF64721E4BB431EB /* AppCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppCoordinator.swift; sourceTree = "<group>"; };
+		1884EE50DA182069D3763D42 /* Localizable.strings */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		18B0B6A2537BEFCB5E82EEDA /* Release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		1938F4614147B77072AD7F91 /* MuralumeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MuralumeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1B99EA2BF7FCEAB71E376F38 /* Debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		1D3E98E0E1DCE91699F8422D /* Muralume.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = Muralume.entitlements; sourceTree = "<group>"; };
+		24127E2E6C60122900648F42 /* sample-h264.mp4 */ = {isa = PBXFileReference; includeInIndex = 1; path = "sample-h264.mp4"; sourceTree = "<group>"; };
+		25EA2A620F0248ECAA3D369A /* AVFoundationPlaybackEngineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AVFoundationPlaybackEngineTests.swift; sourceTree = "<group>"; };
+		26FCE9077E4742A29B26FBC6 /* PlaybackPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackPolicy.swift; sourceTree = "<group>"; };
+		2F8A5E9E12614B138608DC0E /* MuralumeTheme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MuralumeTheme.swift; sourceTree = "<group>"; };
+		296C9623ADD13954AEBF2477 /* Muralume.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Muralume.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		31A7E6B1E1B0450EA9D35735 /* ResolvedMediaSource.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ResolvedMediaSource.swift; sourceTree = "<group>"; };
+		4C938D35DD4C4CF79373B48D /* MediaFolderSelecting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaFolderSelecting.swift; sourceTree = "<group>"; };
+		4CB15C81943B4BFA922B551A /* PlaybackFailure+Localization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "PlaybackFailure+Localization.swift"; sourceTree = "<group>"; };
+		5053B5F0E3334478B49B2E6A /* PlayerFormatting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerFormatting.swift; sourceTree = "<group>"; };
+		531DB9F7981DA319BAC09428 /* MuralumeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MuralumeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		57303ACF6F0F43E7804B20A3 /* DesktopSessionCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopSessionCoordinator.swift; sourceTree = "<group>"; };
+		62EADC3367C34613B9AB4302 /* MacDesktopHost.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopHost.swift; sourceTree = "<group>"; };
+		6D32A61D760BE7B80916FCEB /* AppConfiguration.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
+		6E822D51DC4B3787E4B76B0B /* MuralumeLaunchTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MuralumeLaunchTests.swift; sourceTree = "<group>"; };
+		74A5203BC7984913AC2EB88C /* DesktopStatusPresenting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopStatusPresenting.swift; sourceTree = "<group>"; };
+		7573A17FB1034C7A95BA8906 /* PlaybackTestDoubles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackTestDoubles.swift; sourceTree = "<group>"; };
+		7B45D5363784459EA36A0566 /* PlaybackState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackState.swift; sourceTree = "<group>"; };
+		7EF3B5F8401B401A9D228F6E /* SystemLifecycleMonitoring.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemLifecycleMonitoring.swift; sourceTree = "<group>"; };
+		80A4C361A03E9F2F46155A6C /* AppDelegate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		82C43CDEEC83437E807E0533 /* PlaybackEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackEngine.swift; sourceTree = "<group>"; };
+		86E216DE6D7D47E596F8A97D /* PlayerTopBar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerTopBar.swift; sourceTree = "<group>"; };
+		889EFC2BF9A60D84ADA53D6E /* PlaybackGateTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackGateTests.swift; sourceTree = "<group>"; };
+		90DC35EE1FBC46039A7DEAB4 /* PlaybackGate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackGate.swift; sourceTree = "<group>"; };
+		9619B89AF96F4475340BEA4B /* Base.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
+		9766A9110451BE38E5212969 /* PlaybackCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackCoordinator.swift; sourceTree = "<group>"; };
+		98AD3D8641D84124BEF6ECE4 /* MainWindowPresenting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MainWindowPresenting.swift; sourceTree = "<group>"; };
+		99BCF9A2B1F6168D3933C8FE /* SystemLifecycleMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemLifecycleMonitor.swift; sourceTree = "<group>"; };
+		A0CC3587489E907CEC082535 /* MuralumeApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MuralumeApp.swift; sourceTree = "<group>"; };
+		A25C19E5FB9B403F8E1080FB /* DesktopSessionCoordinatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopSessionCoordinatorTests.swift; sourceTree = "<group>"; };
+		AEAFFBCADB9C4DDF8A43DB08 /* RealAVPlayerLayerRoundTripTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RealAVPlayerLayerRoundTripTests.swift; sourceTree = "<group>"; };
+		B0B4E56E210B4EFEB277753E /* PlayerControlBar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerControlBar.swift; sourceTree = "<group>"; };
+		B7A3F1C8282945F09D215A01 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AF42D16CD96624D4E2402FDD /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		BB72BF1D775C4A099B2A2552 /* MediaAccessSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaAccessSession.swift; sourceTree = "<group>"; };
+		BBDE8DA0223CDA8FF84002AF /* UserSelectedMediaSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserSelectedMediaSession.swift; sourceTree = "<group>"; };
+		C29C21DB3FE1DEF3EE73B56A /* DesktopStatusMenuController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopStatusMenuController.swift; sourceTree = "<group>"; };
+		C68D1172DDA349E29EDAE7B2 /* PlayerActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerActions.swift; sourceTree = "<group>"; };
+		C6DA3CA7D3E688ED8F03C2D4 /* PlayerLayerSurfaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerLayerSurfaceView.swift; sourceTree = "<group>"; };
+		C73D7A7472A543B7BDA43C33 /* MacMediaFolderPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacMediaFolderPicker.swift; sourceTree = "<group>"; };
+		C7D4159ECB84CD3F4C1A1703 /* AVFoundationPlaybackEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AVFoundationPlaybackEngine.swift; sourceTree = "<group>"; };
+		CAD7D228FCC544D595B5400F /* PlayerSurfaceRepresentable.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerSurfaceRepresentable.swift; sourceTree = "<group>"; };
+		CB91AD47A5964E75A6BE6AC6 /* MacMainWindowPresenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacMainWindowPresenter.swift; sourceTree = "<group>"; };
+		D1A8CD24644F62AEA01414D9 /* PlaybackSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackSettings.swift; sourceTree = "<group>"; };
+		D3F2E5966FB709EA70C9D0D3 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		D382901D037C4949AA2E1090 /* VideoViewport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoViewport.swift; sourceTree = "<group>"; };
+		DC6DCFAE93B6413084C9C561 /* SystemNotificationName.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemNotificationName.swift; sourceTree = "<group>"; };
+		D9C9A8AA279227FF1FED1E7E /* Localizable.strings */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		E4C1719B3EBF498C8A5CCF6E /* PlayerControls.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerControls.swift; sourceTree = "<group>"; };
+		E4FE718E54F942A296B9CED2 /* PlaybackTimeline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackTimeline.swift; sourceTree = "<group>"; };
+		E9EDF0C412B646C199C77E26 /* AppCompositionRoot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppCompositionRoot.swift; sourceTree = "<group>"; };
+		EC57C2D5C1B19433C063C606 /* WindowReader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WindowReader.swift; sourceTree = "<group>"; };
+		ED645770F764AF0E6A40DE45 /* PlayerScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerScreen.swift; sourceTree = "<group>"; };
+		F2D6934434FD592F47EA3C97 /* PlaybackCoordinatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackCoordinatorTests.swift; sourceTree = "<group>"; };
+		AA0000000000000000000001 /* PlaybackQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackQueue.swift; sourceTree = "<group>"; };
+		AA0000000000000000000002 /* MediaLibraryModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaLibraryModels.swift; sourceTree = "<group>"; };
+		AA0000000000000000000003 /* MediaLibraryScanning.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaLibraryScanning.swift; sourceTree = "<group>"; };
+		AA0000000000000000000004 /* MediaLibrarySort.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaLibrarySort.swift; sourceTree = "<group>"; };
+		AA0000000000000000000005 /* MediaLibraryCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaLibraryCoordinator.swift; sourceTree = "<group>"; };
+		AA0000000000000000000006 /* FileSystemMediaLibraryScanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSystemMediaLibraryScanner.swift; sourceTree = "<group>"; };
+		AA0000000000000000000007 /* LibraryQueueSidebar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryQueueSidebar.swift; sourceTree = "<group>"; };
+		AA0000000000000000000008 /* PlaybackQueueTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackQueueTests.swift; sourceTree = "<group>"; };
+		AA0000000000000000000009 /* MediaLibrarySortTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaLibrarySortTests.swift; sourceTree = "<group>"; };
+		AA000000000000000000000A /* MediaLibraryCoordinatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaLibraryCoordinatorTests.swift; sourceTree = "<group>"; };
+		AA000000000000000000000B /* FileSystemMediaLibraryScannerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSystemMediaLibraryScannerTests.swift; sourceTree = "<group>"; };
+		AB0000000000000000000001 /* UserSelectedMediaSessionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserSelectedMediaSessionTests.swift; sourceTree = "<group>"; };
+		AC0000000000000000000001 /* AppLanguage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
+		AC0000000000000000000002 /* AppLocalizationController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppLocalizationController.swift; sourceTree = "<group>"; };
+		AC0000000000000000000003 /* UserDefaultsAppLanguageStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserDefaultsAppLanguageStore.swift; sourceTree = "<group>"; };
+		AC0000000000000000000004 /* SettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		AC0000000000000000000005 /* AppLocalizationControllerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppLocalizationControllerTests.swift; sourceTree = "<group>"; };
+		AC0000000000000000000006 /* MacMainWindowPresenterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacMainWindowPresenterTests.swift; sourceTree = "<group>"; };
+		AD0000000000000000000001 /* ApplicationPresenceControlling.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationPresenceControlling.swift; sourceTree = "<group>"; };
+		AD0000000000000000000002 /* MacApplicationPresenceController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacApplicationPresenceController.swift; sourceTree = "<group>"; };
+		AE0000000000000000000001 /* AppDelegateTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
+		AF1000000000000000000001 /* MediaThumbnailProviding.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaThumbnailProviding.swift; sourceTree = "<group>"; };
+		AF1000000000000000000002 /* QuickLookMediaThumbnailProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuickLookMediaThumbnailProvider.swift; sourceTree = "<group>"; };
+		AF1000000000000000000003 /* LibraryMediaThumbnail.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryMediaThumbnail.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		6A071BF628FA69404E8D07D2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C6DBF6DE819EA069738D38D6 /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B9A2C09A019C3D16210BC387 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3F17219CF978658459118E51 /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FDB709F661B97F8559327FA2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				93721C5583C9ED8CB12703DD /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		05EC9E1AAA5174003394D46E /* App */ = {
+			isa = PBXGroup;
+			children = (
+				E9EDF0C412B646C199C77E26 /* AppCompositionRoot.swift */,
+				08363CE1AF64721E4BB431EB /* AppCoordinator.swift */,
+				80A4C361A03E9F2F46155A6C /* AppDelegate.swift */,
+				A0CC3587489E907CEC082535 /* MuralumeApp.swift */,
+			);
+			name = App;
+			path = App;
+			sourceTree = "<group>";
+		};
+		2A6407B36FBF9BFBBAF2C531 /* MuralumeUITests */ = {
+			isa = PBXGroup;
+			children = (
+				3BB8533CBCE74BEC8401B359 /* Launch */,
+			);
+			name = MuralumeUITests;
+			path = MuralumeUITests;
+			sourceTree = "<group>";
+		};
+		2E0022BBD3FD46A5A3F6A2F4 /* Unit */ = {
+			isa = PBXGroup;
+			children = (
+				AE0000000000000000000002 /* App */,
+				4B4D86D4AE6646658D66440C /* Application */,
+				771BEED876AA443596FBF3C9 /* Domain */,
+			);
+			name = Unit;
+			path = Unit;
+			sourceTree = "<group>";
+		};
+		AE0000000000000000000002 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				AE0000000000000000000001 /* AppDelegateTests.swift */,
+			);
+			name = App;
+			path = App;
+			sourceTree = "<group>";
+		};
+		3A2A947826C540F9AB3A35EB /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				8F54CE7C75A64EBB9B5370A7 /* Desktop */,
+				AA000000000000000000000E /* Library */,
+				F7C8375331484813A24EB316 /* Player */,
+				AC0000000000000000000008 /* Settings */,
+			);
+			name = Features;
+			path = Features;
+			sourceTree = "<group>";
+		};
+		3BB8533CBCE74BEC8401B359 /* Launch */ = {
+			isa = PBXGroup;
+			children = (
+				6E822D51DC4B3787E4B76B0B /* MuralumeLaunchTests.swift */,
+			);
+			name = Launch;
+			path = Launch;
+			sourceTree = "<group>";
+		};
+		36A73AA1D43B8F16BD75B469 /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				D3F2E5966FB709EA70C9D0D3 /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
+		47D21C247A970C3E2E3444E1 = {
+			isa = PBXGroup;
+			children = (
+				EB17DCCC5D3E117F71C95923 /* Config */,
+				5B66C8CD6BFA36AF5C2E99CD /* Muralume */,
+				63C518C5604E5A81E4E6AA83 /* MuralumeTests */,
+				2A6407B36FBF9BFBBAF2C531 /* MuralumeUITests */,
+				5588A8CDE169128536D9ABB6 /* Products */,
+				4E53999F28F1447D2B855EAB /* Frameworks */,
+			);
+			sourceTree = "<group>";
+		};
+		49A7297DA7DA49C9ADDD8910 /* Playback */ = {
+			isa = PBXGroup;
+			children = (
+				9766A9110451BE38E5212969 /* PlaybackCoordinator.swift */,
+				82C43CDEEC83437E807E0533 /* PlaybackEngine.swift */,
+				26FCE9077E4742A29B26FBC6 /* PlaybackPolicy.swift */,
+				024CA620068D40FBB0ADBA3B /* PlaybackRenderSurface.swift */,
+				7B45D5363784459EA36A0566 /* PlaybackState.swift */,
+				31A7E6B1E1B0450EA9D35735 /* ResolvedMediaSource.swift */,
+			);
+			name = Playback;
+			path = Playback;
+			sourceTree = "<group>";
+		};
+		4B4D86D4AE6646658D66440C /* Application */ = {
+			isa = PBXGroup;
+			children = (
+				AC0000000000000000000005 /* AppLocalizationControllerTests.swift */,
+				A25C19E5FB9B403F8E1080FB /* DesktopSessionCoordinatorTests.swift */,
+				AA000000000000000000000A /* MediaLibraryCoordinatorTests.swift */,
+				AA0000000000000000000009 /* MediaLibrarySortTests.swift */,
+				F2D6934434FD592F47EA3C97 /* PlaybackCoordinatorTests.swift */,
+			);
+			name = Application;
+			path = Application;
+			sourceTree = "<group>";
+		};
+		4E53999F28F1447D2B855EAB /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				36A73AA1D43B8F16BD75B469 /* OS X */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		5588A8CDE169128536D9ABB6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				296C9623ADD13954AEBF2477 /* Muralume.app */,
+				1938F4614147B77072AD7F91 /* MuralumeTests.xctest */,
+				531DB9F7981DA319BAC09428 /* MuralumeUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5B66C8CD6BFA36AF5C2E99CD /* Muralume */ = {
+			isa = PBXGroup;
+			children = (
+				05EC9E1AAA5174003394D46E /* App */,
+				F0F44C2A47CF4F349435E6BD /* Application */,
+				208764E8DBCF4E25A1C79112 /* Domain */,
+				3A2A947826C540F9AB3A35EB /* Features */,
+				6FC7E2599FF146F4BF3338F2 /* Infrastructure */,
+				E6F513DD39B37423FEA479AC /* Resources */,
+				E44031DBE41543E0A965C98F /* Shared */,
+			);
+			name = Muralume;
+			path = Muralume;
+			sourceTree = "<group>";
+		};
+		56E67EE286BA4901AB03DC24 /* MediaAccess */ = {
+			isa = PBXGroup;
+			children = (
+				C73D7A7472A543B7BDA43C33 /* MacMediaFolderPicker.swift */,
+				BBDE8DA0223CDA8FF84002AF /* UserSelectedMediaSession.swift */,
+			);
+			name = MediaAccess;
+			path = MediaAccess;
+			sourceTree = "<group>";
+		};
+		5ADA8945AD7A4637BD25F281 /* Desktop */ = {
+			isa = PBXGroup;
+			children = (
+				62EADC3367C34613B9AB4302 /* MacDesktopHost.swift */,
+			);
+			name = Desktop;
+			path = Desktop;
+			sourceTree = "<group>";
+		};
+		63C518C5604E5A81E4E6AA83 /* MuralumeTests */ = {
+			isa = PBXGroup;
+			children = (
+				2E0022BBD3FD46A5A3F6A2F4 /* Unit */,
+				9F58CCF803EF47A1A417D447 /* Integration */,
+				EB2FF9B6282A44E88B856E90 /* Support */,
+				66C0B95E037D5CB2F5A03486 /* Fixtures */,
+			);
+			name = MuralumeTests;
+			path = MuralumeTests;
+			sourceTree = "<group>";
+		};
+		66C0B95E037D5CB2F5A03486 /* Fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				24127E2E6C60122900648F42 /* sample-h264.mp4 */,
+			);
+			name = Fixtures;
+			path = Fixtures;
+			sourceTree = "<group>";
+		};
+		6FC7E2599FF146F4BF3338F2 /* Infrastructure */ = {
+			isa = PBXGroup;
+			children = (
+				1C5299F5D7574648A2E46A2C /* macOS */,
+			);
+			name = Infrastructure;
+			path = Infrastructure;
+			sourceTree = "<group>";
+		};
+		771BEED876AA443596FBF3C9 /* Domain */ = {
+			isa = PBXGroup;
+			children = (
+				889EFC2BF9A60D84ADA53D6E /* PlaybackGateTests.swift */,
+				AA0000000000000000000008 /* PlaybackQueueTests.swift */,
+			);
+			name = Domain;
+			path = Domain;
+			sourceTree = "<group>";
+		};
+		8CA8CA45102A493EA780848B /* Playback */ = {
+			isa = PBXGroup;
+			children = (
+				90DC35EE1FBC46039A7DEAB4 /* PlaybackGate.swift */,
+				D1A8CD24644F62AEA01414D9 /* PlaybackSettings.swift */,
+			);
+			name = Playback;
+			path = Playback;
+			sourceTree = "<group>";
+		};
+		8F54CE7C75A64EBB9B5370A7 /* Desktop */ = {
+			isa = PBXGroup;
+			children = (
+				C29C21DB3FE1DEF3EE73B56A /* DesktopStatusMenuController.swift */,
+			);
+			name = Desktop;
+			path = Desktop;
+			sourceTree = "<group>";
+		};
+		92D4D2DBB10C46CFB8CF1979 /* MediaAccess */ = {
+			isa = PBXGroup;
+			children = (
+				BB72BF1D775C4A099B2A2552 /* MediaAccessSession.swift */,
+				4C938D35DD4C4CF79373B48D /* MediaFolderSelecting.swift */,
+			);
+			name = MediaAccess;
+			path = MediaAccess;
+			sourceTree = "<group>";
+		};
+		9F58CCF803EF47A1A417D447 /* Integration */ = {
+			isa = PBXGroup;
+			children = (
+				AB0000000000000000000003 /* MediaAccess */,
+				AA0000000000000000000010 /* MediaLibrary */,
+				B0B09C86EA694B31887FA823 /* Playback */,
+				AC000000000000000000000A /* UI */,
+			);
+			name = Integration;
+			path = Integration;
+			sourceTree = "<group>";
+		};
+		B02937D8F24848FC940DC3D2 /* System */ = {
+			isa = PBXGroup;
+			children = (
+				DC6DCFAE93B6413084C9C561 /* SystemNotificationName.swift */,
+				99BCF9A2B1F6168D3933C8FE /* SystemLifecycleMonitor.swift */,
+			);
+			name = System;
+			path = System;
+			sourceTree = "<group>";
+		};
+		B0B09C86EA694B31887FA823 /* Playback */ = {
+			isa = PBXGroup;
+			children = (
+				25EA2A620F0248ECAA3D369A /* AVFoundationPlaybackEngineTests.swift */,
+				AEAFFBCADB9C4DDF8A43DB08 /* RealAVPlayerLayerRoundTripTests.swift */,
+			);
+			name = Playback;
+			path = Playback;
+			sourceTree = "<group>";
+		};
+		DA3282F208C54E83B7B89E38 /* Configuration */ = {
+			isa = PBXGroup;
+			children = (
+				6D32A61D760BE7B80916FCEB /* AppConfiguration.swift */,
+			);
+			name = Configuration;
+			path = Configuration;
+			sourceTree = "<group>";
+		};
+		E6F513DD39B37423FEA479AC /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				B7A3F1C8282945F09D215A01 /* Assets.xcassets */,
+				AF42D16CD96624D4E2402FDD /* Info.plist */,
+				1D3E98E0E1DCE91699F8422D /* Muralume.entitlements */,
+				CCB0920EA9C7D76809E4B7D6 /* Localizable.strings */,
+			);
+			name = Resources;
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		EB17DCCC5D3E117F71C95923 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				9619B89AF96F4475340BEA4B /* Base.xcconfig */,
+				1B99EA2BF7FCEAB71E376F38 /* Debug.xcconfig */,
+				18B0B6A2537BEFCB5E82EEDA /* Release.xcconfig */,
+			);
+			name = Config;
+			path = Config;
+			sourceTree = "<group>";
+		};
+		E44031DBE41543E0A965C98F /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				DA3282F208C54E83B7B89E38 /* Configuration */,
+				B6EFDC4C5EE04DA0863B5269 /* DesignSystem */,
+			);
+			name = Shared;
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		EB2FF9B6282A44E88B856E90 /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				7573A17FB1034C7A95BA8906 /* PlaybackTestDoubles.swift */,
+			);
+			name = Support;
+			path = Support;
+			sourceTree = "<group>";
+		};
+		F0F44C2A47CF4F349435E6BD /* Application */ = {
+			isa = PBXGroup;
+			children = (
+				83503BACE67E4D268DDD4076 /* Desktop */,
+				AA000000000000000000000C /* Library */,
+				92D4D2DBB10C46CFB8CF1979 /* MediaAccess */,
+				49A7297DA7DA49C9ADDD8910 /* Playback */,
+				AC0000000000000000000007 /* Settings */,
+			);
+			name = Application;
+			path = Application;
+			sourceTree = "<group>";
+		};
+		F7C8375331484813A24EB316 /* Player */ = {
+			isa = PBXGroup;
+			children = (
+				4CB15C81943B4BFA922B551A /* PlaybackFailure+Localization.swift */,
+				C68D1172DDA349E29EDAE7B2 /* PlayerActions.swift */,
+				B0B4E56E210B4EFEB277753E /* PlayerControlBar.swift */,
+				E4C1719B3EBF498C8A5CCF6E /* PlayerControls.swift */,
+				5053B5F0E3334478B49B2E6A /* PlayerFormatting.swift */,
+				ED645770F764AF0E6A40DE45 /* PlayerScreen.swift */,
+				CAD7D228FCC544D595B5400F /* PlayerSurfaceRepresentable.swift */,
+				86E216DE6D7D47E596F8A97D /* PlayerTopBar.swift */,
+				E4FE718E54F942A296B9CED2 /* PlaybackTimeline.swift */,
+				D382901D037C4949AA2E1090 /* VideoViewport.swift */,
+			);
+			name = Player;
+			path = Player;
+			sourceTree = "<group>";
+		};
+		1C5299F5D7574648A2E46A2C /* macOS */ = {
+			isa = PBXGroup;
+			children = (
+				5ADA8945AD7A4637BD25F281 /* Desktop */,
+				56E67EE286BA4901AB03DC24 /* MediaAccess */,
+				AA000000000000000000000F /* MediaLibrary */,
+				2325F14BBCFE4A2BBC4B8114 /* Playback */,
+				AC0000000000000000000009 /* Settings */,
+				B02937D8F24848FC940DC3D2 /* System */,
+				4417AF8DD73D4DB182F62613 /* UI */,
+			);
+			name = macOS;
+			path = macOS;
+			sourceTree = "<group>";
+		};
+		208764E8DBCF4E25A1C79112 /* Domain */ = {
+			isa = PBXGroup;
+			children = (
+				8CA8CA45102A493EA780848B /* Playback */,
+				AA000000000000000000000D /* Queue */,
+			);
+			name = Domain;
+			path = Domain;
+			sourceTree = "<group>";
+		};
+		2325F14BBCFE4A2BBC4B8114 /* Playback */ = {
+			isa = PBXGroup;
+			children = (
+				C7D4159ECB84CD3F4C1A1703 /* AVFoundationPlaybackEngine.swift */,
+				C6DA3CA7D3E688ED8F03C2D4 /* PlayerLayerSurfaceView.swift */,
+			);
+			name = Playback;
+			path = Playback;
+			sourceTree = "<group>";
+		};
+		4417AF8DD73D4DB182F62613 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				AD0000000000000000000002 /* MacApplicationPresenceController.swift */,
+				CB91AD47A5964E75A6BE6AC6 /* MacMainWindowPresenter.swift */,
+				EC57C2D5C1B19433C063C606 /* WindowReader.swift */,
+			);
+			name = UI;
+			path = UI;
+			sourceTree = "<group>";
+		};
+		83503BACE67E4D268DDD4076 /* Desktop */ = {
+			isa = PBXGroup;
+			children = (
+				AD0000000000000000000001 /* ApplicationPresenceControlling.swift */,
+				04EA790966A046CEBC7029BF /* DesktopHosting.swift */,
+				57303ACF6F0F43E7804B20A3 /* DesktopSessionCoordinator.swift */,
+				74A5203BC7984913AC2EB88C /* DesktopStatusPresenting.swift */,
+				98AD3D8641D84124BEF6ECE4 /* MainWindowPresenting.swift */,
+				7EF3B5F8401B401A9D228F6E /* SystemLifecycleMonitoring.swift */,
+			);
+			name = Desktop;
+			path = Desktop;
+			sourceTree = "<group>";
+		};
+		B6EFDC4C5EE04DA0863B5269 /* DesignSystem */ = {
+			isa = PBXGroup;
+			children = (
+				2F8A5E9E12614B138608DC0E /* MuralumeTheme.swift */,
+			);
+			name = DesignSystem;
+			path = DesignSystem;
+			sourceTree = "<group>";
+		};
+		AA000000000000000000000C /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000000000000000000005 /* MediaLibraryCoordinator.swift */,
+				AA0000000000000000000002 /* MediaLibraryModels.swift */,
+				AA0000000000000000000003 /* MediaLibraryScanning.swift */,
+				AA0000000000000000000004 /* MediaLibrarySort.swift */,
+				AF1000000000000000000001 /* MediaThumbnailProviding.swift */,
+			);
+			name = Library;
+			path = Library;
+			sourceTree = "<group>";
+		};
+		AA000000000000000000000D /* Queue */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000000000000000000001 /* PlaybackQueue.swift */,
+			);
+			name = Queue;
+			path = Queue;
+			sourceTree = "<group>";
+		};
+		AA000000000000000000000E /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				AF1000000000000000000003 /* LibraryMediaThumbnail.swift */,
+				AA0000000000000000000007 /* LibraryQueueSidebar.swift */,
+			);
+			name = Library;
+			path = Library;
+			sourceTree = "<group>";
+		};
+		AA000000000000000000000F /* MediaLibrary */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000000000000000000006 /* FileSystemMediaLibraryScanner.swift */,
+				AF1000000000000000000002 /* QuickLookMediaThumbnailProvider.swift */,
+			);
+			name = MediaLibrary;
+			path = MediaLibrary;
+			sourceTree = "<group>";
+		};
+		AA0000000000000000000010 /* MediaLibrary */ = {
+			isa = PBXGroup;
+			children = (
+				AA000000000000000000000B /* FileSystemMediaLibraryScannerTests.swift */,
+			);
+			name = MediaLibrary;
+			path = MediaLibrary;
+			sourceTree = "<group>";
+		};
+		AB0000000000000000000003 /* MediaAccess */ = {
+			isa = PBXGroup;
+			children = (
+				AB0000000000000000000001 /* UserSelectedMediaSessionTests.swift */,
+			);
+			name = MediaAccess;
+			path = MediaAccess;
+			sourceTree = "<group>";
+		};
+		AC0000000000000000000007 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				AC0000000000000000000001 /* AppLanguage.swift */,
+				AC0000000000000000000002 /* AppLocalizationController.swift */,
+			);
+			name = Settings;
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		AC0000000000000000000008 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				AC0000000000000000000004 /* SettingsView.swift */,
+			);
+			name = Settings;
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		AC0000000000000000000009 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				AC0000000000000000000003 /* UserDefaultsAppLanguageStore.swift */,
+			);
+			name = Settings;
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		AC000000000000000000000A /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				AC0000000000000000000006 /* MacMainWindowPresenterTests.swift */,
+			);
+			name = UI;
+			path = UI;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		73B95C1246FFB615BACCFD62 /* Muralume */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3AFD43E79CC0741F85D0F167 /* Build configuration list for PBXNativeTarget "Muralume" */;
+			buildPhases = (
+				2D15E6597506CB682FD66F1C /* Sources */,
+				B9A2C09A019C3D16210BC387 /* Frameworks */,
+				D09308846AD59BD7509FF6E9 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Muralume;
+			productName = Muralume;
+			productReference = 296C9623ADD13954AEBF2477 /* Muralume.app */;
+			productType = "com.apple.product-type.application";
+		};
+		7ED5F39F0251B9355FFEC331 /* MuralumeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C2D6F5D31B94602A95B26F99 /* Build configuration list for PBXNativeTarget "MuralumeTests" */;
+			buildPhases = (
+				A777DD376AEB928C0D78E4BD /* Sources */,
+				6A071BF628FA69404E8D07D2 /* Frameworks */,
+				7821BB1E7F9D4F1F2ED86411 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A84623BF3DF6B39875180C9D /* PBXTargetDependency */,
+			);
+			name = MuralumeTests;
+			productName = MuralumeTests;
+			productReference = 1938F4614147B77072AD7F91 /* MuralumeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		93E84DDF867F29E27799B530 /* MuralumeUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F18FFE593F9C9CB559C57F95 /* Build configuration list for PBXNativeTarget "MuralumeUITests" */;
+			buildPhases = (
+				734B38B0029C6099937907BD /* Sources */,
+				FDB709F661B97F8559327FA2 /* Frameworks */,
+				A7AF4E2BAA70C51C25443BCE /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				340BB9915E8D4290EB473AB2 /* PBXTargetDependency */,
+			);
+			name = MuralumeUITests;
+			productName = MuralumeUITests;
+			productReference = 531DB9F7981DA319BAC09428 /* MuralumeUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		ECCFB39E6F0E8E3B9127C246 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastSwiftUpdateCheck = 2610;
+				LastUpgradeCheck = 2610;
+			};
+			buildConfigurationList = 62E8897A7E52B4BC60539425 /* Build configuration list for PBXProject "Muralume" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				"zh-Hans",
+				Base,
+			);
+			mainGroup = 47D21C247A970C3E2E3444E1;
+			minimizedProjectReferenceProxies = 0;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5588A8CDE169128536D9ABB6 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				73B95C1246FFB615BACCFD62 /* Muralume */,
+				7ED5F39F0251B9355FFEC331 /* MuralumeTests */,
+				93E84DDF867F29E27799B530 /* MuralumeUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		7821BB1E7F9D4F1F2ED86411 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E6922A8E550A848735A52CBB /* sample-h264.mp4 in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A7AF4E2BAA70C51C25443BCE /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D09308846AD59BD7509FF6E9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CD3E5428B18F4A41A00C9FD2 /* Assets.xcassets in Resources */,
+				F8669EC8157A2D6B426D64E3 /* Localizable.strings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		2D15E6597506CB682FD66F1C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				50E148045D234891BF594BBE /* AppCompositionRoot.swift in Sources */,
+				F53454E4DD4EAD1FBA7DDD3D /* AppCoordinator.swift in Sources */,
+				1C30BD5F8F7F1CABEF883DCB /* AppDelegate.swift in Sources */,
+				0E52592AFDBBF0442F013A57 /* MuralumeApp.swift in Sources */,
+				AD0000000000000000000011 /* ApplicationPresenceControlling.swift in Sources */,
+				503929CB4E9F4F67A28AB24C /* DesktopHosting.swift in Sources */,
+				A81963B767464C4EA9C5E7A6 /* DesktopSessionCoordinator.swift in Sources */,
+				8B219C03A6BB4C95BECB2374 /* DesktopStatusPresenting.swift in Sources */,
+				7DFB6DBE3AD24C5E84DAE527 /* MainWindowPresenting.swift in Sources */,
+				6BAFFA0BA75F4B36B605F189 /* SystemLifecycleMonitoring.swift in Sources */,
+				AC0000000000000000000011 /* AppLanguage.swift in Sources */,
+				AC0000000000000000000012 /* AppLocalizationController.swift in Sources */,
+				FB5A108E387E4C458059F7EC /* MediaAccessSession.swift in Sources */,
+				B9EC7ACAFF914BACAE9DAD42 /* MediaFolderSelecting.swift in Sources */,
+				AA0000000000000000000015 /* MediaLibraryCoordinator.swift in Sources */,
+				AA0000000000000000000012 /* MediaLibraryModels.swift in Sources */,
+				AA0000000000000000000013 /* MediaLibraryScanning.swift in Sources */,
+				AA0000000000000000000014 /* MediaLibrarySort.swift in Sources */,
+				AF1000000000000000000011 /* MediaThumbnailProviding.swift in Sources */,
+				7853A770F99714259B9C1495 /* PlaybackCoordinator.swift in Sources */,
+				D411CD1097024403912B986C /* PlaybackEngine.swift in Sources */,
+				1115775F8C2E48549F71E259 /* PlaybackPolicy.swift in Sources */,
+				60083F2F8C964BFC9443A988 /* PlaybackRenderSurface.swift in Sources */,
+				CC34534632EF4E559B7A26E0 /* PlaybackState.swift in Sources */,
+				A1824F202FA1473D90ECDD65 /* ResolvedMediaSource.swift in Sources */,
+				CBAE2D90CBAF4D3B841E29CB /* PlaybackGate.swift in Sources */,
+				5213CB1B3B66BACA9F1B129F /* PlaybackSettings.swift in Sources */,
+				AA0000000000000000000011 /* PlaybackQueue.swift in Sources */,
+				F52129EF7CDA0DFCABB9582F /* DesktopStatusMenuController.swift in Sources */,
+				AF1000000000000000000013 /* LibraryMediaThumbnail.swift in Sources */,
+				AA0000000000000000000017 /* LibraryQueueSidebar.swift in Sources */,
+				AC0000000000000000000014 /* SettingsView.swift in Sources */,
+				74CB2874C8E84DCB9FB68E95 /* PlaybackFailure+Localization.swift in Sources */,
+				353A5218136446D38C6974E8 /* PlayerActions.swift in Sources */,
+				03DFE42FCA314D64B3B0A234 /* PlayerControlBar.swift in Sources */,
+				A4F0A61C4AB24AF3830DDADE /* PlayerControls.swift in Sources */,
+				9D80EF3DD4AC4552A41321D7 /* PlayerFormatting.swift in Sources */,
+				D0E3643141099DD2E8F3DF6D /* PlayerScreen.swift in Sources */,
+				EC1CFBA860414E00B01FF30C /* PlayerSurfaceRepresentable.swift in Sources */,
+				F7A7C9CD00C045C7A453F68E /* PlayerTopBar.swift in Sources */,
+				A4D6BA374089486495FAEF0B /* PlaybackTimeline.swift in Sources */,
+				91DA9116CF36487AAF9244F6 /* VideoViewport.swift in Sources */,
+				38DAF1886E669E9AD8629B01 /* MacDesktopHost.swift in Sources */,
+				61F9D4963CFD4D2B81DF24E5 /* MacMediaFolderPicker.swift in Sources */,
+				19C57C0C558AA0B34670E630 /* UserSelectedMediaSession.swift in Sources */,
+				AA0000000000000000000016 /* FileSystemMediaLibraryScanner.swift in Sources */,
+				AF1000000000000000000012 /* QuickLookMediaThumbnailProvider.swift in Sources */,
+				AC0000000000000000000013 /* UserDefaultsAppLanguageStore.swift in Sources */,
+				4B9EC4249AD1406990161515 /* AVFoundationPlaybackEngine.swift in Sources */,
+				A68650D9162A708D93F5F453 /* PlayerLayerSurfaceView.swift in Sources */,
+				D0A0FBE24BAF468290B1E7D1 /* SystemNotificationName.swift in Sources */,
+				E717858177BC0998AEFA7C6D /* SystemLifecycleMonitor.swift in Sources */,
+				AD0000000000000000000012 /* MacApplicationPresenceController.swift in Sources */,
+				5238BB82977C4E3E95EEDE9C /* MacMainWindowPresenter.swift in Sources */,
+				7307CB8B7E79E97D580FF729 /* WindowReader.swift in Sources */,
+				1927ADD01DEB7CE72C348E6F /* AppConfiguration.swift in Sources */,
+				E970F932ED084EA2B4F95281 /* MuralumeTheme.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		734B38B0029C6099937907BD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				59A747D39B0D485767C9F57B /* MuralumeLaunchTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A777DD376AEB928C0D78E4BD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AE0000000000000000000011 /* AppDelegateTests.swift in Sources */,
+				AC0000000000000000000015 /* AppLocalizationControllerTests.swift in Sources */,
+				2471A0C9790F4BD3A0BF8A31 /* DesktopSessionCoordinatorTests.swift in Sources */,
+				AA000000000000000000001A /* MediaLibraryCoordinatorTests.swift in Sources */,
+				AA0000000000000000000019 /* MediaLibrarySortTests.swift in Sources */,
+				CD94D20452E0790A183D3EC0 /* PlaybackCoordinatorTests.swift in Sources */,
+				628DEF8A0A9BCE74862C63C4 /* PlaybackGateTests.swift in Sources */,
+				AA0000000000000000000018 /* PlaybackQueueTests.swift in Sources */,
+				AA000000000000000000001B /* FileSystemMediaLibraryScannerTests.swift in Sources */,
+				AB0000000000000000000002 /* UserSelectedMediaSessionTests.swift in Sources */,
+				004C99C5AE9B45B3AE32AB2A /* AVFoundationPlaybackEngineTests.swift in Sources */,
+				9DDE2F09B8C64CF4AB689811 /* RealAVPlayerLayerRoundTripTests.swift in Sources */,
+				AC0000000000000000000016 /* MacMainWindowPresenterTests.swift in Sources */,
+				830486FEDB044884B2D283C5 /* PlaybackTestDoubles.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		340BB9915E8D4290EB473AB2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = Muralume;
+			target = 73B95C1246FFB615BACCFD62 /* Muralume */;
+			targetProxy = D3B7CD78E8AC46A13E22E11E /* PBXContainerItemProxy */;
+		};
+		A84623BF3DF6B39875180C9D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = Muralume;
+			target = 73B95C1246FFB615BACCFD62 /* Muralume */;
+			targetProxy = 73FCDB29EAC7B1E4BE943225 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		CCB0920EA9C7D76809E4B7D6 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				1884EE50DA182069D3763D42 /* Localizable.strings */,
+				D9C9A8AA279227FF1FED1E7E /* Localizable.strings */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		2D574304AA6769F3C3A6B055 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 18B0B6A2537BEFCB5E82EEDA /* Release.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Muralume/Resources/Muralume.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Muralume/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.muralume.Muralume;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		50566B12C8E4EC4C4DF838B2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1B99EA2BF7FCEAB71E376F38 /* Debug.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Muralume/Resources/Muralume.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Muralume/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.muralume.Muralume;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		8438019359A61F453FC9626E /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 18B0B6A2537BEFCB5E82EEDA /* Release.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		91A39A4F7C43846D0F62FF49 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1B99EA2BF7FCEAB71E376F38 /* Debug.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A1539D4423D04780FC4DFEAC /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 18B0B6A2537BEFCB5E82EEDA /* Release.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.muralume.MuralumeTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Muralume.app/Contents/MacOS/Muralume";
+			};
+			name = Release;
+		};
+		C4C80BA6E729522EDF6C8136 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1B99EA2BF7FCEAB71E376F38 /* Debug.xcconfig */;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.muralume.MuralumeUITests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = Muralume;
+			};
+			name = Debug;
+		};
+		D2280D0073202952F849F991 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 18B0B6A2537BEFCB5E82EEDA /* Release.xcconfig */;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.muralume.MuralumeUITests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = Muralume;
+			};
+			name = Release;
+		};
+		FBFF718A81BABA153A155A52 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1B99EA2BF7FCEAB71E376F38 /* Debug.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.muralume.MuralumeTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Muralume.app/Contents/MacOS/Muralume";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3AFD43E79CC0741F85D0F167 /* Build configuration list for PBXNativeTarget "Muralume" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2D574304AA6769F3C3A6B055 /* Release */,
+				50566B12C8E4EC4C4DF838B2 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		62E8897A7E52B4BC60539425 /* Build configuration list for PBXProject "Muralume" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				91A39A4F7C43846D0F62FF49 /* Debug */,
+				8438019359A61F453FC9626E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C2D6F5D31B94602A95B26F99 /* Build configuration list for PBXNativeTarget "MuralumeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1539D4423D04780FC4DFEAC /* Release */,
+				FBFF718A81BABA153A155A52 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F18FFE593F9C9CB559C57F95 /* Build configuration list for PBXNativeTarget "MuralumeUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D2280D0073202952F849F991 /* Release */,
+				C4C80BA6E729522EDF6C8136 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = ECCFB39E6F0E8E3B9127C246 /* Project object */;
+}
