@@ -23,10 +23,6 @@ struct LibraryQueueSidebar: View {
                     .overlay(MuralumeTheme.Colors.border)
 
                 playlistContent
-
-                if let position = library.currentPosition {
-                    queueFooter(position: position)
-                }
             }
         }
         .padding(MuralumeTheme.Spacing.medium)
@@ -74,29 +70,18 @@ struct LibraryQueueSidebar: View {
 
             Spacer(minLength: MuralumeTheme.Spacing.small)
 
-            if !library.roots.isEmpty {
-                Button {
-                    isEditing.toggle()
-                } label: {
-                    Text(
-                        LocalizedStringKey(
-                            isEditing ? "library.done" : "library.edit"
-                        )
-                    )
-                }
-                .buttonStyle(.plain)
-                .font(.body.weight(.medium))
-                .foregroundStyle(MuralumeTheme.Colors.controlAccent)
-                .accessibilityIdentifier(
-                    MuralumeAccessibilityIdentifier.editLibraryButton
-                )
-            }
-
             if !isEditing {
                 Button(action: addFolders) {
-                    Image(systemName: "folder.badge.plus")
+                    headerActionLabel(
+                        titleKey: "library.add",
+                        systemImage: "folder.badge.plus"
+                    )
                 }
-                .buttonStyle(MuralumeControlButtonStyle(kind: .accent))
+                .buttonStyle(
+                    MuralumeToolbarButtonStyle(
+                        width: MuralumeTheme.Size.playlistHeaderActionWidth
+                    )
+                )
                 .help(Text(LocalizedStringKey(addFolderLabelKey)))
                 .accessibilityLabel(
                     Text(LocalizedStringKey(addFolderLabelKey))
@@ -106,10 +91,54 @@ struct LibraryQueueSidebar: View {
                 )
             }
 
+            if !library.roots.isEmpty {
+                Button {
+                    isEditing.toggle()
+                } label: {
+                    headerActionLabel(
+                        titleKey: isEditing
+                            ? "library.done"
+                            : "library.edit",
+                        systemImage: isEditing
+                            ? "checkmark"
+                            : "pencil"
+                    )
+                }
+                .buttonStyle(
+                    MuralumeToolbarButtonStyle(
+                        kind: isEditing ? .selected : .standard,
+                        width: MuralumeTheme.Size.playlistHeaderActionWidth
+                    )
+                )
+                .help(
+                    Text(
+                        LocalizedStringKey(
+                            isEditing ? "library.done" : "library.edit"
+                        )
+                    )
+                )
+                .accessibilityLabel(
+                    Text(
+                        LocalizedStringKey(
+                            isEditing ? "library.done" : "library.edit"
+                        )
+                    )
+                )
+                .accessibilityIdentifier(
+                    MuralumeAccessibilityIdentifier.editLibraryButton
+                )
+            }
+
             Button(action: dismiss) {
                 Image(systemName: "xmark")
+                    .font(
+                        .system(
+                            size: MuralumeTheme.Size.icon,
+                            weight: .semibold
+                        )
+                    )
             }
-            .buttonStyle(MuralumeControlButtonStyle())
+            .buttonStyle(MuralumeToolbarButtonStyle())
             .help(Text("library.playlist.hide"))
             .accessibilityLabel(Text("library.playlist.hide"))
         }
@@ -117,6 +146,26 @@ struct LibraryQueueSidebar: View {
             minHeight: MuralumeTheme.Size.control,
             alignment: .center
         )
+    }
+
+    private func headerActionLabel(
+        titleKey: LocalizedStringKey,
+        systemImage: String
+    ) -> some View {
+        HStack(spacing: MuralumeTheme.Spacing.xSmall) {
+            Image(systemName: systemImage)
+                .font(
+                    .system(
+                        size: MuralumeTheme.Size.icon,
+                        weight: .semibold
+                    )
+                )
+
+            Text(titleKey)
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var libraryStatusBar: some View {
@@ -235,8 +284,38 @@ struct LibraryQueueSidebar: View {
             .foregroundStyle(MuralumeTheme.Colors.textSecondary)
         case .ready:
             VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.xSmall) {
-                Text(videoCountText)
-                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+                HStack(
+                    alignment: .firstTextBaseline,
+                    spacing: MuralumeTheme.Spacing.small
+                ) {
+                    Text(videoCountText)
+                        .foregroundStyle(
+                            MuralumeTheme.Colors.textSecondary
+                        )
+
+                    if let position = library.currentPosition {
+                        Text(
+                            verbatim: localization.localizedFormat(
+                                "queue.position",
+                                position,
+                                library.queueCount
+                            )
+                        )
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(
+                            MuralumeTheme.Colors.textTertiary
+                        )
+                        .accessibilityLabel(
+                            Text(
+                                verbatim: localization.localizedFormat(
+                                    "queue.position.accessibility",
+                                    position,
+                                    library.queueCount
+                                )
+                            )
+                        )
+                    }
+                }
                 if let rootText {
                     Text(rootText)
                         .foregroundStyle(MuralumeTheme.Colors.textTertiary)
@@ -329,61 +408,50 @@ struct LibraryQueueSidebar: View {
                 hasRoots: !library.roots.isEmpty
             )
         } else {
-            ScrollView {
-                LazyVStack(spacing: MuralumeTheme.Spacing.xSmall) {
-                    ForEach(library.items) { item in
-                        LibraryMediaRow(
-                            item: item,
-                            isCurrent: library.currentItemID == item.id,
-                            playbackState: playbackState(for: item),
-                            mediaThumbnailProvider: mediaThumbnailProvider,
-                            play: {
-                                library.play(item)
-                                dismiss()
-                            }
-                        )
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: MuralumeTheme.Spacing.xSmall) {
+                        ForEach(library.items) { item in
+                            LibraryMediaRow(
+                                item: item,
+                                isCurrent: library.currentItemID == item.id,
+                                playbackState: playbackState(for: item),
+                                mediaThumbnailProvider: mediaThumbnailProvider,
+                                play: {
+                                    library.play(item)
+                                    dismiss()
+                                }
+                            )
+                            .id(item.id)
+                        }
                     }
+                    .padding(.vertical, MuralumeTheme.Spacing.xSmall)
                 }
-                .padding(.vertical, MuralumeTheme.Spacing.xSmall)
+                .scrollIndicators(.visible)
+                .accessibilityLabel(Text("library.playlist"))
+                .task(id: library.currentItemID) {
+                    guard let targetID = library.currentItemID else {
+                        return
+                    }
+                    await positionCurrentItem(targetID, using: proxy)
+                }
             }
-            .scrollIndicators(.visible)
-            .accessibilityLabel(Text("library.playlist"))
         }
     }
 
-    private func queueFooter(position: Int) -> some View {
-        HStack(spacing: MuralumeTheme.Spacing.small) {
-            Image(
-                systemName: library.playbackOrder == .ordered
-                    ? "list.number"
-                    : "shuffle"
-            )
-            Text(
-                localization.localizedFormat(
-                    "queue.position",
-                    position,
-                    library.queueCount
-                )
-            )
-            Spacer(minLength: MuralumeTheme.Spacing.small)
-            Text(
-                localization.localizedFormat(
-                    "queue.round",
-                    library.queueRoundNumber
-                )
-            )
+    @MainActor
+    private func positionCurrentItem(
+        _ targetID: LibraryMediaItem.ID,
+        using proxy: ScrollViewProxy
+    ) async {
+        await Task.yield()
+
+        guard !Task.isCancelled,
+              library.currentItemID == targetID,
+              library.items.contains(where: { $0.id == targetID }) else {
+            return
         }
-        .font(.caption.monospacedDigit())
-        .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-        .padding(.horizontal, MuralumeTheme.Spacing.small)
-        .frame(height: MuralumeTheme.Size.queueFooterHeight)
-        .background {
-            RoundedRectangle(
-                cornerRadius: MuralumeTheme.Radius.small,
-                style: .continuous
-            )
-            .fill(MuralumeTheme.Colors.controlFill)
-        }
+        proxy.scrollTo(targetID, anchor: .center)
     }
 
     private func playbackState(

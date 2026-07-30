@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import XCTest
 @testable import Muralume
 
@@ -60,92 +61,199 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(coordinator.reopenMainWindowCount, 1)
     }
 
-    func testMainMenuControllerRemovesOnlyRedundantStandardMenus() {
-        let mainMenu = NSMenu()
-        addTopLevelMenu(
-            title: "Muralume",
-            action: #selector(NSApplication.hide(_:)),
-            to: mainMenu
-        )
-        addTopLevelMenu(
-            title: "File",
-            action: #selector(NSWindow.performClose(_:)),
-            to: mainMenu
-        )
-        addTopLevelMenu(
-            title: "Edit",
-            action: Selector(("undo:")),
-            to: mainMenu
-        )
-        addTopLevelMenu(
-            title: "Format",
-            action: Selector(("showFonts:")),
-            to: mainMenu
-        )
-        addTopLevelMenu(
-            title: "View",
-            action: #selector(NSWindow.toggleFullScreen(_:)),
-            to: mainMenu
-        )
-        addTopLevelMenu(
-            title: "Actions",
-            action: Selector(("menuAction:")),
-            to: mainMenu
-        )
-        let windowsMenu = addTopLevelMenu(
-            title: "Window",
-            action: #selector(NSWindow.performMiniaturize(_:)),
-            to: mainMenu
-        )
-        windowsMenu.addItem(
-            NSMenuItem(
-                title: "Close",
-                action: #selector(NSWindow.performClose(_:)),
-                keyEquivalent: "w"
-            )
-        )
-        windowsMenu.addItem(
-            NSMenuItem(
-                title: "Toggle Full Screen",
-                action: #selector(NSWindow.toggleFullScreen(_:)),
-                keyEquivalent: "f"
-            )
-        )
-        addTopLevelMenu(
-            title: "Help",
-            action: #selector(NSApplication.showHelp(_:)),
-            to: mainMenu
-        )
-
-        MacMainMenuController().removeRedundantTopLevelMenus(
-            from: mainMenu,
-            windowsMenu: windowsMenu
+    func testMainMenuControllerBuildsOnlyCanonicalTopLevelMenus() {
+        let commandHandler = TestMainMenuCommandHandler()
+        let window = NSWindow()
+        let controller = makeMainMenuController(
+            commandHandler: commandHandler,
+            mainWindow: window
         )
 
         XCTAssertEqual(
-            mainMenu.items.map(\.title),
+            controller.canonicalMenu.items.map(\.title),
             ["Muralume", "Actions", "Window", "Help"]
+        )
+        XCTAssertFalse(
+            controller.canonicalMenu.items.contains {
+                ["File", "Edit", "Format", "View"].contains($0.title)
+            }
         )
     }
 
-    @discardableResult
-    private func addTopLevelMenu(
-        title: String,
-        action: Selector,
-        to mainMenu: NSMenu
-    ) -> NSMenu {
-        let submenu = NSMenu(title: title)
-        submenu.addItem(
-            NSMenuItem(title: title, action: action, keyEquivalent: "")
+    func testRuntimeMainWindowIsExcludedFromAutomaticWindowMenu() {
+        let window = MacApplicationRuntime.makeMainWindow(
+            title: "Muralume"
         )
-        let topLevelItem = NSMenuItem(
-            title: title,
-            action: nil,
-            keyEquivalent: ""
+
+        XCTAssertTrue(window.isExcludedFromWindowsMenu)
+    }
+
+    func testCanonicalApplicationMenuKeepsStandardMacActions() throws {
+        let commandHandler = TestMainMenuCommandHandler()
+        let controller = makeMainMenuController(
+            commandHandler: commandHandler,
+            mainWindow: NSWindow()
         )
-        topLevelItem.submenu = submenu
-        mainMenu.addItem(topLevelItem)
-        return submenu
+        let applicationMenu = try XCTUnwrap(
+            controller.canonicalMenu.items.first?.submenu
+        )
+
+        XCTAssertEqual(
+            applicationMenu.items
+                .filter { !$0.isSeparatorItem }
+                .map(\.title),
+            [
+                "About Muralume",
+                "Settings…",
+                "Services",
+                "Hide Muralume",
+                "Hide Others",
+                "Show All",
+                "Quit Muralume"
+            ]
+        )
+        XCTAssertNotNil(
+            applicationMenu.items.first {
+                $0.title == "Services"
+            }?.submenu
+        )
+        XCTAssertEqual(
+            applicationMenu.items.first {
+                $0.title == "Settings…"
+            }?.keyEquivalent,
+            ","
+        )
+        XCTAssertEqual(
+            applicationMenu.items.first {
+                $0.title == "Quit Muralume"
+            }?.keyEquivalent,
+            "q"
+        )
+    }
+
+    func testPlayerMenuUsesOneShortcutOwnerAndDynamicState() throws {
+        let commandHandler = TestMainMenuCommandHandler()
+        let controller = makeMainMenuController(
+            commandHandler: commandHandler,
+            mainWindow: NSWindow()
+        )
+        let actionsMenu = try XCTUnwrap(
+            controller.canonicalMenu.items.first {
+                $0.title == "Actions"
+            }?.submenu
+        )
+
+        XCTAssertEqual(
+            actionsMenu.items.first {
+                $0.title == "Add Folder"
+            }?.keyEquivalent,
+            "o"
+        )
+        XCTAssertEqual(
+            actionsMenu.items.first {
+                $0.title == "Play"
+            }?.keyEquivalent,
+            " "
+        )
+        XCTAssertEqual(
+            actionsMenu.items.first {
+                $0.title == "Toggle Full Screen"
+            }?.keyEquivalent,
+            "f"
+        )
+
+        let activeState = MacMainMenuCommandState(
+            isPlaybackRequested: true,
+            isMuted: true,
+            canControlPlayback: true,
+            canPlayPrevious: true,
+            canPlayNext: true,
+            canIncreaseVolume: true,
+            canDecreaseVolume: true,
+            canUseWindowActions: true
+        )
+        controller.refreshPlayerCommands(
+            state: activeState,
+            hasPlayerFocus: true
+        )
+
+        XCTAssertTrue(
+            actionsMenu.items
+                .filter { !$0.isSeparatorItem }
+                .allSatisfy(\.isEnabled)
+        )
+        XCTAssertNotNil(
+            actionsMenu.items.first { $0.title == "Pause" }
+        )
+        XCTAssertNotNil(
+            actionsMenu.items.first { $0.title == "Unmute" }
+        )
+
+        controller.refreshPlayerCommands(
+            state: activeState,
+            hasPlayerFocus: false
+        )
+        XCTAssertTrue(
+            actionsMenu.items
+                .filter { !$0.isSeparatorItem }
+                .allSatisfy { !$0.isEnabled }
+        )
+    }
+
+    func testPlayerMenuActionRevalidatesWindowFocusBeforeDispatch() throws {
+        let commandHandler = TestMainMenuCommandHandler()
+        let controller = makeMainMenuController(
+            commandHandler: commandHandler,
+            mainWindow: NSWindow()
+        )
+        let actionsMenu = try XCTUnwrap(
+            controller.canonicalMenu.items.first {
+                $0.title == "Actions"
+            }?.submenu
+        )
+        let staleEnabledState = MacMainMenuCommandState(
+            isPlaybackRequested: true,
+            isMuted: false,
+            canControlPlayback: true,
+            canPlayPrevious: true,
+            canPlayNext: true,
+            canIncreaseVolume: true,
+            canDecreaseVolume: true,
+            canUseWindowActions: true
+        )
+        controller.refreshPlayerCommands(
+            state: staleEnabledState,
+            hasPlayerFocus: true
+        )
+        let pauseItem = try XCTUnwrap(
+            actionsMenu.items.first { $0.title == "Pause" }
+        )
+        let action = try XCTUnwrap(pauseItem.action)
+
+        XCTAssertTrue(pauseItem.isEnabled)
+        XCTAssertTrue(
+            NSApp.sendAction(
+                action,
+                to: pauseItem.target,
+                from: pauseItem
+            )
+        )
+        XCTAssertEqual(commandHandler.togglePlaybackCommandCount, 0)
+        XCTAssertFalse(pauseItem.isEnabled)
+    }
+
+    private func makeMainMenuController(
+        commandHandler: TestMainMenuCommandHandler,
+        mainWindow: NSWindow
+    ) -> MacMainMenuController {
+        MacMainMenuController(
+            application: NSApp,
+            localization: AppLocalizationController(
+                storage: MainMenuTestAppLanguageStore(language: .english)
+            ),
+            commandHandler: commandHandler,
+            mainWindow: mainWindow
+        )
     }
 }
 
@@ -164,4 +272,60 @@ private final class TestAppLifecycleCoordinator:
     }
 
     func shutdown() async {}
+}
+
+@MainActor
+private final class TestMainMenuCommandHandler:
+    MacMainMenuCommandHandling
+{
+    private let stateDidChange = PassthroughSubject<Void, Never>()
+    private(set) var togglePlaybackCommandCount = 0
+
+    var mainMenuCommandState = MacMainMenuCommandState(
+        isPlaybackRequested: false,
+        isMuted: false,
+        canControlPlayback: false,
+        canPlayPrevious: false,
+        canPlayNext: false,
+        canIncreaseVolume: false,
+        canDecreaseVolume: false,
+        canUseWindowActions: true
+    )
+
+    var mainMenuCommandStateDidChange: AnyPublisher<Void, Never> {
+        stateDidChange.eraseToAnyPublisher()
+    }
+
+    func openSettings() {}
+    func addFolders() {}
+    func togglePlaybackFromMenu() {
+        togglePlaybackCommandCount += 1
+    }
+    func seekBackwardFromMenu() {}
+    func seekForwardFromMenu() {}
+    func playPreviousFromMenu() {}
+    func playNextFromMenu() {}
+    func increaseVolumeFromMenu() {}
+    func decreaseVolumeFromMenu() {}
+    func toggleMuteFromMenu() {}
+    func toggleFullScreen() {}
+
+    func handleCloseCommand(for window: NSWindow?) -> Bool {
+        false
+    }
+}
+
+@MainActor
+private final class MainMenuTestAppLanguageStore: AppLanguageStoring {
+    private let language: AppLanguage?
+
+    init(language: AppLanguage?) {
+        self.language = language
+    }
+
+    func loadLanguage() -> AppLanguage? {
+        language
+    }
+
+    func saveLanguage(_ language: AppLanguage) {}
 }

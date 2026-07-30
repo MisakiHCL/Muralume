@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0E52592AFDBBF0442F013A57 /* MuralumeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0CC3587489E907CEC082535 /* MuralumeApp.swift */; };
+		B20000000000000000000011 /* MacMainMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000012 /* MacMainMenuController.swift */; };
 		03DFE42FCA314D64B3B0A234 /* PlayerControlBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B4E56E210B4EFEB277753E /* PlayerControlBar.swift */; };
 		1927ADD01DEB7CE72C348E6F /* AppConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D32A61D760BE7B80916FCEB /* AppConfiguration.swift */; };
 		19C57C0C558AA0B34670E630 /* UserSelectedMediaSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBDE8DA0223CDA8FF84002AF /* UserSelectedMediaSession.swift */; };
@@ -143,6 +144,7 @@
 		98AD3D8641D84124BEF6ECE4 /* MainWindowPresenting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MainWindowPresenting.swift; sourceTree = "<group>"; };
 		99BCF9A2B1F6168D3933C8FE /* SystemLifecycleMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemLifecycleMonitor.swift; sourceTree = "<group>"; };
 		A0CC3587489E907CEC082535 /* MuralumeApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MuralumeApp.swift; sourceTree = "<group>"; };
+		B20000000000000000000012 /* MacMainMenuController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacMainMenuController.swift; sourceTree = "<group>"; };
 		A25C19E5FB9B403F8E1080FB /* DesktopSessionCoordinatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopSessionCoordinatorTests.swift; sourceTree = "<group>"; };
 		AEAFFBCADB9C4DDF8A43DB08 /* RealAVPlayerLayerRoundTripTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RealAVPlayerLayerRoundTripTests.swift; sourceTree = "<group>"; };
 		B0B4E56E210B4EFEB277753E /* PlayerControlBar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerControlBar.swift; sourceTree = "<group>"; };
@@ -229,6 +231,7 @@
 				08363CE1AF64721E4BB431EB /* AppCoordinator.swift */,
 				80A4C361A03E9F2F46155A6C /* AppDelegate.swift */,
 				A0CC3587489E907CEC082535 /* MuralumeApp.swift */,
+				B20000000000000000000012 /* MacMainMenuController.swift */,
 			);
 			name = App;
 			path = App;
@@ -858,6 +861,7 @@
 				F53454E4DD4EAD1FBA7DDD3D /* AppCoordinator.swift in Sources */,
 				1C30BD5F8F7F1CABEF883DCB /* AppDelegate.swift in Sources */,
 				0E52592AFDBBF0442F013A57 /* MuralumeApp.swift in Sources */,
+				B20000000000000000000011 /* MacMainMenuController.swift in Sources */,
 				AD0000000000000000000011 /* ApplicationPresenceControlling.swift in Sources */,
 				503929CB4E9F4F67A28AB24C /* DesktopHosting.swift in Sources */,
 				A81963B767464C4EA9C5E7A6 /* DesktopSessionCoordinator.swift in Sources */,

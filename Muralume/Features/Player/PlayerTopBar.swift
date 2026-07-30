@@ -81,7 +81,7 @@ struct PlayerTopBar: View {
     }
 
     private var settings: some View {
-        SettingsLink {
+        Button(action: actions.openSettings) {
             Image(systemName: "gearshape")
         }
         .buttonStyle(

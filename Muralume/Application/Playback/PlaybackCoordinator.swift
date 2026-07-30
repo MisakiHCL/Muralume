@@ -19,7 +19,7 @@ final class PlaybackCoordinator: ObservableObject {
         isMuted: false,
         rate: PlaybackPolicy.defaultRate
     )
-    private(set) var isPlayerWindowDismissed = false
+    @Published private(set) var isPlayerWindowDismissed = false
 
     var canPresentOnDesktop: Bool {
         readiness == .ready
@@ -196,6 +196,14 @@ final class PlaybackCoordinator: ObservableObject {
             return
         }
         applySettings(settings)
+    }
+
+    func adjustVolume(by delta: Float) {
+        setVolume(
+            PlaybackVolume(
+                rawValue: settings.volume.rawValue + delta
+            )
+        )
     }
 
     func setMuted(_ isMuted: Bool) {

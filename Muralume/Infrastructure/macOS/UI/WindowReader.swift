@@ -2,18 +2,6 @@ import AppKit
 import SwiftUI
 
 @MainActor
-private final class WindowProbeView: NSView {
-    var windowHandler: ((NSWindow) -> Void)?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if let window {
-            windowHandler?(window)
-        }
-    }
-}
-
-@MainActor
 private final class PointerActivityProbeView: NSView {
     var activityHandler: (() -> Void)?
 
@@ -65,23 +53,6 @@ private final class PointerActivityProbeView: NSView {
             self?.activityHandler?()
             return event
         }
-    }
-}
-
-struct WindowReader: NSViewRepresentable {
-    let onWindowResolved: @MainActor (NSWindow) -> Void
-
-    func makeNSView(context: Context) -> NSView {
-        let view = WindowProbeView()
-        view.windowHandler = onWindowResolved
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        guard let view = nsView as? WindowProbeView, let window = view.window else {
-            return
-        }
-        onWindowResolved(window)
     }
 }
 

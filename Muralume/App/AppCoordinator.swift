@@ -10,6 +10,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     @Published private(set) var isMainWindowFullScreen = false
 
     private let mainWindowPresenter: MacMainWindowPresenter
+    var openSettingsHandler: (() -> Void)?
     private var isShutDown = false
 
     init(
@@ -116,5 +117,100 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         desktopSession.shutdown()
         await mediaThumbnailProvider.shutdown()
         await library.shutdown()
+    }
+}
+
+extension AppCoordinator: MacMainMenuCommandHandling {
+    var mainMenuCommandState: MacMainMenuCommandState {
+        let canUseWindowActions =
+            !desktopSession.isActive
+            && !desktopSession.isTransitioning
+            && !playback.isPlayerWindowDismissed
+            && !isShutDown
+        let canControlPlayback =
+            playback.readiness == .ready
+            && playback.presentation == .player
+            && canUseWindowActions
+
+        return MacMainMenuCommandState(
+            isPlaybackRequested: playback.isPlaybackRequested,
+            isMuted: playback.settings.isMuted,
+            canControlPlayback: canControlPlayback,
+            canPlayPrevious:
+                canControlPlayback && library.canMoveToPrevious,
+            canPlayNext:
+                canControlPlayback && library.hasActiveQueue,
+            canIncreaseVolume:
+                canControlPlayback
+                && playback.settings.volume != .full,
+            canDecreaseVolume:
+                canControlPlayback
+                && playback.settings.volume != .muted,
+            canUseWindowActions: canUseWindowActions
+        )
+    }
+
+    var mainMenuCommandStateDidChange: AnyPublisher<Void, Never> {
+        let playbackCommandChanges: [AnyPublisher<Void, Never>] = [
+            playback.$readiness
+                .map { _ in () }
+                .eraseToAnyPublisher(),
+            playback.$presentation
+                .map { _ in () }
+                .eraseToAnyPublisher(),
+            playback.$isPlaybackRequested
+                .map { _ in () }
+                .eraseToAnyPublisher(),
+            playback.$settings
+                .map { _ in () }
+                .eraseToAnyPublisher(),
+            playback.$isPlayerWindowDismissed
+                .map { _ in () }
+                .eraseToAnyPublisher()
+        ]
+
+        return Publishers.MergeMany(
+            playbackCommandChanges + [
+                desktopSession.objectWillChange.eraseToAnyPublisher(),
+                library.objectWillChange.eraseToAnyPublisher()
+            ]
+        )
+        .eraseToAnyPublisher()
+    }
+
+    func openSettings() {
+        openSettingsHandler?()
+    }
+
+    func togglePlaybackFromMenu() {
+        playback.togglePlayback()
+    }
+
+    func seekBackwardFromMenu() {
+        playback.skip(by: -PlaybackPolicy.seekStepSeconds)
+    }
+
+    func seekForwardFromMenu() {
+        playback.skip(by: PlaybackPolicy.seekStepSeconds)
+    }
+
+    func playPreviousFromMenu() {
+        library.playPrevious()
+    }
+
+    func playNextFromMenu() {
+        library.playNext()
+    }
+
+    func increaseVolumeFromMenu() {
+        playback.adjustVolume(by: PlaybackPolicy.volumeStep)
+    }
+
+    func decreaseVolumeFromMenu() {
+        playback.adjustVolume(by: -PlaybackPolicy.volumeStep)
+    }
+
+    func toggleMuteFromMenu() {
+        playback.setMuted(!playback.settings.isMuted)
     }
 }

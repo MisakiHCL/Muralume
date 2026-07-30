@@ -30,10 +30,6 @@ final class MediaLibraryCoordinator: ObservableObject {
         queue?.currentRoundPosition
     }
 
-    var queueRoundNumber: Int {
-        queue?.roundNumber ?? 0
-    }
-
     var queueCount: Int {
         queue?.count ?? 0
     }

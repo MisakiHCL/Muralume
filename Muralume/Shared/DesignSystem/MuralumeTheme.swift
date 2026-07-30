@@ -70,13 +70,13 @@ enum MuralumeTheme {
         static let videoMinimumHeight: CGFloat = 360
         static let volumeSliderWidth: CGFloat = 104
         static let playlistOverlayWidth: CGFloat = 320
+        static let playlistHeaderActionWidth: CGFloat = 68
         static let playerControlsMaximumWidth: CGFloat = 1_040
         static let widePlayerControlsMinimumWidth: CGFloat = 1_000
         static let playerControlsReservedHeight: CGFloat = 136
         static let playlistRowHeight: CGFloat = 72
         static let playlistArtworkWidth: CGFloat = 84
         static let playlistArtworkHeight: CGFloat = 48
-        static let queueFooterHeight: CGFloat = 36
     }
 
     enum Motion {
@@ -261,15 +261,6 @@ private struct MuralumePanelBackground: View {
 }
 
 extension View {
-    @ViewBuilder
-    func muralumeHidesSystemWindowToolbar() -> some View {
-        if #available(macOS 15.0, *) {
-            toolbarVisibility(.hidden, for: .windowToolbar)
-        } else {
-            toolbar(.hidden, for: .windowToolbar)
-        }
-    }
-
     func muralumePanel(
         cornerRadius: CGFloat = MuralumeTheme.Radius.large,
         style: MuralumePanelStyle = .standard
@@ -484,5 +475,92 @@ struct MuralumeControlButtonStyle: ButtonStyle {
         kind == .standard || kind == .selected
             ? MuralumeTheme.Colors.textPrimary
             : .white
+    }
+}
+
+struct MuralumeToolbarButtonStyle: ButtonStyle {
+    enum Kind {
+        case standard
+        case selected
+    }
+
+    @Environment(\.isEnabled) private var isEnabled
+
+    let kind: Kind
+    let width: CGFloat?
+
+    init(
+        kind: Kind = .standard,
+        width: CGFloat? = nil
+    ) {
+        self.kind = kind
+        self.width = width
+    }
+
+    func makeBody(configuration: Configuration) -> some View {
+        sizedLabel(configuration.label)
+            .background {
+                controlBackground(isPressed: configuration.isPressed)
+            }
+            .contentShape(
+                RoundedRectangle(
+                    cornerRadius: MuralumeTheme.Radius.small,
+                    style: .continuous
+                )
+            )
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .opacity(isEnabled ? 1 : 0.34)
+    }
+
+    @ViewBuilder
+    private func sizedLabel(_ label: Configuration.Label) -> some View {
+        let paddedLabel = label
+            .foregroundStyle(foregroundColor)
+            .padding(.horizontal, MuralumeTheme.Spacing.small)
+
+        if let width {
+            paddedLabel.frame(
+                width: width,
+                height: MuralumeTheme.Size.control
+            )
+        } else {
+            paddedLabel.frame(
+                minWidth: MuralumeTheme.Size.control,
+                minHeight: MuralumeTheme.Size.control,
+                maxHeight: MuralumeTheme.Size.control
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func controlBackground(isPressed: Bool) -> some View {
+        switch kind {
+        case .standard, .selected:
+            RoundedRectangle(
+                cornerRadius: MuralumeTheme.Radius.small,
+                style: .continuous
+            )
+            .fill(
+                kind == .selected || isPressed
+                    ? MuralumeTheme.Colors.controlHover
+                    : MuralumeTheme.Colors.controlFill
+            )
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: MuralumeTheme.Radius.small,
+                    style: .continuous
+                )
+                .stroke(
+                    kind == .selected
+                        ? MuralumeTheme.Colors.borderStrong
+                        : MuralumeTheme.Colors.border,
+                    lineWidth: 1
+                )
+            }
+        }
+    }
+
+    private var foregroundColor: Color {
+        MuralumeTheme.Colors.textPrimary
     }
 }

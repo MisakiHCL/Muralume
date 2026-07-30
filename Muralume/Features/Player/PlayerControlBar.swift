@@ -124,7 +124,6 @@ struct PlayerControlBar: View {
             .offset(x: playback.isPlaybackRequested ? 0 : 1)
         }
         .buttonStyle(MuralumeControlButtonStyle(kind: .prominent))
-        .keyboardShortcut(.space, modifiers: [])
         .help(playbackToggleLabel)
         .accessibilityLabel(playbackToggleLabel)
         .disabled(!controlsEnabled)

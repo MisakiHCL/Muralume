@@ -61,6 +61,58 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertEqual(engine.volume, adjustedVolume)
     }
 
+    func testVolumeAdjustmentUsesFixedStepAndClampsAtBounds() {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+
+        coordinator.adjustVolume(by: -PlaybackPolicy.volumeStep)
+
+        XCTAssertEqual(
+            coordinator.settings.volume.rawValue,
+            0.9,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            engine.volume.rawValue,
+            0.9,
+            accuracy: 0.0001
+        )
+
+        coordinator.adjustVolume(by: PlaybackPolicy.volumeStep)
+        coordinator.adjustVolume(by: PlaybackPolicy.volumeStep)
+
+        XCTAssertEqual(coordinator.settings.volume, .full)
+        XCTAssertEqual(engine.volume, .full)
+
+        for _ in 0..<20 {
+            coordinator.adjustVolume(by: -PlaybackPolicy.volumeStep)
+        }
+
+        XCTAssertEqual(coordinator.settings.volume, .muted)
+        XCTAssertEqual(engine.volume, .muted)
+    }
+
+    func testIncreasingVolumeWhileMutedUnmutesAtFirstStep() {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        coordinator.setMuted(true)
+
+        coordinator.adjustVolume(by: PlaybackPolicy.volumeStep)
+
+        XCTAssertFalse(coordinator.settings.isMuted)
+        XCTAssertEqual(
+            coordinator.settings.volume.rawValue,
+            PlaybackPolicy.volumeStep,
+            accuracy: 0.0001
+        )
+        XCTAssertFalse(engine.isMuted)
+        XCTAssertEqual(
+            engine.volume.rawValue,
+            PlaybackPolicy.volumeStep,
+            accuracy: 0.0001
+        )
+    }
+
     func testLoadAfterStopReattachesTheRegisteredPlayerSurface() async {
         let engine = TestPlaybackEngine()
         let coordinator = PlaybackCoordinator(engine: engine)

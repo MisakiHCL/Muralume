@@ -4,6 +4,7 @@ final class MuralumeLaunchTests: XCTestCase {
     private enum LayoutExpectation {
         static let maximumSidebarHeaderTopInset: CGFloat = 80
         static let maximumSidebarHeaderTrailingInset: CGFloat = 64
+        static let minimumLabeledHeaderActionWidth: CGFloat = 44
         static let maximumToolbarInset: CGFloat = 64
         static let maximumTransportCenterOffset: CGFloat = 4
         static let maximumControlRowEdgeOffset: CGFloat = 2
@@ -42,6 +43,10 @@ final class MuralumeLaunchTests: XCTestCase {
             addFolderButton.waitForExistence(timeout: 5)
         )
         XCTAssertEqual(addFolderButton.label, "Add Folder")
+        XCTAssertGreaterThanOrEqual(
+            addFolderButton.frame.width,
+            LayoutExpectation.minimumLabeledHeaderActionWidth
+        )
         XCTAssertEqual(
             application.buttons.matching(
                 identifier: "muralume.add-folder"
@@ -216,14 +221,7 @@ final class MuralumeLaunchTests: XCTestCase {
             windowedBrandMark.frame.minX - window.frame.minX
 
         let windowedFrame = window.frame
-        let actionsMenu = application.menuBars.menuBarItems["Actions"]
-        XCTAssertTrue(actionsMenu.waitForExistence(timeout: 5))
-        actionsMenu.click()
-        let enterFullScreenItem = application.menuItems[
-            "Toggle Full Screen"
-        ]
-        XCTAssertTrue(enterFullScreenItem.waitForExistence(timeout: 5))
-        enterFullScreenItem.click()
+        application.typeKey("f", modifierFlags: [])
         let fullScreenTransition = XCTNSPredicateExpectation(
             predicate: NSPredicate(
                 format: "frame != %@",
@@ -256,6 +254,11 @@ final class MuralumeLaunchTests: XCTestCase {
         XCTAssertTrue(closeWindowButton.isEnabled)
         XCTAssertFalse(minimizeWindowButton.isEnabled)
         XCTAssertTrue(fullScreenWindowButton.isEnabled)
+        let windowMenu = application.menuBars.menuBarItems["Window"]
+        windowMenu.click()
+        XCTAssertFalse(application.menuItems["Minimize"].isEnabled)
+        XCTAssertFalse(application.menuItems["Zoom"].isEnabled)
+        application.typeKey(.escape, modifierFlags: [])
         assertTopTrailing(
             fullScreenSettingsButton,
             in: window
@@ -335,6 +338,24 @@ final class MuralumeLaunchTests: XCTestCase {
                     .processTerminationObservationTimeout
             )
         )
+        assertCanonicalTopLevelMenu(application)
+        let hiddenWindowMenu =
+            application.menuBars.menuBarItems["Window"]
+        hiddenWindowMenu.click()
+        XCTAssertFalse(
+            application.menuItems["Bring All to Front"].isEnabled
+        )
+        application.typeKey(.escape, modifierFlags: [])
+        let hiddenWindowActionsMenu =
+            application.menuBars.menuBarItems["Actions"]
+        hiddenWindowActionsMenu.click()
+        XCTAssertFalse(
+            application.menuItems["Add Folder"].isEnabled
+        )
+        XCTAssertFalse(
+            application.menuItems["Toggle Full Screen"].isEnabled
+        )
+        application.typeKey(.escape, modifierFlags: [])
 
         let finder = XCUIApplication(
             bundleIdentifier: LifecycleExpectation.finderBundleIdentifier
@@ -424,6 +445,7 @@ final class MuralumeLaunchTests: XCTestCase {
                 timeout: LifecycleExpectation.windowTransitionTimeout
             )
         )
+        let mainWindowFrame = mainWindow.frame
         let settingsButton = application.buttons[
             "muralume.open-settings"
         ].firstMatch
@@ -442,6 +464,31 @@ final class MuralumeLaunchTests: XCTestCase {
             settingsView.waitForExistence(
                 timeout: LifecycleExpectation.windowTransitionTimeout
             )
+        )
+
+        let actionsMenu = application.menuBars.menuBarItems["Actions"]
+        XCTAssertTrue(actionsMenu.waitForExistence(timeout: 5))
+        actionsMenu.click()
+        let fullScreenItem = application.menuItems["Toggle Full Screen"]
+        XCTAssertTrue(fullScreenItem.exists)
+        XCTAssertFalse(fullScreenItem.isEnabled)
+        application.typeKey(.escape, modifierFlags: [])
+
+        application.typeKey("f", modifierFlags: [])
+        let unexpectedFullScreenTransition = XCTNSPredicateExpectation(
+            predicate: NSPredicate(
+                format: "frame != %@",
+                NSValue(rect: mainWindowFrame)
+            ),
+            object: mainWindow
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(
+                for: [unexpectedFullScreenTransition],
+                timeout: LifecycleExpectation
+                    .processTerminationObservationTimeout
+            ),
+            .timedOut
         )
 
         application.typeKey("w", modifierFlags: .command)
@@ -500,6 +547,60 @@ final class MuralumeLaunchTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
+        assertCanonicalTopLevelMenu(
+            application,
+            file: file,
+            line: line
+        )
+
+        let actionsMenu = application.menuBars.menuBarItems["Actions"]
+        actionsMenu.click()
+        let disabledPlaybackItems = [
+            "Play",
+            "Back 10 seconds",
+            "Forward 10 seconds",
+            "Previous Video",
+            "Next Video",
+            "Volume Up",
+            "Volume Down",
+            "Mute"
+        ]
+        for itemTitle in disabledPlaybackItems {
+            let item = application.menuItems[itemTitle]
+            XCTAssertTrue(item.exists, file: file, line: line)
+            XCTAssertFalse(item.isEnabled, file: file, line: line)
+        }
+
+        let addFolderItem = application.menuItems["Add Folder"]
+        XCTAssertTrue(addFolderItem.exists, file: file, line: line)
+        XCTAssertTrue(addFolderItem.isEnabled, file: file, line: line)
+
+        let fullScreenItem = application.menuItems["Toggle Full Screen"]
+        XCTAssertTrue(fullScreenItem.exists, file: file, line: line)
+        XCTAssertTrue(fullScreenItem.isEnabled, file: file, line: line)
+        application.typeKey(.escape, modifierFlags: [])
+
+        let appMenu = application.menuBars.menuBarItems["Muralume"]
+        appMenu.click()
+        XCTAssertTrue(
+            application.menuItems["Settings…"].exists,
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(
+            application.menuItems["Settings"].exists,
+            file: file,
+            line: line
+        )
+        application.typeKey(.escape, modifierFlags: [])
+    }
+
+    @MainActor
+    private func assertCanonicalTopLevelMenu(
+        _ application: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
         XCTAssertFalse(
             application.menuBars.menuBarItems["File"].exists,
             file: file,
@@ -521,54 +622,30 @@ final class MuralumeLaunchTests: XCTestCase {
             line: line
         )
 
-        let actionsMenu = application.menuBars.menuBarItems["Actions"]
-        XCTAssertTrue(
-            actionsMenu.waitForExistence(timeout: 5),
-            file: file,
-            line: line
-        )
-        actionsMenu.click()
-        XCTAssertTrue(
-            application.menuItems["Add Folder"].exists,
-            file: file,
-            line: line
-        )
-        XCTAssertTrue(
-            application.menuItems["Toggle Full Screen"].exists,
-            file: file,
-            line: line
-        )
-        application.typeKey(.escape, modifierFlags: [])
-
-        let windowMenu = application.menuBars.menuBarItems["Window"]
-        XCTAssertTrue(
-            windowMenu.waitForExistence(timeout: 5),
-            file: file,
-            line: line
-        )
-        windowMenu.click()
-        application.typeKey(.escape, modifierFlags: [])
-        XCTAssertTrue(windowMenu.exists, file: file, line: line)
-        XCTAssertTrue(actionsMenu.exists, file: file, line: line)
-
         let appMenu = application.menuBars.menuBarItems["Muralume"]
         XCTAssertTrue(
             appMenu.waitForExistence(timeout: 5),
             file: file,
             line: line
         )
-        appMenu.click()
+        let actionsMenu = application.menuBars.menuBarItems["Actions"]
         XCTAssertTrue(
-            application.menuItems["Settings…"].exists,
+            actionsMenu.waitForExistence(timeout: 5),
             file: file,
             line: line
         )
-        XCTAssertFalse(
-            application.menuItems["Settings"].exists,
+        let windowMenu = application.menuBars.menuBarItems["Window"]
+        XCTAssertTrue(
+            windowMenu.waitForExistence(timeout: 5),
             file: file,
             line: line
         )
-        application.typeKey(.escape, modifierFlags: [])
+        let helpMenu = application.menuBars.menuBarItems["Help"]
+        XCTAssertTrue(
+            helpMenu.waitForExistence(timeout: 5),
+            file: file,
+            line: line
+        )
     }
 
     private func assertWindowControlsAlignWithBrand(

@@ -221,6 +221,18 @@ check_architecture() {
         '\b(AppCoordinator|AVFoundationPlaybackEngine|MacDesktopHost|MacMainWindowPresenter|MacMediaFolderPicker|PlayerLayerSurfaceView|UserSelectedMediaSession)\b' \
         "feature code references App or a concrete infrastructure type."
 
+    reject_references \
+        "Player controls" \
+        "${project_root}/Muralume/Features/Player/PlayerControlBar.swift" \
+        '\.keyboardShortcut\(' \
+        "player shortcuts must have a single owner in the app command menu."
+
+    reject_references \
+        "App menu ownership" \
+        "${project_root}/Muralume/App" \
+        '\b(CommandMenu|CommandGroup|SettingsLink|commandsRemoved|commandsReplaced)\b|NSMenu\.didAddItemNotification' \
+        "the AppKit main menu must not be replaced or pruned by a SwiftUI command graph."
+
     for retired_entry in "${retired_entries[@]}"; do
         if [[ -e "${retired_entry}" ]]; then
             echo "Retired source entry still exists: ${retired_entry}" >&2
