@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 enum MuralumeTheme {
@@ -33,12 +32,6 @@ enum MuralumeTheme {
         static let warning = Color(red: 1, green: 185 / 255, blue: 92 / 255)
         static let error = Color(red: 1, green: 110 / 255, blue: 120 / 255)
 
-        static let windowNSColor = NSColor(
-            red: 10 / 255,
-            green: 10 / 255,
-            blue: 14 / 255,
-            alpha: 1
-        )
     }
 
     enum Spacing {
@@ -65,7 +58,6 @@ enum MuralumeTheme {
         static let playerTopBarSourceMaximumWidth: CGFloat = 320
         static let windowControlClusterWidth: CGFloat = 60
         static let compactControl: CGFloat = 28
-        static let settingsBrandMark: CGFloat = 48
         static let emptyBrandMark: CGFloat = 88
         static let icon: CGFloat = 16
         static let iconLarge: CGFloat = 20
@@ -79,10 +71,11 @@ enum MuralumeTheme {
         static let sliderActiveThumbDiameter: CGFloat = 20
         static let sliderHitTargetHeight: CGFloat = 28
         static let playlistOverlayWidth: CGFloat = 320
+        static let settingsPanelWidth: CGFloat = 400
+        static let settingsRowMinimumHeight: CGFloat = 60
         static let playlistHeaderActionWidth: CGFloat = 68
         static let playerControlsMaximumWidth: CGFloat = 1_040
         static let widePlayerControlsMinimumWidth: CGFloat = 1_000
-        static let playerControlsReservedHeight: CGFloat = 136
         static let playlistRowHeight: CGFloat = 72
         static let playlistArtworkWidth: CGFloat = 84
         static let playlistArtworkHeight: CGFloat = 48
@@ -143,6 +136,10 @@ enum MuralumeAccessibilityIdentifier {
     static let minimizeWindowButton = "muralume.window-minimize"
     static let fullScreenWindowButton = "muralume.window-fullscreen"
     static let settingsView = "muralume.settings-view"
+    static let settingsCloseButton = "muralume.settings-close"
+    static let settingsCategoryMenu = "muralume.settings-category-menu"
+    static let settingsGeneralSection = "muralume.settings-section.general"
+    static let settingsLanguageRow = "muralume.settings-row.language"
     static let languagePicker = "muralume.language-picker"
 }
 

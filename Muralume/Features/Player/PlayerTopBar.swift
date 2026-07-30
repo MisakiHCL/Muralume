@@ -5,6 +5,7 @@ import SwiftUI
 struct PlayerTopBar: View {
     let playback: PlaybackCoordinator
     let isFullScreen: Bool
+    let isSettingsPresented: Bool
     let actions: PlayerActions
 
     @Environment(\.locale) private var locale
@@ -13,10 +14,12 @@ struct PlayerTopBar: View {
     init(
         playback: PlaybackCoordinator,
         isFullScreen: Bool,
+        isSettingsPresented: Bool,
         actions: PlayerActions
     ) {
         self.playback = playback
         self.isFullScreen = isFullScreen
+        self.isSettingsPresented = isSettingsPresented
         self.actions = actions
         _sourceDisplayName = State(
             initialValue: playback.source?.displayName
@@ -103,17 +106,27 @@ struct PlayerTopBar: View {
     }
 
     private var settings: some View {
-        Button(action: actions.openSettings) {
+        Button(action: actions.toggleSettings) {
             Image(systemName: "gearshape")
         }
         .buttonStyle(
-            MuralumeControlButtonStyle(scale: .compact)
+            MuralumeControlButtonStyle(
+                kind: isSettingsPresented ? .selected : .standard,
+                scale: .compact
+            )
         )
-        .help(Text("settings.open"))
-        .accessibilityLabel(Text("settings.open"))
+        .help(Text(settingsButtonLabelKey))
+        .accessibilityLabel(Text(settingsButtonLabelKey))
+        .accessibilityAddTraits(
+            isSettingsPresented ? .isSelected : []
+        )
         .accessibilityIdentifier(
             MuralumeAccessibilityIdentifier.openSettingsButton
         )
+    }
+
+    private var settingsButtonLabelKey: LocalizedStringKey {
+        isSettingsPresented ? "settings.close" : "settings.open"
     }
 
     private func currentSource(_ displayName: String) -> some View {

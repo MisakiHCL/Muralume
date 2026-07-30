@@ -89,8 +89,9 @@
 "queue.item.unavailable" = "不可用，激活可重试。";
 "settings.title" = "设置";
 "settings.open" = "打开设置";
+"settings.close" = "关闭设置";
 "settings.general" = "通用";
-"settings.language" = "应用语言";
+"settings.language" = "语言";
 "settings.language.description" = "选择 Muralume 使用的语言，更改会立即生效。";
 "settings.language.system" = "跟随系统";
 "settings.language.english" = "English";

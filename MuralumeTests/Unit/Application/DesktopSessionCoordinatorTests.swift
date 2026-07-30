@@ -81,6 +81,108 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(playNextCount, 1)
     }
 
+    func testCancellingDesktopEntryPreservesPlaybackIntent() async {
+        let engine = TestPlaybackEngine()
+        let playback = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        let desktopHost = TestDesktopHost()
+        let statusMenu = TestDesktopStatusPresenter()
+        let mainWindow = TestMainWindowPresenter()
+        let applicationPresence = TestApplicationPresenceController()
+        let session = DesktopSessionCoordinator(
+            playback: playback,
+            desktopHost: desktopHost,
+            statusMenu: statusMenu,
+            videoContentModeStore: TestDesktopVideoContentModeStore(),
+            lifecycleMonitor: TestSystemLifecycleMonitor(),
+            mainWindow: mainWindow,
+            applicationPresence: applicationPresence
+        )
+        defer {
+            session.shutdown()
+        }
+
+        playback.registerPlayerSurface(playerSurface)
+        await playback.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+        engine.shouldBlockAttachments = true
+
+        session.enterDesktop()
+        await waitUntil {
+            engine.didBeginBlockedAttachment
+                && self.isSwitching(
+                    playback.presentation,
+                    to: .desktop
+                )
+        }
+
+        engine.shouldBlockAttachments = false
+        session.returnToPlayer()
+        await waitUntil {
+            !session.isTransitioning
+                && playback.presentation == .player
+        }
+
+        XCTAssertTrue(playback.isPlaybackRequested)
+        XCTAssertTrue(engine.isPlaying)
+        XCTAssertFalse(playback.isPlayerWindowDismissed)
+        XCTAssertFalse(session.isActive)
+        XCTAssertEqual(mainWindow.prepareForReturnCount, 1)
+        XCTAssertEqual(mainWindow.showCount, 1)
+        XCTAssertEqual(desktopHost.closeCount, 1)
+        XCTAssertEqual(statusMenu.removeCount, 1)
+        XCTAssertEqual(applicationPresence.appliedModes, [.standard])
+    }
+
+    func testRepeatedReturnDuringPlayerTransitionIsNonDestructive() async {
+        let engine = TestPlaybackEngine()
+        let playback = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        let session = DesktopSessionCoordinator(
+            playback: playback,
+            desktopHost: TestDesktopHost(),
+            statusMenu: TestDesktopStatusPresenter(),
+            videoContentModeStore: TestDesktopVideoContentModeStore(),
+            lifecycleMonitor: TestSystemLifecycleMonitor(),
+            mainWindow: TestMainWindowPresenter(),
+            applicationPresence: TestApplicationPresenceController()
+        )
+        defer {
+            session.shutdown()
+        }
+
+        playback.registerPlayerSurface(playerSurface)
+        await playback.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+        session.enterDesktop()
+        await waitUntil { session.isActive }
+
+        engine.shouldBlockAttachments = true
+        session.returnToPlayer()
+        await waitUntil {
+            self.isSwitching(
+                playback.presentation,
+                to: .player
+            )
+        }
+
+        session.returnToPlayer()
+
+        XCTAssertTrue(playback.isPlaybackRequested)
+        XCTAssertFalse(playback.isPlayerWindowDismissed)
+        XCTAssertTrue(
+            isSwitching(playback.presentation, to: .player)
+        )
+    }
+
     func testLifecycleEventsPauseOnlyTheDesktopPresentation() async {
         let engine = TestPlaybackEngine()
         let playback = PlaybackCoordinator(engine: engine)
@@ -569,5 +671,15 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
 
     private func actionName(_ item: NSMenuItem) -> String? {
         item.action.map(NSStringFromSelector)
+    }
+
+    private func isSwitching(
+        _ presentation: PlaybackPresentation,
+        to destination: PlaybackSurfaceID
+    ) -> Bool {
+        guard case let .switching(_, currentDestination) = presentation else {
+            return false
+        }
+        return currentDestination == destination
     }
 }

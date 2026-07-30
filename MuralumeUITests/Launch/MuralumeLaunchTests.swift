@@ -15,6 +15,8 @@ final class MuralumeLaunchTests: XCTestCase {
         static let maximumWindowControlVerticalOffset: CGFloat = 2
         static let minimumBrandControlGap: CGFloat = 8
         static let maximumBrandControlGap: CGFloat = 16
+        static let minimumSidePanelInset: CGFloat = 16
+        static let maximumSidePanelInsetOffset: CGFloat = 2
         static let maximumWindowEdgeOffset: CGFloat = 2
         static let fullScreenTransitionTimeout: TimeInterval = 5
     }
@@ -161,6 +163,7 @@ final class MuralumeLaunchTests: XCTestCase {
             .descendants(matching: .any)
             .matching(identifier: "muralume.player-controls")
             .firstMatch
+        XCTAssertTrue(playerControls.waitForExistence(timeout: 5))
         XCTAssertEqual(
             playerControls
                 .descendants(matching: .any)
@@ -437,7 +440,7 @@ final class MuralumeLaunchTests: XCTestCase {
     }
 
     @MainActor
-    func testCommandWClosesSettingsWithoutDismissingMainWindow() {
+    func testSettingsUsesOneMainWindowAndBlocksPlayerCommands() {
         let application = launchEmptyLibrary()
         let mainWindow = application.windows.firstMatch
         XCTAssertTrue(
@@ -465,13 +468,88 @@ final class MuralumeLaunchTests: XCTestCase {
                 timeout: LifecycleExpectation.windowTransitionTimeout
             )
         )
+        XCTAssertEqual(application.windows.count, 1)
+        XCTAssertTrue(mainWindow.frame.contains(settingsView.frame))
+        XCTAssertEqual(
+            application
+                .descendants(matching: .any)
+                .matching(identifier: "muralume.settings-view")
+                .count,
+            1
+        )
+
+        let languagePicker = application
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.language-picker")
+            .firstMatch
+        let closeSettingsButton = application
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.settings-close")
+            .firstMatch
+        XCTAssertTrue(
+            languagePicker.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        XCTAssertTrue(
+            closeSettingsButton.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        let languageRow = application
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.settings-row.language")
+            .firstMatch
+        XCTAssertTrue(
+            languageRow.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        XCTAssertTrue(
+            languageRow.frame.contains(
+                CGPoint(
+                    x: languagePicker.frame.midX,
+                    y: languagePicker.frame.midY
+                )
+            )
+        )
+        assertSidePanelSpacing(
+            settingsView,
+            in: application,
+            window: mainWindow
+        )
+
+        languagePicker.click()
+        XCTAssertTrue(
+            application.menuItems["Follow System"].waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        application.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(settingsView.exists)
 
         let actionsMenu = application.menuBars.menuBarItems["Actions"]
         XCTAssertTrue(actionsMenu.waitForExistence(timeout: 5))
         actionsMenu.click()
-        let fullScreenItem = application.menuItems["Toggle Full Screen"]
-        XCTAssertTrue(fullScreenItem.exists)
-        XCTAssertFalse(fullScreenItem.isEnabled)
+        for itemTitle in [
+            "Add Folder",
+            "Play",
+            "Back 10 seconds",
+            "Forward 10 seconds",
+            "Previous Video",
+            "Next Video",
+            "Volume Up",
+            "Volume Down",
+            "Mute",
+            "Toggle Full Screen"
+        ] {
+            let item = application.menuItems[itemTitle]
+            XCTAssertTrue(item.exists, "\(itemTitle) should remain visible")
+            XCTAssertFalse(
+                item.isEnabled,
+                "\(itemTitle) should be disabled behind Settings"
+            )
+        }
         application.typeKey(.escape, modifierFlags: [])
 
         application.typeKey("f", modifierFlags: [])
@@ -491,7 +569,7 @@ final class MuralumeLaunchTests: XCTestCase {
             .timedOut
         )
 
-        application.typeKey("w", modifierFlags: .command)
+        application.typeKey(.escape, modifierFlags: [])
 
         XCTAssertTrue(
             settingsView.waitForNonExistence(
@@ -500,6 +578,25 @@ final class MuralumeLaunchTests: XCTestCase {
         )
         XCTAssertTrue(mainWindow.exists)
         XCTAssertEqual(application.windows.count, 1)
+        XCTAssertEqual(mainWindow.frame, mainWindowFrame)
+
+        let sidebar = application
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.library-sidebar")
+            .firstMatch
+        XCTAssertTrue(
+            sidebar.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+
+        application.typeKey(.escape, modifierFlags: [])
+
+        XCTAssertTrue(
+            sidebar.waitForNonExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
     }
 
     @MainActor
@@ -546,6 +643,86 @@ final class MuralumeLaunchTests: XCTestCase {
         XCTAssertLessThanOrEqual(
             element.frame.minY - window.frame.minY,
             LayoutExpectation.maximumToolbarInset,
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertSidePanelSpacing(
+        _ panelContent: XCUIElement,
+        in application: XCUIApplication,
+        window: XCUIElement,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let topBar = application
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.player-top-bar")
+            .firstMatch
+        let playerControls = application
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.player-controls")
+            .firstMatch
+        XCTAssertTrue(
+            topBar.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            ),
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            playerControls.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            ),
+            file: file,
+            line: line
+        )
+
+        let geometryExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                let topInset =
+                    panelContent.frame.minY - topBar.frame.maxY
+                let trailingInset =
+                    window.frame.maxX - panelContent.frame.maxX
+                let bottomInset =
+                    playerControls.frame.minY - panelContent.frame.maxY
+                return topInset
+                    >= LayoutExpectation.minimumSidePanelInset
+                    && abs(topInset - trailingInset)
+                    <= LayoutExpectation.maximumSidePanelInsetOffset
+                    && abs(topInset - bottomInset)
+                    <= LayoutExpectation.maximumSidePanelInsetOffset
+            },
+            object: panelContent
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(
+                for: [geometryExpectation],
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            ),
+            .completed,
+            file: file,
+            line: line
+        )
+        let topInset =
+            panelContent.frame.minY - topBar.frame.maxY
+        XCTAssertGreaterThanOrEqual(
+            topInset,
+            LayoutExpectation.minimumSidePanelInset,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            window.frame.maxX - panelContent.frame.maxX,
+            topInset,
+            accuracy: LayoutExpectation.maximumSidePanelInsetOffset,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            playerControls.frame.minY - panelContent.frame.maxY,
+            topInset,
+            accuracy: LayoutExpectation.maximumSidePanelInsetOffset,
             file: file,
             line: line
         )

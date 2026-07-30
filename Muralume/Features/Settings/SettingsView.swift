@@ -1,28 +1,51 @@
 import SwiftUI
 
+enum SettingsCategory: String, CaseIterable, Identifiable {
+    case general
+
+    var id: Self {
+        self
+    }
+
+    var localizedKey: LocalizedStringKey {
+        switch self {
+        case .general:
+            "settings.general"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .general:
+            "gearshape"
+        }
+    }
+}
+
 struct SettingsView: View {
-    @ObservedObject var localization: AppLocalizationController
+    @EnvironmentObject private var localization: AppLocalizationController
+    @State private var selectedCategory = SettingsCategory.general
+
+    let dismiss: () -> Void
 
     var body: some View {
-        ZStack {
-            MuralumeBackground()
+        VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.medium) {
+            header
 
-            VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.xLarge) {
-                header
+            Divider()
+                .overlay(MuralumeTheme.Colors.border)
 
-                Divider()
-                    .overlay(MuralumeTheme.Colors.border)
-
-                languageSection
-
-                Spacer(minLength: 0)
+            if SettingsCategory.allCases.count > 1 {
+                categoryMenu
             }
-            .padding(MuralumeTheme.Spacing.xLarge)
+
+            ScrollView {
+                categoryContent
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollIndicators(.visible)
         }
-        .frame(
-            width: AppConfiguration.settingsWindowWidth,
-            height: AppConfiguration.settingsWindowHeight
-        )
+        .padding(MuralumeTheme.Spacing.medium)
         .foregroundStyle(MuralumeTheme.Colors.textPrimary)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(
@@ -31,38 +54,109 @@ struct SettingsView: View {
     }
 
     private var header: some View {
-        HStack(spacing: MuralumeTheme.Spacing.medium) {
-            MuralumeBrandMark(size: MuralumeTheme.Size.settingsBrandMark)
+        HStack(spacing: MuralumeTheme.Spacing.small) {
+            Label("settings.title", systemImage: "gearshape")
+                .font(.headline)
+                .foregroundStyle(MuralumeTheme.Colors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
 
-            VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.xSmall) {
-                Text("settings.title")
-                    .font(.title2.weight(.bold))
-                Text("settings.general")
-                    .font(.body)
-                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+            Spacer(minLength: MuralumeTheme.Spacing.small)
+
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+                    .font(
+                        .system(
+                            size: MuralumeTheme.Size.icon,
+                            weight: .semibold
+                        )
+                    )
             }
+            .buttonStyle(MuralumeToolbarButtonStyle())
+            .help(Text("settings.close"))
+            .accessibilityLabel(Text("settings.close"))
+            .accessibilityIdentifier(
+                MuralumeAccessibilityIdentifier.settingsCloseButton
+            )
         }
-        .accessibilityElement(children: .combine)
+        .frame(
+            minHeight: MuralumeTheme.Size.control,
+            alignment: .center
+        )
     }
 
-    private var languageSection: some View {
-        HStack(alignment: .top, spacing: MuralumeTheme.Spacing.xLarge) {
-            VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.small) {
-                Text("settings.language")
-                    .font(.headline)
-
-                Text("settings.language.description")
-                    .font(.body)
-                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+    private var categoryMenu: some View {
+        Menu {
+            ForEach(SettingsCategory.allCases) { category in
+                Button {
+                    selectedCategory = category
+                } label: {
+                    if category == selectedCategory {
+                        Label(
+                            category.localizedKey,
+                            systemImage: "checkmark"
+                        )
+                    } else {
+                        Text(category.localizedKey)
+                    }
+                }
             }
-
-            Spacer(minLength: MuralumeTheme.Spacing.large)
-
-            languageMenu
+        } label: {
+            HStack(spacing: MuralumeTheme.Spacing.small) {
+                Image(systemName: selectedCategory.systemImage)
+                Text(selectedCategory.localizedKey)
+                    .font(.body.weight(.medium))
+                Spacer(minLength: MuralumeTheme.Spacing.small)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(
+                        .system(
+                            size: MuralumeTheme.Size.menuIndicator,
+                            weight: .semibold
+                        )
+                    )
+            }
+            .foregroundStyle(MuralumeTheme.Colors.textPrimary)
+            .padding(.horizontal, MuralumeTheme.Spacing.medium)
+            .frame(height: MuralumeTheme.Size.control)
+            .background {
+                RoundedRectangle(
+                    cornerRadius: MuralumeTheme.Radius.medium,
+                    style: .continuous
+                )
+                .fill(MuralumeTheme.Colors.controlFill)
+                .overlay {
+                    RoundedRectangle(
+                        cornerRadius: MuralumeTheme.Radius.medium,
+                        style: .continuous
+                    )
+                    .stroke(MuralumeTheme.Colors.border, lineWidth: 1)
+                }
+            }
         }
-        .padding(MuralumeTheme.Spacing.large)
-        .muralumePanel(cornerRadius: MuralumeTheme.Radius.medium)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .accessibilityIdentifier(
+            MuralumeAccessibilityIdentifier.settingsCategoryMenu
+        )
+    }
+
+    @ViewBuilder
+    private var categoryContent: some View {
+        switch selectedCategory {
+        case .general:
+            SettingsSection(
+                title: "settings.general",
+                accessibilityIdentifier:
+                    MuralumeAccessibilityIdentifier.settingsGeneralSection
+            ) {
+                SettingsRow(
+                    title: "settings.language",
+                    accessibilityIdentifier:
+                        MuralumeAccessibilityIdentifier.settingsLanguageRow
+                ) {
+                    languageMenu
+                }
+            }
+        }
     }
 
     private var languageMenu: some View {
@@ -128,8 +222,92 @@ struct SettingsView: View {
                 )
             )
         )
+        .accessibilityHint(Text("settings.language.description"))
         .accessibilityIdentifier(
             MuralumeAccessibilityIdentifier.languagePicker
         )
+    }
+}
+
+private struct SettingsSection<Content: View>: View {
+    let title: LocalizedStringKey
+    let accessibilityIdentifier: String
+    let content: Content
+
+    init(
+        title: LocalizedStringKey,
+        accessibilityIdentifier: String,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.medium) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(MuralumeTheme.Colors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+
+            content
+        }
+        .padding(.vertical, MuralumeTheme.Spacing.xSmall)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(accessibilityIdentifier)
+    }
+}
+
+private struct SettingsRow<Control: View>: View {
+    let title: LocalizedStringKey
+    let accessibilityIdentifier: String
+    let control: Control
+
+    init(
+        title: LocalizedStringKey,
+        accessibilityIdentifier: String,
+        @ViewBuilder control: () -> Control
+    ) {
+        self.title = title
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.control = control()
+    }
+
+    var body: some View {
+        HStack(spacing: MuralumeTheme.Spacing.large) {
+            Text(title)
+                .font(.body.weight(.medium))
+                .foregroundStyle(MuralumeTheme.Colors.textPrimary)
+                .lineLimit(1)
+                .accessibilityHidden(true)
+
+            Spacer(minLength: MuralumeTheme.Spacing.large)
+
+            control
+        }
+        .padding(.horizontal, MuralumeTheme.Spacing.large)
+        .padding(.vertical, MuralumeTheme.Spacing.medium)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: MuralumeTheme.Size.settingsRowMinimumHeight,
+            alignment: .leading
+        )
+        .background {
+            RoundedRectangle(
+                cornerRadius: MuralumeTheme.Radius.medium,
+                style: .continuous
+            )
+            .fill(MuralumeTheme.Colors.controlFill.opacity(0.52))
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: MuralumeTheme.Radius.medium,
+                    style: .continuous
+                )
+                .stroke(MuralumeTheme.Colors.border, lineWidth: 1)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 }

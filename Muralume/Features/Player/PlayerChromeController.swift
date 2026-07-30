@@ -17,12 +17,25 @@ struct PlayerChromePlaybackState: Equatable {
     )
 }
 
+enum PlayerSidePanel: Equatable {
+    case playlist
+    case settings
+}
+
 @MainActor
 final class PlayerChromeController: ObservableObject {
     typealias Sleep = @Sendable (UInt64) async throws -> Void
 
     @Published private(set) var isVisible = true
-    @Published private(set) var isPlaylistPresented = true
+    @Published private(set) var presentedPanel: PlayerSidePanel? = .playlist
+
+    var isPlaylistPresented: Bool {
+        presentedPanel == .playlist
+    }
+
+    var isSettingsPresented: Bool {
+        presentedPanel == .settings
+    }
 
     private let autoHideDelayNanoseconds: UInt64
     private let sleep: Sleep
@@ -30,6 +43,7 @@ final class PlayerChromeController: ObservableObject {
     private var playbackState = PlayerChromePlaybackState.empty
     private var isFullScreen = false
     private var restoresPlaylistAfterFullScreen = false
+    private var restoresPlaylistAfterSettings = false
     private var autoHideTask: Task<Void, Never>?
 
     init(
@@ -53,14 +67,57 @@ final class PlayerChromeController: ObservableObject {
     }
 
     func setPlaylistPresented(_ isPresented: Bool) {
+        guard isPresented || isPlaylistPresented else {
+            return
+        }
+
         restoresPlaylistAfterFullScreen = false
+        restoresPlaylistAfterSettings = false
         setVisible(true)
-        isPlaylistPresented = isPresented
+        presentedPanel = isPresented ? .playlist : nil
         refreshAutoHideTask()
     }
 
     func togglePlaylist() {
         setPlaylistPresented(!isPlaylistPresented)
+    }
+
+    func setSettingsPresented(_ isPresented: Bool) {
+        if isPresented {
+            guard !isSettingsPresented else {
+                return
+            }
+            restoresPlaylistAfterSettings = isPlaylistPresented
+            setVisible(true)
+            presentedPanel = .settings
+            refreshAutoHideTask()
+            return
+        }
+
+        guard isSettingsPresented else {
+            return
+        }
+
+        presentedPanel = nil
+        restorePlaylistAfterSettingsIfNeeded()
+        refreshAutoHideTask()
+    }
+
+    func toggleSettings() {
+        setSettingsPresented(!isSettingsPresented)
+    }
+
+    @discardableResult
+    func dismissPresentedPanel() -> Bool {
+        switch presentedPanel {
+        case .settings:
+            setSettingsPresented(false)
+        case .playlist:
+            setPlaylistPresented(false)
+        case nil:
+            return false
+        }
+        return true
     }
 
     func updatePlaybackState(_ state: PlayerChromePlaybackState) {
@@ -88,10 +145,10 @@ final class PlayerChromeController: ObservableObject {
             applyFullScreenPlaylistPolicy()
         } else {
             if restoresPlaylistAfterFullScreen,
-               !isPlaylistPresented {
-                isPlaylistPresented = true
+               presentedPanel == nil {
+                presentedPanel = .playlist
+                restoresPlaylistAfterFullScreen = false
             }
-            restoresPlaylistAfterFullScreen = false
         }
 
         refreshAutoHideTask()
@@ -105,7 +162,24 @@ final class PlayerChromeController: ObservableObject {
         }
 
         restoresPlaylistAfterFullScreen = true
-        isPlaylistPresented = false
+        presentedPanel = nil
+    }
+
+    private func restorePlaylistAfterSettingsIfNeeded() {
+        let shouldRestorePlaylist =
+            restoresPlaylistAfterSettings
+            || (!isFullScreen && restoresPlaylistAfterFullScreen)
+        restoresPlaylistAfterSettings = false
+
+        guard shouldRestorePlaylist else {
+            return
+        }
+
+        presentedPanel = .playlist
+        if !isFullScreen {
+            restoresPlaylistAfterFullScreen = false
+        }
+        applyFullScreenPlaylistPolicy()
     }
 
     private func refreshAutoHideTask() {
@@ -151,7 +225,7 @@ final class PlayerChromeController: ObservableObject {
     }
 
     private var shouldAutoHide: Bool {
-        playbackState.canAutoHideChrome && !isPlaylistPresented
+        playbackState.canAutoHideChrome && presentedPanel == nil
     }
 }
 

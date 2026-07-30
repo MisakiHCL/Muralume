@@ -45,9 +45,6 @@ struct LibraryQueueSidebar: View {
             }
         }
         .padding(MuralumeTheme.Spacing.medium)
-        .frame(width: MuralumeTheme.Size.playlistOverlayWidth)
-        .frame(maxHeight: .infinity)
-        .muralumePanel(style: .playerOverlay)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(
             MuralumeAccessibilityIdentifier.librarySidebar

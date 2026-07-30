@@ -7,12 +7,12 @@ struct PlayerScreen<PlayerSurface: View>: View {
     let library: MediaLibraryCoordinator
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let isFullScreen: Bool
+    @ObservedObject var chromeController: PlayerChromeController
     let actions: PlayerActions
     let playerSurface: PlayerSurface
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
-    @StateObject private var chromeController = PlayerChromeController()
 
     var body: some View {
         ZStack {
@@ -47,67 +47,11 @@ struct PlayerScreen<PlayerSurface: View>: View {
                     maxHeight: .infinity,
                     alignment: .top
                 )
-                .zIndex(3)
+                .zIndex(5)
             }
 
-            if chromeController.isPlaylistPresented {
-                LibraryQueueSidebar(
-                    library: library,
-                    playback: playback,
-                    mediaThumbnailProvider: mediaThumbnailProvider,
-                    addFolders: actions.addFolders,
-                    dismiss: {
-                        chromeController.setPlaylistPresented(false)
-                    }
-                )
-                .padding(.top, playerTopContentInset)
-                .padding(.trailing, MuralumeTheme.Spacing.large)
-                .padding(
-                    .bottom,
-                    MuralumeTheme.Size.playerControlsReservedHeight
-                )
-                .frame(
-                    maxWidth: .infinity,
-                    maxHeight: .infinity,
-                    alignment: .topTrailing
-                )
-                .transition(
-                    .move(edge: .trailing).combined(with: .opacity)
-                )
-                .zIndex(2)
-            }
-
-            PlayerControls(
-                playback: playback,
-                library: library,
-                actions: actions,
-                isPlaylistPresented: chromeController.isPlaylistPresented,
-                togglePlaylist: {
-                    chromeController.togglePlaylist()
-                }
-            )
-            .frame(
-                maxWidth: MuralumeTheme.Size.playerControlsMaximumWidth
-            )
-            .padding(MuralumeTheme.Spacing.large)
-            .frame(
-                maxWidth: .infinity,
-                maxHeight: .infinity,
-                alignment: .bottom
-            )
-            .offset(
-                y: chromeController.isVisible
-                    ? 0
-                    : MuralumeTheme.Spacing.xLarge
-            )
-            .opacity(chromeController.isVisible ? 1 : 0)
-            .allowsHitTesting(chromeController.isVisible)
-            .accessibilityHidden(!chromeController.isVisible)
-            .animation(
-                playerChromeAnimation,
-                value: chromeController.isVisible
-            )
-            .zIndex(4)
+            playerChrome
+                .zIndex(4)
 
             playerTopBar
                 .frame(
@@ -115,11 +59,11 @@ struct PlayerScreen<PlayerSurface: View>: View {
                     maxHeight: .infinity,
                     alignment: .top
                 )
-                .zIndex(5)
+                .zIndex(6)
         }
         .animation(
             playerChromeAnimation,
-            value: chromeController.isPlaylistPresented
+            value: chromeController.presentedPanel
         )
         .frame(
             minWidth: AppConfiguration.minimumWindowWidth,
@@ -143,10 +87,61 @@ struct PlayerScreen<PlayerSurface: View>: View {
             + MuralumeTheme.Spacing.large
     }
 
+    private var playerChrome: some View {
+        VStack(spacing: MuralumeTheme.Spacing.large) {
+            Color.clear
+                .frame(height: MuralumeTheme.Size.playerTopBarHeight)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
+            ZStack(alignment: .topTrailing) {
+                sidePanel
+            }
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .topTrailing
+            )
+
+            playerControls
+        }
+        .padding(.horizontal, MuralumeTheme.Spacing.large)
+        .padding(.bottom, MuralumeTheme.Spacing.large)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var playerControls: some View {
+        PlayerControls(
+            playback: playback,
+            library: library,
+            actions: actions,
+            isPlaylistPresented: chromeController.isPlaylistPresented,
+            togglePlaylist: {
+                chromeController.togglePlaylist()
+            }
+        )
+        .frame(
+            maxWidth: MuralumeTheme.Size.playerControlsMaximumWidth
+        )
+        .offset(
+            y: chromeController.isVisible
+                ? 0
+                : MuralumeTheme.Spacing.xLarge
+        )
+        .opacity(chromeController.isVisible ? 1 : 0)
+        .allowsHitTesting(chromeController.isVisible)
+        .accessibilityHidden(!chromeController.isVisible)
+        .animation(
+            playerChromeAnimation,
+            value: chromeController.isVisible
+        )
+    }
+
     private var playerTopBar: some View {
         PlayerTopBar(
             playback: playback,
             isFullScreen: isFullScreen,
+            isSettingsPresented: chromeController.isSettingsPresented,
             actions: actions
         )
         .offset(
@@ -163,6 +158,48 @@ struct PlayerScreen<PlayerSurface: View>: View {
             playerChromeAnimation,
             value: chromeController.isVisible
         )
+    }
+
+    @ViewBuilder
+    private var sidePanel: some View {
+        if let panel = chromeController.presentedPanel {
+            sidePanelContent(for: panel)
+                .frame(width: sidePanelWidth(for: panel))
+                .frame(maxHeight: .infinity)
+                .muralumePanel(style: .playerOverlay)
+                .transition(
+                    .move(edge: .trailing).combined(with: .opacity)
+                )
+        }
+    }
+
+    @ViewBuilder
+    private func sidePanelContent(for panel: PlayerSidePanel) -> some View {
+        switch panel {
+        case .playlist:
+            LibraryQueueSidebar(
+                library: library,
+                playback: playback,
+                mediaThumbnailProvider: mediaThumbnailProvider,
+                addFolders: actions.addFolders,
+                dismiss: {
+                    chromeController.setPlaylistPresented(false)
+                }
+            )
+        case .settings:
+            SettingsView {
+                chromeController.setSettingsPresented(false)
+            }
+        }
+    }
+
+    private func sidePanelWidth(for panel: PlayerSidePanel) -> CGFloat {
+        switch panel {
+        case .playlist:
+            MuralumeTheme.Size.playlistOverlayWidth
+        case .settings:
+            MuralumeTheme.Size.settingsPanelWidth
+        }
     }
 
     private var chromePlaybackStatePublisher:

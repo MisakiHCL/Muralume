@@ -89,8 +89,9 @@
 "queue.item.unavailable" = "Unavailable. Activate to retry.";
 "settings.title" = "Settings";
 "settings.open" = "Open Settings";
+"settings.close" = "Close Settings";
 "settings.general" = "General";
-"settings.language" = "App Language";
+"settings.language" = "Language";
 "settings.language.description" = "Choose the language used by Muralume. Changes apply immediately.";
 "settings.language.system" = "Follow System";
 "settings.language.english" = "English";

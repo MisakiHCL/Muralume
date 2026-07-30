@@ -116,7 +116,7 @@ final class DesktopSessionCoordinator: ObservableObject {
             return
         }
         if transitionTask != nil {
-            recoverPlayerWindowFromTransition()
+            returnToPlayerFromCurrentTransition()
             return
         }
         guard isActive else {
@@ -131,6 +131,10 @@ final class DesktopSessionCoordinator: ObservableObject {
 
         playback.restorePlayerWindow()
         mainWindow.prepareForReturn()
+        beginPlayerReturnTransition()
+    }
+
+    private func beginPlayerReturnTransition() {
         transitionGeneration &+= 1
         let generation = transitionGeneration
         transitionTask = Task { [weak self] in
@@ -152,6 +156,7 @@ final class DesktopSessionCoordinator: ObservableObject {
                     _ = applicationPresence.setMode(.menuBarOnly)
                     mainWindow.hideAfterFailedReturn()
                     desktopHost.reassertDesktopPlacement()
+                    isActive = true
                     transientFailure = .surfaceTimeout
                 }
             }
@@ -352,7 +357,14 @@ final class DesktopSessionCoordinator: ObservableObject {
         }
     }
 
-    private func recoverPlayerWindowFromTransition() {
+    private func returnToPlayerFromCurrentTransition() {
+        switch playback.presentation {
+        case .switching(_, .player), .player, .terminating:
+            return
+        case .desktop, .switching(_, .desktop):
+            break
+        }
+
         transientFailure = nil
         guard applicationPresence.setMode(.standard) else {
             transientFailure = .surfaceTimeout
@@ -360,12 +372,9 @@ final class DesktopSessionCoordinator: ObservableObject {
         }
 
         invalidateTransition()
-        playback.dismissPlayerWindow()
         playback.restorePlayerWindow()
-        mainWindow.show()
-        desktopHost.close()
-        statusMenu.remove()
-        isActive = false
+        mainWindow.prepareForReturn()
+        beginPlayerReturnTransition()
     }
 
     private func invalidateTransition() {

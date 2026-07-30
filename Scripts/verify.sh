@@ -233,6 +233,30 @@ check_architecture() {
         '\b(CommandMenu|CommandGroup|SettingsLink|commandsRemoved|commandsReplaced)\b|NSMenu\.didAddItemNotification' \
         "the AppKit main menu must not be replaced or pruned by a SwiftUI command graph."
 
+    reject_references \
+        "In-window settings" \
+        "${project_root}/Muralume" \
+        '\b(MacSettingsWindowController|MuralumeSettingsRootView|settingsWindowWidth|settingsWindowHeight)\b' \
+        "settings must stay inside the single player window."
+
+    reject_references \
+        "Settings presentation" \
+        "${project_root}/Muralume/Features/Settings/SettingsView.swift" \
+        '\.(sheet|popover)\(|\b(NSWindow|NSPanel|UserDefaultsAppPreferencesStore)\b' \
+        "settings must use the shared player side-panel slot and injected state."
+
+    reject_references \
+        "Settings side-panel glass" \
+        "${project_root}/Muralume/Features/Settings/SettingsView.swift" \
+        '\.muralumePanel\(' \
+        "the stable PlayerScreen side-panel shell must own the only Material."
+
+    reject_references \
+        "Playlist side-panel glass" \
+        "${project_root}/Muralume/Features/Library/LibraryQueueSidebar.swift" \
+        '\.muralumePanel\(' \
+        "the stable PlayerScreen side-panel shell must own the only Material."
+
     for retired_entry in "${retired_entries[@]}"; do
         if [[ -e "${retired_entry}" ]]; then
             echo "Retired source entry still exists: ${retired_entry}" >&2

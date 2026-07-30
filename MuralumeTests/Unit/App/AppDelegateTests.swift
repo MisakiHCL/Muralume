@@ -88,6 +88,21 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertTrue(window.isExcludedFromWindowsMenu)
     }
 
+    func testRuntimeMainWindowRoutesCancelOperationToPanelHandler() {
+        let window = MacApplicationRuntime.makeMainWindow(
+            title: "Muralume"
+        )
+        var invocationCount = 0
+        window.cancelOperationHandler = {
+            invocationCount += 1
+            return true
+        }
+
+        window.cancelOperation(nil)
+
+        XCTAssertEqual(invocationCount, 1)
+    }
+
     func testCanonicalApplicationMenuKeepsStandardMacActions() throws {
         let commandHandler = TestMainMenuCommandHandler()
         let controller = makeMainMenuController(

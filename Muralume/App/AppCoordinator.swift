@@ -7,10 +7,10 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     let desktopSession: DesktopSessionCoordinator
     let library: MediaLibraryCoordinator
     let mediaThumbnailProvider: any MediaThumbnailProviding
+    let playerChrome: PlayerChromeController
     @Published private(set) var isMainWindowFullScreen = false
 
     private let mainWindowPresenter: MacMainWindowPresenter
-    var openSettingsHandler: (() -> Void)?
     private var isShutDown = false
 
     init(
@@ -18,13 +18,15 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         desktopSession: DesktopSessionCoordinator,
         library: MediaLibraryCoordinator,
         mediaThumbnailProvider: any MediaThumbnailProviding,
-        mainWindowPresenter: MacMainWindowPresenter
+        mainWindowPresenter: MacMainWindowPresenter,
+        playerChrome: PlayerChromeController = PlayerChromeController()
     ) {
         self.playback = playback
         self.desktopSession = desktopSession
         self.library = library
         self.mediaThumbnailProvider = mediaThumbnailProvider
         self.mainWindowPresenter = mainWindowPresenter
+        self.playerChrome = playerChrome
 
         desktopSession.quitHandler = { [weak self] in
             self?.requestQuit()
@@ -64,6 +66,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     func enterDesktop() {
+        playerChrome.setSettingsPresented(false)
         desktopSession.enterDesktop()
     }
 
@@ -79,6 +82,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     func dismissMainWindow() {
+        playerChrome.setSettingsPresented(false)
         desktopSession.dismissMainWindow()
     }
 
@@ -108,6 +112,19 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         NSApp.terminate(nil)
     }
 
+    func toggleSettings() {
+        if playerChrome.isSettingsPresented {
+            playerChrome.setSettingsPresented(false)
+        } else {
+            openSettings()
+        }
+    }
+
+    @discardableResult
+    func dismissPresentedPanel() -> Bool {
+        playerChrome.dismissPresentedPanel()
+    }
+
     func shutdown() async {
         guard !isShutDown else {
             return
@@ -126,6 +143,7 @@ extension AppCoordinator: MacMainMenuCommandHandling {
             !desktopSession.isActive
             && !desktopSession.isTransitioning
             && !playback.isPlayerWindowDismissed
+            && !playerChrome.isSettingsPresented
             && !isShutDown
         let canControlPlayback =
             playback.readiness == .ready
@@ -172,14 +190,34 @@ extension AppCoordinator: MacMainMenuCommandHandling {
         return Publishers.MergeMany(
             playbackCommandChanges + [
                 desktopSession.objectWillChange.eraseToAnyPublisher(),
-                library.objectWillChange.eraseToAnyPublisher()
+                library.objectWillChange.eraseToAnyPublisher(),
+                playerChrome.$presentedPanel
+                    .map { _ in () }
+                    .eraseToAnyPublisher()
             ]
         )
         .eraseToAnyPublisher()
     }
 
     func openSettings() {
-        openSettingsHandler?()
+        if playerChrome.isSettingsPresented {
+            guard !desktopSession.isActive,
+                  !desktopSession.isTransitioning else {
+                return
+            }
+            mainWindowPresenter.show()
+            return
+        }
+
+        playerChrome.setSettingsPresented(true)
+        if desktopSession.isActive || desktopSession.isTransitioning {
+            desktopSession.returnToPlayer()
+            return
+        }
+        if playback.isPlayerWindowDismissed {
+            playback.restorePlayerWindow()
+        }
+        mainWindowPresenter.show()
     }
 
     func togglePlaybackFromMenu() {

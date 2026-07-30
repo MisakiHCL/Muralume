@@ -2,6 +2,18 @@ import AppKit
 import Combine
 import SwiftUI
 
+@MainActor
+final class MuralumeMainWindow: NSWindow {
+    var cancelOperationHandler: (() -> Bool)?
+
+    override func cancelOperation(_ sender: Any?) {
+        guard cancelOperationHandler?() != true else {
+            return
+        }
+        super.cancelOperation(sender)
+    }
+}
+
 @main
 @MainActor
 enum MuralumeApplication {
@@ -25,8 +37,7 @@ final class MacApplicationRuntime {
     private let application: NSApplication
     private let preferencesStore: any AppPreferencesStoring
     private let localization: AppLocalizationController
-    private let mainWindow: NSWindow
-    private let settingsWindowController: MacSettingsWindowController
+    private let mainWindow: MuralumeMainWindow
     private let mainMenuController: MacMainMenuController
     private var cancellables: Set<AnyCancellable> = []
     private var hasLaunched = false
@@ -51,18 +62,12 @@ final class MacApplicationRuntime {
         )
         self.coordinator = coordinator
 
-        let settingsWindowController = MacSettingsWindowController(
-            application: application,
-            localization: localization
-        )
-        self.settingsWindowController = settingsWindowController
-        coordinator.openSettingsHandler = { [weak settingsWindowController] in
-            settingsWindowController?.show()
-        }
-
         let mainWindow = Self.makeMainWindow(
             title: localization.localized("window.title")
         )
+        mainWindow.cancelOperationHandler = { [weak coordinator] in
+            coordinator?.dismissPresentedPanel() ?? false
+        }
         self.mainWindow = mainWindow
         coordinator.attachMainWindow(mainWindow)
 
@@ -107,12 +112,13 @@ final class MacApplicationRuntime {
     }
 
     func stop() {
+        mainWindow.cancelOperationHandler = nil
         mainMenuController.stop()
         cancellables.removeAll()
     }
 
-    static func makeMainWindow(title: String) -> NSWindow {
-        let window = NSWindow(
+    static func makeMainWindow(title: String) -> MuralumeMainWindow {
+        let window = MuralumeMainWindow(
             contentRect: NSRect(
                 x: 0,
                 y: 0,
@@ -153,6 +159,7 @@ private struct MuralumePlayerRootView: View {
             library: coordinator.library,
             mediaThumbnailProvider: coordinator.mediaThumbnailProvider,
             isFullScreen: coordinator.isMainWindowFullScreen,
+            chromeController: coordinator.playerChrome,
             actions: PlayerActions(
                 addFolders: {
                     coordinator.addFolders()
@@ -160,8 +167,8 @@ private struct MuralumePlayerRootView: View {
                 enterDesktop: {
                     coordinator.enterDesktop()
                 },
-                openSettings: {
-                    coordinator.openSettings()
+                toggleSettings: {
+                    coordinator.toggleSettings()
                 },
                 closeWindow: {
                     coordinator.dismissMainWindow()
@@ -189,80 +196,5 @@ private struct MuralumePlayerRootView: View {
         .environment(\.locale, localization.locale)
         .tint(MuralumeTheme.Colors.controlAccent)
         .preferredColorScheme(.dark)
-    }
-}
-
-@MainActor
-private final class MacSettingsWindowController {
-    private weak var application: NSApplication?
-    private let localization: AppLocalizationController
-    private var window: NSWindow?
-    private var localizationCancellable: AnyCancellable?
-
-    init(
-        application: NSApplication,
-        localization: AppLocalizationController
-    ) {
-        self.application = application
-        self.localization = localization
-
-        localizationCancellable = localization.localizationDidChange
-            .sink { [weak self] in
-                Task { @MainActor [weak self] in
-                    self?.updateLocalizedTitle()
-                }
-            }
-    }
-
-    func show() {
-        let window = window ?? makeWindow()
-        self.window = window
-        updateLocalizedTitle()
-        window.makeKeyAndOrderFront(nil)
-        application?.activate(ignoringOtherApps: true)
-    }
-
-    private func makeWindow() -> NSWindow {
-        let rootView = MuralumeSettingsRootView(
-            localization: localization
-        )
-        let window = NSWindow(
-            contentRect: NSRect(
-                x: 0,
-                y: 0,
-                width: AppConfiguration.settingsWindowWidth,
-                height: AppConfiguration.settingsWindowHeight
-            ),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentViewController = NSHostingController(
-            rootView: rootView
-        )
-        window.isReleasedWhenClosed = false
-        window.isRestorable = false
-        window.tabbingMode = .disallowed
-        window.isExcludedFromWindowsMenu = true
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.backgroundColor = MuralumeTheme.Colors.windowNSColor
-        window.center()
-        return window
-    }
-
-    private func updateLocalizedTitle() {
-        window?.title = localization.localized("settings.title")
-    }
-}
-
-private struct MuralumeSettingsRootView: View {
-    @ObservedObject var localization: AppLocalizationController
-
-    var body: some View {
-        SettingsView(localization: localization)
-            .environmentObject(localization)
-            .environment(\.locale, localization.locale)
-            .tint(MuralumeTheme.Colors.controlAccent)
-            .preferredColorScheme(.dark)
     }
 }

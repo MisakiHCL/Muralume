@@ -194,6 +194,61 @@ final class PlayerChromeControllerTests: XCTestCase {
         XCTAssertTrue(controller.isPlaylistPresented)
     }
 
+    func testSettingsReplacesPlaylistAndRestoresItWhenClosed() {
+        let controller = PlayerChromeController()
+
+        XCTAssertEqual(controller.presentedPanel, .playlist)
+        XCTAssertTrue(controller.isPlaylistPresented)
+        XCTAssertFalse(controller.isSettingsPresented)
+
+        controller.toggleSettings()
+
+        XCTAssertEqual(controller.presentedPanel, .settings)
+        XCTAssertFalse(controller.isPlaylistPresented)
+        XCTAssertTrue(controller.isSettingsPresented)
+
+        controller.toggleSettings()
+
+        XCTAssertEqual(controller.presentedPanel, .playlist)
+        XCTAssertTrue(controller.isPlaylistPresented)
+        XCTAssertFalse(controller.isSettingsPresented)
+    }
+
+    func testDismissPresentedPanelFollowsEscapePriority() {
+        let controller = PlayerChromeController()
+
+        controller.setSettingsPresented(true)
+
+        XCTAssertTrue(controller.dismissPresentedPanel())
+        XCTAssertEqual(controller.presentedPanel, .playlist)
+
+        XCTAssertTrue(controller.dismissPresentedPanel())
+        XCTAssertNil(controller.presentedPanel)
+        XCTAssertFalse(controller.dismissPresentedPanel())
+
+        controller.setSettingsPresented(true)
+
+        XCTAssertTrue(controller.dismissPresentedPanel())
+        XCTAssertNil(controller.presentedPanel)
+    }
+
+    func testSettingsKeepsChromeVisibleAndCancelsAutoHide() async {
+        let sleeper = ControlledPlayerChromeSleeper()
+        let controller = makeController(sleeper: sleeper)
+        controller.setPlaylistPresented(false)
+        controller.updatePlaybackState(.playing)
+        await waitForPendingSleep(in: sleeper)
+
+        controller.setSettingsPresented(true)
+        await sleeper.resumeAll()
+        await yieldSeveralTimes()
+
+        XCTAssertTrue(controller.isVisible)
+        XCTAssertTrue(controller.isSettingsPresented)
+        let pendingSleepCount = await sleeper.pendingCount
+        XCTAssertEqual(pendingSleepCount, 0)
+    }
+
     func testFullScreenAutoDismissedPlaylistIsRestoredOnExit() async {
         let sleeper = ControlledPlayerChromeSleeper()
         let controller = makeController(sleeper: sleeper)
@@ -225,6 +280,30 @@ final class PlayerChromeControllerTests: XCTestCase {
         controller.updateFullScreen(false)
 
         XCTAssertFalse(controller.isPlaylistPresented)
+    }
+
+    func testSettingsStaysPresentedInFullScreenAndDefersPlaylistRestore() {
+        let controller = PlayerChromeController()
+        controller.updatePlaybackState(.playing)
+        controller.setSettingsPresented(true)
+
+        controller.updateFullScreen(true)
+
+        XCTAssertEqual(controller.presentedPanel, .settings)
+        XCTAssertTrue(controller.isSettingsPresented)
+        XCTAssertFalse(controller.isPlaylistPresented)
+
+        controller.setSettingsPresented(false)
+
+        XCTAssertNil(controller.presentedPanel)
+        XCTAssertFalse(controller.isSettingsPresented)
+        XCTAssertFalse(controller.isPlaylistPresented)
+
+        controller.updateFullScreen(false)
+
+        XCTAssertEqual(controller.presentedPanel, .playlist)
+        XCTAssertTrue(controller.isPlaylistPresented)
+        XCTAssertFalse(controller.isSettingsPresented)
     }
 
     private func makeController(
