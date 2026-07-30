@@ -1,11 +1,34 @@
+import Combine
 import SwiftUI
 
 struct PlayerControlBar: View {
-    @ObservedObject var playback: PlaybackCoordinator
-    @ObservedObject var library: MediaLibraryCoordinator
+    let playback: PlaybackCoordinator
+    let library: MediaLibraryCoordinator
     let actions: PlayerActions
     let isPlaylistPresented: Bool
     let togglePlaylist: () -> Void
+
+    @State private var controlState: PlayerControlState
+
+    init(
+        playback: PlaybackCoordinator,
+        library: MediaLibraryCoordinator,
+        actions: PlayerActions,
+        isPlaylistPresented: Bool,
+        togglePlaylist: @escaping () -> Void
+    ) {
+        self.playback = playback
+        self.library = library
+        self.actions = actions
+        self.isPlaylistPresented = isPlaylistPresented
+        self.togglePlaylist = togglePlaylist
+        _controlState = State(
+            initialValue: PlayerControlState(
+                playback: playback,
+                library: library
+            )
+        )
+    }
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -22,6 +45,9 @@ struct PlayerControlBar: View {
         .accessibilityIdentifier(
             MuralumeAccessibilityIdentifier.playerControlBar
         )
+        .onReceive(controlStatePublisher) { state in
+            controlState = state
+        }
     }
 
     private var wideControlBar: some View {
@@ -77,7 +103,7 @@ struct PlayerControlBar: View {
             .buttonStyle(MuralumeControlButtonStyle())
             .help(Text("player.back"))
             .accessibilityLabel(Text("player.back"))
-            .disabled(!controlsEnabled)
+            .disabled(!mediaControlsEnabled)
 
             playbackToggleButton
 
@@ -89,7 +115,7 @@ struct PlayerControlBar: View {
             .buttonStyle(MuralumeControlButtonStyle())
             .help(Text("player.forward"))
             .accessibilityLabel(Text("player.forward"))
-            .disabled(!controlsEnabled)
+            .disabled(!mediaControlsEnabled)
 
             nextItemButton
         }
@@ -109,7 +135,9 @@ struct PlayerControlBar: View {
         .buttonStyle(MuralumeControlButtonStyle())
         .help(Text("player.previousItem"))
         .accessibilityLabel(Text("player.previousItem"))
-        .disabled(!controlsEnabled || !library.canMoveToPrevious)
+        .disabled(
+            !globalControlsEnabled || !controlState.canMoveToPrevious
+        )
     }
 
     private var playbackToggleButton: some View {
@@ -117,16 +145,16 @@ struct PlayerControlBar: View {
             playback.togglePlayback()
         } label: {
             Image(
-                systemName: playback.isPlaybackRequested
+                systemName: controlState.isPlaybackRequested
                     ? "pause.fill"
                     : "play.fill"
             )
-            .offset(x: playback.isPlaybackRequested ? 0 : 1)
+            .offset(x: controlState.isPlaybackRequested ? 0 : 1)
         }
         .buttonStyle(MuralumeControlButtonStyle(kind: .prominent))
         .help(playbackToggleLabel)
         .accessibilityLabel(playbackToggleLabel)
-        .disabled(!controlsEnabled)
+        .disabled(!mediaControlsEnabled)
     }
 
     private var nextItemButton: some View {
@@ -138,7 +166,9 @@ struct PlayerControlBar: View {
         .buttonStyle(MuralumeControlButtonStyle())
         .help(Text("player.nextItem"))
         .accessibilityLabel(Text("player.nextItem"))
-        .disabled(!controlsEnabled || !library.hasActiveQueue)
+        .disabled(
+            !globalControlsEnabled || !controlState.hasActiveQueue
+        )
     }
 
     private func leadingControls(
@@ -154,20 +184,20 @@ struct PlayerControlBar: View {
     private func volumeControls(showsSlider: Bool) -> some View {
         HStack(spacing: MuralumeTheme.Spacing.medium) {
             Button {
-                playback.setMuted(!playback.settings.isMuted)
+                playback.setMuted(!controlState.settings.isMuted)
             } label: {
                 Image(systemName: volumeIconName)
             }
             .buttonStyle(MuralumeControlButtonStyle())
             .help(muteToggleLabel)
             .accessibilityLabel(muteToggleLabel)
-            .disabled(!controlsEnabled)
+            .disabled(!globalControlsEnabled)
 
             if showsSlider {
-                Slider(
+                MuralumeSlider(
                     value: Binding(
                         get: {
-                            Double(playback.settings.volume.rawValue)
+                            Double(controlState.settings.volume.rawValue)
                         },
                         set: {
                             playback.setVolume(
@@ -175,18 +205,26 @@ struct PlayerControlBar: View {
                             )
                         }
                     ),
-                    in: 0...1
+                    in: 0...1,
+                    kind: .volume,
+                    accessibilityIdentifier:
+                        MuralumeAccessibilityIdentifier.volumeSlider
                 )
-                .tint(MuralumeTheme.Colors.controlAccent)
-                .frame(width: MuralumeTheme.Size.volumeSliderWidth)
-                .disabled(!controlsEnabled)
+                .frame(
+                    width: MuralumeTheme.Size.volumeSliderWidth,
+                    height: MuralumeTheme.Size.sliderHitTargetHeight
+                )
+                .disabled(!globalControlsEnabled)
                 .accessibilityLabel(Text("player.volume"))
                 .accessibilityValue(
                     Text(
                         verbatim: PlayerFormatting.volume(
-                            playback.settings.volume
+                            controlState.settings.volume
                         )
                     )
+                )
+                .accessibilityIdentifier(
+                    MuralumeAccessibilityIdentifier.volumeSlider
                 )
             }
         }
@@ -194,7 +232,7 @@ struct PlayerControlBar: View {
     }
 
     private var playbackOrderButton: some View {
-        let isShuffled = library.playbackOrder == .shuffled
+        let isShuffled = controlState.playbackOrder == .shuffled
 
         return Button {
             library.setPlaybackOrder(isShuffled ? .ordered : .shuffled)
@@ -214,6 +252,7 @@ struct PlayerControlBar: View {
         .accessibilityIdentifier(
             MuralumeAccessibilityIdentifier.playbackOrderButton
         )
+        .disabled(!globalControlsEnabled)
     }
 
     private var trailingControls: some View {
@@ -228,7 +267,7 @@ struct PlayerControlBar: View {
             .buttonStyle(MuralumeControlButtonStyle())
             .help(Text("player.fullscreen"))
             .accessibilityLabel(Text("player.fullscreen"))
-            .disabled(!controlsEnabled)
+            .disabled(!globalControlsEnabled)
 
             playlistButton
 
@@ -240,7 +279,7 @@ struct PlayerControlBar: View {
             .buttonStyle(MuralumeControlButtonStyle(kind: .accent))
             .help(Text("player.desktop"))
             .accessibilityLabel(Text("player.desktop"))
-            .disabled(!playback.canPresentOnDesktop || isTransitioning)
+            .disabled(!mediaControlsEnabled)
         }
         .fixedSize()
     }
@@ -275,7 +314,11 @@ struct PlayerControlBar: View {
             }
         } label: {
             HStack(spacing: MuralumeTheme.Spacing.xSmall) {
-                Text(verbatim: PlayerFormatting.rate(playback.settings.rate))
+                Text(
+                    verbatim: PlayerFormatting.rate(
+                        controlState.settings.rate
+                    )
+                )
                     .font(.body.weight(.medium))
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .bold))
@@ -301,18 +344,22 @@ struct PlayerControlBar: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .disabled(!controlsEnabled)
+        .disabled(!globalControlsEnabled)
         .help(Text("player.speed"))
         .accessibilityLabel(Text("player.speed"))
         .accessibilityValue(
-            Text(verbatim: PlayerFormatting.rate(playback.settings.rate))
+            Text(
+                verbatim: PlayerFormatting.rate(
+                    controlState.settings.rate
+                )
+            )
         )
     }
 
     private var playbackToggleLabel: Text {
         Text(
             LocalizedStringKey(
-                playback.isPlaybackRequested
+                controlState.isPlaybackRequested
                     ? "player.pause"
                     : "player.play"
             )
@@ -322,7 +369,7 @@ struct PlayerControlBar: View {
     private var muteToggleLabel: Text {
         Text(
             LocalizedStringKey(
-                playback.settings.isMuted
+                controlState.settings.isMuted
                     ? "player.unmute"
                     : "player.mute"
             )
@@ -330,16 +377,16 @@ struct PlayerControlBar: View {
     }
 
     private var volumeIconName: String {
-        if playback.settings.isMuted {
+        if controlState.settings.isMuted {
             return "speaker.slash.fill"
         }
-        return playback.settings.volume == .muted
+        return controlState.settings.volume == .muted
             ? "speaker.fill"
             : "speaker.wave.2.fill"
     }
 
     private var playbackOrderLabelKey: String {
-        library.playbackOrder == .ordered
+        controlState.playbackOrder == .ordered
             ? "queue.order.ordered"
             : "queue.order.shuffled"
     }
@@ -350,14 +397,125 @@ struct PlayerControlBar: View {
             : "library.playlist.show"
     }
 
-    private var controlsEnabled: Bool {
-        playback.readiness == .ready && !isTransitioning
+    private var globalControlsEnabled: Bool {
+        controlState.presentation == .player
     }
 
-    private var isTransitioning: Bool {
-        if case .switching = playback.presentation {
-            return true
+    private var mediaControlsEnabled: Bool {
+        globalControlsEnabled && controlState.hasPlayableMedia
+    }
+
+    private var controlStatePublisher:
+        AnyPublisher<PlayerControlState, Never> {
+        Publishers.CombineLatest(
+            playbackControlStatePublisher,
+            libraryControlStatePublisher
+        )
+        .map { playbackState, libraryState in
+            PlayerControlState(
+                playback: playbackState,
+                library: libraryState
+            )
         }
-        return false
+        .removeDuplicates()
+        .eraseToAnyPublisher()
+    }
+
+    private var playbackControlStatePublisher:
+        AnyPublisher<PlayerPlaybackControlState, Never> {
+        Publishers.CombineLatest4(
+            playback.$hasPlayableMedia,
+            playback.$presentation,
+            playback.$isPlaybackRequested,
+            playback.$settings
+        )
+        .map {
+            PlayerPlaybackControlState(
+                hasPlayableMedia: $0,
+                presentation: $1,
+                isPlaybackRequested: $2,
+                settings: $3
+            )
+        }
+        .removeDuplicates()
+        .eraseToAnyPublisher()
+    }
+
+    private var libraryControlStatePublisher:
+        AnyPublisher<PlayerLibraryControlState, Never> {
+        library.objectWillChange
+        .receive(on: RunLoop.main)
+        .map {
+            PlayerLibraryControlState(
+                playbackOrder: library.playbackOrder,
+                canMoveToPrevious: library.canMoveToPrevious,
+                hasActiveQueue: library.hasActiveQueue
+            )
+        }
+        .prepend(
+            PlayerLibraryControlState(
+                playbackOrder: library.playbackOrder,
+                canMoveToPrevious: library.canMoveToPrevious,
+                hasActiveQueue: library.hasActiveQueue
+            )
+        )
+        .removeDuplicates()
+        .eraseToAnyPublisher()
+    }
+}
+
+private struct PlayerPlaybackControlState: Equatable {
+    let hasPlayableMedia: Bool
+    let presentation: PlaybackPresentation
+    let isPlaybackRequested: Bool
+    let settings: PlaybackSettings
+}
+
+private struct PlayerLibraryControlState: Equatable {
+    let playbackOrder: PlaybackOrder
+    let canMoveToPrevious: Bool
+    let hasActiveQueue: Bool
+}
+
+private struct PlayerControlState: Equatable {
+    let hasPlayableMedia: Bool
+    let presentation: PlaybackPresentation
+    let isPlaybackRequested: Bool
+    let settings: PlaybackSettings
+    let playbackOrder: PlaybackOrder
+    let canMoveToPrevious: Bool
+    let hasActiveQueue: Bool
+
+    @MainActor
+    init(
+        playback: PlaybackCoordinator,
+        library: MediaLibraryCoordinator
+    ) {
+        self.init(
+            playback: PlayerPlaybackControlState(
+                hasPlayableMedia: playback.hasPlayableMedia,
+                presentation: playback.presentation,
+                isPlaybackRequested: playback.isPlaybackRequested,
+                settings: playback.settings
+            ),
+            library: PlayerLibraryControlState(
+                playbackOrder: library.playbackOrder,
+                canMoveToPrevious: library.canMoveToPrevious,
+                hasActiveQueue: library.hasActiveQueue
+            )
+        )
+    }
+
+    init(
+        playback: PlayerPlaybackControlState,
+        library: PlayerLibraryControlState
+    ) {
+        hasPlayableMedia = playback.hasPlayableMedia
+        presentation = playback.presentation
+        isPlaybackRequested = playback.isPlaybackRequested
+        settings = playback.settings
+        playbackOrder = library.playbackOrder
+        canMoveToPrevious = library.canMoveToPrevious
+        hasActiveQueue = library.hasActiveQueue
     }
 }

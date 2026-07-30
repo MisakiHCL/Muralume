@@ -24,17 +24,25 @@ struct PlaybackSettings: Equatable, Sendable {
     private(set) var isMuted: Bool
     var rate: PlaybackRate
 
-    private var unmutedVolume: PlaybackVolume
+    private(set) var restorableVolume: PlaybackVolume
 
     init(
         volume: PlaybackVolume,
         isMuted: Bool,
-        rate: PlaybackRate
+        rate: PlaybackRate,
+        restorableVolume: PlaybackVolume? = nil
     ) {
         self.volume = isMuted ? .muted : volume
         self.isMuted = isMuted
         self.rate = rate
-        unmutedVolume = volume
+        if !isMuted, volume != .muted {
+            self.restorableVolume = volume
+        } else if let restorableVolume,
+                  restorableVolume != .muted {
+            self.restorableVolume = restorableVolume
+        } else {
+            self.restorableVolume = .full
+        }
     }
 
     mutating func setVolume(_ volume: PlaybackVolume) {
@@ -46,7 +54,7 @@ struct PlaybackSettings: Equatable, Sendable {
         }
 
         self.volume = volume
-        unmutedVolume = volume
+        restorableVolume = volume
         isMuted = false
     }
 
@@ -57,11 +65,11 @@ struct PlaybackSettings: Equatable, Sendable {
 
         if isMuted {
             if volume != .muted {
-                unmutedVolume = volume
+                restorableVolume = volume
             }
             volume = .muted
         } else {
-            volume = unmutedVolume
+            volume = restorableVolume
         }
         self.isMuted = isMuted
     }

@@ -13,23 +13,24 @@ final class AppLocalizationController: ObservableObject {
         localizationDidChangeSubject.eraseToAnyPublisher()
     }
 
-    private let storage: any AppLanguageStoring
+    private let preferencesStore: (any AppPreferencesStoring)?
     private let resourcesBundle: Bundle
     private let preferredLanguages: () -> [String]
     private let localizationDidChangeSubject = PassthroughSubject<Void, Never>()
     private var systemLocaleChangeCancellable: AnyCancellable?
 
     init(
-        storage: any AppLanguageStoring,
+        initialLanguage: AppLanguage = .system,
+        preferencesStore: (any AppPreferencesStoring)? = nil,
         resourcesBundle: Bundle = .main,
         preferredLanguages: @escaping () -> [String] = {
             Locale.preferredLanguages
         }
     ) {
-        self.storage = storage
+        self.preferencesStore = preferencesStore
         self.resourcesBundle = resourcesBundle
         self.preferredLanguages = preferredLanguages
-        language = storage.loadLanguage() ?? .system
+        language = initialLanguage
 
         systemLocaleChangeCancellable = NotificationCenter.default.publisher(
             for: NSLocale.currentLocaleDidChangeNotification
@@ -46,7 +47,7 @@ final class AppLocalizationController: ObservableObject {
             return
         }
         self.language = language
-        storage.saveLanguage(language)
+        preferencesStore?.saveLanguage(language)
         localizationDidChangeSubject.send()
     }
 

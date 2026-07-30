@@ -1,9 +1,10 @@
+import Combine
 import SwiftUI
 
 struct PlayerScreen<PlayerSurface: View>: View {
-    @ObservedObject var playback: PlaybackCoordinator
+    let playback: PlaybackCoordinator
     @ObservedObject var desktopSession: DesktopSessionCoordinator
-    @ObservedObject var library: MediaLibraryCoordinator
+    let library: MediaLibraryCoordinator
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let isFullScreen: Bool
     let actions: PlayerActions
@@ -11,10 +12,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
-    @State private var isPlaylistPresented = true
-    @State private var isPlayerChromeVisible = true
-    @State private var playerChromeActivitySequence = 0
-    @State private var restoresPlaylistAfterFullScreen = false
+    @StateObject private var chromeController = PlayerChromeController()
 
     var body: some View {
         ZStack {
@@ -27,7 +25,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
             )
 
             PointerActivityReader {
-                recordPlayerChromeActivity()
+                chromeController.recordPointerActivity()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(false)
@@ -52,14 +50,14 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 .zIndex(3)
             }
 
-            if isPlaylistPresented {
+            if chromeController.isPlaylistPresented {
                 LibraryQueueSidebar(
                     library: library,
                     playback: playback,
                     mediaThumbnailProvider: mediaThumbnailProvider,
                     addFolders: actions.addFolders,
                     dismiss: {
-                        setPlaylistPresented(false)
+                        chromeController.setPlaylistPresented(false)
                     }
                 )
                 .padding(.top, playerTopContentInset)
@@ -83,9 +81,9 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 playback: playback,
                 library: library,
                 actions: actions,
-                isPlaylistPresented: isPlaylistPresented,
+                isPlaylistPresented: chromeController.isPlaylistPresented,
                 togglePlaylist: {
-                    setPlaylistPresented(!isPlaylistPresented)
+                    chromeController.togglePlaylist()
                 }
             )
             .frame(
@@ -98,13 +96,17 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 alignment: .bottom
             )
             .offset(
-                y: isPlayerChromeVisible
+                y: chromeController.isVisible
                     ? 0
                     : MuralumeTheme.Spacing.xLarge
             )
-            .opacity(isPlayerChromeVisible ? 1 : 0)
-            .allowsHitTesting(isPlayerChromeVisible)
-            .accessibilityHidden(!isPlayerChromeVisible)
+            .opacity(chromeController.isVisible ? 1 : 0)
+            .allowsHitTesting(chromeController.isVisible)
+            .accessibilityHidden(!chromeController.isVisible)
+            .animation(
+                playerChromeAnimation,
+                value: chromeController.isVisible
+            )
             .zIndex(4)
 
             playerTopBar
@@ -115,39 +117,23 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 )
                 .zIndex(5)
         }
+        .animation(
+            playerChromeAnimation,
+            value: chromeController.isPlaylistPresented
+        )
         .frame(
             minWidth: AppConfiguration.minimumWindowWidth,
             minHeight: AppConfiguration.minimumWindowHeight
         )
         .ignoresSafeArea(.container, edges: .top)
-        .onChange(of: playback.isActuallyPlaying) {
-            handlePlayerChromePolicyChange()
-        }
-        .onChange(of: playback.readiness) {
-            handlePlayerChromePolicyChange()
+        .onReceive(chromePlaybackStatePublisher) { state in
+            chromeController.updatePlaybackState(state)
         }
         .onChange(of: isFullScreen) {
-            handleFullScreenChange()
+            chromeController.updateFullScreen(isFullScreen)
         }
-        .task(id: playerChromeActivitySequence) {
-            let activitySequence = playerChromeActivitySequence
-            guard shouldAutoHidePlayerChrome else {
-                return
-            }
-            do {
-                try await Task.sleep(
-                    nanoseconds: MuralumeTheme.Motion
-                        .playerChromeAutoHideNanoseconds
-                )
-            } catch {
-                return
-            }
-            guard !Task.isCancelled,
-                  activitySequence == playerChromeActivitySequence,
-                  shouldAutoHidePlayerChrome else {
-                return
-            }
-            setPlayerChromeVisible(false)
+        .onAppear {
+            chromeController.updateFullScreen(isFullScreen)
         }
         .foregroundStyle(MuralumeTheme.Colors.textPrimary)
     }
@@ -164,97 +150,57 @@ struct PlayerScreen<PlayerSurface: View>: View {
             actions: actions
         )
         .offset(
-            y: isPlayerChromeVisible
+            y: chromeController.isVisible
                 ? 0
                 : -MuralumeTheme.Spacing.xLarge
         )
-        .opacity(isPlayerChromeVisible ? 1 : 0)
-        .allowsHitTesting(isPlayerChromeVisible)
-        .accessibilityHidden(!isPlayerChromeVisible)
+        .opacity(chromeController.isVisible ? 1 : 0)
+        .allowsHitTesting(chromeController.isVisible)
+        .accessibilityHidden(!chromeController.isVisible)
         .environment(\.locale, locale)
         .preferredColorScheme(.dark)
         .animation(
-            reduceMotion
-                ? nil
-                : .easeOut(
-                    duration: MuralumeTheme.Motion
-                        .playerChromeTransitionDuration
-                ),
-            value: isPlayerChromeVisible
+            playerChromeAnimation,
+            value: chromeController.isVisible
         )
     }
 
-    private var shouldAutoHidePlayerChrome: Bool {
-        guard playback.readiness == .ready else {
-            return false
+    private var chromePlaybackStatePublisher:
+        AnyPublisher<PlayerChromePlaybackState, Never> {
+        Publishers.CombineLatest4(
+            playback.$readiness,
+            playback.$isActuallyPlaying,
+            playback.$isPlaybackRequested,
+            playback.$hasPlayableMedia
+        )
+        .combineLatest(playback.$isPlayerWindowDismissed)
+        .map {
+            playbackState,
+            isPlayerWindowDismissed in
+            let (
+                readiness,
+                isActuallyPlaying,
+                isPlaybackRequested,
+                hasPlayableMedia
+            ) = playbackState
+            return PlayerChromePlaybackState(
+                readiness: readiness,
+                isActuallyPlaying: isActuallyPlaying,
+                isPlaybackRequested: isPlaybackRequested,
+                hasPlayableMedia: hasPlayableMedia,
+                isPlayerWindowDismissed: isPlayerWindowDismissed
+            )
         }
-        guard playback.isActuallyPlaying, !isPlaylistPresented else {
-            return false
-        }
-        return true
+        .removeDuplicates()
+        .eraseToAnyPublisher()
     }
 
-    private func handleFullScreenChange() {
-        if isFullScreen {
-            handlePlayerChromePolicyChange()
-            return
-        }
-
-        if restoresPlaylistAfterFullScreen, !isPlaylistPresented {
-            setPlaylistPresented(true)
-        } else {
-            recordPlayerChromeActivity()
-        }
-        restoresPlaylistAfterFullScreen = false
-    }
-
-    private func handlePlayerChromePolicyChange() {
-        if isFullScreen,
-           playback.readiness == .ready,
-           playback.isActuallyPlaying,
-           isPlaylistPresented {
-            restoresPlaylistAfterFullScreen = true
-            setPlaylistPresented(false)
-        } else {
-            recordPlayerChromeActivity()
-        }
-    }
-
-    private func setPlaylistPresented(_ isPresented: Bool) {
-        setPlayerChromeVisible(true)
-        withPlayerChromeAnimation {
-            isPlaylistPresented = isPresented
-        }
-        playerChromeActivitySequence += 1
-    }
-
-    private func recordPlayerChromeActivity() {
-        setPlayerChromeVisible(true)
-        playerChromeActivitySequence += 1
-    }
-
-    private func setPlayerChromeVisible(_ isVisible: Bool) {
-        guard isPlayerChromeVisible != isVisible else {
-            return
-        }
-        withPlayerChromeAnimation {
-            isPlayerChromeVisible = isVisible
-        }
-    }
-
-    private func withPlayerChromeAnimation(
-        _ updates: () -> Void
-    ) {
-        guard !reduceMotion else {
-            updates()
-            return
-        }
-        withAnimation(
-            .easeOut(
+    private var playerChromeAnimation: Animation? {
+        reduceMotion
+            ? nil
+            : .easeOut(
                 duration: MuralumeTheme.Motion
                     .playerChromeTransitionDuration
-            ),
-            updates
-        )
+            )
     }
 }

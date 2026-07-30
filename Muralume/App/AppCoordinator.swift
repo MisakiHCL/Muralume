@@ -141,10 +141,10 @@ extension AppCoordinator: MacMainMenuCommandHandling {
             canPlayNext:
                 canControlPlayback && library.hasActiveQueue,
             canIncreaseVolume:
-                canControlPlayback
+                canUseWindowActions
                 && playback.settings.volume != .full,
             canDecreaseVolume:
-                canControlPlayback
+                canUseWindowActions
                 && playback.settings.volume != .muted,
             canUseWindowActions: canUseWindowActions
         )

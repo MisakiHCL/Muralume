@@ -14,11 +14,8 @@ final class PlaybackCoordinator: ObservableObject {
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var isActuallyPlaying = false
     @Published private(set) var isPlaybackRequested = false
-    @Published private(set) var settings = PlaybackSettings(
-        volume: .full,
-        isMuted: false,
-        rate: PlaybackPolicy.defaultRate
-    )
+    @Published private(set) var hasPlayableMedia = false
+    @Published private(set) var settings: PlaybackSettings
     @Published private(set) var isPlayerWindowDismissed = false
 
     var canPresentOnDesktop: Bool {
@@ -32,16 +29,37 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     private let engine: any PlaybackEngine
+    private let preferencesStore: (any AppPreferencesStoring)?
+    private let audioPreferencesPersistenceDelay: Duration
     private var gate = PlaybackGate()
     private weak var playerSurface: (any PlaybackRenderSurface)?
     private var playerSurfaceAttachmentTask: Task<Void, Never>?
+    private var audioPreferencesSaveTask: Task<Void, Never>?
+    private var pendingAudioPreferences: PlaybackAudioPreferences?
     private var savedPlayerSettings: PlaybackSettings?
     private var transitionGeneration: UInt64 = 0
+    private var timelineSeekTarget: TimeInterval?
+    private var hasHandledCurrentItemEnd = false
 
-    init(engine: any PlaybackEngine) {
+    init(
+        engine: any PlaybackEngine,
+        initialPreferences: AppPreferences = .defaultValue,
+        preferencesStore: (any AppPreferencesStoring)? = nil,
+        audioPreferencesPersistenceDelay: Duration =
+            PlaybackPolicy.audioPreferencesPersistenceDelay
+    ) {
         self.engine = engine
+        self.preferencesStore = preferencesStore
+        self.audioPreferencesPersistenceDelay =
+            audioPreferencesPersistenceDelay
+        settings = PlaybackSettings(
+            volume: initialPreferences.audio.volume,
+            isMuted: initialPreferences.audio.isMuted,
+            rate: initialPreferences.playbackRate,
+            restorableVolume: initialPreferences.audio.restorableVolume
+        )
         engine.progressHandler = { [weak self] seconds in
-            self?.currentTime = seconds
+            self?.handleProgress(seconds)
         }
         engine.itemEndedHandler = { [weak self] in
             self?.handleItemEnded()
@@ -53,6 +71,10 @@ final class PlaybackCoordinator: ObservableObject {
             self?.isActuallyPlaying = isPlaying
         }
         applySettings(settings)
+    }
+
+    deinit {
+        audioPreferencesSaveTask?.cancel()
     }
 
     func registerPlayerSurface(_ surface: any PlaybackRenderSurface) {
@@ -110,6 +132,8 @@ final class PlaybackCoordinator: ObservableObject {
             return .cancelled
         }
 
+        cancelTimelineSeek()
+        hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
         let loadGeneration = transitionGeneration
         let canAutoplayWhenLoaded = !isPlayerWindowDismissed
@@ -153,6 +177,7 @@ final class PlaybackCoordinator: ObservableObject {
             }
         }
 
+        hasPlayableMedia = true
         readiness = .ready
         let shouldAutoplay = autoplay
             && canAutoplayWhenLoaded
@@ -172,9 +197,45 @@ final class PlaybackCoordinator: ObservableObject {
         guard readiness == .ready else {
             return
         }
+        let shouldCompleteFromEnd =
+            intent == .playing
+            && timelineSeekTarget == nil
+            && isAtPlaybackEnd(currentTime)
+        if intent == .playing, currentTime < duration {
+            hasHandledCurrentItemEnd = false
+        }
         gate.setIntent(intent)
         isPlaybackRequested = intent == .playing
+        if shouldCompleteFromEnd {
+            completeCurrentItem()
+            return
+        }
         applyPlaybackGate()
+    }
+
+    func beginTimelineSeek() {
+        guard readiness == .ready, timelineSeekTarget == nil else {
+            return
+        }
+        timelineSeekTarget = currentTime
+        engine.pause()
+        isActuallyPlaying = false
+    }
+
+    func endTimelineSeek() {
+        guard let finalTarget = timelineSeekTarget else {
+            return
+        }
+        timelineSeekTarget = nil
+        guard readiness == .ready else {
+            return
+        }
+
+        if isPlaybackRequested, isAtPlaybackEnd(finalTarget) {
+            completeCurrentItem()
+        } else {
+            applyPlaybackGate()
+        }
     }
 
     func seek(to seconds: TimeInterval) {
@@ -182,6 +243,12 @@ final class PlaybackCoordinator: ObservableObject {
             return
         }
         let clampedSeconds = min(max(seconds, 0), duration)
+        if timelineSeekTarget != nil {
+            timelineSeekTarget = clampedSeconds
+        }
+        if clampedSeconds < duration {
+            hasHandledCurrentItemEnd = false
+        }
         currentTime = clampedSeconds
         engine.seek(to: clampedSeconds)
     }
@@ -191,7 +258,13 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     func setVolume(_ volume: PlaybackVolume) {
+        let previousSettings = settings
         settings.setVolume(volume)
+        guard settings != previousSettings else {
+            return
+        }
+        savedPlayerSettings?.setVolume(volume)
+        scheduleAudioPreferencesSave()
         guard presentation == .player else {
             return
         }
@@ -207,7 +280,13 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     func setMuted(_ isMuted: Bool) {
+        let previousSettings = settings
         settings.setMuted(isMuted)
+        guard settings != previousSettings else {
+            return
+        }
+        savedPlayerSettings?.setMuted(isMuted)
+        persistAudioPreferencesImmediately()
         guard presentation == .player else {
             return
         }
@@ -215,13 +294,15 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     func setRate(_ rate: PlaybackRate) {
-        guard presentation != .terminating else {
+        guard presentation != .terminating,
+              settings.rate != rate else {
             return
         }
         settings.rate = rate
         if savedPlayerSettings != nil {
             savedPlayerSettings?.rate = rate
         }
+        preferencesStore?.savePlaybackRate(rate)
         applyPlaybackGate()
     }
 
@@ -230,6 +311,7 @@ final class PlaybackCoordinator: ObservableObject {
             return
         }
 
+        cancelTimelineSeek()
         cancelPlayerSurfaceAttachment()
         transitionGeneration &+= 1
         let generation = transitionGeneration
@@ -305,6 +387,7 @@ final class PlaybackCoordinator: ObservableObject {
             return
         }
 
+        cancelTimelineSeek()
         cancelPlayerSurfaceAttachment()
         transitionGeneration &+= 1
         isPlayerWindowDismissed = true
@@ -335,12 +418,15 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     func stop() {
+        cancelTimelineSeek()
+        hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
         transitionGeneration &+= 1
         gate.setIntent(.paused)
         restorePlayerSettings()
         engine.stop()
         source = nil
+        hasPlayableMedia = false
         readiness = .empty
         presentation = .player
         currentTime = 0
@@ -351,9 +437,12 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     func shutdown() {
+        flushPendingAudioPreferences()
         guard presentation != .terminating else {
             return
         }
+        cancelTimelineSeek()
+        hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
         transitionGeneration &+= 1
         presentation = .terminating
@@ -364,6 +453,7 @@ final class PlaybackCoordinator: ObservableObject {
         engine.stop()
         playerSurface = nil
         source = nil
+        hasPlayableMedia = false
     }
 
     func finishQueue(with failure: PlaybackFailure) {
@@ -372,7 +462,9 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     private func applyPlaybackGate() {
-        guard readiness == .ready, !isPlayerWindowDismissed else {
+        guard readiness == .ready,
+              !isPlayerWindowDismissed,
+              timelineSeekTarget == nil else {
             engine.pause()
             isActuallyPlaying = false
             return
@@ -395,6 +487,57 @@ final class PlaybackCoordinator: ObservableObject {
         engine.setMuted(settings.isMuted)
     }
 
+    private func scheduleAudioPreferencesSave() {
+        guard preferencesStore != nil else {
+            return
+        }
+
+        pendingAudioPreferences = currentAudioPreferences
+        audioPreferencesSaveTask?.cancel()
+        let persistenceDelay = audioPreferencesPersistenceDelay
+        audioPreferencesSaveTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: persistenceDelay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else {
+                return
+            }
+            self?.commitPendingAudioPreferences()
+        }
+    }
+
+    private func persistAudioPreferencesImmediately() {
+        audioPreferencesSaveTask?.cancel()
+        audioPreferencesSaveTask = nil
+        pendingAudioPreferences = nil
+        preferencesStore?.saveAudio(currentAudioPreferences)
+    }
+
+    private func flushPendingAudioPreferences() {
+        audioPreferencesSaveTask?.cancel()
+        audioPreferencesSaveTask = nil
+        commitPendingAudioPreferences()
+    }
+
+    private func commitPendingAudioPreferences() {
+        audioPreferencesSaveTask = nil
+        guard let pendingAudioPreferences else {
+            return
+        }
+        self.pendingAudioPreferences = nil
+        preferencesStore?.saveAudio(pendingAudioPreferences)
+    }
+
+    private var currentAudioPreferences: PlaybackAudioPreferences {
+        PlaybackAudioPreferences(
+            volume: settings.volume,
+            isMuted: settings.isMuted,
+            restorableVolume: settings.restorableVolume
+        )
+    }
+
     private func restorePlayerSettings() {
         guard let savedPlayerSettings else {
             applySettings(settings)
@@ -405,7 +548,26 @@ final class PlaybackCoordinator: ObservableObject {
         self.savedPlayerSettings = nil
     }
 
+    private func handleProgress(_ seconds: TimeInterval) {
+        guard timelineSeekTarget == nil else {
+            return
+        }
+        currentTime = seconds
+    }
+
     private func handleItemEnded() {
+        guard isPlaybackRequested, timelineSeekTarget == nil else {
+            return
+        }
+        completeCurrentItem()
+    }
+
+    private func completeCurrentItem() {
+        guard !hasHandledCurrentItemEnd else {
+            return
+        }
+        hasHandledCurrentItemEnd = true
+
         if itemEndedHandler?() == true {
             return
         }
@@ -415,21 +577,26 @@ final class PlaybackCoordinator: ObservableObject {
             isPlaybackRequested = false
             engine.seek(to: 0)
             currentTime = 0
+            hasHandledCurrentItemEnd = false
             applyPlaybackGate()
             return
         }
 
         engine.seek(to: 0)
         currentTime = 0
+        hasHandledCurrentItemEnd = false
         applyPlaybackGate()
     }
 
     private func fail(with failure: PlaybackFailure) {
+        cancelTimelineSeek()
+        hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
         transitionGeneration &+= 1
         gate.setIntent(.paused)
         restorePlayerSettings()
         engine.stop()
+        hasPlayableMedia = false
         readiness = .failed(failure)
         presentation = .player
         currentTime = 0
@@ -440,17 +607,19 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     private func failLoading(with failure: PlaybackFailure) {
-        gate.setIntent(.paused)
+        cancelTimelineSeek()
+        hasHandledCurrentItemEnd = false
         engine.pause()
         readiness = .failed(failure)
         currentTime = 0
         duration = 0
         isActuallyPlaying = false
-        isPlaybackRequested = false
     }
 
     private func handleEngineFailure(_ error: PlaybackEngineError) {
         let failure = mapFailure(error)
+        cancelTimelineSeek()
+        hasHandledCurrentItemEnd = false
         if itemFailureHandler?(failure) == true {
             return
         }
@@ -502,6 +671,14 @@ final class PlaybackCoordinator: ObservableObject {
     private func cancelPlayerSurfaceAttachment() {
         playerSurfaceAttachmentTask?.cancel()
         playerSurfaceAttachmentTask = nil
+    }
+
+    private func cancelTimelineSeek() {
+        timelineSeekTarget = nil
+    }
+
+    private func isAtPlaybackEnd(_ target: TimeInterval) -> Bool {
+        duration > 0 && target >= duration
     }
 
     private func isCurrentPlayerSurface(

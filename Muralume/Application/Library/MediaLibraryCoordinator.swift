@@ -13,8 +13,8 @@ final class MediaLibraryCoordinator: ObservableObject {
     @Published private(set) var scanState: MediaLibraryScanState = .idle
     @Published private(set) var roots: [MediaLibraryRoot] = []
     @Published private(set) var items: [LibraryMediaItem] = []
-    @Published private(set) var playbackOrder: PlaybackOrder = .ordered
-    @Published private(set) var sort = MediaLibrarySort()
+    @Published private(set) var playbackOrder: PlaybackOrder
+    @Published private(set) var sort: MediaLibrarySort
     @Published private(set) var currentItemID: LibraryMediaItem.ID?
     @Published private(set) var unavailableItemIDs: Set<LibraryMediaItem.ID> = []
 
@@ -46,6 +46,7 @@ final class MediaLibraryCoordinator: ObservableObject {
     private let folderSelector: any MediaFolderSelecting
     private let mediaSession: any MediaAccessSession
     private let scanner: any MediaLibraryScanning
+    private let preferencesStore: (any AppPreferencesStoring)?
 
     private var rootURLs: [URL] = []
     private var queue: PlaybackQueue<LibraryMediaItem.ID>?
@@ -61,12 +62,18 @@ final class MediaLibraryCoordinator: ObservableObject {
         playback: PlaybackCoordinator,
         folderSelector: any MediaFolderSelecting,
         mediaSession: any MediaAccessSession,
-        scanner: any MediaLibraryScanning
+        scanner: any MediaLibraryScanning,
+        playbackOrder: PlaybackOrder,
+        sort: MediaLibrarySort = MediaLibrarySort(),
+        preferencesStore: (any AppPreferencesStoring)? = nil
     ) {
         self.playback = playback
         self.folderSelector = folderSelector
         self.mediaSession = mediaSession
         self.scanner = scanner
+        self.playbackOrder = playbackOrder
+        self.sort = sort
+        self.preferencesStore = preferencesStore
 
         playback.itemEndedHandler = { [weak self] in
             self?.handleItemEnded() ?? false
@@ -224,7 +231,11 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     func setPlaybackOrder(_ order: PlaybackOrder) {
+        guard playbackOrder != order else {
+            return
+        }
         playbackOrder = order
+        preferencesStore?.savePlaybackOrder(order)
         guard var queue else {
             return
         }
@@ -233,13 +244,18 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     func setSortField(_ field: MediaLibrarySortField) {
+        guard sort.field != field else {
+            return
+        }
         sort.field = field
         items = sort.sorted(items)
+        preferencesStore?.saveLibrarySort(sort)
     }
 
     func toggleSortDirection() {
         sort.direction.toggle()
         items = sort.sorted(items)
+        preferencesStore?.saveLibrarySort(sort)
     }
 
     func setSortDirection(_ direction: MediaLibrarySortDirection) {
@@ -248,6 +264,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         }
         sort.direction = direction
         items = sort.sorted(items)
+        preferencesStore?.saveLibrarySort(sort)
     }
 
     func shutdown() async {

@@ -86,11 +86,11 @@ final class MuralumeLaunchTests: XCTestCase {
             "muralume.playback-order"
         ]
         XCTAssertTrue(playbackOrderButton.waitForExistence(timeout: 5))
-        XCTAssertEqual(playbackOrderButton.label, "In Order")
-        XCTAssertFalse(playbackOrderButton.isSelected)
-        playbackOrderButton.click()
         XCTAssertEqual(playbackOrderButton.label, "Shuffle")
         XCTAssertTrue(playbackOrderButton.isSelected)
+        playbackOrderButton.click()
+        XCTAssertEqual(playbackOrderButton.label, "In Order")
+        XCTAssertFalse(playbackOrderButton.isSelected)
 
         let videoViewport = application
             .descendants(matching: .any)
@@ -306,8 +306,8 @@ final class MuralumeLaunchTests: XCTestCase {
             )
         )
         playbackOrderButton.click()
-        XCTAssertEqual(playbackOrderButton.label, "Shuffle")
-        XCTAssertTrue(playbackOrderButton.isSelected)
+        XCTAssertEqual(playbackOrderButton.label, "In Order")
+        XCTAssertFalse(playbackOrderButton.isSelected)
 
         let playlistToggle = application.buttons[
             "muralume.playlist-toggle"
@@ -385,8 +385,8 @@ final class MuralumeLaunchTests: XCTestCase {
         }
         XCTAssertEqual(application.windows.count, 1)
         XCTAssertEqual(mainWindow.frame, initialWindowFrame)
-        XCTAssertEqual(playbackOrderButton.label, "Shuffle")
-        XCTAssertTrue(playbackOrderButton.isSelected)
+        XCTAssertEqual(playbackOrderButton.label, "In Order")
+        XCTAssertFalse(playbackOrderButton.isSelected)
         XCTAssertEqual(playlistToggle.label, "Show Playlist")
         XCTAssertFalse(playlistToggle.isSelected)
 
@@ -432,7 +432,7 @@ final class MuralumeLaunchTests: XCTestCase {
             )
         )
         XCTAssertEqual(application.windows.count, 1)
-        XCTAssertEqual(playbackOrderButton.label, "Shuffle")
+        XCTAssertEqual(playbackOrderButton.label, "In Order")
         XCTAssertFalse(playlistToggle.isSelected)
     }
 
@@ -514,6 +514,16 @@ final class MuralumeLaunchTests: XCTestCase {
             "YES",
             "-settings.app-language",
             "en",
+            "-settings.playback.volume",
+            "1",
+            "-settings.playback.is-muted",
+            "false",
+            "-settings.playback.restorable-volume",
+            "1",
+            "-settings.playback.rate",
+            "1",
+            "-settings.playback.order",
+            "shuffled",
             "-media-library.root-bookmarks",
             ""
         ]
@@ -560,15 +570,22 @@ final class MuralumeLaunchTests: XCTestCase {
             "Back 10 seconds",
             "Forward 10 seconds",
             "Previous Video",
-            "Next Video",
-            "Volume Up",
-            "Volume Down",
-            "Mute"
+            "Next Video"
         ]
         for itemTitle in disabledPlaybackItems {
             let item = application.menuItems[itemTitle]
             XCTAssertTrue(item.exists, file: file, line: line)
             XCTAssertFalse(item.isEnabled, file: file, line: line)
+        }
+
+        let volumeUpItem = application.menuItems["Volume Up"]
+        XCTAssertTrue(volumeUpItem.exists, file: file, line: line)
+        XCTAssertFalse(volumeUpItem.isEnabled, file: file, line: line)
+
+        for itemTitle in ["Volume Down", "Mute"] {
+            let item = application.menuItems[itemTitle]
+            XCTAssertTrue(item.exists, file: file, line: line)
+            XCTAssertTrue(item.isEnabled, file: file, line: line)
         }
 
         let addFolderItem = application.menuItems["Add Folder"]

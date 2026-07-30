@@ -3,6 +3,451 @@ import XCTest
 
 @MainActor
 final class PlaybackCoordinatorTests: XCTestCase {
+    func testInitialPreferencesApplyWithoutMediaAndPersistCompleteAudioState() {
+        let engine = TestPlaybackEngine()
+        let initialPreferences = AppPreferences(
+            audio: PlaybackAudioPreferences(
+                volume: .muted,
+                isMuted: false,
+                restorableVolume: PlaybackVolume(rawValue: 0.4)
+            ),
+            playbackRate: PlaybackRate(rawValue: 1.5),
+            playbackOrder: .shuffled,
+            librarySort: MediaLibrarySort(),
+            language: .system
+        )
+        let preferencesStore = TestAppPreferencesStore(
+            preferences: initialPreferences
+        )
+        let coordinator = PlaybackCoordinator(
+            engine: engine,
+            initialPreferences: initialPreferences,
+            preferencesStore: preferencesStore
+        )
+
+        XCTAssertEqual(coordinator.readiness, .empty)
+        XCTAssertEqual(coordinator.settings.volume, .muted)
+        XCTAssertFalse(coordinator.settings.isMuted)
+        XCTAssertEqual(
+            coordinator.settings.restorableVolume,
+            PlaybackVolume(rawValue: 0.4)
+        )
+        XCTAssertEqual(engine.volume, .muted)
+        XCTAssertFalse(engine.isMuted)
+
+        coordinator.setMuted(true)
+        coordinator.setMuted(false)
+
+        XCTAssertEqual(
+            coordinator.settings.volume,
+            PlaybackVolume(rawValue: 0.4)
+        )
+        XCTAssertEqual(
+            preferencesStore.savedAudio,
+            [
+                PlaybackAudioPreferences(
+                    volume: .muted,
+                    isMuted: true,
+                    restorableVolume: PlaybackVolume(rawValue: 0.4)
+                ),
+                PlaybackAudioPreferences(
+                    volume: PlaybackVolume(rawValue: 0.4),
+                    isMuted: false,
+                    restorableVolume: PlaybackVolume(rawValue: 0.4)
+                )
+            ]
+        )
+    }
+
+    func testRatePersistsOnlyWhenItChangesAndMediaLoadDoesNotRewriteIt() async {
+        let engine = TestPlaybackEngine()
+        let preferencesStore = TestAppPreferencesStore()
+        let coordinator = PlaybackCoordinator(
+            engine: engine,
+            preferencesStore: preferencesStore
+        )
+
+        coordinator.setRate(PlaybackPolicy.defaultRate)
+        coordinator.setRate(PlaybackRate(rawValue: 1.5))
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+
+        XCTAssertEqual(
+            preferencesStore.savedPlaybackRates,
+            [PlaybackRate(rawValue: 1.5)]
+        )
+        XCTAssertTrue(preferencesStore.savedAudio.isEmpty)
+    }
+
+    func testVolumeCanChangeAndPersistWithoutLoadedMedia() async {
+        let engine = TestPlaybackEngine()
+        let preferencesStore = TestAppPreferencesStore()
+        let coordinator = PlaybackCoordinator(
+            engine: engine,
+            preferencesStore: preferencesStore,
+            audioPreferencesPersistenceDelay: .milliseconds(10)
+        )
+        let volume = PlaybackVolume(rawValue: 0.36)
+
+        coordinator.setVolume(volume)
+
+        XCTAssertEqual(coordinator.readiness, .empty)
+        XCTAssertEqual(coordinator.settings.volume, volume)
+        XCTAssertEqual(engine.volume, volume)
+        XCTAssertTrue(preferencesStore.savedAudio.isEmpty)
+
+        await waitForAudioPreferenceSaves(
+            preferencesStore,
+            expectedCount: 1
+        )
+
+        XCTAssertEqual(
+            preferencesStore.savedAudio,
+            [
+                PlaybackAudioPreferences(
+                    volume: volume,
+                    isMuted: false,
+                    restorableVolume: volume
+                )
+            ]
+        )
+    }
+
+    func testRapidVolumeChangesCoalesceIntoFinalPreferenceWrite() async {
+        let engine = TestPlaybackEngine()
+        let preferencesStore = TestAppPreferencesStore()
+        let coordinator = PlaybackCoordinator(
+            engine: engine,
+            preferencesStore: preferencesStore,
+            audioPreferencesPersistenceDelay: .milliseconds(20)
+        )
+        let finalVolume = PlaybackVolume(rawValue: 0.72)
+
+        coordinator.setVolume(PlaybackVolume(rawValue: 0.2))
+        coordinator.setVolume(PlaybackVolume(rawValue: 0.48))
+        coordinator.setVolume(finalVolume)
+
+        XCTAssertEqual(engine.volume, finalVolume)
+        XCTAssertTrue(preferencesStore.savedAudio.isEmpty)
+
+        await waitForAudioPreferenceSaves(
+            preferencesStore,
+            expectedCount: 1
+        )
+
+        XCTAssertEqual(
+            preferencesStore.savedAudio,
+            [
+                PlaybackAudioPreferences(
+                    volume: finalVolume,
+                    isMuted: false,
+                    restorableVolume: finalVolume
+                )
+            ]
+        )
+    }
+
+    func testShutdownFlushesPendingVolumePreferenceWithoutDuplicateWrite() async {
+        let preferencesStore = TestAppPreferencesStore()
+        let coordinator = PlaybackCoordinator(
+            engine: TestPlaybackEngine(),
+            preferencesStore: preferencesStore,
+            audioPreferencesPersistenceDelay: .milliseconds(20)
+        )
+        let finalVolume = PlaybackVolume(rawValue: 0.64)
+
+        coordinator.setVolume(PlaybackVolume(rawValue: 0.32))
+        coordinator.setVolume(finalVolume)
+        XCTAssertTrue(preferencesStore.savedAudio.isEmpty)
+
+        coordinator.shutdown()
+
+        XCTAssertEqual(
+            preferencesStore.savedAudio,
+            [
+                PlaybackAudioPreferences(
+                    volume: finalVolume,
+                    isMuted: false,
+                    restorableVolume: finalVolume
+                )
+            ]
+        )
+
+        try? await Task.sleep(for: .milliseconds(40))
+        XCTAssertEqual(preferencesStore.savedAudio.count, 1)
+    }
+
+    func testMuteImmediatelySupersedesPendingVolumePreferenceWrite() async {
+        let preferencesStore = TestAppPreferencesStore()
+        let coordinator = PlaybackCoordinator(
+            engine: TestPlaybackEngine(),
+            preferencesStore: preferencesStore,
+            audioPreferencesPersistenceDelay: .milliseconds(20)
+        )
+        let volume = PlaybackVolume(rawValue: 0.44)
+
+        coordinator.setVolume(volume)
+        XCTAssertTrue(preferencesStore.savedAudio.isEmpty)
+
+        coordinator.setMuted(true)
+
+        XCTAssertEqual(
+            preferencesStore.savedAudio,
+            [
+                PlaybackAudioPreferences(
+                    volume: .muted,
+                    isMuted: true,
+                    restorableVolume: volume
+                )
+            ]
+        )
+
+        try? await Task.sleep(for: .milliseconds(40))
+        XCTAssertEqual(preferencesStore.savedAudio.count, 1)
+    }
+
+    func testPendingAudioSaveDoesNotRetainCoordinatorAfterDeinit() async {
+        let preferencesStore = TestAppPreferencesStore()
+        var coordinator: PlaybackCoordinator? = PlaybackCoordinator(
+            engine: TestPlaybackEngine(),
+            preferencesStore: preferencesStore,
+            audioPreferencesPersistenceDelay: .milliseconds(20)
+        )
+        weak var weakCoordinator = coordinator
+
+        coordinator?.setVolume(PlaybackVolume(rawValue: 0.5))
+        coordinator = nil
+
+        XCTAssertNil(weakCoordinator)
+        try? await Task.sleep(for: .milliseconds(40))
+        XCTAssertTrue(preferencesStore.savedAudio.isEmpty)
+    }
+
+    func testPlayableMediaSurvivesReplacementLoadingAndItemFailure() async {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let firstSource = ResolvedMediaSource(
+            url: URL(fileURLWithPath: "/tmp/first.mp4"),
+            displayName: "First"
+        )
+        let secondSource = ResolvedMediaSource(
+            url: URL(fileURLWithPath: "/tmp/second.mp4"),
+            displayName: "Second"
+        )
+
+        await coordinator.load(firstSource)
+        XCTAssertTrue(coordinator.hasPlayableMedia)
+        XCTAssertTrue(coordinator.isPlaybackRequested)
+
+        engine.shouldBlockLoads = true
+        let replacementLoad = Task {
+            await coordinator.load(secondSource)
+        }
+        while !engine.didBeginBlockedLoad {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(coordinator.readiness, .loading)
+        XCTAssertTrue(coordinator.hasPlayableMedia)
+
+        engine.finishBlockedLoad()
+        _ = await replacementLoad.value
+        engine.shouldBlockLoads = false
+        engine.loadErrorsByURL[secondSource.url] = .cannotOpen
+
+        let failure = await coordinator.load(secondSource)
+
+        XCTAssertEqual(failure, .mediaFailure(.cannotOpen))
+        XCTAssertTrue(coordinator.hasPlayableMedia)
+        XCTAssertTrue(coordinator.isPlaybackRequested)
+        XCTAssertFalse(engine.isPlaying)
+    }
+
+    func testPlayingTimelineSeekToEndDefersCompletionUntilRelease() async {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        var completionCount = 0
+        coordinator.itemEndedHandler = {
+            completionCount += 1
+            return true
+        }
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+
+        coordinator.beginTimelineSeek()
+        coordinator.seek(to: 120)
+        engine.emitItemEnded()
+
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertEqual(completionCount, 0)
+        XCTAssertEqual(coordinator.currentTime, 120)
+
+        coordinator.endTimelineSeek()
+        engine.emitItemEnded()
+
+        XCTAssertEqual(completionCount, 1)
+    }
+
+    func testPausedTimelineSeekKeepsLastFrameUntilPlaybackIsRequested() async {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        var completionCount = 0
+        coordinator.itemEndedHandler = {
+            completionCount += 1
+            return true
+        }
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+        coordinator.setPlaybackIntent(.paused)
+
+        coordinator.beginTimelineSeek()
+        coordinator.seek(to: 120)
+        engine.emitItemEnded()
+        coordinator.endTimelineSeek()
+        engine.emitItemEnded()
+
+        XCTAssertEqual(completionCount, 0)
+        XCTAssertEqual(coordinator.currentTime, 120)
+        XCTAssertEqual(engine.soughtTimes, [120])
+        XCTAssertFalse(coordinator.isPlaybackRequested)
+        XCTAssertFalse(engine.isPlaying)
+
+        coordinator.setPlaybackIntent(.playing)
+
+        XCTAssertEqual(completionCount, 1)
+    }
+
+    func testPlayingTimelineSeekBackFromEndResumesWithoutCompleting() async {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        var completionCount = 0
+        coordinator.itemEndedHandler = {
+            completionCount += 1
+            return true
+        }
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+
+        coordinator.beginTimelineSeek()
+        coordinator.seek(to: 120)
+        engine.emitItemEnded()
+        coordinator.seek(to: 42)
+        coordinator.endTimelineSeek()
+
+        XCTAssertEqual(completionCount, 0)
+        XCTAssertEqual(coordinator.currentTime, 42)
+        XCTAssertEqual(engine.soughtTimes, [120, 42])
+        XCTAssertTrue(coordinator.isPlaybackRequested)
+        XCTAssertTrue(engine.isPlaying)
+    }
+
+    func testLoadingReplacementCancelsTimelineSeekInteraction() async {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/first.mp4"),
+                displayName: "First"
+            )
+        )
+        coordinator.beginTimelineSeek()
+        XCTAssertFalse(engine.isPlaying)
+
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/second.mp4"),
+                displayName: "Second"
+            )
+        )
+        coordinator.endTimelineSeek()
+
+        XCTAssertEqual(coordinator.source?.displayName, "Second")
+        XCTAssertTrue(coordinator.isPlaybackRequested)
+        XCTAssertTrue(engine.isPlaying)
+    }
+
+    func testHandledEngineFailureCancelsTimelineSeekBeforeRelease() async {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        var handledFailureCount = 0
+        var completionCount = 0
+        coordinator.itemFailureHandler = { _ in
+            handledFailureCount += 1
+            return true
+        }
+        coordinator.itemEndedHandler = {
+            completionCount += 1
+            return true
+        }
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+
+        coordinator.beginTimelineSeek()
+        coordinator.seek(to: 120)
+        engine.emitFailure(.cannotOpen)
+        coordinator.endTimelineSeek()
+
+        XCTAssertEqual(handledFailureCount, 1)
+        XCTAssertEqual(completionCount, 0)
+    }
+
+    func testInitialMediaFailureNeverMarksMediaPlayable() async {
+        let engine = TestPlaybackEngine()
+        let source = ResolvedMediaSource(
+            url: URL(fileURLWithPath: "/tmp/broken.mp4"),
+            displayName: "Broken"
+        )
+        engine.loadErrorsByURL[source.url] = .cannotOpen
+        let coordinator = PlaybackCoordinator(engine: engine)
+
+        let result = await coordinator.load(source)
+
+        XCTAssertEqual(result, .mediaFailure(.cannotOpen))
+        XCTAssertFalse(coordinator.hasPlayableMedia)
+        XCTAssertFalse(coordinator.isPlaybackRequested)
+    }
+
+    func testTerminalPlaybackPathsClearPlayableMedia() async {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let source = ResolvedMediaSource(
+            url: URL(fileURLWithPath: "/tmp/example.mp4"),
+            displayName: "Example"
+        )
+
+        await coordinator.load(source)
+        coordinator.stop()
+        XCTAssertFalse(coordinator.hasPlayableMedia)
+
+        await coordinator.load(source)
+        coordinator.finishQueue(with: .cannotOpen)
+        XCTAssertFalse(coordinator.hasPlayableMedia)
+
+        await coordinator.load(source)
+        coordinator.shutdown()
+        XCTAssertFalse(coordinator.hasPlayableMedia)
+    }
+
     func testMuteSetsVolumeToZeroAndUnmuteRestoresPreviousVolume() {
         let engine = TestPlaybackEngine()
         let coordinator = PlaybackCoordinator(engine: engine)
@@ -248,6 +693,7 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.presentation, .player)
         XCTAssertFalse(coordinator.isPlaybackRequested)
         XCTAssertFalse(coordinator.isActuallyPlaying)
+        XCTAssertFalse(coordinator.hasPlayableMedia)
         XCTAssertEqual(reportedFailure, .cannotOpen)
     }
 
@@ -345,5 +791,20 @@ final class PlaybackCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(coordinator.presentation, .terminating)
         XCTAssertFalse(engine.isPlaying)
+    }
+
+    private func waitForAudioPreferenceSaves(
+        _ preferencesStore: TestAppPreferencesStore,
+        expectedCount: Int
+    ) async {
+        for _ in 0..<100 {
+            if preferencesStore.savedAudio.count >= expectedCount {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        XCTFail(
+            "Timed out waiting for \(expectedCount) audio preference saves"
+        )
     }
 }

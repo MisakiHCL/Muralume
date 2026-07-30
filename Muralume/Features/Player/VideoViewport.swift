@@ -1,9 +1,25 @@
+import Combine
 import SwiftUI
 
 struct VideoViewport<PlayerSurface: View>: View {
-    @ObservedObject var playback: PlaybackCoordinator
-    @ObservedObject var library: MediaLibraryCoordinator
+    let playback: PlaybackCoordinator
+    let library: MediaLibraryCoordinator
     let playerSurface: PlayerSurface
+
+    @State private var viewportState: PlayerViewportState
+
+    init(
+        playback: PlaybackCoordinator,
+        library: MediaLibraryCoordinator,
+        playerSurface: PlayerSurface
+    ) {
+        self.playback = playback
+        self.library = library
+        self.playerSurface = playerSurface
+        _viewportState = State(
+            initialValue: PlayerViewportState(playback: playback)
+        )
+    }
 
     var body: some View {
         ZStack {
@@ -12,18 +28,22 @@ struct VideoViewport<PlayerSurface: View>: View {
             playerSurface
                 .accessibilityHidden(true)
 
-            switch playback.readiness {
+            switch viewportState.readiness {
             case .empty:
                 PlayerEmptyState(
                     library: library
                 )
             case .loading:
-                PlayerLoadingState()
+                if !viewportState.hasPlayableMedia {
+                    PlayerLoadingState()
+                }
             case let .failed(failure):
-                PlayerFailureState(
-                    failure: failure,
-                    hasPlaylistItems: !library.items.isEmpty
-                )
+                if !viewportState.hasPlayableMedia {
+                    PlayerFailureState(
+                        failure: failure,
+                        library: library
+                    )
+                }
             case .ready:
                 EmptyView()
             }
@@ -36,6 +56,44 @@ struct VideoViewport<PlayerSurface: View>: View {
         .accessibilityIdentifier(
             MuralumeAccessibilityIdentifier.videoViewport
         )
+        .onReceive(viewportStatePublisher) { state in
+            viewportState = state
+        }
+    }
+
+    private var viewportStatePublisher:
+        AnyPublisher<PlayerViewportState, Never> {
+        Publishers.CombineLatest(
+            playback.$readiness,
+            playback.$hasPlayableMedia
+        )
+        .map { readiness, hasPlayableMedia in
+            PlayerViewportState(
+                readiness: readiness,
+                hasPlayableMedia: hasPlayableMedia
+            )
+        }
+        .removeDuplicates()
+        .eraseToAnyPublisher()
+    }
+}
+
+private struct PlayerViewportState: Equatable {
+    let readiness: PlaybackReadiness
+    let hasPlayableMedia: Bool
+
+    @MainActor
+    init(playback: PlaybackCoordinator) {
+        readiness = playback.readiness
+        hasPlayableMedia = playback.hasPlayableMedia
+    }
+
+    init(
+        readiness: PlaybackReadiness,
+        hasPlayableMedia: Bool
+    ) {
+        self.readiness = readiness
+        self.hasPlayableMedia = hasPlayableMedia
     }
 }
 
@@ -121,7 +179,7 @@ private struct PlayerLoadingState: View {
 
 private struct PlayerFailureState: View {
     let failure: PlaybackFailure
-    let hasPlaylistItems: Bool
+    @ObservedObject var library: MediaLibraryCoordinator
 
     var body: some View {
         VStack(spacing: MuralumeTheme.Spacing.large) {
@@ -134,7 +192,7 @@ private struct PlayerFailureState: View {
                 .foregroundStyle(MuralumeTheme.Colors.textPrimary)
                 .multilineTextAlignment(.center)
 
-            if hasPlaylistItems {
+            if !library.items.isEmpty {
                 Label(
                     "media.error.choose.from.playlist",
                     systemImage: "rectangle.stack.fill"

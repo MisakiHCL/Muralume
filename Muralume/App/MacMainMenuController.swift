@@ -536,8 +536,10 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         switch command {
         case .addFolders, .toggleFullScreen:
             state.canUseWindowActions
-        case .togglePlayback, .seekBackward, .seekForward, .toggleMute:
+        case .togglePlayback, .seekBackward, .seekForward:
             state.canControlPlayback
+        case .toggleMute:
+            state.canUseWindowActions
         case .playPrevious:
             state.canPlayPrevious
         case .playNext:

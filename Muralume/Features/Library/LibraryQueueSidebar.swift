@@ -1,14 +1,33 @@
+import Combine
 import SwiftUI
 
 struct LibraryQueueSidebar: View {
     @ObservedObject var library: MediaLibraryCoordinator
-    @ObservedObject var playback: PlaybackCoordinator
+    let playback: PlaybackCoordinator
     @EnvironmentObject private var localization: AppLocalizationController
     @State private var isEditing = false
     @State private var pendingRootRemoval: MediaLibraryRoot?
+    @State private var playbackStatus: LibraryPlaybackStatus
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let addFolders: () -> Void
     let dismiss: () -> Void
+
+    init(
+        library: MediaLibraryCoordinator,
+        playback: PlaybackCoordinator,
+        mediaThumbnailProvider: any MediaThumbnailProviding,
+        addFolders: @escaping () -> Void,
+        dismiss: @escaping () -> Void
+    ) {
+        self.library = library
+        self.playback = playback
+        self.mediaThumbnailProvider = mediaThumbnailProvider
+        self.addFolders = addFolders
+        self.dismiss = dismiss
+        _playbackStatus = State(
+            initialValue: LibraryPlaybackStatus(playback: playback)
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.medium) {
@@ -56,6 +75,9 @@ struct LibraryQueueSidebar: View {
                     root.displayName
                 )
             )
+        }
+        .onReceive(playbackStatusPublisher) { status in
+            playbackStatus = status
         }
     }
 
@@ -464,14 +486,25 @@ struct LibraryQueueSidebar: View {
             return .available
         }
 
-        switch playback.readiness {
-        case .loading:
-            return .loading
-        case .ready:
-            return playback.isActuallyPlaying ? .playing : .paused
-        case .empty, .failed:
-            return .paused
+        return playbackStatus.rowState
+    }
+
+    private var playbackStatusPublisher:
+        AnyPublisher<LibraryPlaybackStatus, Never> {
+        Publishers.CombineLatest3(
+            playback.$readiness,
+            playback.$isPlaybackRequested,
+            playback.$hasPlayableMedia
+        )
+        .map { readiness, isPlaybackRequested, hasPlayableMedia in
+            LibraryPlaybackStatus(
+                readiness: readiness,
+                isPlaybackRequested: isPlaybackRequested,
+                hasPlayableMedia: hasPlayableMedia
+            )
         }
+        .removeDuplicates()
+        .eraseToAnyPublisher()
     }
 
     private var videoCountText: String {
@@ -511,7 +544,40 @@ struct LibraryQueueSidebar: View {
     }
 }
 
-private enum LibraryMediaRowPlaybackState {
+private struct LibraryPlaybackStatus: Equatable {
+    let rowState: LibraryMediaRowPlaybackState
+
+    @MainActor
+    init(playback: PlaybackCoordinator) {
+        self.init(
+            readiness: playback.readiness,
+            isPlaybackRequested: playback.isPlaybackRequested,
+            hasPlayableMedia: playback.hasPlayableMedia
+        )
+    }
+
+    init(
+        readiness: PlaybackReadiness,
+        isPlaybackRequested: Bool,
+        hasPlayableMedia: Bool
+    ) {
+        if hasPlayableMedia {
+            rowState = isPlaybackRequested ? .playing : .paused
+            return
+        }
+
+        switch readiness {
+        case .loading:
+            rowState = .loading
+        case .ready:
+            rowState = isPlaybackRequested ? .playing : .paused
+        case .empty, .failed:
+            rowState = .paused
+        }
+    }
+}
+
+private enum LibraryMediaRowPlaybackState: Equatable {
     case available
     case loading
     case playing

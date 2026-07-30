@@ -7,6 +7,7 @@ enum PlaybackPolicy {
     static let surfacePollIntervalNanoseconds: UInt64 = 16_000_000
     static let seekStepSeconds: TimeInterval = 10
     static let volumeStep: Float = 0.1
+    static let audioPreferencesPersistenceDelay: Duration = .milliseconds(200)
     static let defaultRate = PlaybackRate(rawValue: 1)
     static let supportedRates: [PlaybackRate] = [
         PlaybackRate(rawValue: 0.5),

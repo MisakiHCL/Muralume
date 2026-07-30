@@ -25,9 +25,3 @@ enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
         }
     }
 }
-
-@MainActor
-protocol AppLanguageStoring: AnyObject {
-    func loadLanguage() -> AppLanguage?
-    func saveLanguage(_ language: AppLanguage)
-}

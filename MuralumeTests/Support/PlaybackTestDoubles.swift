@@ -44,6 +44,7 @@ final class TestPlaybackEngine: PlaybackEngine {
     private(set) var isMuted = false
     private(set) var rate = PlaybackPolicy.defaultRate
     private(set) var loadedSources: [ResolvedMediaSource] = []
+    private(set) var soughtTimes: [TimeInterval] = []
     var loadErrorsByURL: [URL: PlaybackEngineError] = [:]
     var shouldBlockLoads = false
     var shouldBlockAttachments = false
@@ -97,7 +98,9 @@ final class TestPlaybackEngine: PlaybackEngine {
         playbackActivityHandler?(false)
     }
 
-    func seek(to seconds: TimeInterval) {}
+    func seek(to seconds: TimeInterval) {
+        soughtTimes.append(seconds)
+    }
 
     func setVolume(_ volume: PlaybackVolume) {
         self.volume = volume
@@ -119,6 +122,46 @@ final class TestPlaybackEngine: PlaybackEngine {
 
     func emitItemEnded() {
         itemEndedHandler?()
+    }
+}
+
+@MainActor
+final class TestAppPreferencesStore: AppPreferencesStoring {
+    let preferences: AppPreferences
+    private(set) var loadCount = 0
+    private(set) var savedAudio: [PlaybackAudioPreferences] = []
+    private(set) var savedPlaybackRates: [PlaybackRate] = []
+    private(set) var savedPlaybackOrders: [PlaybackOrder] = []
+    private(set) var savedLibrarySorts: [MediaLibrarySort] = []
+    private(set) var savedLanguages: [AppLanguage] = []
+
+    init(preferences: AppPreferences = .defaultValue) {
+        self.preferences = preferences
+    }
+
+    func load() -> AppPreferences {
+        loadCount += 1
+        return preferences
+    }
+
+    func saveAudio(_ audio: PlaybackAudioPreferences) {
+        savedAudio.append(audio)
+    }
+
+    func savePlaybackRate(_ rate: PlaybackRate) {
+        savedPlaybackRates.append(rate)
+    }
+
+    func savePlaybackOrder(_ order: PlaybackOrder) {
+        savedPlaybackOrders.append(order)
+    }
+
+    func saveLibrarySort(_ sort: MediaLibrarySort) {
+        savedLibrarySorts.append(sort)
+    }
+
+    func saveLanguage(_ language: AppLanguage) {
+        savedLanguages.append(language)
     }
 }
 

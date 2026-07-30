@@ -376,7 +376,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
 
     func testStatusMenuUsesBrandTemplateAndExpectedDesktopActions() throws {
         let localization = AppLocalizationController(
-            storage: DesktopTestAppLanguageStore(language: .english)
+            initialLanguage: .english
         )
         let controller = DesktopStatusMenuController(
             localization: localization
@@ -512,7 +512,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
 
     func testStatusMenuMiddleTruncatesLongCurrentSourceName() throws {
         let localization = AppLocalizationController(
-            storage: DesktopTestAppLanguageStore(language: .english)
+            initialLanguage: .english
         )
         let controller = DesktopStatusMenuController(
             localization: localization
@@ -570,19 +570,4 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
     private func actionName(_ item: NSMenuItem) -> String? {
         item.action.map(NSStringFromSelector)
     }
-}
-
-@MainActor
-private final class DesktopTestAppLanguageStore: AppLanguageStoring {
-    private let language: AppLanguage?
-
-    init(language: AppLanguage?) {
-        self.language = language
-    }
-
-    func loadLanguage() -> AppLanguage? {
-        language
-    }
-
-    func saveLanguage(_ language: AppLanguage) {}
 }

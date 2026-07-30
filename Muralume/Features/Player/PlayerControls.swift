@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct PlayerControls: View {
-    @ObservedObject var playback: PlaybackCoordinator
-    @ObservedObject var library: MediaLibraryCoordinator
+    let playback: PlaybackCoordinator
+    let library: MediaLibraryCoordinator
     let actions: PlayerActions
     let isPlaylistPresented: Bool
     let togglePlaylist: () -> Void
@@ -12,12 +12,7 @@ struct PlayerControls: View {
             PlaybackTimeline(playback: playback)
                 .frame(maxWidth: .infinity)
 
-            if playback.isSystemSuspended {
-                Label("status.paused.system", systemImage: "moon.zzz")
-                    .font(.caption)
-                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
+            PlayerSystemSuspensionStatus(playback: playback)
 
             PlayerControlBar(
                 playback: playback,
@@ -34,5 +29,18 @@ struct PlayerControls: View {
         .accessibilityIdentifier(
             MuralumeAccessibilityIdentifier.playerControls
         )
+    }
+}
+
+private struct PlayerSystemSuspensionStatus: View {
+    @ObservedObject var playback: PlaybackCoordinator
+
+    var body: some View {
+        if playback.isSystemSuspended {
+            Label("status.paused.system", systemImage: "moon.zzz")
+                .font(.caption)
+                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
     }
 }

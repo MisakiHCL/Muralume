@@ -3,6 +3,82 @@ import XCTest
 
 @MainActor
 final class MediaLibraryCoordinatorTests: XCTestCase {
+    func testInjectedPreferencesDriveInitialOrderAndScanSortWithoutWrites() async {
+        let rootURL = URL(fileURLWithPath: "/tmp/Library")
+        let small = makeItem(
+            rootURL: rootURL,
+            name: "Small",
+            path: "Small.mov",
+            fileSize: 1
+        )
+        let large = makeItem(
+            rootURL: rootURL,
+            name: "Large",
+            path: "Large.mov",
+            fileSize: 2
+        )
+        let preferencesStore = TestAppPreferencesStore()
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [MediaLibraryRoot(url: rootURL, displayName: "Library")],
+                items: [small, large]
+            ),
+            playbackOrder: .shuffled,
+            sort: MediaLibrarySort(
+                field: .fileSize,
+                direction: .descending
+            ),
+            preferencesStore: preferencesStore
+        )
+
+        fixture.coordinator.addFolders()
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(fixture.coordinator.playbackOrder, .shuffled)
+        XCTAssertEqual(
+            fixture.coordinator.items.map(\.displayName),
+            ["Large", "Small"]
+        )
+        XCTAssertTrue(preferencesStore.savedPlaybackOrders.isEmpty)
+        XCTAssertTrue(preferencesStore.savedLibrarySorts.isEmpty)
+    }
+
+    func testOrderAndSortPersistOnlyAfterRealChanges() {
+        let preferencesStore = TestAppPreferencesStore()
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(roots: [], items: []),
+            preferencesStore: preferencesStore
+        )
+
+        fixture.coordinator.setPlaybackOrder(.ordered)
+        fixture.coordinator.setPlaybackOrder(.shuffled)
+        fixture.coordinator.setPlaybackOrder(.shuffled)
+        fixture.coordinator.setSortField(.name)
+        fixture.coordinator.setSortDirection(.ascending)
+        fixture.coordinator.setSortField(.fileSize)
+        fixture.coordinator.toggleSortDirection()
+
+        XCTAssertEqual(
+            preferencesStore.savedPlaybackOrders,
+            [.shuffled]
+        )
+        XCTAssertEqual(
+            preferencesStore.savedLibrarySorts,
+            [
+                MediaLibrarySort(
+                    field: .fileSize,
+                    direction: .ascending
+                ),
+                MediaLibrarySort(
+                    field: .fileSize,
+                    direction: .descending
+                )
+            ]
+        )
+    }
+
     func testAddingFoldersScansAndPublishesSortedPlaylist() async {
         let rootURL = URL(fileURLWithPath: "/tmp/Library")
         let itemB = makeItem(rootURL: rootURL, name: "Clip 10", path: "B.mov")
@@ -173,6 +249,37 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.coordinator.currentItem?.id, second.id)
     }
 
+    func testTimelineSeekToEndAdvancesQueueOnlyAfterRelease() async {
+        let rootURL = URL(fileURLWithPath: "/tmp/Library")
+        let first = makeItem(rootURL: rootURL, name: "First", path: "First.mov")
+        let second = makeItem(rootURL: rootURL, name: "Second", path: "Second.mov")
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [MediaLibraryRoot(url: rootURL, displayName: "Library")],
+                items: [first, second]
+            )
+        )
+        fixture.coordinator.addFolders()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.play(first)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+
+        fixture.playback.beginTimelineSeek()
+        fixture.playback.seek(to: 120)
+        fixture.engine.emitItemEnded()
+
+        XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+        XCTAssertEqual(fixture.coordinator.currentItem?.id, first.id)
+
+        fixture.playback.endTimelineSeek()
+        await waitForLoads(fixture.engine, count: 2)
+
+        XCTAssertEqual(fixture.engine.loadedSources.last?.displayName, "Second")
+        XCTAssertEqual(fixture.coordinator.currentItem?.id, second.id)
+    }
+
     func testFailedItemIsSkippedWithoutLoopingForever() async {
         let rootURL = URL(fileURLWithPath: "/tmp/Library")
         let broken = makeItem(rootURL: rootURL, name: "Broken", path: "Broken.mov")
@@ -322,7 +429,10 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
 
     private func makeFixture(
         selectedURLs: [URL],
-        snapshot: MediaLibrarySnapshot
+        snapshot: MediaLibrarySnapshot,
+        playbackOrder: PlaybackOrder = .ordered,
+        sort: MediaLibrarySort = MediaLibrarySort(),
+        preferencesStore: (any AppPreferencesStoring)? = nil
     ) -> Fixture {
         let engine = TestPlaybackEngine()
         let playback = PlaybackCoordinator(engine: engine)
@@ -333,7 +443,10 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             playback: playback,
             folderSelector: selector,
             mediaSession: session,
-            scanner: scanner
+            scanner: scanner,
+            playbackOrder: playbackOrder,
+            sort: sort,
+            preferencesStore: preferencesStore
         )
         return Fixture(
             coordinator: coordinator,

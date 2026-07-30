@@ -25,6 +25,11 @@ enum MuralumeTheme {
         static let borderStrong = Color.white.opacity(0.18)
         static let controlFill = Color.white.opacity(0.07)
         static let controlHover = Color.white.opacity(0.12)
+        static let timelineSliderFill = controlAccent
+        static let timelineSliderTrack = borderStrong
+        static let volumeSliderFill = Color.white.opacity(0.42)
+        static let volumeSliderTrack = border
+        static let sliderThumb = textPrimary
         static let warning = Color(red: 1, green: 185 / 255, blue: 92 / 255)
         static let error = Color(red: 1, green: 110 / 255, blue: 120 / 255)
 
@@ -69,6 +74,10 @@ enum MuralumeTheme {
         static let primaryControl: CGFloat = 44
         static let videoMinimumHeight: CGFloat = 360
         static let volumeSliderWidth: CGFloat = 104
+        static let sliderTrackHeight: CGFloat = 4
+        static let sliderThumbDiameter: CGFloat = 16
+        static let sliderActiveThumbDiameter: CGFloat = 20
+        static let sliderHitTargetHeight: CGFloat = 28
         static let playlistOverlayWidth: CGFloat = 320
         static let playlistHeaderActionWidth: CGFloat = 68
         static let playerControlsMaximumWidth: CGFloat = 1_040
@@ -119,6 +128,7 @@ enum MuralumeAccessibilityIdentifier {
     static let videoViewport = "muralume.video-viewport"
     static let playerControls = "muralume.player-controls"
     static let playbackTimeline = "muralume.playback-timeline"
+    static let volumeSlider = "muralume.volume-slider"
     static let playerControlBar = "muralume.player-control-bar"
     static let playerTransportControls = "muralume.player-transport-controls"
     static let playlistToggleButton = "muralume.playlist-toggle"

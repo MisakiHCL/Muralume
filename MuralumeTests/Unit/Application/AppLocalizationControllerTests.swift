@@ -3,11 +3,8 @@ import XCTest
 
 @MainActor
 final class AppLocalizationControllerTests: XCTestCase {
-    func testDefaultsToSystemLanguageWhenStorageIsEmpty() {
-        let storage = AppLanguageStoreDouble()
-
+    func testDefaultsToSystemLanguageWhenNoInitialValueIsInjected() {
         let controller = AppLocalizationController(
-            storage: storage,
             preferredLanguages: {
                 ["en"]
             }
@@ -17,29 +14,33 @@ final class AppLocalizationControllerTests: XCTestCase {
         XCTAssertEqual(controller.locale.identifier, "en")
     }
 
-    func testRestoresPersistedLanguage() {
-        let storage = AppLanguageStoreDouble(language: .simplifiedChinese)
-
-        let controller = AppLocalizationController(storage: storage)
+    func testUsesInjectedLanguage() {
+        let controller = AppLocalizationController(
+            initialLanguage: .simplifiedChinese
+        )
 
         XCTAssertEqual(controller.language, .simplifiedChinese)
         XCTAssertEqual(controller.locale.identifier, "zh-Hans")
     }
 
     func testSelectionPersistsOnlyWhenItChanges() {
-        let storage = AppLanguageStoreDouble(language: .system)
-        let controller = AppLocalizationController(storage: storage)
+        let preferencesStore = TestAppPreferencesStore()
+        let controller = AppLocalizationController(
+            initialLanguage: .system,
+            preferencesStore: preferencesStore
+        )
 
         controller.selectLanguage(.system)
         controller.selectLanguage(.english)
 
         XCTAssertEqual(controller.language, .english)
-        XCTAssertEqual(storage.savedLanguages, [.english])
+        XCTAssertEqual(preferencesStore.savedLanguages, [.english])
     }
 
     func testExplicitLanguageSelectsMatchingLocalizationBundle() {
-        let storage = AppLanguageStoreDouble(language: .english)
-        let controller = AppLocalizationController(storage: storage)
+        let controller = AppLocalizationController(
+            initialLanguage: .english
+        )
 
         XCTAssertEqual(controller.localized("settings.title"), "Settings")
 
@@ -49,8 +50,9 @@ final class AppLocalizationControllerTests: XCTestCase {
     }
 
     func testLocalizedFormatUsesSelectedBundle() {
-        let storage = AppLanguageStoreDouble(language: .simplifiedChinese)
-        let controller = AppLocalizationController(storage: storage)
+        let controller = AppLocalizationController(
+            initialLanguage: .simplifiedChinese
+        )
 
         XCTAssertEqual(
             controller.localizedFormat("library.video.count", 3),
@@ -58,44 +60,10 @@ final class AppLocalizationControllerTests: XCTestCase {
         )
     }
 
-    func testInvalidPersistedLanguageFallsBackToSystem() throws {
-        let suiteName = "com.muralume.tests.app-language.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer {
-            defaults.removePersistentDomain(forName: suiteName)
-        }
-        defaults.set(
-            "unsupported",
-            forKey: AppLanguageStorageKey.selectedLanguage
-        )
-
-        let controller = AppLocalizationController(
-            storage: UserDefaultsAppLanguageStore(userDefaults: defaults)
-        )
-
-        XCTAssertEqual(controller.language, .system)
-    }
-
-    func testUserDefaultsStorePersistsSelectionAcrossInstances() throws {
-        let suiteName = "com.muralume.tests.app-language.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer {
-            defaults.removePersistentDomain(forName: suiteName)
-        }
-
-        UserDefaultsAppLanguageStore(userDefaults: defaults)
-            .saveLanguage(.simplifiedChinese)
-
-        let restored = UserDefaultsAppLanguageStore(userDefaults: defaults)
-
-        XCTAssertEqual(restored.loadLanguage(), .simplifiedChinese)
-    }
-
     func testSystemLocaleChangeRefreshesFollowSystemLanguage() async {
         var preferredLanguages = ["en"]
-        let storage = AppLanguageStoreDouble(language: .system)
         let controller = AppLocalizationController(
-            storage: storage,
+            initialLanguage: .system,
             preferredLanguages: {
                 preferredLanguages
             }
@@ -112,23 +80,5 @@ final class AppLocalizationControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.localized("settings.title"), "设置")
         XCTAssertEqual(controller.locale.identifier, "zh-Hans")
-    }
-}
-
-@MainActor
-private final class AppLanguageStoreDouble: AppLanguageStoring {
-    private let language: AppLanguage?
-    private(set) var savedLanguages: [AppLanguage] = []
-
-    init(language: AppLanguage? = nil) {
-        self.language = language
-    }
-
-    func loadLanguage() -> AppLanguage? {
-        language
-    }
-
-    func saveLanguage(_ language: AppLanguage) {
-        savedLanguages.append(language)
     }
 }

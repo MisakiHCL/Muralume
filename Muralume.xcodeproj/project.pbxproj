@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0E52592AFDBBF0442F013A57 /* MuralumeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0CC3587489E907CEC082535 /* MuralumeApp.swift */; };
+		182D5E7F31454B528EE8290F /* MuralumeSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C36D0D2427B94B699973E4B1 /* MuralumeSlider.swift */; };
 		B20000000000000000000011 /* MacMainMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000012 /* MacMainMenuController.swift */; };
 		03DFE42FCA314D64B3B0A234 /* PlayerControlBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B4E56E210B4EFEB277753E /* PlayerControlBar.swift */; };
 		1927ADD01DEB7CE72C348E6F /* AppConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D32A61D760BE7B80916FCEB /* AppConfiguration.swift */; };
@@ -47,6 +48,9 @@
 		CD94D20452E0790A183D3EC0 /* PlaybackCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2D6934434FD592F47EA3C97 /* PlaybackCoordinatorTests.swift */; };
 		CC34534632EF4E559B7A26E0 /* PlaybackState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B45D5363784459EA36A0566 /* PlaybackState.swift */; };
 		D0E3643141099DD2E8F3DF6D /* PlayerScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED645770F764AF0E6A40DE45 /* PlayerScreen.swift */; };
+		B40000000000000000000011 /* PlayerChromeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000001 /* PlayerChromeController.swift */; };
+		B40000000000000000000012 /* PlayerChromeControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000002 /* PlayerChromeControllerTests.swift */; };
+		B50000000000000000000012 /* MuralumeSliderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000002 /* MuralumeSliderTests.swift */; };
 		D0A0FBE24BAF468290B1E7D1 /* SystemNotificationName.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC6DCFAE93B6413084C9C561 /* SystemNotificationName.swift */; };
 		E970F932ED084EA2B4F95281 /* MuralumeTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F8A5E9E12614B138608DC0E /* MuralumeTheme.swift */; };
 		D411CD1097024403912B986C /* PlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82C43CDEEC83437E807E0533 /* PlaybackEngine.swift */; };
@@ -77,7 +81,9 @@
 		AB0000000000000000000002 /* UserSelectedMediaSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000001 /* UserSelectedMediaSessionTests.swift */; };
 		AC0000000000000000000011 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000001 /* AppLanguage.swift */; };
 		AC0000000000000000000012 /* AppLocalizationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000002 /* AppLocalizationController.swift */; };
-		AC0000000000000000000013 /* UserDefaultsAppLanguageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000003 /* UserDefaultsAppLanguageStore.swift */; };
+		AC0000000000000000000013 /* UserDefaultsAppPreferencesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000003 /* UserDefaultsAppPreferencesStore.swift */; };
+		B30000000000000000000011 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000001 /* AppPreferences.swift */; };
+		B30000000000000000000012 /* AppPreferencesStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000002 /* AppPreferencesStoreTests.swift */; };
 		AC0000000000000000000014 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000004 /* SettingsView.swift */; };
 		AC0000000000000000000015 /* AppLocalizationControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000005 /* AppLocalizationControllerTests.swift */; };
 		AC0000000000000000000016 /* MacMainWindowPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000006 /* MacMainWindowPresenterTests.swift */; };
@@ -153,6 +159,7 @@
 		BB72BF1D775C4A099B2A2552 /* MediaAccessSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaAccessSession.swift; sourceTree = "<group>"; };
 		BBDE8DA0223CDA8FF84002AF /* UserSelectedMediaSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserSelectedMediaSession.swift; sourceTree = "<group>"; };
 		C29C21DB3FE1DEF3EE73B56A /* DesktopStatusMenuController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopStatusMenuController.swift; sourceTree = "<group>"; };
+		C36D0D2427B94B699973E4B1 /* MuralumeSlider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MuralumeSlider.swift; sourceTree = "<group>"; };
 		C68D1172DDA349E29EDAE7B2 /* PlayerActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerActions.swift; sourceTree = "<group>"; };
 		C6DA3CA7D3E688ED8F03C2D4 /* PlayerLayerSurfaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerLayerSurfaceView.swift; sourceTree = "<group>"; };
 		C73D7A7472A543B7BDA43C33 /* MacMediaFolderPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacMediaFolderPicker.swift; sourceTree = "<group>"; };
@@ -184,7 +191,7 @@
 		AB0000000000000000000001 /* UserSelectedMediaSessionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserSelectedMediaSessionTests.swift; sourceTree = "<group>"; };
 		AC0000000000000000000001 /* AppLanguage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
 		AC0000000000000000000002 /* AppLocalizationController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppLocalizationController.swift; sourceTree = "<group>"; };
-		AC0000000000000000000003 /* UserDefaultsAppLanguageStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserDefaultsAppLanguageStore.swift; sourceTree = "<group>"; };
+		AC0000000000000000000003 /* UserDefaultsAppPreferencesStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserDefaultsAppPreferencesStore.swift; sourceTree = "<group>"; };
 		AC0000000000000000000004 /* SettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		AC0000000000000000000005 /* AppLocalizationControllerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppLocalizationControllerTests.swift; sourceTree = "<group>"; };
 		AC0000000000000000000006 /* MacMainWindowPresenterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacMainWindowPresenterTests.swift; sourceTree = "<group>"; };
@@ -194,6 +201,11 @@
 		AF1000000000000000000001 /* MediaThumbnailProviding.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaThumbnailProviding.swift; sourceTree = "<group>"; };
 		AF1000000000000000000002 /* QuickLookMediaThumbnailProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuickLookMediaThumbnailProvider.swift; sourceTree = "<group>"; };
 		AF1000000000000000000003 /* LibraryMediaThumbnail.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryMediaThumbnail.swift; sourceTree = "<group>"; };
+		B30000000000000000000001 /* AppPreferences.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppPreferences.swift; sourceTree = "<group>"; };
+		B30000000000000000000002 /* AppPreferencesStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppPreferencesStoreTests.swift; sourceTree = "<group>"; };
+		B40000000000000000000001 /* PlayerChromeController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerChromeController.swift; sourceTree = "<group>"; };
+		B40000000000000000000002 /* PlayerChromeControllerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerChromeControllerTests.swift; sourceTree = "<group>"; };
+		B50000000000000000000002 /* MuralumeSliderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MuralumeSliderTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -325,9 +337,12 @@
 			isa = PBXGroup;
 			children = (
 				AC0000000000000000000005 /* AppLocalizationControllerTests.swift */,
+				B30000000000000000000002 /* AppPreferencesStoreTests.swift */,
 				A25C19E5FB9B403F8E1080FB /* DesktopSessionCoordinatorTests.swift */,
 				AA000000000000000000000A /* MediaLibraryCoordinatorTests.swift */,
 				AA0000000000000000000009 /* MediaLibrarySortTests.swift */,
+				B50000000000000000000002 /* MuralumeSliderTests.swift */,
+				B40000000000000000000002 /* PlayerChromeControllerTests.swift */,
 				F2D6934434FD592F47EA3C97 /* PlaybackCoordinatorTests.swift */,
 			);
 			name = Application;
@@ -560,6 +575,7 @@
 				B0B4E56E210B4EFEB277753E /* PlayerControlBar.swift */,
 				E4C1719B3EBF498C8A5CCF6E /* PlayerControls.swift */,
 				5053B5F0E3334478B49B2E6A /* PlayerFormatting.swift */,
+				B40000000000000000000001 /* PlayerChromeController.swift */,
 				ED645770F764AF0E6A40DE45 /* PlayerScreen.swift */,
 				CAD7D228FCC544D595B5400F /* PlayerSurfaceRepresentable.swift */,
 				86E216DE6D7D47E596F8A97D /* PlayerTopBar.swift */,
@@ -633,6 +649,7 @@
 		B6EFDC4C5EE04DA0863B5269 /* DesignSystem */ = {
 			isa = PBXGroup;
 			children = (
+				C36D0D2427B94B699973E4B1 /* MuralumeSlider.swift */,
 				2F8A5E9E12614B138608DC0E /* MuralumeTheme.swift */,
 			);
 			name = DesignSystem;
@@ -704,6 +721,7 @@
 			children = (
 				AC0000000000000000000001 /* AppLanguage.swift */,
 				AC0000000000000000000002 /* AppLocalizationController.swift */,
+				B30000000000000000000001 /* AppPreferences.swift */,
 			);
 			name = Settings;
 			path = Settings;
@@ -721,7 +739,7 @@
 		AC0000000000000000000009 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
-				AC0000000000000000000003 /* UserDefaultsAppLanguageStore.swift */,
+				AC0000000000000000000003 /* UserDefaultsAppPreferencesStore.swift */,
 			);
 			name = Settings;
 			path = Settings;
@@ -870,6 +888,7 @@
 				6BAFFA0BA75F4B36B605F189 /* SystemLifecycleMonitoring.swift in Sources */,
 				AC0000000000000000000011 /* AppLanguage.swift in Sources */,
 				AC0000000000000000000012 /* AppLocalizationController.swift in Sources */,
+				B30000000000000000000011 /* AppPreferences.swift in Sources */,
 				FB5A108E387E4C458059F7EC /* MediaAccessSession.swift in Sources */,
 				B9EC7ACAFF914BACAE9DAD42 /* MediaFolderSelecting.swift in Sources */,
 				AA0000000000000000000015 /* MediaLibraryCoordinator.swift in Sources */,
@@ -895,6 +914,7 @@
 				03DFE42FCA314D64B3B0A234 /* PlayerControlBar.swift in Sources */,
 				A4F0A61C4AB24AF3830DDADE /* PlayerControls.swift in Sources */,
 				9D80EF3DD4AC4552A41321D7 /* PlayerFormatting.swift in Sources */,
+				B40000000000000000000011 /* PlayerChromeController.swift in Sources */,
 				D0E3643141099DD2E8F3DF6D /* PlayerScreen.swift in Sources */,
 				EC1CFBA860414E00B01FF30C /* PlayerSurfaceRepresentable.swift in Sources */,
 				F7A7C9CD00C045C7A453F68E /* PlayerTopBar.swift in Sources */,
@@ -905,7 +925,7 @@
 				19C57C0C558AA0B34670E630 /* UserSelectedMediaSession.swift in Sources */,
 				AA0000000000000000000016 /* FileSystemMediaLibraryScanner.swift in Sources */,
 				AF1000000000000000000012 /* QuickLookMediaThumbnailProvider.swift in Sources */,
-				AC0000000000000000000013 /* UserDefaultsAppLanguageStore.swift in Sources */,
+				AC0000000000000000000013 /* UserDefaultsAppPreferencesStore.swift in Sources */,
 				4B9EC4249AD1406990161515 /* AVFoundationPlaybackEngine.swift in Sources */,
 				A68650D9162A708D93F5F453 /* PlayerLayerSurfaceView.swift in Sources */,
 				D0A0FBE24BAF468290B1E7D1 /* SystemNotificationName.swift in Sources */,
@@ -914,6 +934,7 @@
 				5238BB82977C4E3E95EEDE9C /* MacMainWindowPresenter.swift in Sources */,
 				7307CB8B7E79E97D580FF729 /* WindowReader.swift in Sources */,
 				1927ADD01DEB7CE72C348E6F /* AppConfiguration.swift in Sources */,
+				182D5E7F31454B528EE8290F /* MuralumeSlider.swift in Sources */,
 				E970F932ED084EA2B4F95281 /* MuralumeTheme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -932,9 +953,12 @@
 			files = (
 				AE0000000000000000000011 /* AppDelegateTests.swift in Sources */,
 				AC0000000000000000000015 /* AppLocalizationControllerTests.swift in Sources */,
+				B30000000000000000000012 /* AppPreferencesStoreTests.swift in Sources */,
 				2471A0C9790F4BD3A0BF8A31 /* DesktopSessionCoordinatorTests.swift in Sources */,
 				AA000000000000000000001A /* MediaLibraryCoordinatorTests.swift in Sources */,
 				AA0000000000000000000019 /* MediaLibrarySortTests.swift in Sources */,
+				B50000000000000000000012 /* MuralumeSliderTests.swift in Sources */,
+				B40000000000000000000012 /* PlayerChromeControllerTests.swift in Sources */,
 				CD94D20452E0790A183D3EC0 /* PlaybackCoordinatorTests.swift in Sources */,
 				628DEF8A0A9BCE74862C63C4 /* PlaybackGateTests.swift in Sources */,
 				AA0000000000000000000018 /* PlaybackQueueTests.swift in Sources */,

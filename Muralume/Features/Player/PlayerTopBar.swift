@@ -1,12 +1,27 @@
 import AppKit
+import Combine
 import SwiftUI
 
 struct PlayerTopBar: View {
-    @ObservedObject var playback: PlaybackCoordinator
+    let playback: PlaybackCoordinator
     let isFullScreen: Bool
     let actions: PlayerActions
 
     @Environment(\.locale) private var locale
+    @State private var sourceDisplayName: String?
+
+    init(
+        playback: PlaybackCoordinator,
+        isFullScreen: Bool,
+        actions: PlayerActions
+    ) {
+        self.playback = playback
+        self.isFullScreen = isFullScreen
+        self.actions = actions
+        _sourceDisplayName = State(
+            initialValue: playback.source?.displayName
+        )
+    }
 
     var body: some View {
         ZStack {
@@ -28,8 +43,8 @@ struct PlayerTopBar: View {
                 settings
             }
 
-            if let source = playback.source {
-                currentSource(source.displayName)
+            if let sourceDisplayName {
+                currentSource(sourceDisplayName)
             }
         }
         .padding(.horizontal, MuralumeTheme.Spacing.medium)
@@ -40,6 +55,13 @@ struct PlayerTopBar: View {
         .accessibilityIdentifier(
             MuralumeAccessibilityIdentifier.playerTopBar
         )
+        .onReceive(
+            playback.$source
+                .map { $0?.displayName }
+                .removeDuplicates()
+        ) { displayName in
+            sourceDisplayName = displayName
+        }
     }
 
     private var windowControlLabels: MuralumeWindowControlLabels {

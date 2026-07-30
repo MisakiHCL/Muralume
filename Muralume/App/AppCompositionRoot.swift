@@ -1,10 +1,14 @@
 @MainActor
 enum AppCompositionRoot {
     static func makeAppCoordinator(
-        localization: AppLocalizationController
+        localization: AppLocalizationController,
+        initialPreferences: AppPreferences,
+        preferencesStore: any AppPreferencesStoring
     ) -> AppCoordinator {
         let playback = PlaybackCoordinator(
-            engine: AVFoundationPlaybackEngine()
+            engine: AVFoundationPlaybackEngine(),
+            initialPreferences: initialPreferences,
+            preferencesStore: preferencesStore
         )
         let mainWindowPresenter = MacMainWindowPresenter()
         let desktopSession = DesktopSessionCoordinator(
@@ -24,7 +28,10 @@ enum AppCompositionRoot {
                 localization: localization
             ),
             mediaSession: UserSelectedMediaSession(),
-            scanner: FileSystemMediaLibraryScanner()
+            scanner: FileSystemMediaLibraryScanner(),
+            playbackOrder: initialPreferences.playbackOrder,
+            sort: initialPreferences.librarySort,
+            preferencesStore: preferencesStore
         )
 
         return AppCoordinator(

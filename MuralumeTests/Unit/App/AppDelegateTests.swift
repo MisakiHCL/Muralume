@@ -200,6 +200,61 @@ final class AppDelegateTests: XCTestCase {
         )
     }
 
+    func testPlayerMenuKeepsGlobalAudioCommandsEnabledWithoutMedia() throws {
+        let commandHandler = TestMainMenuCommandHandler()
+        let controller = makeMainMenuController(
+            commandHandler: commandHandler,
+            mainWindow: NSWindow()
+        )
+        let actionsMenu = try XCTUnwrap(
+            controller.canonicalMenu.items.first {
+                $0.title == "Actions"
+            }?.submenu
+        )
+        let emptyMediaState = MacMainMenuCommandState(
+            isPlaybackRequested: false,
+            isMuted: false,
+            canControlPlayback: false,
+            canPlayPrevious: false,
+            canPlayNext: false,
+            canIncreaseVolume: true,
+            canDecreaseVolume: true,
+            canUseWindowActions: true
+        )
+
+        controller.refreshPlayerCommands(
+            state: emptyMediaState,
+            hasPlayerFocus: true
+        )
+
+        for title in [
+            "Add Folder",
+            "Volume Up",
+            "Volume Down",
+            "Mute",
+            "Toggle Full Screen"
+        ] {
+            XCTAssertEqual(
+                actionsMenu.items.first { $0.title == title }?.isEnabled,
+                true,
+                "\(title) should remain available without media"
+            )
+        }
+        for title in [
+            "Play",
+            "Back 10 seconds",
+            "Forward 10 seconds",
+            "Previous Video",
+            "Next Video"
+        ] {
+            XCTAssertEqual(
+                actionsMenu.items.first { $0.title == title }?.isEnabled,
+                false,
+                "\(title) should require playable media"
+            )
+        }
+    }
+
     func testPlayerMenuActionRevalidatesWindowFocusBeforeDispatch() throws {
         let commandHandler = TestMainMenuCommandHandler()
         let controller = makeMainMenuController(
@@ -249,7 +304,7 @@ final class AppDelegateTests: XCTestCase {
         MacMainMenuController(
             application: NSApp,
             localization: AppLocalizationController(
-                storage: MainMenuTestAppLanguageStore(language: .english)
+                initialLanguage: .english
             ),
             commandHandler: commandHandler,
             mainWindow: mainWindow
@@ -313,19 +368,4 @@ private final class TestMainMenuCommandHandler:
     func handleCloseCommand(for window: NSWindow?) -> Bool {
         false
     }
-}
-
-@MainActor
-private final class MainMenuTestAppLanguageStore: AppLanguageStoring {
-    private let language: AppLanguage?
-
-    init(language: AppLanguage?) {
-        self.language = language
-    }
-
-    func loadLanguage() -> AppLanguage? {
-        language
-    }
-
-    func saveLanguage(_ language: AppLanguage) {}
 }

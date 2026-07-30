@@ -23,6 +23,7 @@ final class MacApplicationRuntime {
     let coordinator: AppCoordinator
 
     private let application: NSApplication
+    private let preferencesStore: any AppPreferencesStoring
     private let localization: AppLocalizationController
     private let mainWindow: NSWindow
     private let settingsWindowController: MacSettingsWindowController
@@ -33,13 +34,20 @@ final class MacApplicationRuntime {
     init(application: NSApplication) {
         self.application = application
 
+        let preferencesStore = UserDefaultsAppPreferencesStore()
+        let initialPreferences = preferencesStore.load()
+        self.preferencesStore = preferencesStore
+
         let localization = AppLocalizationController(
-            storage: UserDefaultsAppLanguageStore()
+            initialLanguage: initialPreferences.language,
+            preferencesStore: preferencesStore
         )
         self.localization = localization
 
         let coordinator = AppCompositionRoot.makeAppCoordinator(
-            localization: localization
+            localization: localization,
+            initialPreferences: initialPreferences,
+            preferencesStore: preferencesStore
         )
         self.coordinator = coordinator
 
