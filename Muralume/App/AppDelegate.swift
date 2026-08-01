@@ -107,13 +107,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let launchSource = launchSourceDetector.detect(
             event: NSAppleEventManager.shared().currentAppleEvent
         )
-        let activationPolicy: NSApplication.ActivationPolicy =
-            launchSource == .loginItem ? .accessory : .regular
-        if !NSApp.setActivationPolicy(activationPolicy) {
-            _ = NSApp.setActivationPolicy(.regular)
-            runtime?.launch(source: .interactive)
-            return
-        }
+        // Keep the initial accessory presentation until the persisted session
+        // decides whether this process should reveal the player or resume the
+        // desktop. This prevents a Dock icon flash before desktop restoration.
         runtime?.launch(source: launchSource)
     }
 

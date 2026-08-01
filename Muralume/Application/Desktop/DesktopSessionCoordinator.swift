@@ -125,12 +125,20 @@ final class DesktopSessionCoordinator: ObservableObject {
             && !isTransitioning
     }
 
-    func returnToPlayer() {
+    func waitForTransitionToSettle() async {
+        while let currentTransition = transitionTask {
+            await currentTransition.value
+        }
+    }
+
+    func returnToPlayer(revealWindow: Bool = true) {
         guard !isShutDown else {
             return
         }
         if transitionTask != nil {
-            returnToPlayerFromCurrentTransition()
+            returnToPlayerFromCurrentTransition(
+                revealWindow: revealWindow
+            )
             return
         }
         guard isActive else {
@@ -138,17 +146,21 @@ final class DesktopSessionCoordinator: ObservableObject {
         }
 
         transientFailure = nil
-        guard applicationPresence.setMode(.standard) else {
-            transientFailure = .surfaceTimeout
-            return
+        if revealWindow {
+            guard applicationPresence.setMode(.standard) else {
+                transientFailure = .surfaceTimeout
+                return
+            }
         }
 
         playback.restorePlayerWindow()
-        mainWindow.prepareForReturn()
-        beginPlayerReturnTransition()
+        if revealWindow {
+            mainWindow.prepareForReturn()
+        }
+        beginPlayerReturnTransition(revealWindow: revealWindow)
     }
 
-    private func beginPlayerReturnTransition() {
+    private func beginPlayerReturnTransition(revealWindow: Bool) {
         transitionGeneration &+= 1
         let generation = transitionGeneration
         transitionTask = Task { [weak self] in
@@ -159,7 +171,9 @@ final class DesktopSessionCoordinator: ObservableObject {
             do {
                 try await playback.transitionToPlayer()
                 try Task.checkCancellation()
-                mainWindow.show()
+                if revealWindow {
+                    mainWindow.show()
+                }
                 desktopHost.close()
                 statusMenu.remove()
                 isActive = false
@@ -372,7 +386,9 @@ final class DesktopSessionCoordinator: ObservableObject {
         }
     }
 
-    private func returnToPlayerFromCurrentTransition() {
+    private func returnToPlayerFromCurrentTransition(
+        revealWindow: Bool
+    ) {
         switch playback.presentation {
         case .switching(_, .player), .player, .terminating:
             return
@@ -381,15 +397,19 @@ final class DesktopSessionCoordinator: ObservableObject {
         }
 
         transientFailure = nil
-        guard applicationPresence.setMode(.standard) else {
-            transientFailure = .surfaceTimeout
-            return
+        if revealWindow {
+            guard applicationPresence.setMode(.standard) else {
+                transientFailure = .surfaceTimeout
+                return
+            }
         }
 
         invalidateTransition()
         playback.restorePlayerWindow()
-        mainWindow.prepareForReturn()
-        beginPlayerReturnTransition()
+        if revealWindow {
+            mainWindow.prepareForReturn()
+        }
+        beginPlayerReturnTransition(revealWindow: revealWindow)
     }
 
     private func invalidateTransition() {

@@ -255,7 +255,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(playback.source, source)
         XCTAssertEqual(playback.readiness, .ready)
         XCTAssertTrue(playback.isPlayerWindowDismissed)
-        XCTAssertFalse(playback.isPlaybackRequested)
+        XCTAssertTrue(playback.isPlaybackRequested)
         XCTAssertFalse(engine.isPlaying)
         XCTAssertTrue(applicationPresence.appliedModes.isEmpty)
         XCTAssertEqual(desktopHost.closeCount, 0)

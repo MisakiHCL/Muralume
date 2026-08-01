@@ -30,6 +30,8 @@
 
 Muralume 是一款注重隐私的原生视频播放器：它把 Mac 上的文件夹变成播放列表，也能把任意播放队列变成动态桌面。应用直接使用本地文件，无需账号、云端上传或行为追踪。
 
+> 本页描述当前 `main` 分支。签名下载版仍为 v1.0.0；其准确功能范围请查看对应的[发布说明](https://github.com/MisakiHCL/Muralume/releases/tag/v1.0.0)。
+
 ## 产品亮点
 
 ### 隐私从设计开始
@@ -48,6 +50,8 @@ Muralume 是一款注重隐私的原生视频播放器：它把 Mac 上的文件
 
 支持进度跳转、音量、倍速、全屏、顺序播放和随机播放。随机模式会在新一轮开始前完整播放每个可用视频。观看时控件自然隐去，常用的全局播放偏好也会在下次启动时恢复。
 
+退出并重新打开 Muralume 后，会继续恢复同一视频、播放位置、播放或暂停状态，以及上次的播放器或动态桌面呈现。若退出前正在使用动态桌面，应用会直接恢复，不会先短暂打开播放器窗口。
+
 ### 登录后即可恢复
 
 你可以让 Muralume 随 macOS 登录启动，并直接把当前队列恢复为动态桌面。启动过程不会打扰桌面，播放控制保留在菜单栏入口中。
@@ -56,7 +60,7 @@ Muralume 是一款注重隐私的原生视频播放器：它把 Mac 上的文件
 
 [下载 `Muralume.dmg`](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg)，打开后将 Muralume 拖入“应用程序”文件夹。
 
-最新版本提供使用 Developer ID 签名并通过 Apple 公证的 DMG，以及对应的 [SHA-256 校验文件](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg.sha256)。
+当前 v1.0.0 版本提供使用 Developer ID 签名并通过 Apple 公证的 DMG，以及对应的 [SHA-256 校验文件](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg.sha256)。
 
 ## 快速开始
 
@@ -72,6 +76,7 @@ Muralume 是一款注重隐私的原生视频播放器：它把 Mac 上的文件
 | 操作 | 快捷键 |
 |---|---|
 | 添加文件夹 | `⌘O` |
+| 设为动态桌面 | `⌘D` |
 | 播放 / 暂停 | `Space` |
 | 后退 / 前进 10 秒 | `←` / `→` |
 | 上一部 / 下一部 | `⌘←` / `⌘→` |

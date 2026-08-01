@@ -30,6 +30,8 @@
 
 Muralume is a private, native video player that turns folders on your Mac into playlists—and any playlist into a Dynamic Desktop. It works directly with local files, without an account, cloud upload, or tracking.
 
+> This page documents the current `main` branch. The signed download remains v1.0.0; see its [release notes](https://github.com/MisakiHCL/Muralume/releases/tag/v1.0.0) for the exact shipped scope.
+
 ## Highlights
 
 ### Private by design
@@ -48,6 +50,8 @@ Add folders from your Mac or an external drive. Muralume recursively discovers M
 
 Seek, change volume or speed, enter fullscreen, and choose ordered playback or shuffle. Shuffle visits every available video once before starting a new round. Controls stay out of the way while you watch, and global playback preferences return on the next launch.
 
+Quit and reopen Muralume to continue from the same video, position, play or pause state, and presentation. If you were using the Dynamic Desktop, Muralume restores it directly without briefly opening the player window.
+
 ### Ready when you log in
 
 Optionally start Muralume with macOS and restore the current queue directly as a Dynamic Desktop. The app keeps the window out of the way and exposes playback controls through its menu bar item.
@@ -56,7 +60,7 @@ Optionally start Muralume with macOS and restore the current queue directly as a
 
 [Download `Muralume.dmg`](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg), open it, and drag Muralume into Applications.
 
-The latest release includes a Developer ID–signed and Apple-notarized DMG plus its [SHA-256 checksum](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg.sha256).
+The current v1.0.0 release includes a Developer ID–signed and Apple-notarized DMG plus its [SHA-256 checksum](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg.sha256).
 
 ## Quick start
 
@@ -72,6 +76,7 @@ The menu bar item lets you pause, skip, change playback speed or desktop fit, re
 | Action | Shortcut |
 |---|---|
 | Add folder | `⌘O` |
+| Set as Dynamic Desktop | `⌘D` |
 | Play / pause | `Space` |
 | Back / forward 10 seconds | `←` / `→` |
 | Previous / next video | `⌘←` / `⌘→` |

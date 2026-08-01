@@ -387,7 +387,7 @@ final class DesktopPresetControllerTests: XCTestCase {
         await prepareActiveQueue(item, in: fixture)
         let service = PresetTestLaunchAtLoginService(status: .disabled)
         service.statusAfterRegister = .enabled
-        service.statusAfterUnregister = .disabled
+        service.statusAfterUnregister = .unavailable(.outsideApplications)
         let launch = LaunchAtLoginController(service: service)
         let startup = DynamicDesktopStartupController(
             launchAtLogin: launch,
@@ -403,7 +403,10 @@ final class DesktopPresetControllerTests: XCTestCase {
         }
         let storedPreset = try await store.load()
 
-        XCTAssertEqual(startup.status, .disabled)
+        XCTAssertEqual(
+            startup.status,
+            .unavailable(.outsideApplications)
+        )
         XCTAssertEqual(startup.failure, .automaticallyDisabled)
         XCTAssertNil(storedPreset)
     }
@@ -520,42 +523,118 @@ final class DesktopPresetControllerTests: XCTestCase {
         XCTAssertNil(storedPreset)
     }
 
-    func testNonRequestedSystemStatesClearStalePreset() async throws {
-        for status in [LaunchAtLoginStatus.disabled, .unavailable] {
-            let rootURL = URL(
-                fileURLWithPath: "/tmp/StalePreset-\(status)"
-            )
-            let item = makeItem(
-                rootURL: rootURL,
-                name: "Stale",
-                path: "clip.mp4"
-            )
-            let preset = try makePreset(for: item)
-            let store = MemoryDesktopPresetStore(preset: preset)
-            let fixture = makeFixture(
-                rootURL: rootURL,
-                items: [],
-                preset: nil,
-                store: store
-            )
-            defer {
-                fixture.desktopSession.shutdown()
-            }
-            let service = PresetTestLaunchAtLoginService(status: status)
-            let launch = LaunchAtLoginController(service: service)
-            _ = DynamicDesktopStartupController(
-                launchAtLogin: launch,
-                desktopPreset: fixture.controller
-            )
-
-            while await store.clearCount == 0 {
-                await Task.yield()
-            }
-
-            let storedPreset = try await store.load()
-            XCTAssertNil(storedPreset)
-            XCTAssertEqual(service.unregisterCount, 0)
+    func testDisabledSystemStateClearsStalePreset() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/StalePreset-Disabled")
+        let item = makeItem(rootURL: rootURL, name: "Stale", path: "clip.mp4")
+        let preset = try makePreset(for: item)
+        let store = MemoryDesktopPresetStore(preset: preset)
+        let fixture = makeFixture(
+            rootURL: rootURL,
+            items: [],
+            preset: nil,
+            store: store
+        )
+        defer {
+            fixture.desktopSession.shutdown()
         }
+        let service = PresetTestLaunchAtLoginService(status: .disabled)
+        let launch = LaunchAtLoginController(service: service)
+        _ = DynamicDesktopStartupController(
+            launchAtLogin: launch,
+            desktopPreset: fixture.controller
+        )
+
+        while await store.clearCount == 0 {
+            await Task.yield()
+        }
+
+        let storedPreset = try await store.load()
+        XCTAssertNil(storedPreset)
+        XCTAssertEqual(service.unregisterCount, 0)
+    }
+
+    func testUnavailableCopyPreservesSharedRestorePreset() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/StalePreset-Unavailable")
+        let item = makeItem(rootURL: rootURL, name: "Stale", path: "clip.mp4")
+        let preset = try makePreset(for: item)
+        let store = MemoryDesktopPresetStore(preset: preset)
+        let fixture = makeFixture(
+            rootURL: rootURL,
+            items: [],
+            preset: nil,
+            store: store
+        )
+        defer {
+            fixture.desktopSession.shutdown()
+        }
+        let service = PresetTestLaunchAtLoginService(
+            status: .unavailable(.systemService)
+        )
+        let launch = LaunchAtLoginController(service: service)
+        _ = DynamicDesktopStartupController(
+            launchAtLogin: launch,
+            desktopPreset: fixture.controller
+        )
+
+        await fixture.controller.prepareForShutdown()
+        let storedPreset = try await store.load()
+        let clearCount = await store.clearCount
+
+        XCTAssertEqual(storedPreset, preset)
+        XCTAssertEqual(clearCount, 0)
+        XCTAssertEqual(service.unregisterCount, 0)
+
+        let transitionRootURL = URL(
+            fileURLWithPath: "/tmp/StalePreset-UnavailableTransition"
+        )
+        let transitionItem = makeItem(
+            rootURL: transitionRootURL,
+            name: "Transition",
+            path: "clip.mp4"
+        )
+        let transitionPreset = try makePreset(for: transitionItem)
+        let transitionStore = MemoryDesktopPresetStore(
+            preset: transitionPreset
+        )
+        await transitionStore.setBlockSave(true)
+        await transitionStore.setFailures(save: true, clear: false)
+        let transitionFixture = makeFixture(
+            rootURL: transitionRootURL,
+            items: [transitionItem],
+            preset: nil,
+            store: transitionStore
+        )
+        defer {
+            transitionFixture.desktopSession.shutdown()
+        }
+        await prepareActiveQueue(transitionItem, in: transitionFixture)
+        let transitionService = PresetTestLaunchAtLoginService(
+            status: .enabled
+        )
+        let transitionLaunch = LaunchAtLoginController(
+            service: transitionService
+        )
+        let transitionStartup = DynamicDesktopStartupController(
+            launchAtLogin: transitionLaunch,
+            desktopPreset: transitionFixture.controller
+        )
+
+        while !(await transitionStore.didBeginBlockedSave) {
+            await Task.yield()
+        }
+        transitionService.status = .unavailable(.systemService)
+        transitionLaunch.refresh()
+        await transitionStore.finishBlockedSave()
+        await transitionFixture.controller.prepareForShutdown()
+        let transitionStoredPreset = try await transitionStore.load()
+        let transitionClearCount = await transitionStore.clearCount
+
+        XCTAssertEqual(
+            transitionStartup.status,
+            .unavailable(.systemService)
+        )
+        XCTAssertEqual(transitionStoredPreset, transitionPreset)
+        XCTAssertEqual(transitionClearCount, 0)
     }
 
     func testFailedStalePresetCleanupRetriesOnNextStartup() async throws {

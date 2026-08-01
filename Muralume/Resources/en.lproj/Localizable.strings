@@ -100,8 +100,10 @@
 "settings.launchAtLogin.accessibilityHint" = "Starts Muralume at login and restores the last eligible Dynamic Desktop.";
 "settings.launchAtLogin.requiresApproval" = "Approval is required in System Settings.";
 "settings.launchAtLogin.openSystemSettings" = "Open System Settings";
-"settings.launchAtLogin.unavailable" = "Login startup is unavailable for this copy of Muralume.";
-"settings.launchAtLogin.enableFailed" = "Muralume could not enable login startup.";
+"settings.launchAtLogin.unavailable.diskImage" = "Muralume is running from a disk image or external volume. Move it to Applications, quit this copy, and reopen it there.";
+"settings.launchAtLogin.unavailable.outsideApplications" = "Move Muralume to Applications and reopen it to use login startup.";
+"settings.launchAtLogin.unavailable.systemService" = "macOS cannot access Muralume’s Login Item service right now. Reopen the app and try again.";
+"settings.launchAtLogin.enableFailed" = "macOS could not add Muralume to Login Items. Reopen the app and try again.";
 "settings.launchAtLogin.disableFailed" = "Muralume could not disable login startup.";
 "settings.launchAtLogin.selectMediaFirst" = "Select and play a video before enabling login startup.";
 "settings.launchAtLogin.presetUnavailable" = "Muralume could not save the Dynamic Desktop for login.";

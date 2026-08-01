@@ -3,7 +3,7 @@ import Combine
 
 @MainActor
 final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
-    private enum LoginBootstrapCancellationDisposition: Equatable {
+    private enum InitialRestoreCancellationDisposition: Equatable {
         case reopenPlayer
         case shutdown
     }
@@ -19,8 +19,10 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     private let mainWindowPresenter: MacMainWindowPresenter
     private let applicationPresence: any ApplicationPresenceControlling
     private let desktopPreset: DesktopPresetController
-    private var loginBootstrapTask: Task<Void, Never>?
-    private var loginBootstrapGeneration: UInt64 = 0
+    private let playbackSession: PlaybackSessionController
+    private var initialRestoreTask: Task<Void, Never>?
+    private var initialRestoreGeneration: UInt64 = 0
+    private var hasStarted = false
     private var isShutDown = false
 
     init(
@@ -32,6 +34,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         applicationPresence: any ApplicationPresenceControlling,
         dynamicDesktopStartup: DynamicDesktopStartupController,
         desktopPreset: DesktopPresetController,
+        playbackSession: PlaybackSessionController,
         playerChrome: PlayerChromeController = PlayerChromeController()
     ) {
         self.playback = playback
@@ -42,6 +45,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         self.applicationPresence = applicationPresence
         self.dynamicDesktopStartup = dynamicDesktopStartup
         self.desktopPreset = desktopPreset
+        self.playbackSession = playbackSession
         self.playerChrome = playerChrome
 
         desktopSession.quitHandler = { [weak self] in
@@ -74,30 +78,83 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     func start(source: ApplicationLaunchSource) {
-        dynamicDesktopStartup.refresh()
-        let libraryStart = library.start()
-
-        guard source == .loginItem,
-              dynamicDesktopStartup.isEffective else {
-            showMainWindowInStandardMode()
+        guard !hasStarted, !isShutDown else {
             return
         }
-
-        loginBootstrapGeneration &+= 1
-        let generation = loginBootstrapGeneration
-        loginBootstrapTask = Task { [weak self] in
+        hasStarted = true
+        dynamicDesktopStartup.refresh()
+        let libraryStart = library.start()
+        initialRestoreGeneration &+= 1
+        let generation = initialRestoreGeneration
+        initialRestoreTask = Task { [weak self] in
             guard let self else {
                 return
             }
-            let didRestore = await desktopPreset.restoreAtLogin(
-                after: libraryStart
+            defer {
+                playbackSession.finishCancelledRestoreIfNeeded()
+                desktopPreset.finishExternalRestore(
+                    commitCurrentState: false
+                )
+                initialRestoreTask = nil
+            }
+
+            if source == .loginItem,
+               dynamicDesktopStartup.isEffective {
+                playbackSession.beginExternalRestore()
+                let didRestore = await desktopPreset.restoreAtLogin(
+                    after: libraryStart
+                )
+                let shouldCommitPlaybackSession =
+                    didRestore
+                    && generation == initialRestoreGeneration
+                    && !isShutDown
+                playbackSession.finishExternalRestore(
+                    commitCurrentState: shouldCommitPlaybackSession
+                )
+                guard generation == initialRestoreGeneration,
+                      !isShutDown else {
+                    return
+                }
+                if !didRestore {
+                    showMainWindowInStandardMode()
+                }
+                return
+            }
+
+            let presentationOverride: PlaybackSessionPresentation? =
+                source == .loginItem ? .player : nil
+            let planResult = await playbackSession.makeRestorePlan(
+                overridingPresentation: presentationOverride
             )
-            guard generation == loginBootstrapGeneration,
+            guard generation == initialRestoreGeneration,
                   !isShutDown else {
                 return
             }
-            loginBootstrapTask = nil
-            if !didRestore {
+
+            guard case let .restore(plan) = planResult else {
+                showMainWindowInStandardMode()
+                return
+            }
+
+            desktopPreset.beginExternalRestore()
+            let restoreResult = await playbackSession.restore(
+                plan,
+                after: libraryStart
+            )
+            let shouldCommitDesktopPreset =
+                restoreResult == .restored
+                && generation == initialRestoreGeneration
+                && !isShutDown
+            desktopPreset.finishExternalRestore(
+                commitCurrentState: shouldCommitDesktopPreset
+            )
+
+            guard generation == initialRestoreGeneration,
+                  !isShutDown else {
+                return
+            }
+            if restoreResult != .restored
+                || plan.presentation == .player {
                 showMainWindowInStandardMode()
             }
         }
@@ -134,6 +191,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
 
     func dismissMainWindow() {
         desktopPreset.preserveCurrentPreset()
+        playbackSession.preserveCurrentSnapshot()
         playerChrome.setSettingsPresented(false)
         desktopSession.dismissMainWindow()
     }
@@ -143,7 +201,12 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     func reopenMainWindow() {
-        cancelLoginBootstrap()
+        performAfterCancellingInitialRestore { [weak self] in
+            self?.revealPlayerWindow()
+        }
+    }
+
+    private func revealPlayerWindow() {
         if desktopSession.isActive || desktopSession.isTransitioning {
             desktopSession.returnToPlayer()
             return
@@ -185,14 +248,15 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         }
         isShutDown = true
 
-        let pendingLoginBootstrap = cancelLoginBootstrap(
+        let pendingInitialRestore = cancelInitialRestore(
             disposition: .shutdown
         )
         await dynamicDesktopStartup.prepareForShutdown()
+        await playbackSession.prepareForShutdown()
         await desktopPreset.prepareForShutdown()
         dynamicDesktopStartup.freezeAfterPresetFinalization()
         desktopSession.shutdown()
-        await pendingLoginBootstrap?.value
+        await pendingInitialRestore?.value
         await mediaThumbnailProvider.shutdown()
         await library.shutdown()
     }
@@ -200,7 +264,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     func handleApplicationActivation(hasVisibleWindows: Bool) {
         dynamicDesktopStartup.refresh()
         guard !hasVisibleWindows,
-              loginBootstrapTask == nil,
+              initialRestoreTask == nil,
+              !playbackSession.isRestoring,
               !desktopPreset.isBootstrapping,
               !desktopSession.isActive,
               !desktopSession.isTransitioning,
@@ -211,25 +276,57 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     @discardableResult
-    private func cancelLoginBootstrap(
-        disposition: LoginBootstrapCancellationDisposition = .reopenPlayer
+    private func cancelInitialRestore(
+        disposition: InitialRestoreCancellationDisposition = .reopenPlayer
     ) -> Task<Void, Never>? {
-        guard loginBootstrapTask != nil || desktopPreset.isBootstrapping else {
+        guard initialRestoreTask != nil
+                || playbackSession.isRestoring
+                || desktopPreset.isBootstrapping else {
             return nil
         }
-        let pendingTask = loginBootstrapTask
-        loginBootstrapGeneration &+= 1
-        loginBootstrapTask?.cancel()
-        loginBootstrapTask = nil
+        let pendingTask = initialRestoreTask
+        initialRestoreGeneration &+= 1
+        initialRestoreTask?.cancel()
         if disposition == .reopenPlayer {
             if desktopSession.isTransitioning {
-                desktopSession.returnToPlayer()
+                desktopSession.returnToPlayer(revealWindow: false)
             } else if !desktopSession.isActive {
                 library.discardRestoredQueue()
             }
         }
+        playbackSession.preserveStoredSnapshotWhileCancellingRestore()
         desktopPreset.markBootstrapCancelled()
         return pendingTask
+    }
+
+    private func performAfterCancellingInitialRestore(
+        _ action: @escaping @MainActor () -> Void
+    ) {
+        guard let pendingTask = cancelInitialRestore() else {
+            action()
+            return
+        }
+        let generation = initialRestoreGeneration
+        Task { [weak self] in
+            await pendingTask.value
+            guard let self,
+                  generation == initialRestoreGeneration,
+                  !isShutDown else {
+                return
+            }
+            await desktopSession.waitForTransitionToSettle()
+            guard generation == initialRestoreGeneration,
+                  !isShutDown else {
+                return
+            }
+            await playbackSession
+                .adoptPlayerPresentationAfterCancelledRestore()
+            guard generation == initialRestoreGeneration,
+                  !isShutDown else {
+                return
+            }
+            action()
+        }
     }
 
     private func showMainWindowInStandardMode() {
@@ -313,7 +410,12 @@ extension AppCoordinator: MacMainMenuCommandHandling {
     }
 
     func openSettings() {
-        cancelLoginBootstrap()
+        performAfterCancellingInitialRestore { [weak self] in
+            self?.openSettingsAfterInitialRestore()
+        }
+    }
+
+    private func openSettingsAfterInitialRestore() {
         dynamicDesktopStartup.refresh()
         if playerChrome.isSettingsPresented {
             guard !desktopSession.isActive,
@@ -370,9 +472,6 @@ extension AppCoordinator: MacMainMenuCommandHandling {
     func enterDesktopFromMenu() {
         guard mainMenuCommandState.canEnterDesktop else {
             return
-        }
-        if playback.isPlayerWindowDismissed {
-            playback.restorePlayerWindow()
         }
         enterDesktop()
     }

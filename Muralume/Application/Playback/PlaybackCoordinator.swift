@@ -21,7 +21,6 @@ final class PlaybackCoordinator: ObservableObject {
     var canPresentOnDesktop: Bool {
         readiness == .ready
             && presentation == .player
-            && !isPlayerWindowDismissed
     }
 
     var isSystemSuspended: Bool {
@@ -181,12 +180,14 @@ final class PlaybackCoordinator: ObservableObject {
 
         hasPlayableMedia = true
         readiness = .ready
-        let shouldAutoplay = autoplay
-            && canAutoplayWhenLoaded
+        let canBeginNewPlayback =
+            canAutoplayWhenLoaded
             && loadGeneration == transitionGeneration
             && !isPlayerWindowDismissed
-        gate.setIntent(shouldAutoplay ? .playing : .paused)
-        isPlaybackRequested = shouldAutoplay
+        let shouldRequestPlayback = autoplay
+            && (isPlaybackRequested || canBeginNewPlayback)
+        gate.setIntent(shouldRequestPlayback ? .playing : .paused)
+        isPlaybackRequested = shouldRequestPlayback
         applyPlaybackGate()
         return .loaded
     }
@@ -320,7 +321,11 @@ final class PlaybackCoordinator: ObservableObject {
         presentation = .switching(generation: generation, destination: .desktop)
         savedPlayerSettings = settings
 
+        // A Dock-menu desktop transition can begin while the player window is
+        // hidden. Mute before releasing that visibility gate so the preserved
+        // playing intent cannot briefly resume audible player playback.
         engine.setMuted(true)
+        isPlayerWindowDismissed = false
         applyPlaybackGate()
 
         do {
@@ -393,8 +398,6 @@ final class PlaybackCoordinator: ObservableObject {
         cancelPlayerSurfaceAttachment()
         transitionGeneration &+= 1
         isPlayerWindowDismissed = true
-        gate.setIntent(.paused)
-        isPlaybackRequested = false
         restorePlayerSettings()
         presentation = .player
         engine.pause()

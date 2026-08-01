@@ -1,3 +1,4 @@
+import ServiceManagement
 import XCTest
 @testable import Muralume
 
@@ -80,6 +81,22 @@ final class LaunchAtLoginControllerTests: XCTestCase {
         XCTAssertFalse(controller.isEffective)
     }
 
+    func testSuccessfulUnregisterCanEndInUnavailableNonrequestedStatus() {
+        let service = TestLaunchAtLoginService(status: .enabled)
+        service.statusAfterUnregister = .unavailable(.outsideApplications)
+        let controller = LaunchAtLoginController(service: service)
+
+        controller.setEnabled(false)
+
+        XCTAssertEqual(service.unregisterCount, 1)
+        XCTAssertEqual(
+            controller.status,
+            .unavailable(.outsideApplications)
+        )
+        XCTAssertFalse(controller.isRequested)
+        XCTAssertNil(controller.operationFailure)
+    }
+
     func testDisableFailureSurvivesRefreshUntilSystemReportsDisabled() {
         let service = TestLaunchAtLoginService(status: .enabled)
         service.unregisterError = TestLaunchAtLoginError.failed
@@ -94,6 +111,99 @@ final class LaunchAtLoginControllerTests: XCTestCase {
         service.status = .disabled
         controller.refresh()
         XCTAssertNil(controller.operationFailure)
+    }
+
+    func testUnavailableCopyCannotAttemptRegistration() {
+        let service = TestLaunchAtLoginService(
+            status: .unavailable(.diskImage)
+        )
+        let controller = LaunchAtLoginController(service: service)
+
+        controller.setEnabled(true)
+
+        XCTAssertEqual(service.registerCount, 0)
+        XCTAssertEqual(controller.status, .unavailable(.diskImage))
+        XCTAssertFalse(controller.isRequested)
+        XCTAssertFalse(controller.isEffective)
+    }
+
+    func testInstalledMainAppTreatsMissingSystemRecordAsDisabled() {
+        XCTAssertEqual(
+            MacLaunchAtLoginService.map(
+                systemStatus: .notFound,
+                installLocation: .applications
+            ),
+            .disabled
+        )
+        XCTAssertEqual(
+            MacLaunchAtLoginService.map(
+                systemStatus: .notRegistered,
+                installLocation: .applications
+            ),
+            .disabled
+        )
+    }
+
+    func testUninstalledMainAppReportsActionableUnavailableReason() {
+        XCTAssertEqual(
+            MacLaunchAtLoginService.map(
+                systemStatus: .notFound,
+                installLocation: .mountedVolume
+            ),
+            .unavailable(.diskImage)
+        )
+        XCTAssertEqual(
+            MacLaunchAtLoginService.map(
+                systemStatus: .notRegistered,
+                installLocation: .other
+            ),
+            .unavailable(.outsideApplications)
+        )
+    }
+
+    func testRequestedSystemStateRemainsAuthoritativeOutsideApplications() {
+        XCTAssertEqual(
+            MacLaunchAtLoginService.map(
+                systemStatus: .enabled,
+                installLocation: .mountedVolume
+            ),
+            .enabled
+        )
+        XCTAssertEqual(
+            MacLaunchAtLoginService.map(
+                systemStatus: .requiresApproval,
+                installLocation: .other
+            ),
+            .requiresApproval
+        )
+    }
+
+    func testApplicationLocationUsesPathComponents() {
+        XCTAssertEqual(
+            MacApplicationInstallLocationResolver.resolve(
+                bundleURL: URL(
+                    fileURLWithPath: "/Applications/Muralume.app"
+                )
+            ),
+            .applications
+        )
+        XCTAssertEqual(
+            MacApplicationInstallLocationResolver.resolve(
+                bundleURL: URL(
+                    fileURLWithPath: "/Volumes/Muralume/Muralume.app"
+                )
+            ),
+            .mountedVolume
+        )
+        XCTAssertEqual(
+            MacApplicationInstallLocationResolver.resolve(
+                bundleURL: URL(
+                    fileURLWithPath:
+                        "/Applications Backup/Muralume.app"
+                )
+            ),
+            .other
+        )
     }
 }
 

@@ -697,7 +697,7 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertEqual(reportedFailure, .cannotOpen)
     }
 
-    func testDismissingPlayerWindowPausesWithoutClearingProcessState() async {
+    func testDismissingPlayingWindowPausesAndResumesOriginalIntent() async {
         let engine = TestPlaybackEngine()
         let coordinator = PlaybackCoordinator(engine: engine)
         let playerSurface = TestPlaybackSurface(id: .player)
@@ -716,7 +716,7 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.readiness, .ready)
         XCTAssertEqual(coordinator.presentation, .player)
         XCTAssertEqual(coordinator.currentTime, 42)
-        XCTAssertFalse(coordinator.isPlaybackRequested)
+        XCTAssertTrue(coordinator.isPlaybackRequested)
         XCTAssertFalse(engine.isPlaying)
         XCTAssertNil(engine.attachedSurfaceID)
 
@@ -726,6 +726,33 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.isPlayerWindowDismissed)
         XCTAssertEqual(coordinator.source, source)
         XCTAssertEqual(coordinator.currentTime, 42)
+        XCTAssertTrue(coordinator.isPlaybackRequested)
+        XCTAssertTrue(engine.isPlaying)
+        XCTAssertEqual(engine.attachedSurfaceID, .player)
+    }
+
+    func testDismissingPausedWindowKeepsItPausedAfterRestore() async {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        let source = ResolvedMediaSource(
+            url: URL(fileURLWithPath: "/tmp/example.mp4"),
+            displayName: "Example"
+        )
+        coordinator.registerPlayerSurface(playerSurface)
+        await coordinator.load(source, autoplay: false)
+
+        coordinator.dismissPlayerWindow()
+
+        XCTAssertTrue(coordinator.isPlayerWindowDismissed)
+        XCTAssertFalse(coordinator.isPlaybackRequested)
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertNil(engine.attachedSurfaceID)
+
+        coordinator.restorePlayerWindow()
+        await Task.yield()
+
+        XCTAssertFalse(coordinator.isPlayerWindowDismissed)
         XCTAssertFalse(coordinator.isPlaybackRequested)
         XCTAssertFalse(engine.isPlaying)
         XCTAssertEqual(engine.attachedSurfaceID, .player)
@@ -759,6 +786,50 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.isPlayerWindowDismissed)
         XCTAssertFalse(coordinator.isPlaybackRequested)
         XCTAssertFalse(engine.isPlaying)
+        XCTAssertEqual(engine.attachedSurfaceID, .player)
+    }
+
+    func testDismissDuringReplacementLoadPreservesPlayingIntent() async {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        coordinator.registerPlayerSurface(playerSurface)
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/first.mp4"),
+                displayName: "First"
+            )
+        )
+        engine.shouldBlockLoads = true
+
+        let replacementLoad = Task {
+            await coordinator.load(
+                ResolvedMediaSource(
+                    url: URL(fileURLWithPath: "/tmp/second.mp4"),
+                    displayName: "Second"
+                )
+            )
+        }
+        while !engine.didBeginBlockedLoad {
+            await Task.yield()
+        }
+
+        coordinator.dismissPlayerWindow()
+        engine.finishBlockedLoad()
+        let loadResult = await replacementLoad.value
+        XCTAssertEqual(loadResult, .loaded)
+
+        XCTAssertTrue(coordinator.isPlayerWindowDismissed)
+        XCTAssertTrue(coordinator.isPlaybackRequested)
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertNil(engine.attachedSurfaceID)
+
+        coordinator.restorePlayerWindow()
+        await Task.yield()
+
+        XCTAssertFalse(coordinator.isPlayerWindowDismissed)
+        XCTAssertTrue(coordinator.isPlaybackRequested)
+        XCTAssertTrue(engine.isPlaying)
         XCTAssertEqual(engine.attachedSurfaceID, .player)
     }
 

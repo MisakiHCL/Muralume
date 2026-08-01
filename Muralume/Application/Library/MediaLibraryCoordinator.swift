@@ -330,7 +330,8 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     func restoreQueue(
-        from snapshot: PlaybackQueueSnapshot<LibraryMediaItem.ID>
+        from snapshot: PlaybackQueueSnapshot<LibraryMediaItem.ID>,
+        attachToPlayerSurface: Bool = false
     ) async -> MediaLibraryQueueRestoreResult {
         guard !Task.isCancelled, !isShutDown else {
             return .cancelled
@@ -396,7 +397,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         unavailableItemIDs.formIntersection(availableItemsByID.keys)
 
         return await loadRestoredQueueItem(
-            attemptsRemaining: restoredQueue.count
+            attemptsRemaining: restoredQueue.count,
+            attachToPlayerSurface: attachToPlayerSurface
         )
     }
 
@@ -591,7 +593,8 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     private func loadRestoredQueueItem(
-        attemptsRemaining: Int
+        attemptsRemaining: Int,
+        attachToPlayerSurface: Bool
     ) async -> MediaLibraryQueueRestoreResult {
         var remainingAttempts = attemptsRemaining
 
@@ -610,7 +613,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             let result = await playback.load(
                 source,
                 autoplay: false,
-                attachToPlayerSurface: false
+                attachToPlayerSurface: attachToPlayerSurface
             )
             guard !Task.isCancelled, !isShutDown else {
                 return .cancelled

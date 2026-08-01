@@ -45,6 +45,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         static let volumeUp = functionKey(NSUpArrowFunctionKey)
         static let volumeDown = functionKey(NSDownArrowFunctionKey)
         static let toggleMute = "m"
+        static let enterDesktop = "d"
         static let toggleFullScreen = "f"
         static let settings = ","
         static let closeWindow = "w"
@@ -360,7 +361,9 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         )
         configure(
             enterDesktopItem,
-            action: #selector(enterDesktop(_:))
+            action: #selector(enterDesktop(_:)),
+            keyEquivalent: Shortcut.enterDesktop,
+            modifiers: [.command]
         )
         configure(
             toggleFullScreenItem,

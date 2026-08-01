@@ -8,16 +8,67 @@ final class AppCoordinatorTests: XCTestCase {
         static let propagationAttempts = 1_000
     }
 
-    func testInteractiveLaunchDoesNotRestoreEvenWhenLoginItemIsEffective() async {
+    func testInteractiveLaunchUsesPlaybackSessionInsteadOfLoginPreset() async {
         let fixture = makeFixture(launchStatus: .enabled)
 
         fixture.coordinator.start(source: .interactive)
-        await Task.yield()
+        await waitUntil {
+            fixture.window.isVisible
+        }
         let loadCount = await fixture.store.loadCount
+        let sessionLoadCount = await fixture.sessionStore.loadCount
 
         XCTAssertTrue(fixture.window.isVisible)
         XCTAssertEqual(loadCount, 0)
+        XCTAssertEqual(sessionLoadCount, 1)
         XCTAssertEqual(fixture.applicationPresence.appliedModes, [.standard])
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testRepeatedStartLoadsPlaybackSessionOnlyOnce() async {
+        let fixture = makeFixture(launchStatus: .disabled)
+
+        fixture.coordinator.start(source: .interactive)
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+        }
+        let sessionLoadCount = await fixture.sessionStore.loadCount
+
+        XCTAssertEqual(sessionLoadCount, 1)
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testDockReopenCancelsBlockedPlaybackSessionRestore() async {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            blockSessionLoad: true,
+            sessionPresentation: .desktop
+        )
+
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            await fixture.sessionStore.didBeginBlockedLoad
+        }
+
+        fixture.coordinator.reopenMainWindow()
+        XCTAssertFalse(fixture.window.isVisible)
+
+        await fixture.sessionStore.finishBlockedLoad()
+        await waitUntil {
+            fixture.window.isVisible
+                && !fixture.playbackSession.isRestoring
+        }
+
+        XCTAssertTrue(fixture.window.isVisible)
+        XCTAssertFalse(fixture.desktopSession.isActive)
+        XCTAssertEqual(fixture.playback.presentation, .player)
+        XCTAssertEqual(
+            fixture.applicationPresence.appliedModes,
+            [.standard]
+        )
 
         await fixture.coordinator.shutdown()
     }
@@ -26,11 +77,15 @@ final class AppCoordinatorTests: XCTestCase {
         let fixture = makeFixture(launchStatus: .requiresApproval)
 
         fixture.coordinator.start(source: .loginItem)
-        await Task.yield()
+        await waitUntil {
+            fixture.window.isVisible
+        }
         let loadCount = await fixture.store.loadCount
+        let sessionLoadCount = await fixture.sessionStore.loadCount
 
         XCTAssertTrue(fixture.window.isVisible)
         XCTAssertEqual(loadCount, 0)
+        XCTAssertEqual(sessionLoadCount, 1)
         XCTAssertEqual(fixture.applicationPresence.appliedModes, [.standard])
 
         await fixture.coordinator.shutdown()
@@ -65,16 +120,24 @@ final class AppCoordinatorTests: XCTestCase {
             fixture.engine.didBeginBlockedDesktopAttachment
         }
 
+        fixture.engine.blockPlayerAttachment()
         fixture.coordinator.reopenMainWindow()
         await waitUntil {
-            fixture.window.isVisible
-                && fixture.playback.presentation == .player
-                && !fixture.desktopSession.isTransitioning
+            fixture.engine.didBeginBlockedPlayerAttachment
         }
+        XCTAssertFalse(fixture.window.isVisible)
 
         fixture.engine.finishBlockedDesktopAttachment()
         await waitUntil {
             fixture.desktopPreset.bootstrapState == .cancelled
+        }
+        XCTAssertFalse(fixture.window.isVisible)
+
+        fixture.engine.finishBlockedPlayerAttachment()
+        await waitUntil {
+            fixture.window.isVisible
+                && fixture.playback.presentation == .player
+                && !fixture.desktopSession.isTransitioning
         }
         await Task.yield()
 
@@ -84,6 +147,8 @@ final class AppCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.applicationPresence.appliedModes.last, .standard)
 
         await fixture.coordinator.shutdown()
+        let playbackSnapshot = await fixture.sessionStore.value()
+        XCTAssertEqual(playbackSnapshot?.presentation, .player)
     }
 
     func testShutdownCancelsAndDrainsBootstrapBeforeFinalTeardown() async {
@@ -121,6 +186,34 @@ final class AppCoordinatorTests: XCTestCase {
         XCTAssertEqual(finalPersistenceCounts, persistenceCounts)
     }
 
+    func testDockReopenResumesSoftClosedPlaybackAndPersistsIntent() async {
+        let fixture = makeFixture(launchStatus: .disabled)
+        fixture.coordinator.start(source: .interactive)
+        await prepareActiveQueue(in: fixture)
+
+        fixture.coordinator.dismissMainWindow()
+
+        XCTAssertTrue(fixture.playback.isPlayerWindowDismissed)
+        XCTAssertTrue(fixture.playback.isPlaybackRequested)
+        XCTAssertFalse(fixture.engine.isPlaying)
+        XCTAssertFalse(fixture.window.isVisible)
+
+        fixture.coordinator.reopenMainWindow()
+        await waitUntil {
+            fixture.window.isVisible && fixture.engine.isPlaying
+        }
+
+        XCTAssertFalse(fixture.playback.isPlayerWindowDismissed)
+        XCTAssertTrue(fixture.playback.isPlaybackRequested)
+
+        fixture.coordinator.dismissMainWindow()
+        await fixture.coordinator.shutdown()
+
+        let snapshot = await fixture.sessionStore.value()
+        XCTAssertEqual(snapshot?.presentation, .player)
+        XCTAssertEqual(snapshot?.state.isPlaybackRequested, true)
+    }
+
     func testMenuDesktopActionRestoresSoftClosedPlayerBeforeTransition() async {
         let fixture = makeFixture(launchStatus: .disabled)
         fixture.coordinator.start(source: .interactive)
@@ -129,6 +222,8 @@ final class AppCoordinatorTests: XCTestCase {
         fixture.coordinator.dismissMainWindow()
 
         XCTAssertTrue(fixture.playback.isPlayerWindowDismissed)
+        XCTAssertTrue(fixture.playback.isPlaybackRequested)
+        XCTAssertFalse(fixture.engine.isPlaying)
         XCTAssertFalse(fixture.window.isVisible)
         XCTAssertTrue(fixture.coordinator.mainMenuCommandState.canEnterDesktop)
 
@@ -139,9 +234,61 @@ final class AppCoordinatorTests: XCTestCase {
         }
 
         XCTAssertFalse(fixture.playback.isPlayerWindowDismissed)
+        XCTAssertTrue(fixture.playback.isPlaybackRequested)
+        XCTAssertTrue(fixture.engine.isPlaying)
+        XCTAssertTrue(fixture.engine.isMuted)
         XCTAssertFalse(fixture.window.isVisible)
         XCTAssertEqual(fixture.desktopHost.revealCount, 1)
         XCTAssertEqual(fixture.applicationPresence.appliedModes.last, .menuBarOnly)
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testInteractiveLaunchRestoresLastDesktopWithoutShowingPlayer() async {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            sessionPresentation: .desktop
+        )
+
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.desktopSession.isActive
+                && fixture.playback.presentation == .desktop
+                && fixture.playback.isPlaybackRequested
+        }
+
+        XCTAssertFalse(fixture.window.isVisible)
+        XCTAssertEqual(fixture.library.currentItemID, fixture.item.id)
+        XCTAssertEqual(fixture.playback.currentTime, 12)
+        XCTAssertTrue(fixture.playback.isPlaybackRequested)
+        XCTAssertEqual(
+            fixture.applicationPresence.appliedModes,
+            [.menuBarOnly]
+        )
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testNonEffectiveLoginLaunchForcesSavedDesktopIntoPlayer() async {
+        let fixture = makeFixture(
+            launchStatus: .requiresApproval,
+            sessionPresentation: .desktop
+        )
+
+        fixture.coordinator.start(source: .loginItem)
+        await waitUntil {
+            fixture.window.isVisible
+                && fixture.playback.readiness == .ready
+        }
+
+        XCTAssertFalse(fixture.desktopSession.isActive)
+        XCTAssertEqual(fixture.playback.presentation, .player)
+        XCTAssertEqual(fixture.library.currentItemID, fixture.item.id)
+        XCTAssertTrue(fixture.playback.isPlaybackRequested)
+        XCTAssertEqual(
+            fixture.applicationPresence.appliedModes,
+            [.standard]
+        )
 
         await fixture.coordinator.shutdown()
     }
@@ -158,7 +305,9 @@ final class AppCoordinatorTests: XCTestCase {
     private func makeFixture(
         launchStatus: LaunchAtLoginStatus,
         blockPresetLoad: Bool = false,
-        blockDesktopAttachment: Bool = false
+        blockDesktopAttachment: Bool = false,
+        blockSessionLoad: Bool = false,
+        sessionPresentation: PlaybackSessionPresentation? = nil
     ) -> AppCoordinatorFixture {
         let rootURL = URL(
             fileURLWithPath: "/tmp/AppCoordinatorTests/Library"
@@ -227,6 +376,21 @@ final class AppCoordinatorTests: XCTestCase {
             desktopSession: desktopSession,
             store: store
         )
+        let sessionStore = AppCoordinatorPlaybackSessionStore(
+            snapshot: sessionPresentation.map {
+                PlaybackSessionSnapshot(
+                    state: preset,
+                    presentation: $0
+                )
+            },
+            blocksLoad: blockSessionLoad
+        )
+        let playbackSession = PlaybackSessionController(
+            playback: playback,
+            library: library,
+            desktopSession: desktopSession,
+            store: sessionStore
+        )
         let launchService = AppCoordinatorLaunchAtLoginService(
             status: launchStatus
         )
@@ -243,7 +407,8 @@ final class AppCoordinatorTests: XCTestCase {
             mainWindowPresenter: windowPresenter,
             applicationPresence: applicationPresence,
             dynamicDesktopStartup: startup,
-            desktopPreset: desktopPreset
+            desktopPreset: desktopPreset,
+            playbackSession: playbackSession
         )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
@@ -258,12 +423,14 @@ final class AppCoordinatorTests: XCTestCase {
             playback: playback,
             desktopSession: desktopSession,
             desktopPreset: desktopPreset,
+            playbackSession: playbackSession,
             library: library,
             desktopHost: desktopHost,
             applicationPresence: applicationPresence,
             thumbnailProvider: thumbnailProvider,
             mediaSession: mediaSession,
             store: store,
+            sessionStore: sessionStore,
             engine: engine,
             playerSurface: playerSurface,
             item: item,
@@ -290,12 +457,14 @@ private struct AppCoordinatorFixture {
     let playback: PlaybackCoordinator
     let desktopSession: DesktopSessionCoordinator
     let desktopPreset: DesktopPresetController
+    let playbackSession: PlaybackSessionController
     let library: MediaLibraryCoordinator
     let desktopHost: TestDesktopHost
     let applicationPresence: TestApplicationPresenceController
     let thumbnailProvider: AppCoordinatorThumbnailProvider
     let mediaSession: AppCoordinatorMediaSession
     let store: AppCoordinatorPresetStore
+    let sessionStore: AppCoordinatorPlaybackSessionStore
     let engine: AppCoordinatorPlaybackEngine
     let playerSurface: TestPlaybackSurface
     let item: LibraryMediaItem
@@ -310,10 +479,16 @@ private final class AppCoordinatorPlaybackEngine: PlaybackEngine {
     var playbackActivityHandler: ((Bool) -> Void)?
 
     private(set) var didBeginBlockedDesktopAttachment = false
+    private(set) var didBeginBlockedPlayerAttachment = false
+    private(set) var isPlaying = false
+    private(set) var isMuted = false
     private(set) var stopCount = 0
     private var blocksDesktopAttachment: Bool
     private var desktopAttachmentContinuation:
         CheckedContinuation<Void, any Error>?
+    private var shouldBlockPlayerAttachment = false
+    private var playerAttachmentContinuation:
+        CheckedContinuation<Void, Never>?
 
     init(blocksDesktopAttachment: Bool) {
         self.blocksDesktopAttachment = blocksDesktopAttachment
@@ -324,13 +499,21 @@ private final class AppCoordinatorPlaybackEngine: PlaybackEngine {
     }
 
     func attach(to surface: any PlaybackRenderSurface) async throws {
-        guard surface.id == .desktop, blocksDesktopAttachment else {
-            return
+        if surface.id == .desktop, blocksDesktopAttachment {
+            didBeginBlockedDesktopAttachment = true
+            try await withCheckedThrowingContinuation { continuation in
+                desktopAttachmentContinuation = continuation
+            }
+        } else if surface.id == .player, shouldBlockPlayerAttachment {
+            didBeginBlockedPlayerAttachment = true
+            await withCheckedContinuation { continuation in
+                playerAttachmentContinuation = continuation
+            }
         }
-        didBeginBlockedDesktopAttachment = true
-        try await withCheckedThrowingContinuation { continuation in
-            desktopAttachmentContinuation = continuation
-        }
+    }
+
+    func blockPlayerAttachment() {
+        shouldBlockPlayerAttachment = true
     }
 
     func finishBlockedDesktopAttachment() {
@@ -339,13 +522,21 @@ private final class AppCoordinatorPlaybackEngine: PlaybackEngine {
         desktopAttachmentContinuation = nil
     }
 
+    func finishBlockedPlayerAttachment() {
+        shouldBlockPlayerAttachment = false
+        playerAttachmentContinuation?.resume()
+        playerAttachmentContinuation = nil
+    }
+
     func detachAll() {}
 
     func play(at rate: PlaybackRate) {
+        isPlaying = true
         playbackActivityHandler?(true)
     }
 
     func pause() {
+        isPlaying = false
         playbackActivityHandler?(false)
     }
 
@@ -353,10 +544,13 @@ private final class AppCoordinatorPlaybackEngine: PlaybackEngine {
 
     func setVolume(_ volume: PlaybackVolume) {}
 
-    func setMuted(_ isMuted: Bool) {}
+    func setMuted(_ isMuted: Bool) {
+        self.isMuted = isMuted
+    }
 
     func stop() {
         stopCount += 1
+        isPlaying = false
         playbackActivityHandler?(false)
     }
 
@@ -461,6 +655,55 @@ private actor AppCoordinatorPresetStore: DesktopPresetStoring {
     func clear() async throws {
         clearCount += 1
         preset = nil
+    }
+}
+
+private actor AppCoordinatorPlaybackSessionStore: PlaybackSessionStoring {
+    private var snapshot: PlaybackSessionSnapshot?
+    private var blocksLoad: Bool
+    private var loadContinuation: CheckedContinuation<Void, Never>?
+    private(set) var loadCount = 0
+    private(set) var saveCount = 0
+    private(set) var clearCount = 0
+    private(set) var didBeginBlockedLoad = false
+
+    init(
+        snapshot: PlaybackSessionSnapshot?,
+        blocksLoad: Bool = false
+    ) {
+        self.snapshot = snapshot
+        self.blocksLoad = blocksLoad
+    }
+
+    func load() async throws -> PlaybackSessionSnapshot? {
+        loadCount += 1
+        if blocksLoad {
+            didBeginBlockedLoad = true
+            await withCheckedContinuation { continuation in
+                loadContinuation = continuation
+            }
+        }
+        return snapshot
+    }
+
+    func finishBlockedLoad() {
+        blocksLoad = false
+        loadContinuation?.resume()
+        loadContinuation = nil
+    }
+
+    func value() -> PlaybackSessionSnapshot? {
+        snapshot
+    }
+
+    func save(_ snapshot: PlaybackSessionSnapshot) async throws {
+        saveCount += 1
+        self.snapshot = snapshot
+    }
+
+    func clear() async throws {
+        clearCount += 1
+        snapshot = nil
     }
 }
 

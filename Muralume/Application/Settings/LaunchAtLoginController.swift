@@ -1,10 +1,31 @@
 import Combine
 
+enum LaunchAtLoginUnavailableReason: Equatable, Sendable {
+    case diskImage
+    case outsideApplications
+    case systemService
+}
+
 enum LaunchAtLoginStatus: Equatable, Sendable {
     case disabled
     case enabled
     case requiresApproval
-    case unavailable
+    case unavailable(LaunchAtLoginUnavailableReason)
+
+    var isUnavailable: Bool {
+        if case .unavailable = self {
+            return true
+        }
+        return false
+    }
+
+    var isEffective: Bool {
+        self == .enabled
+    }
+
+    var isRequested: Bool {
+        self == .enabled || self == .requiresApproval
+    }
 }
 
 enum LaunchAtLoginFailure: Equatable, Sendable {
@@ -36,11 +57,11 @@ final class LaunchAtLoginController: ObservableObject {
     @Published private(set) var isUpdating = false
 
     var isEffective: Bool {
-        status == .enabled
+        status.isEffective
     }
 
     var isRequested: Bool {
-        status == .enabled || status == .requiresApproval
+        status.isRequested
     }
 
     private let service: any LaunchAtLoginServicing
@@ -56,7 +77,7 @@ final class LaunchAtLoginController: ObservableObject {
            status == .enabled || status == .requiresApproval {
             operationFailure = nil
         } else if operationFailure == .disableFailed,
-                  status == .disabled {
+                  !status.isRequested {
             operationFailure = nil
         }
     }
@@ -65,10 +86,13 @@ final class LaunchAtLoginController: ObservableObject {
         guard !isUpdating else {
             return
         }
+        guard !(isEnabled && status.isUnavailable) else {
+            return
+        }
         if isEnabled, isRequested {
             return
         }
-        if !isEnabled, status == .disabled {
+        if !isEnabled, !isRequested {
             return
         }
 
@@ -84,10 +108,9 @@ final class LaunchAtLoginController: ObservableObject {
             // The operating system status is authoritative even when an
             // idempotent registration call reports an error.
             status = service.status
-            if isEnabled, status != .enabled,
-               status != .requiresApproval {
+            if isEnabled, !status.isRequested {
                 operationFailure = .enableFailed
-            } else if !isEnabled, status != .disabled {
+            } else if !isEnabled, status.isRequested {
                 operationFailure = .disableFailed
             }
             isUpdating = false
@@ -95,10 +118,9 @@ final class LaunchAtLoginController: ObservableObject {
         }
 
         status = service.status
-        if isEnabled, status != .enabled,
-           status != .requiresApproval {
+        if isEnabled, !status.isRequested {
             operationFailure = .enableFailed
-        } else if !isEnabled, status != .disabled {
+        } else if !isEnabled, status.isRequested {
             operationFailure = .disableFailed
         }
         isUpdating = false
@@ -116,11 +138,11 @@ final class DynamicDesktopStartupController: ObservableObject {
     @Published private(set) var isUpdating = false
 
     var isEffective: Bool {
-        status == .enabled
+        status.isEffective
     }
 
     var isRequested: Bool {
-        status == .enabled || status == .requiresApproval
+        status.isRequested
     }
 
     private let launchAtLogin: LaunchAtLoginController
@@ -147,9 +169,19 @@ final class DynamicDesktopStartupController: ObservableObject {
                 }
                 self.status = status
                 self.reconcileFailure(with: status)
-                desktopPreset?.setAutomaticRestorePrepared(
-                    status == .enabled || status == .requiresApproval
-                )
+                switch status {
+                case .enabled, .requiresApproval:
+                    desktopPreset?.setAutomaticRestorePrepared(true)
+                case .disabled:
+                    desktopPreset?.setAutomaticRestorePrepared(false)
+                case .unavailable:
+                    // An unavailable status cannot authoritatively determine
+                    // whether another copy is registered. Preserve their
+                    // shared restore preset until macOS reports a definite
+                    // requested or disabled state.
+                    desktopPreset?
+                        .preserveAutomaticRestoreWhileStatusIsUnknown()
+                }
             }
             .store(in: &cancellables)
 
@@ -178,6 +210,7 @@ final class DynamicDesktopStartupController: ObservableObject {
     func setEnabled(_ isEnabled: Bool) {
         guard !isShuttingDown,
               !isUpdating,
+              !(isEnabled && status.isUnavailable),
               isEnabled != isRequested else {
             return
         }
@@ -237,7 +270,7 @@ final class DynamicDesktopStartupController: ObservableObject {
         }
         launchAtLogin.setEnabled(true)
         status = launchAtLogin.status
-        if status != .enabled && status != .requiresApproval {
+        if !status.isRequested {
             await desktopPreset.discardPreparedAutomaticRestore()
             failure = .enableFailed
         }
@@ -250,7 +283,7 @@ final class DynamicDesktopStartupController: ObservableObject {
         failure = nil
         launchAtLogin.setEnabled(false)
         status = launchAtLogin.status
-        if status != .disabled {
+        if status.isRequested {
             failure = .disableFailed
         }
         isUpdating = false
@@ -297,21 +330,19 @@ final class DynamicDesktopStartupController: ObservableObject {
         isUpdating = true
         launchAtLogin.setEnabled(false)
         status = launchAtLogin.status
-        failure = status == .disabled
-            ? .automaticallyDisabled
-            : .manualDisableRequired
+        failure = status.isRequested
+            ? .manualDisableRequired
+            : .automaticallyDisabled
         isUpdating = false
     }
 
     private func reconcileFailure(with status: LaunchAtLoginStatus) {
-        switch (failure, status) {
-        case (.enableFailed, .enabled),
-             (.enableFailed, .requiresApproval),
-             (.disableFailed, .disabled),
-             (.manualDisableRequired, .disabled):
+        if failure == .enableFailed, status.isRequested {
             failure = nil
-        default:
-            break
+        } else if (failure == .disableFailed
+                   || failure == .manualDisableRequired),
+                  !status.isRequested {
+            failure = nil
         }
     }
 }

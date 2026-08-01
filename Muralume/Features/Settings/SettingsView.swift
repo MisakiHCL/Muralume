@@ -197,7 +197,7 @@ struct SettingsView: View {
                 .toggleStyle(.checkbox)
                 .disabled(
                     dynamicDesktopStartup.isUpdating
-                        || dynamicDesktopStartup.status == .unavailable
+                        || dynamicDesktopStartup.status.isUnavailable
                 )
                 .accessibilityLabel(Text("settings.launchAtLogin"))
                 .accessibilityHint(
@@ -253,8 +253,15 @@ struct SettingsView: View {
         return switch dynamicDesktopStartup.status {
         case .requiresApproval:
             "settings.launchAtLogin.requiresApproval"
-        case .unavailable:
-            "settings.launchAtLogin.unavailable"
+        case let .unavailable(reason):
+            switch reason {
+            case .diskImage:
+                "settings.launchAtLogin.unavailable.diskImage"
+            case .outsideApplications:
+                "settings.launchAtLogin.unavailable.outsideApplications"
+            case .systemService:
+                "settings.launchAtLogin.unavailable.systemService"
+            }
         case .disabled, .enabled:
             nil
         }
@@ -383,14 +390,13 @@ private struct SettingsRow<Control: View>: View {
 
     var body: some View {
         HStack(
-            alignment: .top,
+            alignment: .center,
             spacing: MuralumeTheme.Spacing.large
         ) {
             Text(title)
                 .font(.body.weight(.medium))
                 .foregroundStyle(MuralumeTheme.Colors.textPrimary)
                 .lineLimit(1)
-                .padding(.top, MuralumeTheme.Spacing.small)
                 .accessibilityHidden(true)
 
             Spacer(minLength: MuralumeTheme.Spacing.large)

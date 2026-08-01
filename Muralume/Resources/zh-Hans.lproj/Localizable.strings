@@ -100,8 +100,10 @@
 "settings.launchAtLogin.accessibilityHint" = "登录后启动 Muralume，并恢复最近可用的动态桌面。";
 "settings.launchAtLogin.requiresApproval" = "需要在系统设置中批准。";
 "settings.launchAtLogin.openSystemSettings" = "打开系统设置";
-"settings.launchAtLogin.unavailable" = "当前 Muralume 副本无法设置登录启动。";
-"settings.launchAtLogin.enableFailed" = "无法开启登录启动。";
+"settings.launchAtLogin.unavailable.diskImage" = "Muralume 正从磁盘映像或外部卷运行。请先将它移到“应用程序”文件夹，完整退出当前副本后再从那里打开。";
+"settings.launchAtLogin.unavailable.outsideApplications" = "请将 Muralume 移到“应用程序”文件夹并重新打开，以使用登录启动。";
+"settings.launchAtLogin.unavailable.systemService" = "macOS 当前无法访问 Muralume 的登录项服务，请重新打开应用后再试。";
+"settings.launchAtLogin.enableFailed" = "macOS 无法将 Muralume 添加到登录项，请重新打开应用后再试。";
 "settings.launchAtLogin.disableFailed" = "无法关闭登录启动。";
 "settings.launchAtLogin.selectMediaFirst" = "请先选择并播放一个视频，再开启登录启动。";
 "settings.launchAtLogin.presetUnavailable" = "无法保存用于登录启动的动态桌面。";

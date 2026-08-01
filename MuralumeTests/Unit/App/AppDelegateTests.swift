@@ -333,7 +333,13 @@ final class AppDelegateTests: XCTestCase {
             actionsMenu.items.first {
                 $0.title == "Set as Dynamic Desktop"
             }?.keyEquivalent,
-            ""
+            "d"
+        )
+        XCTAssertEqual(
+            actionsMenu.items.first {
+                $0.title == "Set as Dynamic Desktop"
+            }?.keyEquivalentModifierMask,
+            [.command]
         )
         XCTAssertEqual(
             actionsMenu.items

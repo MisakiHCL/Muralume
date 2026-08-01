@@ -43,6 +43,12 @@ enum AppCompositionRoot {
             desktopSession: desktopSession,
             store: FileDesktopPresetStore()
         )
+        let playbackSession = PlaybackSessionController(
+            playback: playback,
+            library: library,
+            desktopSession: desktopSession,
+            store: FilePlaybackSessionStore()
+        )
         let dynamicDesktopStartup = DynamicDesktopStartupController(
             launchAtLogin: launchAtLogin,
             desktopPreset: desktopPreset
@@ -56,7 +62,8 @@ enum AppCompositionRoot {
             mainWindowPresenter: mainWindowPresenter,
             applicationPresence: applicationPresence,
             dynamicDesktopStartup: dynamicDesktopStartup,
-            desktopPreset: desktopPreset
+            desktopPreset: desktopPreset,
+            playbackSession: playbackSession
         )
     }
 }
