@@ -57,8 +57,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         desktopSession.playNextHandler = { [weak self] in
             self?.library.playNext()
         }
-        desktopSession.didEnterDesktopHandler = { [weak desktopPreset] in
-            desktopPreset?.markDesktopActive()
+        desktopSession.didEnterDesktopHandler = { [weak self] in
+            self?.desktopPreset.markDesktopActive()
+            self?.mediaThumbnailProvider.purgeMemoryCache()
         }
         desktopSession.didReturnToPlayerHandler = { [weak desktopPreset] in
             desktopPreset?.markDesktopInactive()
@@ -194,6 +195,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         playbackSession.preserveCurrentSnapshot()
         playerChrome.setSettingsPresented(false)
         desktopSession.dismissMainWindow()
+        mediaThumbnailProvider.purgeMemoryCache()
     }
 
     func minimizeMainWindow() {

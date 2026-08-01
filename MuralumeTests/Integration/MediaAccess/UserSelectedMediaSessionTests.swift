@@ -3,6 +3,10 @@ import XCTest
 
 @MainActor
 final class UserSelectedMediaSessionTests: XCTestCase {
+    private enum TestStorage {
+        static let suiteName = "com.muralume.tests.media-session"
+    }
+
     func testSelectedScopeIsReleasedAndResolvedScopeUsesExactURLUntilStop() {
         let fixture = makeSessionFixture()
         defer { fixture.clearDefaults() }
@@ -143,7 +147,7 @@ final class UserSelectedMediaSessionTests: XCTestCase {
     }
 
     private func makeSessionFixture() -> MediaSessionFixture {
-        let suiteName = "UserSelectedMediaSessionTests.\(UUID().uuidString)"
+        let suiteName = TestStorage.suiteName
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         let recorder = SecurityScopeRecorder()

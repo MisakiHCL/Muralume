@@ -9,6 +9,10 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         static let currentMenuTitleMaximumWidth: CGFloat = 360
     }
 
+    private enum TestStorage {
+        static let suiteName = "com.muralume.tests.desktop-content-mode"
+    }
+
     func testDesktopRoundTripDelegatesWindowAndStatusPresentation() async {
         let engine = TestPlaybackEngine()
         let playback = PlaybackCoordinator(engine: engine)
@@ -491,7 +495,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
     }
 
     func testUserDefaultsVideoContentModeStorePersistsSelection() throws {
-        let suiteName = "com.muralume.tests.desktop-content-mode.\(UUID().uuidString)"
+        let suiteName = TestStorage.suiteName
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer {
             defaults.removePersistentDomain(forName: suiteName)

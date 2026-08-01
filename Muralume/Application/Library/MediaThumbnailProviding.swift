@@ -8,5 +8,7 @@ protocol MediaThumbnailProviding: AnyObject {
         scale: CGFloat
     ) async -> CGImage?
 
+    func purgeMemoryCache()
+
     func shutdown() async
 }

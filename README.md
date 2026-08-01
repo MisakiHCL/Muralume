@@ -30,7 +30,7 @@
 
 Muralume is a private, native video player that turns folders on your Mac into playlists—and any playlist into a Dynamic Desktop. It works directly with local files, without an account, cloud upload, or tracking.
 
-> This page documents the current `main` branch. The signed download remains v1.0.0; see its [release notes](https://github.com/MisakiHCL/Muralume/releases/tag/v1.0.0) for the exact shipped scope.
+> This page documents the current `main` branch. The signed download is v1.0.1; see its [release notes](https://github.com/MisakiHCL/Muralume/releases/tag/v1.0.1) for the exact shipped scope.
 
 ## Highlights
 
@@ -60,7 +60,7 @@ Optionally start Muralume with macOS and restore the current queue directly as a
 
 [Download `Muralume.dmg`](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg), open it, and drag Muralume into Applications.
 
-The current v1.0.0 release includes a Developer ID–signed and Apple-notarized DMG plus its [SHA-256 checksum](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg.sha256).
+The current v1.0.1 release includes a Developer ID–signed and Apple-notarized DMG plus its [SHA-256 checksum](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg.sha256).
 
 ## Quick start
 

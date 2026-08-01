@@ -3,6 +3,10 @@ import XCTest
 
 @MainActor
 final class AppPreferencesStoreTests: XCTestCase {
+    private enum TestStorage {
+        static let suiteName = "com.muralume.tests.preferences"
+    }
+
     func testMissingValuesUseCentralDefaults() throws {
         try withStore { store, _ in
             let preferences = store.load()
@@ -139,7 +143,7 @@ final class AppPreferencesStoreTests: XCTestCase {
             UserDefaults
         ) throws -> Void
     ) throws {
-        let suiteName = "com.muralume.tests.preferences.\(UUID().uuidString)"
+        let suiteName = TestStorage.suiteName
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer {

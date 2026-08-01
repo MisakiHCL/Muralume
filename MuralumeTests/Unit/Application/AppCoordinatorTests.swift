@@ -197,6 +197,10 @@ final class AppCoordinatorTests: XCTestCase {
         XCTAssertTrue(fixture.playback.isPlaybackRequested)
         XCTAssertFalse(fixture.engine.isPlaying)
         XCTAssertFalse(fixture.window.isVisible)
+        XCTAssertEqual(
+            fixture.thumbnailProvider.purgeMemoryCacheCount,
+            1
+        )
 
         fixture.coordinator.reopenMainWindow()
         await waitUntil {
@@ -207,6 +211,10 @@ final class AppCoordinatorTests: XCTestCase {
         XCTAssertTrue(fixture.playback.isPlaybackRequested)
 
         fixture.coordinator.dismissMainWindow()
+        XCTAssertEqual(
+            fixture.thumbnailProvider.purgeMemoryCacheCount,
+            2
+        )
         await fixture.coordinator.shutdown()
 
         let snapshot = await fixture.sessionStore.value()
@@ -240,6 +248,10 @@ final class AppCoordinatorTests: XCTestCase {
         XCTAssertFalse(fixture.window.isVisible)
         XCTAssertEqual(fixture.desktopHost.revealCount, 1)
         XCTAssertEqual(fixture.applicationPresence.appliedModes.last, .menuBarOnly)
+        XCTAssertEqual(
+            fixture.thumbnailProvider.purgeMemoryCacheCount,
+            2
+        )
 
         await fixture.coordinator.shutdown()
     }
@@ -729,6 +741,7 @@ private final class AppCoordinatorLaunchAtLoginService:
 
 @MainActor
 private final class AppCoordinatorThumbnailProvider: MediaThumbnailProviding {
+    private(set) var purgeMemoryCacheCount = 0
     private(set) var shutdownCount = 0
 
     func thumbnail(
@@ -737,6 +750,10 @@ private final class AppCoordinatorThumbnailProvider: MediaThumbnailProviding {
         scale: CGFloat
     ) async -> CGImage? {
         nil
+    }
+
+    func purgeMemoryCache() {
+        purgeMemoryCacheCount += 1
     }
 
     func shutdown() async {
