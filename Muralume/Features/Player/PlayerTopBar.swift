@@ -130,20 +130,16 @@ struct PlayerTopBar: View {
     }
 
     private func currentSource(_ displayName: String) -> some View {
-        HStack(spacing: MuralumeTheme.Spacing.small) {
-            Image(systemName: "play.rectangle.fill")
-                .font(.system(size: MuralumeTheme.Size.icon))
-                .foregroundStyle(MuralumeTheme.Colors.controlAccent)
-
-            Text(verbatim: displayName)
-                .font(.body.weight(.medium))
-                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .padding(.horizontal, MuralumeTheme.Spacing.small)
-        .frame(height: MuralumeTheme.Size.playerTopBarSourceHeight)
-        .frame(maxWidth: MuralumeTheme.Size.playerTopBarSourceMaximumWidth)
+        Text(verbatim: displayName)
+            .font(.body.weight(.medium))
+            .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(.horizontal, MuralumeTheme.Spacing.small)
+            .frame(height: MuralumeTheme.Size.playerTopBarSourceHeight)
+            .frame(
+                maxWidth: MuralumeTheme.Size.playerTopBarSourceMaximumWidth
+            )
         .accessibilityElement(children: .combine)
     }
 }

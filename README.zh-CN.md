@@ -16,52 +16,56 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MisakiHCL/Muralume/releases/tag/v0.1.0"><strong>下载 v0.1.0</strong></a>
+  <a href="https://github.com/MisakiHCL/Muralume/releases/latest"><strong>下载最新版本</strong></a>
   · Apple 芯片 · macOS 14+
 </p>
 
 <p align="center">
   <img
-    src=".github/assets/muralume-player.jpg"
+    src=".github/assets/muralume-player-v1-zh.png"
     width="1200"
     alt="Muralume 正在播放本地视频并显示播放列表"
   >
 </p>
 
-Muralume 直接将本地视频文件夹整理为播放列表，既可在原生播放器中观看，也可把当前队列切换为动态桌面。文件始终保留在原处，无需云端账号，也没有行为追踪。
+Muralume 是一款注重隐私的原生视频播放器：它把 Mac 上的文件夹变成播放列表，也能把任意播放队列变成动态桌面。应用直接使用本地文件，无需账号、云端上传或行为追踪。
 
-## 为什么选择 Muralume
+## 产品亮点
 
-### 你的视频始终属于你
+### 隐私从设计开始
 
-Muralume 直接使用你主动选择的文件夹，并以只读权限访问其中的视频。应用不会上传、移动、重命名或删除源文件，也不包含账号系统、使用分析和自动崩溃上传。
+源视频始终保留在原处。Muralume 只会以只读方式访问你主动选择的文件夹，不上传、移动、重命名或删除其中的内容，也不包含账号系统、产品遥测和自动崩溃上报。
 
 ### 注重能耗的动态桌面
 
-只需一次点击，即可将当前播放队列置于桌面文件和小组件之后。动态桌面始终静音，桌面文件与小组件可正常交互，不主动阻止显示器休眠，并会在锁屏或显示器休眠时自动暂停。
+将当前播放队列置于桌面文件和小组件之后，同时保持桌面完整可交互。Muralume 使用 macOS 原生播放能力，桌面模式始终静音，不阻止显示器休眠，并会在锁屏、显示器休眠或系统进入受限状态时自动暂停。
 
 ### 文件夹就是播放列表
 
-添加一个或多个本机或外置磁盘文件夹，Muralume 会递归发现其中的视频并生成缩略图。你可以按名称、创建时间或文件大小排序，无需重新整理磁盘上的源文件。
+添加本机或外置磁盘中的文件夹，Muralume 会递归发现 MP4、MOV 和 M4V 视频、在本地生成缩略图，并支持按名称、创建时间或文件大小排序，无需重新整理磁盘文件。
 
-### 简洁的原生播放体验
+### 专注的原生播放体验
 
-支持播放、进度跳转、音量、倍速、顺序播放、每轮全部播完前不重复的随机播放和全屏。观看时控制界面会自然隐去，常用播放偏好也会在下次打开 Muralume 时继续使用。
+支持进度跳转、音量、倍速、全屏、顺序播放和随机播放。随机模式会在新一轮开始前完整播放每个可用视频。观看时控件自然隐去，常用的全局播放偏好也会在下次启动时恢复。
+
+### 登录后即可恢复
+
+你可以让 Muralume 随 macOS 登录启动，并直接把当前队列恢复为动态桌面。启动过程不会打扰桌面，播放控制保留在菜单栏入口中。
 
 ## 下载
 
-[下载 `Muralume.dmg`](https://github.com/MisakiHCL/Muralume/releases/download/v0.1.0/Muralume.dmg)，打开后将 Muralume 拖入“应用程序”文件夹。
+[下载 `Muralume.dmg`](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg)，打开后将 Muralume 拖入“应用程序”文件夹。
 
-v0.1.0 DMG 使用 Developer ID 证书签名并通过 Apple 公证，并同时提供对应的 [SHA-256 校验文件](https://github.com/MisakiHCL/Muralume/releases/download/v0.1.0/Muralume.dmg.sha256)。
+最新版本提供使用 Developer ID 签名并通过 Apple 公证的 DMG，以及对应的 [SHA-256 校验文件](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg.sha256)。
 
 ## 快速开始
 
 1. 添加一个或多个保存视频的文件夹。
-2. 从播放列表选择视频，或按名称、创建时间和文件大小调整排序。
-3. 使用播放器控制台进行进度跳转、音量、倍速、全屏以及顺序或随机播放。
-4. 点击显示器按钮，把当前播放队列切换为动态桌面；通过菜单栏中的 Muralume 图标暂停、切换视频、调整倍速或显示方式，并返回播放器。
+2. 从播放列表选择视频，并选择顺序播放或随机播放。
+3. 点击显示器按钮、使用“功能 → 设为动态桌面”，或从 Muralume 的程序坞菜单执行同一操作。
+4. 如需在登录后自动恢复，请在播放队列有效时打开设置并勾选“登录时启动动态桌面”。macOS 可能会要求你在“登录项”中批准 Muralume。
 
-Muralume 会在下次启动时继续使用此前的音量、静音状态、播放次序、倍速、列表排序和界面语言。界面支持 English、简体中文与跟随系统。
+菜单栏入口可以暂停、切换视频、调整倍速或桌面适配、返回播放器，以及退出 Muralume。
 
 ## 快捷键
 
@@ -83,7 +87,7 @@ Muralume 会在下次启动时继续使用此前的音量、静音状态、播�
 - MP4、MOV 或 M4V 视频
 - 动态桌面当前使用主显示器
 
-实际播放能力取决于 macOS AVFoundation 对视频内部编码的支持；H.264 与 HEVC 是常见的兼容选择。
+实际播放能力取决于 macOS AVFoundation 提供的编解码器；H.264 与 HEVC 是常见的兼容选择。
 
 ## 从源码构建
 
@@ -98,8 +102,6 @@ make package-macos
 
 `make package-macos` 会在 `dist/macos-local/` 生成 ad-hoc 签名的 DMG，仅供本机安装验证。
 
-## 隐私与开源
+## 开源
 
-Muralume 不包含账号系统、云端上传、产品遥测或自动崩溃上报。从 Muralume 中移除文件夹不会删除任何源视频。
-
-源代码使用 [MIT License](LICENSE)。Muralume 名称、Logo、App Icon 与菜单栏图标不包含在 MIT 授权范围内，详见[品牌资产声明](BRAND_ASSETS.md)。
+源代码使用 [MIT License](LICENSE)，构建工具中随仓库提供的第三方组件保留各自许可，详见[第三方声明](THIRD_PARTY_NOTICES.md)。Muralume 名称、Logo、App Icon 与菜单栏图标不包含在 MIT 授权范围内，详见[品牌资产声明](BRAND_ASSETS.md)。

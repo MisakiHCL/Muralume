@@ -96,6 +96,17 @@
 "settings.language.system" = "跟随系统";
 "settings.language.english" = "English";
 "settings.language.simplifiedChinese" = "简体中文";
+"settings.launchAtLogin" = "登录时启动动态桌面";
+"settings.launchAtLogin.accessibilityHint" = "登录后启动 Muralume，并恢复最近可用的动态桌面。";
+"settings.launchAtLogin.requiresApproval" = "需要在系统设置中批准。";
+"settings.launchAtLogin.openSystemSettings" = "打开系统设置";
+"settings.launchAtLogin.unavailable" = "当前 Muralume 副本无法设置登录启动。";
+"settings.launchAtLogin.enableFailed" = "无法开启登录启动。";
+"settings.launchAtLogin.disableFailed" = "无法关闭登录启动。";
+"settings.launchAtLogin.selectMediaFirst" = "请先选择并播放一个视频，再开启登录启动。";
+"settings.launchAtLogin.presetUnavailable" = "无法保存用于登录启动的动态桌面。";
+"settings.launchAtLogin.automaticallyDisabled" = "动态桌面已不可用，已自动关闭登录启动。";
+"settings.launchAtLogin.manualDisableRequired" = "动态桌面已不可用，请在登录项中关闭 Muralume。";
 "menu.actions" = "功能";
 "menu.window" = "窗口";
 "menu.help" = "帮助";

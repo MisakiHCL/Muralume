@@ -45,7 +45,7 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertTrue(handled)
     }
 
-    func testActivationRestoresMainWindowOnlyWhenNoWindowIsVisible() {
+    func testActivationRoutesVisibleWindowStateToCoordinator() {
         let delegate = AppDelegate()
         let coordinator = TestAppLifecycleCoordinator()
         delegate.coordinator = coordinator
@@ -53,12 +53,165 @@ final class AppDelegateTests: XCTestCase {
         delegate.restoreMainWindowAfterActivationIfNeeded(
             hasVisibleWindows: true
         )
-        XCTAssertEqual(coordinator.reopenMainWindowCount, 0)
-
         delegate.restoreMainWindowAfterActivationIfNeeded(
             hasVisibleWindows: false
         )
-        XCTAssertEqual(coordinator.reopenMainWindowCount, 1)
+
+        XCTAssertEqual(coordinator.activationVisibilityStates, [true, false])
+    }
+
+    func testLaunchSourceDetectorRecognizesLoginItemAppleEvent() {
+        let event = NSAppleEventDescriptor(
+            eventClass: AEEventClass(kCoreEventClass),
+            eventID: AEEventID(kAEOpenApplication),
+            targetDescriptor: nil,
+            returnID: AEReturnID(kAutoGenerateReturnID),
+            transactionID: AETransactionID(kAnyTransactionID)
+        )
+        event.setParam(
+            NSAppleEventDescriptor(
+                enumCode: keyAELaunchedAsLogInItem
+            ),
+            forKeyword: keyAEPropData
+        )
+
+        XCTAssertEqual(
+            MacApplicationLaunchSourceDetector().detect(event: event),
+            .loginItem
+        )
+    }
+
+    func testLaunchSourceDetectorKeepsInteractiveLaunchesInteractive() {
+        let openEvent = NSAppleEventDescriptor(
+            eventClass: AEEventClass(kCoreEventClass),
+            eventID: AEEventID(kAEOpenApplication),
+            targetDescriptor: nil,
+            returnID: AEReturnID(kAutoGenerateReturnID),
+            transactionID: AETransactionID(kAnyTransactionID)
+        )
+
+        XCTAssertEqual(
+            MacApplicationLaunchSourceDetector().detect(event: nil),
+            .interactive
+        )
+        XCTAssertEqual(
+            MacApplicationLaunchSourceDetector().detect(event: openEvent),
+            .interactive
+        )
+    }
+
+    func testLaunchSourceDetectorIgnoresFalseLoginItemParameter() {
+        let event = NSAppleEventDescriptor(
+            eventClass: AEEventClass(kCoreEventClass),
+            eventID: AEEventID(kAEOpenApplication),
+            targetDescriptor: nil,
+            returnID: AEReturnID(kAutoGenerateReturnID),
+            transactionID: AETransactionID(kAnyTransactionID)
+        )
+        event.setParam(
+            NSAppleEventDescriptor(boolean: false),
+            forKeyword: keyAELaunchedAsLogInItem
+        )
+
+        XCTAssertEqual(
+            MacApplicationLaunchSourceDetector().detect(event: event),
+            .interactive
+        )
+    }
+
+    func testLaunchSourceDetectorRequiresCoreEventClass() {
+        let event = NSAppleEventDescriptor(
+            eventClass: AEEventClass(kAEInternetSuite),
+            eventID: AEEventID(kAEOpenApplication),
+            targetDescriptor: nil,
+            returnID: AEReturnID(kAutoGenerateReturnID),
+            transactionID: AETransactionID(kAnyTransactionID)
+        )
+        event.setParam(
+            NSAppleEventDescriptor(
+                enumCode: keyAELaunchedAsLogInItem
+            ),
+            forKeyword: keyAEPropData
+        )
+
+        XCTAssertEqual(
+            MacApplicationLaunchSourceDetector().detect(event: event),
+            .interactive
+        )
+    }
+
+    func testHostedUnitTestDetectorMatchesOnlyUnitTestBundle() {
+        let detector = MacHostedUnitTestDetector()
+
+        XCTAssertTrue(
+            detector.detect(
+                loadedBundleIdentifiers: [
+                    "com.apple.dt.XCTest",
+                    "com.muralume.MuralumeTests"
+                ],
+                environment: [:]
+            )
+        )
+        XCTAssertFalse(
+            detector.detect(
+                loadedBundleIdentifiers: [
+                    "com.apple.dt.XCTest",
+                    "com.muralume.MuralumeUITests"
+                ],
+                environment: [:]
+            )
+        )
+    }
+
+    func testHostedUnitTestDetectorUsesExactXCTestBundlePathFallback() {
+        let detector = MacHostedUnitTestDetector()
+        let sessionEnvironment = [
+            "XCTestBundlePath": "Contents/PlugIns/MuralumeTests.xctest",
+            "XCTestSessionIdentifier": UUID().uuidString
+        ]
+
+        XCTAssertTrue(
+            detector.detect(
+                loadedBundleIdentifiers: [],
+                environment: sessionEnvironment
+            )
+        )
+        XCTAssertFalse(
+            detector.detect(
+                loadedBundleIdentifiers: [],
+                environment: [
+                    "XCTestBundlePath":
+                        "Contents/PlugIns/MuralumeUITests.xctest",
+                    "XCTestSessionIdentifier": UUID().uuidString
+                ]
+            )
+        )
+        XCTAssertFalse(
+            detector.detect(
+                loadedBundleIdentifiers: [],
+                environment: [
+                    "XCTestBundlePath":
+                        "Contents/PlugIns/MuralumeTests.xctest"
+                ]
+            )
+        )
+    }
+
+    func testHostedUnitTestDelegateDoesNotCreateRuntime() {
+        let delegate = AppDelegate(allowsRuntimeCreation: false)
+
+        delegate.prepareForRun(NSApp)
+
+        XCTAssertNil(delegate.coordinator)
+    }
+
+    func testHostedUnitTestProcessDoesNotCreateMainWindow() {
+        XCTAssertTrue(MacHostedUnitTestDetector().detect())
+        XCTAssertFalse(
+            NSApp.windows.contains {
+                $0.identifier?.rawValue == AppConfiguration.mainWindowSceneID
+            }
+        )
     }
 
     func testMainMenuControllerBuildsOnlyCanonicalTopLevelMenus() {
@@ -176,6 +329,18 @@ final class AppDelegateTests: XCTestCase {
             }?.keyEquivalent,
             "f"
         )
+        XCTAssertEqual(
+            actionsMenu.items.first {
+                $0.title == "Set as Dynamic Desktop"
+            }?.keyEquivalent,
+            ""
+        )
+        XCTAssertEqual(
+            actionsMenu.items
+                .prefix { !$0.isSeparatorItem }
+                .map(\.title),
+            ["Add Folder", "Set as Dynamic Desktop"]
+        )
 
         let activeState = MacMainMenuCommandState(
             isPlaybackRequested: true,
@@ -185,6 +350,7 @@ final class AppDelegateTests: XCTestCase {
             canPlayNext: true,
             canIncreaseVolume: true,
             canDecreaseVolume: true,
+            canEnterDesktop: true,
             canUseWindowActions: true
         )
         controller.refreshPlayerCommands(
@@ -234,6 +400,7 @@ final class AppDelegateTests: XCTestCase {
             canPlayNext: false,
             canIncreaseVolume: true,
             canDecreaseVolume: true,
+            canEnterDesktop: false,
             canUseWindowActions: true
         )
 
@@ -260,7 +427,8 @@ final class AppDelegateTests: XCTestCase {
             "Back 10 seconds",
             "Forward 10 seconds",
             "Previous Video",
-            "Next Video"
+            "Next Video",
+            "Set as Dynamic Desktop"
         ] {
             XCTAssertEqual(
                 actionsMenu.items.first { $0.title == title }?.isEnabled,
@@ -289,6 +457,7 @@ final class AppDelegateTests: XCTestCase {
             canPlayNext: true,
             canIncreaseVolume: true,
             canDecreaseVolume: true,
+            canEnterDesktop: true,
             canUseWindowActions: true
         )
         controller.refreshPlayerCommands(
@@ -312,6 +481,81 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertFalse(pauseItem.isEnabled)
     }
 
+    func testDockMenuDispatchesDesktopCommandAfterPlayerWindowSoftClose() throws {
+        let commandHandler = TestMainMenuCommandHandler()
+        commandHandler.mainMenuCommandState = MacMainMenuCommandState(
+            isPlaybackRequested: false,
+            isMuted: false,
+            canControlPlayback: false,
+            canPlayPrevious: false,
+            canPlayNext: false,
+            canIncreaseVolume: false,
+            canDecreaseVolume: false,
+            canEnterDesktop: true,
+            canUseWindowActions: false
+        )
+        let controller = makeMainMenuController(
+            commandHandler: commandHandler,
+            mainWindow: NSWindow()
+        )
+        let dockItem = try XCTUnwrap(
+            controller.applicationDockMenu.items.first
+        )
+        let action = try XCTUnwrap(dockItem.action)
+
+        XCTAssertEqual(controller.applicationDockMenu.items.count, 1)
+        XCTAssertEqual(dockItem.title, "Set as Dynamic Desktop")
+        XCTAssertEqual(dockItem.keyEquivalent, "")
+        XCTAssertTrue(dockItem.isEnabled)
+        XCTAssertTrue(
+            NSApp.sendAction(action, to: dockItem.target, from: dockItem)
+        )
+        XCTAssertEqual(commandHandler.enterDesktopCommandCount, 1)
+    }
+
+    func testDockMenuRevalidatesDesktopAvailabilityBeforeDispatch() throws {
+        let commandHandler = TestMainMenuCommandHandler()
+        let availableState = MacMainMenuCommandState(
+            isPlaybackRequested: true,
+            isMuted: false,
+            canControlPlayback: true,
+            canPlayPrevious: true,
+            canPlayNext: true,
+            canIncreaseVolume: true,
+            canDecreaseVolume: true,
+            canEnterDesktop: true,
+            canUseWindowActions: true
+        )
+        commandHandler.mainMenuCommandState = availableState
+        let controller = makeMainMenuController(
+            commandHandler: commandHandler,
+            mainWindow: NSWindow()
+        )
+        let dockItem = try XCTUnwrap(
+            controller.applicationDockMenu.items.first
+        )
+        let action = try XCTUnwrap(dockItem.action)
+        XCTAssertTrue(dockItem.isEnabled)
+
+        commandHandler.mainMenuCommandState = MacMainMenuCommandState(
+            isPlaybackRequested: availableState.isPlaybackRequested,
+            isMuted: availableState.isMuted,
+            canControlPlayback: availableState.canControlPlayback,
+            canPlayPrevious: availableState.canPlayPrevious,
+            canPlayNext: availableState.canPlayNext,
+            canIncreaseVolume: availableState.canIncreaseVolume,
+            canDecreaseVolume: availableState.canDecreaseVolume,
+            canEnterDesktop: false,
+            canUseWindowActions: availableState.canUseWindowActions
+        )
+
+        XCTAssertTrue(
+            NSApp.sendAction(action, to: dockItem.target, from: dockItem)
+        )
+        XCTAssertEqual(commandHandler.enterDesktopCommandCount, 0)
+        XCTAssertFalse(dockItem.isEnabled)
+    }
+
     private func makeMainMenuController(
         commandHandler: TestMainMenuCommandHandler,
         mainWindow: NSWindow
@@ -332,9 +576,14 @@ private final class TestAppLifecycleCoordinator:
     AppLifecycleCoordinating
 {
     private(set) var reopenMainWindowCount = 0
+    private(set) var activationVisibilityStates: [Bool] = []
 
     func reopenMainWindow() {
         reopenMainWindowCount += 1
+    }
+
+    func handleApplicationActivation(hasVisibleWindows: Bool) {
+        activationVisibilityStates.append(hasVisibleWindows)
     }
 
     func handleCloseCommand(for window: NSWindow?) -> Bool {
@@ -350,6 +599,7 @@ private final class TestMainMenuCommandHandler:
 {
     private let stateDidChange = PassthroughSubject<Void, Never>()
     private(set) var togglePlaybackCommandCount = 0
+    private(set) var enterDesktopCommandCount = 0
 
     var mainMenuCommandState = MacMainMenuCommandState(
         isPlaybackRequested: false,
@@ -359,6 +609,7 @@ private final class TestMainMenuCommandHandler:
         canPlayNext: false,
         canIncreaseVolume: false,
         canDecreaseVolume: false,
+        canEnterDesktop: false,
         canUseWindowActions: true
     )
 
@@ -378,6 +629,9 @@ private final class TestMainMenuCommandHandler:
     func increaseVolumeFromMenu() {}
     func decreaseVolumeFromMenu() {}
     func toggleMuteFromMenu() {}
+    func enterDesktopFromMenu() {
+        enterDesktopCommandCount += 1
+    }
     func toggleFullScreen() {}
 
     func handleCloseCommand(for window: NSWindow?) -> Bool {

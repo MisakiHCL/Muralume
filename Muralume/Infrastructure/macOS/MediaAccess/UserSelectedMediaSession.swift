@@ -58,6 +58,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
     private let securityAccess: SecurityScopedMediaAccess
     private var activeRootURLsByPath: [String: URL] = [:]
     private var activeBookmarksByPath: [String: Data] = [:]
+    private(set) var hasUnavailablePersistedFolders = false
 
     init(
         defaults: UserDefaults = .standard,
@@ -74,10 +75,12 @@ final class UserSelectedMediaSession: MediaAccessSession {
 
         let bookmarks = storedBookmarks
         var refreshedBookmarks: [Data] = []
+        hasUnavailablePersistedFolders = false
 
         for bookmark in bookmarks {
             guard let resolvedBookmark = securityAccess.resolveBookmark(bookmark),
                   securityAccess.startAccess(resolvedBookmark.url) else {
+                hasUnavailablePersistedFolders = true
                 refreshedBookmarks.append(bookmark)
                 continue
             }
@@ -176,6 +179,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
         }
         activeRootURLsByPath.removeAll()
         activeBookmarksByPath.removeAll()
+        hasUnavailablePersistedFolders = false
     }
 
     private var storedBookmarks: [Data] {

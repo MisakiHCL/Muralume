@@ -1,8 +1,39 @@
 import Foundation
 
 struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
+    private struct RootScanResult {
+        let items: [LibraryMediaItem]
+        let isComplete: Bool
+    }
+
     func scan(rootURLs: [URL]) async throws -> MediaLibrarySnapshot {
         try Self.scanSynchronously(rootURLs: rootURLs)
+    }
+
+    func availability(
+        of item: LibraryMediaItem
+    ) async -> MediaLibraryItemAvailability {
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: item.url.path) {
+            return .available
+        }
+
+        // A failed existence probe is ambiguous when a volume or parent
+        // directory is temporarily inaccessible. Only an authoritative
+        // listing of the immediate parent can prove that the file is gone.
+        let parentURL = item.url.deletingLastPathComponent()
+        do {
+            let children = try fileManager.contentsOfDirectory(
+                at: parentURL,
+                includingPropertiesForKeys: nil,
+                options: []
+            )
+            return children.contains {
+                $0.standardizedFileURL == item.url.standardizedFileURL
+            } ? .available : .missing
+        } catch {
+            return .temporarilyUnavailable
+        }
     }
 
     private static func scanSynchronously(
@@ -12,6 +43,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         let normalizedRootURLs = normalizedUniqueRootURLs(rootURLs)
         var roots: [MediaLibraryRoot] = []
         var items: [LibraryMediaItem] = []
+        var incompleteRootPaths: Set<String> = []
         var firstRootError: MediaLibraryScanError?
 
         for rootURL in normalizedRootURLs {
@@ -21,13 +53,15 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                     at: rootURL,
                     fileManager: fileManager
                 )
-                roots.append(root)
-                items.append(
-                    contentsOf: try scan(
-                        root: root,
-                        fileManager: fileManager
-                    )
+                let rootScan = try scan(
+                    root: root,
+                    fileManager: fileManager
                 )
+                roots.append(root)
+                items.append(contentsOf: rootScan.items)
+                if !rootScan.isComplete {
+                    incompleteRootPaths.insert(root.id.standardizedPath)
+                }
             } catch let error as MediaLibraryScanError {
                 if firstRootError == nil {
                     firstRootError = error
@@ -41,7 +75,8 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
 
         return MediaLibrarySnapshot(
             roots: roots,
-            items: items.sorted(by: itemPathPrecedes)
+            items: items.sorted(by: itemPathPrecedes),
+            incompleteRootPaths: incompleteRootPaths
         )
     }
 
@@ -96,7 +131,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
     private static func scan(
         root: MediaLibraryRoot,
         fileManager: FileManager
-    ) throws -> [LibraryMediaItem] {
+    ) throws -> RootScanResult {
         let rootFailureRecorder = RootEnumerationFailureRecorder(
             rootURL: root.url
         )
@@ -110,7 +145,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                 .skipsPackageDescendants
             ],
             errorHandler: { failedURL, _ in
-                rootFailureRecorder.recordIfRoot(failedURL)
+                rootFailureRecorder.record(failedURL)
                 return !rootFailureRecorder.didFailAtRoot
             }
         ) else {
@@ -127,6 +162,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
             } catch {
                 // One unreadable descendant must not hide the rest of an
                 // otherwise accessible media root.
+                rootFailureRecorder.record(fileURL)
                 continue
             }
 
@@ -156,10 +192,16 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                 continue
             }
 
-            let relativePath = try relativePath(
-                for: fileURL,
-                under: root.url
-            )
+            let relativeItemPath: String
+            do {
+                relativeItemPath = try relativePath(
+                    for: fileURL,
+                    under: root.url
+                )
+            } catch {
+                rootFailureRecorder.record(fileURL)
+                continue
+            }
             items.append(
                 LibraryMediaItem(
                     rootURL: root.url,
@@ -168,9 +210,9 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                     displayName: fileURL
                         .deletingPathExtension()
                         .lastPathComponent,
-                    relativePath: relativePath,
+                    relativePath: relativeItemPath,
                     relativeDirectory: relativeDirectory(
-                        for: relativePath
+                        for: relativeItemPath
                     ),
                     creationDate: values.creationDate,
                     modificationDate: values.contentModificationDate,
@@ -186,7 +228,10 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
             )
         }
 
-        return items
+        return RootScanResult(
+            items: items,
+            isComplete: !rootFailureRecorder.didEncounterFailure
+        )
     }
 
     private static let mediaResourceKeys: Set<URLResourceKey> = [
@@ -256,6 +301,7 @@ private final class RootEnumerationFailureRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private let rootPath: String
     private var storedFailedRootURL: URL?
+    private var storedDidEncounterFailure = false
 
     init(rootURL: URL) {
         rootPath = rootURL.standardizedFileURL.path
@@ -271,13 +317,17 @@ private final class RootEnumerationFailureRecorder: @unchecked Sendable {
         failedRootURL != nil
     }
 
-    func recordIfRoot(_ failedURL: URL) {
-        guard failedURL.standardizedFileURL.path == rootPath else {
-            return
-        }
-
+    var didEncounterFailure: Bool {
         lock.withLock {
-            if storedFailedRootURL == nil {
+            storedDidEncounterFailure
+        }
+    }
+
+    func record(_ failedURL: URL) {
+        lock.withLock {
+            storedDidEncounterFailure = true
+            if failedURL.standardizedFileURL.path == rootPath,
+               storedFailedRootURL == nil {
                 storedFailedRootURL = failedURL
             }
         }

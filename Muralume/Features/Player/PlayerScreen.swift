@@ -5,6 +5,8 @@ struct PlayerScreen<PlayerSurface: View>: View {
     let playback: PlaybackCoordinator
     @ObservedObject var desktopSession: DesktopSessionCoordinator
     let library: MediaLibraryCoordinator
+    @ObservedObject var dynamicDesktopStartup:
+        DynamicDesktopStartupController
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let isFullScreen: Bool
     @ObservedObject var chromeController: PlayerChromeController
@@ -187,7 +189,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 }
             )
         case .settings:
-            SettingsView {
+            SettingsView(dynamicDesktopStartup: dynamicDesktopStartup) {
                 chromeController.setSettingsPresented(false)
             }
         }

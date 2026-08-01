@@ -170,6 +170,63 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.coordinator.currentPosition, 1)
     }
 
+    func testQueueRevisionPublishesOrderAndNoncurrentRootChanges() async throws {
+        let firstRootURL = URL(fileURLWithPath: "/tmp/FirstLibrary")
+        let secondRootURL = URL(fileURLWithPath: "/tmp/SecondLibrary")
+        let first = makeItem(
+            rootURL: firstRootURL,
+            name: "First",
+            path: "First.mov"
+        )
+        let second = makeItem(
+            rootURL: secondRootURL,
+            name: "Second",
+            path: "Second.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [firstRootURL, secondRootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: firstRootURL,
+                        displayName: "First Library"
+                    ),
+                    MediaLibraryRoot(
+                        url: secondRootURL,
+                        displayName: "Second Library"
+                    )
+                ],
+                items: [first, second]
+            ),
+            playbackOrder: .ordered
+        )
+        fixture.coordinator.addFolders()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.play(first)
+        await waitForLoads(fixture.engine, count: 1)
+
+        let revisionAfterPlay = fixture.coordinator.queueRevision
+        fixture.coordinator.setPlaybackOrder(.shuffled)
+        let revisionAfterOrder = fixture.coordinator.queueRevision
+        let secondRoot = try XCTUnwrap(
+            fixture.coordinator.roots.first {
+                $0.id.standardizedPath == secondRootURL.path
+            }
+        )
+        fixture.coordinator.removeRoot(secondRoot)
+
+        XCTAssertGreaterThan(revisionAfterOrder, revisionAfterPlay)
+        XCTAssertGreaterThan(
+            fixture.coordinator.queueRevision,
+            revisionAfterOrder
+        )
+        XCTAssertEqual(
+            fixture.coordinator.makeQueueSnapshot()?.items,
+            [first.id]
+        )
+        XCTAssertEqual(fixture.coordinator.currentItemID, first.id)
+    }
+
     func testClickingVisibleItemRebuildsQueueFromCurrentSortOrder() async {
         let rootURL = URL(fileURLWithPath: "/tmp/Library")
         let first = makeItem(
@@ -394,6 +451,8 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             fixture.coordinator.unavailableItemIDs,
             [first.id, second.id]
         )
+        XCTAssertFalse(fixture.coordinator.hasActiveQueue)
+        XCTAssertNil(fixture.coordinator.currentItemID)
     }
 
     func testGlobalLoadFailureDoesNotMarkMediaUnavailableOrSkipQueue() async {
@@ -427,153 +486,511 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         )
     }
 
-    private func makeFixture(
-        selectedURLs: [URL],
-        snapshot: MediaLibrarySnapshot,
-        playbackOrder: PlaybackOrder = .ordered,
-        sort: MediaLibrarySort = MediaLibrarySort(),
-        preferencesStore: (any AppPreferencesStoring)? = nil
-    ) -> Fixture {
-        let engine = TestPlaybackEngine()
-        let playback = PlaybackCoordinator(engine: engine)
-        let selector = TestMediaFolderSelector(selectedURLs: selectedURLs)
-        let session = TestMediaAccessSession()
-        let scanner = TestMediaLibraryScanner(snapshot: snapshot)
-        let coordinator = MediaLibraryCoordinator(
-            playback: playback,
-            folderSelector: selector,
-            mediaSession: session,
-            scanner: scanner,
-            playbackOrder: playbackOrder,
-            sort: sort,
-            preferencesStore: preferencesStore
-        )
-        return Fixture(
-            coordinator: coordinator,
-            playback: playback,
-            engine: engine,
-            session: session,
-            scanner: scanner
-        )
-    }
-
-    private func makeItem(
-        rootURL: URL,
-        name: String,
-        path: String,
-        fileSize: Int64 = 0
-    ) -> LibraryMediaItem {
-        LibraryMediaItem(
-            rootURL: rootURL,
-            rootName: rootURL.lastPathComponent,
-            url: rootURL.appendingPathComponent(path),
-            displayName: name,
-            relativePath: path,
-            relativeDirectory: "",
-            creationDate: nil,
-            fileSize: fileSize
-        )
-    }
-
-    private func waitForScan(_ coordinator: MediaLibraryCoordinator) async {
-        while coordinator.scanState == .scanning {
-            await Task.yield()
+    func testQueueRestoreReconcilesOrderedSnapshotToGlobalShuffleMode() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/RestoredLibrary")
+        let restoredItems = ["A", "B", "C", "D"].map {
+            makeItem(rootURL: rootURL, name: $0, path: "\($0).mov")
         }
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [MediaLibraryRoot(url: rootURL, displayName: "Library")],
+                items: restoredItems
+            ),
+            playbackOrder: .shuffled
+        )
+        fixture.session.restoredURLs = [rootURL]
+        _ = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+        let orderedQueue = PlaybackQueue(
+            items: restoredItems.map(\.id),
+            startingAt: restoredItems[0].id,
+            order: .ordered
+        )
+
+        let result = await fixture.coordinator.restoreQueue(
+            from: try XCTUnwrap(orderedQueue.makeSnapshot())
+        )
+        let restoredSnapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+
+        XCTAssertEqual(result, .restored)
+        XCTAssertEqual(restoredSnapshot.order, .shuffled)
+        XCTAssertEqual(restoredSnapshot.currentItem, restoredItems[0].id)
     }
 
-    private func waitForLoads(
-        _ engine: TestPlaybackEngine,
-        count: Int
-    ) async {
-        while engine.loadedSources.count < count {
-            await Task.yield()
+    func testQueueRestoreRefreshesShuffledPendingItemsAfterFilteringMissingMedia() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/RestoredLibrary")
+        let allItems = ["A", "B", "C", "D", "Missing"].map {
+            makeItem(rootURL: rootURL, name: $0, path: "\($0).mov")
         }
-    }
-
-    private func waitForReady(_ playback: PlaybackCoordinator) async {
-        while playback.readiness != .ready {
-            await Task.yield()
-        }
-    }
-
-    private func waitForFailure(_ playback: PlaybackCoordinator) async {
-        while true {
-            if case .failed = playback.readiness {
-                return
+        let availableItems = Array(allItems.dropLast())
+        var didReshuffle = false
+        var itemIDsSeenByShuffler: [LibraryMediaItem.ID] = []
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [MediaLibraryRoot(url: rootURL, displayName: "Library")],
+                items: availableItems
+            ),
+            playbackOrder: .shuffled,
+            reshuffleRestoredQueue: { queue in
+                didReshuffle = true
+                itemIDsSeenByShuffler = queue.items
+                var randomSource = TestSeededRandomNumberGenerator(seed: 1)
+                queue.reshufflePendingItems(using: &randomSource)
             }
+        )
+        fixture.session.restoredURLs = [rootURL]
+        _ = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+        let snapshot = PlaybackQueueSnapshot(
+            items: allItems.map(\.id),
+            order: .shuffled,
+            currentItem: allItems[0].id,
+            roundNumber: 2,
+            currentRoundPosition: 1,
+            remainingItems: Array(allItems.dropFirst()).map(\.id),
+            remainingIndex: 0,
+            history: [],
+            forwardHistory: []
+        )
+
+        let result = await fixture.coordinator.restoreQueue(from: snapshot)
+        let restoredSnapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+
+        XCTAssertEqual(result, .restored)
+        XCTAssertTrue(didReshuffle)
+        XCTAssertEqual(Set(itemIDsSeenByShuffler), Set(availableItems.map(\.id)))
+        XCTAssertFalse(itemIDsSeenByShuffler.contains(allItems[4].id))
+        XCTAssertEqual(restoredSnapshot.order, .shuffled)
+        XCTAssertEqual(restoredSnapshot.currentItem, availableItems[0].id)
+        XCTAssertEqual(
+            Set(restoredSnapshot.remainingItems),
+            Set(availableItems.dropFirst().map(\.id))
+        )
+    }
+
+    func testQueueRestoreReconcilesShuffledSnapshotToGlobalOrderedMode() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/RestoredLibrary")
+        let restoredItems = ["A", "B", "C", "D"].map {
+            makeItem(rootURL: rootURL, name: $0, path: "\($0).mov")
+        }
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [MediaLibraryRoot(url: rootURL, displayName: "Library")],
+                items: restoredItems
+            ),
+            playbackOrder: .ordered
+        )
+        fixture.session.restoredURLs = [rootURL]
+        _ = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+        let snapshot = PlaybackQueueSnapshot(
+            items: restoredItems.map(\.id),
+            order: .shuffled,
+            currentItem: restoredItems[1].id,
+            roundNumber: 2,
+            currentRoundPosition: 2,
+            remainingItems: [
+                restoredItems[3].id,
+                restoredItems[1].id,
+                restoredItems[0].id,
+                restoredItems[2].id
+            ],
+            remainingIndex: 2,
+            history: [
+                PlaybackQueueSnapshotLocation(
+                    item: restoredItems[3].id,
+                    roundNumber: 2,
+                    position: 1
+                )
+            ],
+            forwardHistory: []
+        )
+
+        let result = await fixture.coordinator.restoreQueue(from: snapshot)
+        let restoredSnapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+
+        XCTAssertEqual(result, .restored)
+        XCTAssertEqual(restoredSnapshot.order, .ordered)
+        XCTAssertEqual(restoredSnapshot.currentItem, restoredItems[1].id)
+        XCTAssertEqual(
+            restoredSnapshot.remainingItems,
+            [restoredItems[0].id, restoredItems[2].id]
+        )
+    }
+
+    func testQueueRestoreChoosesCachedSuccessorBeforeRefreshingAfterCurrentItemIsMissing() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/RestoredLibrary")
+        let allItems = ["A", "Missing", "B", "C"].map {
+            makeItem(rootURL: rootURL, name: $0, path: "\($0).mov")
+        }
+        let availableItems = [allItems[0], allItems[2], allItems[3]]
+        var currentItemSeenByShuffler: LibraryMediaItem.ID?
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [MediaLibraryRoot(url: rootURL, displayName: "Library")],
+                items: availableItems
+            ),
+            playbackOrder: .shuffled,
+            reshuffleRestoredQueue: { queue in
+                currentItemSeenByShuffler = queue.currentItem
+                var randomSource = TestSeededRandomNumberGenerator(seed: 1)
+                queue.reshufflePendingItems(using: &randomSource)
+            }
+        )
+        fixture.session.restoredURLs = [rootURL]
+        _ = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+        let snapshot = PlaybackQueueSnapshot(
+            items: allItems.map(\.id),
+            order: .shuffled,
+            currentItem: allItems[1].id,
+            roundNumber: 4,
+            currentRoundPosition: 2,
+            remainingItems: allItems.map(\.id),
+            remainingIndex: 2,
+            history: [
+                PlaybackQueueSnapshotLocation(
+                    item: allItems[0].id,
+                    roundNumber: 4,
+                    position: 1
+                )
+            ],
+            forwardHistory: []
+        )
+
+        let result = await fixture.coordinator.restoreQueue(from: snapshot)
+        let restoredSnapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+
+        XCTAssertEqual(result, .restored)
+        XCTAssertEqual(currentItemSeenByShuffler, allItems[2].id)
+        XCTAssertEqual(restoredSnapshot.currentItem, allItems[2].id)
+        XCTAssertFalse(restoredSnapshot.items.contains(allItems[1].id))
+    }
+
+    func testDiscardingCancelledQueueRestoreReturnsPlaybackToEmptyState() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/RestoredLibrary")
+        let item = makeItem(
+            rootURL: rootURL,
+            name: "Restored",
+            path: "Restored.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Restored Library"
+                    )
+                ],
+                items: [item]
+            )
+        )
+        fixture.session.restoredURLs = [rootURL]
+        let start = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+        fixture.engine.shouldBlockLoads = true
+        let queue = PlaybackQueue(items: [item.id])
+        let snapshot = try XCTUnwrap(queue.makeSnapshot())
+
+        let restoreTask = Task {
+            await fixture.coordinator.restoreQueue(from: snapshot)
+        }
+        while !fixture.engine.didBeginBlockedLoad {
             await Task.yield()
         }
-    }
-}
 
-@MainActor
-private struct Fixture {
-    let coordinator: MediaLibraryCoordinator
-    let playback: PlaybackCoordinator
-    let engine: TestPlaybackEngine
-    let session: TestMediaAccessSession
-    let scanner: TestMediaLibraryScanner
-}
+        restoreTask.cancel()
+        fixture.coordinator.discardRestoredQueue()
+        fixture.engine.finishBlockedLoad()
+        let didRestore = await restoreTask.value
 
-@MainActor
-private final class TestMediaFolderSelector: MediaFolderSelecting {
-    let selectedURLs: [URL]
-
-    init(selectedURLs: [URL]) {
-        self.selectedURLs = selectedURLs
+        XCTAssertEqual(start, .scanStarted)
+        XCTAssertEqual(didRestore, .cancelled)
+        XCTAssertEqual(fixture.playback.readiness, .empty)
+        XCTAssertNil(fixture.coordinator.currentItemID)
+        XCTAssertFalse(fixture.coordinator.hasActiveQueue)
     }
 
-    func selectFolders() -> [URL] {
-        selectedURLs
-    }
-}
+    func testQueueRestoreWaitsForRequestedRootThatFailedToScan() async throws {
+        let availableRootURL = URL(fileURLWithPath: "/tmp/AvailableLibrary")
+        let unavailableRootURL = URL(
+            fileURLWithPath: "/Volumes/OfflineLibrary"
+        )
+        let availableItem = makeItem(
+            rootURL: availableRootURL,
+            name: "Available",
+            path: "Available.mov"
+        )
+        let missingItem = makeItem(
+            rootURL: unavailableRootURL,
+            name: "Offline",
+            path: "Offline.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: availableRootURL,
+                        displayName: "Available Library"
+                    )
+                ],
+                items: [availableItem]
+            )
+        )
+        fixture.session.restoredURLs = [
+            availableRootURL,
+            unavailableRootURL
+        ]
+        let start = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+        let queue = PlaybackQueue(items: [missingItem.id])
 
-@MainActor
-private final class TestMediaAccessSession: MediaAccessSession {
-    private(set) var addedURLs: [URL] = []
-    var restoredURLs: [URL] = []
+        let result = await fixture.coordinator.restoreQueue(
+            from: try XCTUnwrap(queue.makeSnapshot())
+        )
 
-    func restoreFolders() -> [URL] {
-        restoredURLs
-    }
-
-    func addFolders(_ urls: [URL]) -> [URL] {
-        addedURLs.append(contentsOf: urls)
-        return addedURLs
-    }
-
-    func removeFolder(_ url: URL) -> [URL] {
-        addedURLs.removeAll {
-            $0.standardizedFileURL == url.standardizedFileURL
-        }
-        restoredURLs.removeAll {
-            $0.standardizedFileURL == url.standardizedFileURL
-        }
-        return addedURLs.isEmpty ? restoredURLs : addedURLs
-    }
-
-    func stop() {}
-}
-
-private final class TestMediaLibraryScanner: MediaLibraryScanning, @unchecked Sendable {
-    private let lock = NSLock()
-    private let snapshot: MediaLibrarySnapshot
-    private var storedScannedRootURLs: [[URL]] = []
-
-    var scannedRootURLs: [[URL]] {
-        lock.withLock {
-            storedScannedRootURLs
-        }
-    }
-
-    init(snapshot: MediaLibrarySnapshot) {
-        self.snapshot = snapshot
+        XCTAssertEqual(start, .scanStarted)
+        XCTAssertEqual(result, .temporarilyUnavailable)
+        XCTAssertFalse(fixture.coordinator.hasActiveQueue)
     }
 
-    func scan(rootURLs: [URL]) async throws -> MediaLibrarySnapshot {
-        lock.withLock {
-            storedScannedRootURLs.append(rootURLs)
-        }
-        return snapshot
+    func testQueueRestorePreservesUnknownRootWhenBookmarkIsUnavailable() async throws {
+        let availableRootURL = URL(fileURLWithPath: "/tmp/AvailableLibrary")
+        let unavailableRootURL = URL(
+            fileURLWithPath: "/Volumes/UnresolvedLibrary"
+        )
+        let missingItem = makeItem(
+            rootURL: unavailableRootURL,
+            name: "Unresolved",
+            path: "Unresolved.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: availableRootURL,
+                        displayName: "Available Library"
+                    )
+                ],
+                items: []
+            )
+        )
+        fixture.session.restoredURLs = [availableRootURL]
+        fixture.session.hasUnavailablePersistedFolders = true
+        _ = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+        let queue = PlaybackQueue(items: [missingItem.id])
+
+        let result = await fixture.coordinator.restoreQueue(
+            from: try XCTUnwrap(queue.makeSnapshot())
+        )
+
+        XCTAssertEqual(result, .temporarilyUnavailable)
     }
+
+    func testQueueRestoreWaitsForMissingItemUnderIncompleteRoot() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/IncompleteLibrary")
+        let missingItem = makeItem(
+            rootURL: rootURL,
+            name: "Temporarily Hidden",
+            path: "Unreadable/Hidden.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Incomplete Library"
+                    )
+                ],
+                items: [],
+                incompleteRootPaths: [rootURL.standardizedFileURL.path]
+            )
+        )
+        fixture.session.restoredURLs = [rootURL]
+        _ = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+        let queue = PlaybackQueue(items: [missingItem.id])
+
+        let result = await fixture.coordinator.restoreQueue(
+            from: try XCTUnwrap(queue.makeSnapshot())
+        )
+
+        XCTAssertEqual(result, .temporarilyUnavailable)
+        XCTAssertFalse(fixture.coordinator.hasActiveQueue)
+    }
+
+    func testQueueRestoreTreatsCannotOpenExistingFileAsTemporary() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: rootURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let item = makeItem(
+            rootURL: rootURL,
+            name: "Transient",
+            path: "Transient.mov"
+        )
+        try Data([0x00]).write(to: item.url)
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Transient Library"
+                    )
+                ],
+                items: [item]
+            )
+        )
+        fixture.session.restoredURLs = [rootURL]
+        fixture.engine.loadErrorsByURL[item.url] = .cannotOpen
+        fixture.scanner.availabilityByItemID[item.id] = .available
+        _ = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+        let queue = PlaybackQueue(items: [item.id])
+
+        let result = await fixture.coordinator.restoreQueue(
+            from: try XCTUnwrap(queue.makeSnapshot())
+        )
+
+        XCTAssertEqual(result, .temporarilyUnavailable)
+        XCTAssertTrue(fixture.coordinator.hasActiveQueue)
+        XCTAssertEqual(fixture.coordinator.currentItemID, item.id)
+        XCTAssertFalse(
+            fixture.coordinator.unavailableItemIDs.contains(item.id)
+        )
+    }
+
+    func testQueueRestoreRejectsConfirmedMissingFileAfterSuccessfulScan() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: rootURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let item = makeItem(
+            rootURL: rootURL,
+            name: "Deleted After Scan",
+            path: "Deleted.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Deleted Library"
+                    )
+                ],
+                items: [item]
+            )
+        )
+        fixture.session.restoredURLs = [rootURL]
+        fixture.engine.loadErrorsByURL[item.url] = .cannotOpen
+        fixture.scanner.availabilityByItemID[item.id] = .missing
+        _ = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+        let queue = PlaybackQueue(items: [item.id])
+
+        let result = await fixture.coordinator.restoreQueue(
+            from: try XCTUnwrap(queue.makeSnapshot())
+        )
+
+        XCTAssertEqual(result, .permanentlyUnavailable)
+        XCTAssertFalse(fixture.coordinator.hasActiveQueue)
+    }
+
+    func testQueueRestoreRejectsUnsupportedExistingFile() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: rootURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let item = makeItem(
+            rootURL: rootURL,
+            name: "Unsupported",
+            path: "Unsupported.mov"
+        )
+        try Data([0x00]).write(to: item.url)
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Unsupported Library"
+                    )
+                ],
+                items: [item]
+            )
+        )
+        fixture.session.restoredURLs = [rootURL]
+        fixture.engine.loadErrorsByURL[item.url] = .unsupported
+        _ = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+        let queue = PlaybackQueue(items: [item.id])
+
+        let result = await fixture.coordinator.restoreQueue(
+            from: try XCTUnwrap(queue.makeSnapshot())
+        )
+
+        XCTAssertEqual(result, .permanentlyUnavailable)
+        XCTAssertFalse(fixture.coordinator.hasActiveQueue)
+    }
+
+    func testQueueRestoreRejectsDeletedMediaFromSuccessfullyScannedRoot() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/DeletedMediaLibrary")
+        let deletedItem = makeItem(
+            rootURL: rootURL,
+            name: "Deleted",
+            path: "Deleted.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Deleted Media Library"
+                    )
+                ],
+                items: []
+            )
+        )
+        fixture.session.restoredURLs = [rootURL]
+        _ = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+        let queue = PlaybackQueue(items: [deletedItem.id])
+
+        let result = await fixture.coordinator.restoreQueue(
+            from: try XCTUnwrap(queue.makeSnapshot())
+        )
+
+        XCTAssertEqual(result, .permanentlyUnavailable)
+        XCTAssertFalse(fixture.coordinator.hasActiveQueue)
+    }
+
 }

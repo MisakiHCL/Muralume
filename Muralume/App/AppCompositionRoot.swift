@@ -11,6 +11,7 @@ enum AppCompositionRoot {
             preferencesStore: preferencesStore
         )
         let mainWindowPresenter = MacMainWindowPresenter()
+        let applicationPresence = MacApplicationPresenceController()
         let desktopSession = DesktopSessionCoordinator(
             playback: playback,
             desktopHost: MacDesktopHost(),
@@ -20,7 +21,7 @@ enum AppCompositionRoot {
             videoContentModeStore: UserDefaultsDesktopVideoContentModeStore(),
             lifecycleMonitor: SystemLifecycleMonitor(),
             mainWindow: mainWindowPresenter,
-            applicationPresence: MacApplicationPresenceController()
+            applicationPresence: applicationPresence
         )
         let library = MediaLibraryCoordinator(
             playback: playback,
@@ -33,13 +34,29 @@ enum AppCompositionRoot {
             sort: initialPreferences.librarySort,
             preferencesStore: preferencesStore
         )
+        let launchAtLogin = LaunchAtLoginController(
+            service: MacLaunchAtLoginService()
+        )
+        let desktopPreset = DesktopPresetController(
+            playback: playback,
+            library: library,
+            desktopSession: desktopSession,
+            store: FileDesktopPresetStore()
+        )
+        let dynamicDesktopStartup = DynamicDesktopStartupController(
+            launchAtLogin: launchAtLogin,
+            desktopPreset: desktopPreset
+        )
 
         return AppCoordinator(
             playback: playback,
             desktopSession: desktopSession,
             library: library,
             mediaThumbnailProvider: QuickLookMediaThumbnailProvider(),
-            mainWindowPresenter: mainWindowPresenter
+            mainWindowPresenter: mainWindowPresenter,
+            applicationPresence: applicationPresence,
+            dynamicDesktopStartup: dynamicDesktopStartup,
+            desktopPreset: desktopPreset
         )
     }
 }

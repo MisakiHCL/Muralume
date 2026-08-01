@@ -193,6 +193,7 @@ check_architecture() {
     echo "Checking architecture boundaries..."
     plutil -lint "${project_path}/project.pbxproj"
     check_localization_key_parity
+    "${script_directory}/tests/secure_timestamp_test.sh"
 
     reject_imports \
         "Domain" \

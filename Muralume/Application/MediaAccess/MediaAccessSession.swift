@@ -2,6 +2,10 @@ import Foundation
 
 @MainActor
 protocol MediaAccessSession: AnyObject {
+    /// True when at least one persisted grant could not be restored in this
+    /// process, for example because a removable volume is unavailable.
+    var hasUnavailablePersistedFolders: Bool { get }
+
     /// Restores persisted folder grants and keeps their security scopes active.
     func restoreFolders() -> [URL]
 
@@ -12,4 +16,10 @@ protocol MediaAccessSession: AnyObject {
     func removeFolder(_ url: URL) -> [URL]
 
     func stop()
+}
+
+extension MediaAccessSession {
+    var hasUnavailablePersistedFolders: Bool {
+        false
+    }
 }

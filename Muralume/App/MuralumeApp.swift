@@ -19,9 +19,15 @@ final class MuralumeMainWindow: NSWindow {
 enum MuralumeApplication {
     static func main() {
         let application = NSApplication.shared
-        let appDelegate = AppDelegate()
+        let isHostedUnitTest = MacHostedUnitTestDetector().detect()
+        let appDelegate = AppDelegate(
+            allowsRuntimeCreation: !isHostedUnitTest
+        )
 
-        application.setActivationPolicy(.regular)
+        // Start without a Dock icon until AppKit's launch AppleEvent tells us
+        // whether this is an interactive launch or a login-item restore.
+        // Accessory apps can become regular apps reliably after launch.
+        application.setActivationPolicy(.accessory)
         application.delegate = appDelegate
         appDelegate.prepareForRun(application)
         application.run()
@@ -100,15 +106,17 @@ final class MacApplicationRuntime {
             .store(in: &cancellables)
     }
 
-    func launch() {
+    var applicationDockMenu: NSMenu {
+        mainMenuController.applicationDockMenu
+    }
+
+    func launch(source: ApplicationLaunchSource) {
         guard !hasLaunched else {
             return
         }
         hasLaunched = true
 
-        coordinator.start()
-        mainWindow.makeKeyAndOrderFront(nil)
-        application.activate(ignoringOtherApps: true)
+        coordinator.start(source: source)
     }
 
     func stop() {
@@ -157,6 +165,7 @@ private struct MuralumePlayerRootView: View {
             playback: coordinator.playback,
             desktopSession: coordinator.desktopSession,
             library: coordinator.library,
+            dynamicDesktopStartup: coordinator.dynamicDesktopStartup,
             mediaThumbnailProvider: coordinator.mediaThumbnailProvider,
             isFullScreen: coordinator.isMainWindowFullScreen,
             chromeController: coordinator.playerChrome,

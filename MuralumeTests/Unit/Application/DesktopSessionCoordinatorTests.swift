@@ -399,6 +399,41 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         )
     }
 
+    func testWaitedDesktopEntryDoesNotReportRecoveryLimboAsSuccess() async {
+        let engine = TestPlaybackEngine()
+        let playback = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        let applicationPresence = TestApplicationPresenceController(
+            results: [false, false]
+        )
+        let session = DesktopSessionCoordinator(
+            playback: playback,
+            desktopHost: TestDesktopHost(),
+            statusMenu: TestDesktopStatusPresenter(),
+            videoContentModeStore: TestDesktopVideoContentModeStore(),
+            lifecycleMonitor: TestSystemLifecycleMonitor(),
+            mainWindow: TestMainWindowPresenter(),
+            applicationPresence: applicationPresence
+        )
+        defer {
+            session.shutdown()
+        }
+        playback.registerPlayerSurface(playerSurface)
+        await playback.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+
+        let didEnterDesktop = await session.enterDesktopAndWait()
+
+        XCTAssertFalse(didEnterDesktop)
+        XCTAssertEqual(playback.presentation, .player)
+        XCTAssertTrue(session.isActive)
+        XCTAssertEqual(session.transientFailure, .surfaceTimeout)
+    }
+
     func testFailedStandardPresenceKeepsStatusEntryUntilRetry() async {
         let engine = TestPlaybackEngine()
         let playback = PlaybackCoordinator(engine: engine)

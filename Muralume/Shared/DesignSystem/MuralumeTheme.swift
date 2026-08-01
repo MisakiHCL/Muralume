@@ -140,7 +140,14 @@ enum MuralumeAccessibilityIdentifier {
     static let settingsCategoryMenu = "muralume.settings-category-menu"
     static let settingsGeneralSection = "muralume.settings-section.general"
     static let settingsLanguageRow = "muralume.settings-row.language"
+    static let settingsLaunchAtLoginRow =
+        "muralume.settings-row.launch-at-login"
     static let languagePicker = "muralume.language-picker"
+    static let launchAtLoginCheckbox =
+        "muralume.launch-at-login.checkbox"
+    static let launchAtLoginStatus = "muralume.launch-at-login.status"
+    static let launchAtLoginRecoveryButton =
+        "muralume.launch-at-login.open-system-settings"
 }
 
 struct MuralumeBackground: View {

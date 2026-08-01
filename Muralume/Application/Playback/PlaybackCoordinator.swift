@@ -126,7 +126,8 @@ final class PlaybackCoordinator: ObservableObject {
     @discardableResult
     func load(
         _ source: ResolvedMediaSource,
-        autoplay: Bool = true
+        autoplay: Bool = true,
+        attachToPlayerSurface: Bool = true
     ) async -> PlaybackLoadResult {
         guard presentation != .terminating else {
             return .cancelled
@@ -156,7 +157,8 @@ final class PlaybackCoordinator: ObservableObject {
         }
 
         duration = loadedDuration
-        if presentation == .player,
+        if attachToPlayerSurface,
+           presentation == .player,
            !isPlayerWindowDismissed,
            let playerSurface {
             do {

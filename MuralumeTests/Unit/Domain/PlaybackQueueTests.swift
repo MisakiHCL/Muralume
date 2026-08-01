@@ -144,6 +144,76 @@ final class PlaybackQueueTests: XCTestCase {
         XCTAssertEqual(queue.moveToNext(using: &randomSource), 3)
     }
 
+    func testColdRestoreCanReshuffleOnlyPendingRandomItems() throws {
+        let snapshot = PlaybackQueueSnapshot(
+            items: ["a", "b", "c", "d", "e", "f", "g"],
+            order: .shuffled,
+            currentItem: "c",
+            roundNumber: 3,
+            currentRoundPosition: 3,
+            remainingItems: ["a", "b", "c", "d", "e", "f", "g"],
+            remainingIndex: 4,
+            history: [
+                PlaybackQueueSnapshotLocation(
+                    item: "a",
+                    roundNumber: 3,
+                    position: 1
+                ),
+                PlaybackQueueSnapshotLocation(
+                    item: "b",
+                    roundNumber: 3,
+                    position: 2
+                )
+            ],
+            forwardHistory: [
+                PlaybackQueueSnapshotLocation(
+                    item: "d",
+                    roundNumber: 3,
+                    position: 4
+                )
+            ]
+        )
+        var firstQueue = try XCTUnwrap(PlaybackQueue(snapshot: snapshot))
+        var secondQueue = try XCTUnwrap(PlaybackQueue(snapshot: snapshot))
+        var firstRandomSource = SeededRandomNumberGenerator(seed: 1)
+        var secondRandomSource = SeededRandomNumberGenerator(seed: 1)
+
+        firstQueue.reshufflePendingItems(using: &firstRandomSource)
+        secondQueue.reshufflePendingItems(using: &secondRandomSource)
+
+        let firstResult = try XCTUnwrap(firstQueue.makeSnapshot())
+        let secondResult = try XCTUnwrap(secondQueue.makeSnapshot())
+        XCTAssertEqual(firstResult.currentItem, snapshot.currentItem)
+        XCTAssertEqual(firstResult.roundNumber, snapshot.roundNumber)
+        XCTAssertEqual(
+            firstResult.currentRoundPosition,
+            snapshot.currentRoundPosition
+        )
+        XCTAssertEqual(firstResult.remainingIndex, snapshot.remainingIndex)
+        XCTAssertEqual(firstResult.history, snapshot.history)
+        XCTAssertEqual(firstResult.forwardHistory, snapshot.forwardHistory)
+        XCTAssertEqual(
+            Array(firstResult.remainingItems.prefix(snapshot.remainingIndex)),
+            Array(snapshot.remainingItems.prefix(snapshot.remainingIndex))
+        )
+        XCTAssertEqual(
+            Set(firstResult.remainingItems.suffix(3)),
+            Set(snapshot.remainingItems.suffix(3))
+        )
+        XCTAssertEqual(firstResult.remainingItems, secondResult.remainingItems)
+        XCTAssertNotEqual(
+            Array(firstResult.remainingItems.suffix(3)),
+            Array(snapshot.remainingItems.suffix(3))
+        )
+
+        var navigationRandomSource = SeededRandomNumberGenerator(seed: 99)
+        XCTAssertEqual(
+            firstQueue.moveToNext(using: &navigationRandomSource),
+            "d"
+        )
+        XCTAssertEqual(firstQueue.currentRoundPosition, 4)
+    }
+
     func testEqualSeedsProduceEqualShuffledNavigation() {
         var firstRandomSource = SeededRandomNumberGenerator(seed: 2026)
         var secondRandomSource = SeededRandomNumberGenerator(seed: 2026)
@@ -197,6 +267,67 @@ final class PlaybackQueueTests: XCTestCase {
             XCTAssertEqual(queue.moveToPrevious(), expectedItem)
         }
         XCTAssertFalse(queue.canMoveToPrevious)
+    }
+
+    func testSnapshotRoundTripPreservesRandomRoundAndNavigationHistory() throws {
+        var randomSource = SeededRandomNumberGenerator(seed: 88)
+        var queue = PlaybackQueue(
+            items: ["a", "b", "c", "d", "e"],
+            startingAt: "c",
+            order: .shuffled,
+            using: &randomSource
+        )
+        _ = queue.moveToNext(using: &randomSource)
+        _ = queue.moveToNext(using: &randomSource)
+        _ = queue.moveToPrevious()
+
+        let snapshot = try XCTUnwrap(queue.makeSnapshot())
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(
+            PlaybackQueueSnapshot<String>.self,
+            from: data
+        )
+        var restored = try XCTUnwrap(PlaybackQueue(snapshot: decoded))
+
+        XCTAssertEqual(restored.currentItem, queue.currentItem)
+        XCTAssertEqual(restored.order, queue.order)
+        XCTAssertEqual(restored.roundNumber, queue.roundNumber)
+        XCTAssertEqual(
+            restored.currentRoundPosition,
+            queue.currentRoundPosition
+        )
+        XCTAssertEqual(restored.history, queue.history)
+
+        var firstContinuationRandom = SeededRandomNumberGenerator(seed: 9)
+        var secondContinuationRandom = SeededRandomNumberGenerator(seed: 9)
+        XCTAssertEqual(
+            sequence(
+                from: &restored,
+                count: 12,
+                using: &firstContinuationRandom
+            ),
+            sequence(
+                from: &queue,
+                count: 12,
+                using: &secondContinuationRandom
+            )
+        )
+    }
+
+    func testSnapshotRejectsCorruptCurrentItem() {
+        let snapshot = PlaybackQueueSnapshot(
+            items: ["a", "b"],
+            order: .ordered,
+            currentItem: "missing",
+            roundNumber: 1,
+            currentRoundPosition: 1,
+            remainingItems: ["a", "b"],
+            remainingIndex: 1,
+            history: [],
+            forwardHistory: []
+        )
+
+        XCTAssertNil(PlaybackQueue(snapshot: snapshot))
     }
 
     private func sequence<Item: Hashable & Sendable>(

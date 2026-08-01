@@ -13,6 +13,26 @@ private struct PlaybackQueueLocation<Item: Sendable>: Sendable {
     let position: Int
 }
 
+struct PlaybackQueueSnapshotLocation<Item>: Codable, Equatable, Sendable
+where Item: Codable & Hashable & Sendable {
+    let item: Item
+    let roundNumber: Int
+    let position: Int
+}
+
+struct PlaybackQueueSnapshot<Item>: Codable, Equatable, Sendable
+where Item: Codable & Hashable & Sendable {
+    let items: [Item]
+    let order: PlaybackOrder
+    let currentItem: Item
+    let roundNumber: Int
+    let currentRoundPosition: Int
+    let remainingItems: [Item]
+    let remainingIndex: Int
+    let history: [PlaybackQueueSnapshotLocation<Item>]
+    let forwardHistory: [PlaybackQueueSnapshotLocation<Item>]
+}
+
 private struct BoundedHistoryBuffer<Element: Sendable>: Sendable {
     private var storage: [Element?]
     private var startIndex = 0
@@ -221,6 +241,28 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
         }
         remainingItems = pendingItems
         remainingIndex = 0
+    }
+
+    mutating func reshufflePendingItems() {
+        var randomSource = SystemRandomNumberGenerator()
+        reshufflePendingItems(using: &randomSource)
+    }
+
+    mutating func reshufflePendingItems<
+        RandomSource: RandomNumberGenerator
+    >(
+        using randomSource: inout RandomSource
+    ) {
+        guard order == .shuffled else {
+            return
+        }
+
+        var pendingItems = Array(remainingItems[remainingIndex...])
+        pendingItems.shuffle(using: &randomSource)
+        remainingItems.replaceSubrange(
+            remainingIndex...,
+            with: pendingItems
+        )
     }
 
     @discardableResult
@@ -481,5 +523,102 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
         }
 
         items.swapAt(items.startIndex, replacementIndex)
+    }
+}
+
+extension PlaybackQueue where Item: Codable {
+    func makeSnapshot() -> PlaybackQueueSnapshot<Item>? {
+        guard let currentItem, let currentRoundPosition else {
+            return nil
+        }
+
+        return PlaybackQueueSnapshot(
+            items: items,
+            order: order,
+            currentItem: currentItem,
+            roundNumber: roundNumber,
+            currentRoundPosition: currentRoundPosition,
+            remainingItems: remainingItems,
+            remainingIndex: remainingIndex,
+            history: historyBuffer.elements.map {
+                PlaybackQueueSnapshotLocation(
+                    item: $0.item,
+                    roundNumber: $0.roundNumber,
+                    position: $0.position
+                )
+            },
+            forwardHistory: forwardHistory.map {
+                PlaybackQueueSnapshotLocation(
+                    item: $0.item,
+                    roundNumber: $0.roundNumber,
+                    position: $0.position
+                )
+            }
+        )
+    }
+
+    init?(snapshot: PlaybackQueueSnapshot<Item>) {
+        let uniqueItems = Self.uniqued(snapshot.items)
+        let itemSet = Set(uniqueItems)
+        guard !uniqueItems.isEmpty,
+              uniqueItems.count == snapshot.items.count,
+              itemSet.contains(snapshot.currentItem),
+              snapshot.roundNumber > 0,
+              (1...uniqueItems.count).contains(
+                  snapshot.currentRoundPosition
+              ),
+              snapshot.remainingIndex >= 0,
+              snapshot.remainingIndex <= snapshot.remainingItems.count,
+              Set(snapshot.remainingItems).count
+                  == snapshot.remainingItems.count,
+              snapshot.remainingItems.allSatisfy(itemSet.contains),
+              Self.locationsAreValid(snapshot.history, items: itemSet),
+              Self.locationsAreValid(
+                  snapshot.forwardHistory,
+                  items: itemSet
+              ) else {
+            return nil
+        }
+
+        items = uniqueItems
+        order = snapshot.order
+        currentItem = snapshot.currentItem
+        roundNumber = snapshot.roundNumber
+        currentRoundPosition = snapshot.currentRoundPosition
+        remainingItems = snapshot.remainingItems
+        remainingIndex = snapshot.remainingIndex
+        historyBuffer = BoundedHistoryBuffer(
+            capacity: max(
+                uniqueItems.count,
+                PlaybackQueuePolicy.minimumHistoryCapacity
+            )
+        )
+        for location in snapshot.history {
+            historyBuffer.append(
+                PlaybackQueueLocation(
+                    item: location.item,
+                    roundNumber: location.roundNumber,
+                    position: location.position
+                )
+            )
+        }
+        forwardHistory = snapshot.forwardHistory.map {
+            PlaybackQueueLocation(
+                item: $0.item,
+                roundNumber: $0.roundNumber,
+                position: $0.position
+            )
+        }
+    }
+
+    private static func locationsAreValid(
+        _ locations: [PlaybackQueueSnapshotLocation<Item>],
+        items: Set<Item>
+    ) -> Bool {
+        locations.allSatisfy {
+            items.contains($0.item)
+                && $0.roundNumber > 0
+                && $0.position > 0
+        }
     }
 }

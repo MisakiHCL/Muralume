@@ -9,6 +9,7 @@ struct MacMainMenuCommandState: Equatable {
     let canPlayNext: Bool
     let canIncreaseVolume: Bool
     let canDecreaseVolume: Bool
+    let canEnterDesktop: Bool
     let canUseWindowActions: Bool
 }
 
@@ -27,6 +28,7 @@ protocol MacMainMenuCommandHandling: AnyObject {
     func increaseVolumeFromMenu()
     func decreaseVolumeFromMenu()
     func toggleMuteFromMenu()
+    func enterDesktopFromMenu()
     func toggleFullScreen()
     func handleCloseCommand(for window: NSWindow?) -> Bool
 }
@@ -69,6 +71,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         case increaseVolume
         case decreaseVolume
         case toggleMute
+        case enterDesktop
         case toggleFullScreen
     }
 
@@ -86,6 +89,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private let windowMenu = NSMenu()
     private let helpMenu = NSMenu()
     private let servicesMenu = NSMenu()
+    private let dockMenu = NSMenu()
 
     private let applicationMenuItem = NSMenuItem()
     private let actionsMenuItem = NSMenuItem()
@@ -109,7 +113,9 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private let volumeUpItem = NSMenuItem()
     private let volumeDownItem = NSMenuItem()
     private let toggleMuteItem = NSMenuItem()
+    private let enterDesktopItem = NSMenuItem()
     private let toggleFullScreenItem = NSMenuItem()
+    private let dockEnterDesktopItem = NSMenuItem()
 
     private let closeWindowItem = NSMenuItem()
     private let minimizeWindowItem = NSMenuItem()
@@ -130,12 +136,18 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         super.init()
 
         configureMenuStructure()
+        configureDockMenu()
         updateLocalizedTitles()
         refresh()
     }
 
     var canonicalMenu: NSMenu {
         rootMenu
+    }
+
+    var applicationDockMenu: NSMenu {
+        refresh()
+        return dockMenu
     }
 
     func install() {
@@ -202,6 +214,9 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             hasPlayerFocus && isEnabled(.decreaseVolume, in: state)
         toggleMuteItem.isEnabled =
             hasPlayerFocus && isEnabled(.toggleMute, in: state)
+        enterDesktopItem.isEnabled =
+            hasPlayerFocus && isEnabled(.enterDesktop, in: state)
+        dockEnterDesktopItem.isEnabled = state.canEnterDesktop
         toggleFullScreenItem.isEnabled =
             hasPlayerFocus && isEnabled(.toggleFullScreen, in: state)
 
@@ -234,6 +249,16 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         configureActionsMenu()
         configureWindowMenu()
         configureHelpMenu()
+    }
+
+    private func configureDockMenu() {
+        dockMenu.autoenablesItems = false
+        dockMenu.delegate = self
+        configure(
+            dockEnterDesktopItem,
+            action: #selector(enterDesktopFromDock(_:))
+        )
+        dockMenu.addItem(dockEnterDesktopItem)
     }
 
     private func configureApplicationMenu() {
@@ -334,12 +359,17 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             keyEquivalent: Shortcut.toggleMute
         )
         configure(
+            enterDesktopItem,
+            action: #selector(enterDesktop(_:))
+        )
+        configure(
             toggleFullScreenItem,
             action: #selector(toggleFullScreen(_:)),
             keyEquivalent: Shortcut.toggleFullScreen
         )
 
         actionsMenu.addItem(addFolderItem)
+        actionsMenu.addItem(enterDesktopItem)
         actionsMenu.addItem(.separator())
         actionsMenu.addItem(togglePlaybackItem)
         actionsMenu.addItem(seekBackwardItem)
@@ -488,6 +518,9 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         toggleFullScreenItem.title = localization.localized(
             "player.fullscreen"
         )
+        let enterDesktopTitle = localization.localized("player.desktop")
+        enterDesktopItem.title = enterDesktopTitle
+        dockEnterDesktopItem.title = enterDesktopTitle
 
         closeWindowItem.title = localization.localized("menu.closeWindow")
         minimizeWindowItem.title = localization.localized(
@@ -511,6 +544,8 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             volumeUpItem,
             volumeDownItem,
             toggleMuteItem,
+            enterDesktopItem,
+            dockEnterDesktopItem,
             toggleFullScreenItem
         ].forEach { $0.isEnabled = false }
     }
@@ -536,6 +571,8 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         switch command {
         case .addFolders, .toggleFullScreen:
             state.canUseWindowActions
+        case .enterDesktop:
+            state.canEnterDesktop
         case .togglePlayback, .seekBackward, .seekForward:
             state.canControlPlayback
         case .toggleMute:
@@ -558,6 +595,17 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         guard playerHasCommandFocus,
               let commandHandler,
               isEnabled(command, in: commandHandler.mainMenuCommandState) else {
+            refresh()
+            return
+        }
+        action(commandHandler)
+    }
+
+    private func performDockCommand(
+        action: (any MacMainMenuCommandHandling) -> Void
+    ) {
+        guard let commandHandler,
+              commandHandler.mainMenuCommandState.canEnterDesktop else {
             refresh()
             return
         }
@@ -671,6 +719,20 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private func toggleMute(_ sender: Any?) {
         performPlayerCommand(.toggleMute) {
             $0.toggleMuteFromMenu()
+        }
+    }
+
+    @objc
+    private func enterDesktop(_ sender: Any?) {
+        performPlayerCommand(.enterDesktop) {
+            $0.enterDesktopFromMenu()
+        }
+    }
+
+    @objc
+    private func enterDesktopFromDock(_ sender: Any?) {
+        performDockCommand {
+            $0.enterDesktopFromMenu()
         }
     }
 

@@ -1,27 +1,87 @@
 import AppKit
+import CoreServices
+
+enum ApplicationLaunchSource: Equatable, Sendable {
+    case interactive
+    case loginItem
+}
+
+struct MacApplicationLaunchSourceDetector {
+    func detect(
+        event: NSAppleEventDescriptor?
+    ) -> ApplicationLaunchSource {
+        guard event?.eventClass == kCoreEventClass,
+              event?.eventID == kAEOpenApplication else {
+            return .interactive
+        }
+
+        // Launch Services carries the login-item marker as the pass-through
+        // enum in `keyAEPropData` on the open-application event.
+        let passThroughCode = event?
+            .paramDescriptor(forKeyword: keyAEPropData)?
+            .enumCodeValue
+        return passThroughCode == keyAELaunchedAsLogInItem
+            ? .loginItem
+            : .interactive
+    }
+}
+
+struct MacHostedUnitTestDetector {
+    private static let hostedUnitTestBundleIdentifier =
+        "com.muralume.MuralumeTests"
+    private static let hostedUnitTestBundleName = "MuralumeTests.xctest"
+    private static let testBundlePathEnvironmentKey = "XCTestBundlePath"
+    private static let testSessionEnvironmentKey = "XCTestSessionIdentifier"
+
+    func detect(
+        loadedBundleIdentifiers: [String] = Bundle.allBundles.compactMap(
+            \.bundleIdentifier
+        ),
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        if loadedBundleIdentifiers.contains(
+            Self.hostedUnitTestBundleIdentifier
+        ) {
+            return true
+        }
+
+        guard let testBundlePath = environment[
+            Self.testBundlePathEnvironmentKey
+        ],
+        URL(fileURLWithPath: testBundlePath).lastPathComponent ==
+            Self.hostedUnitTestBundleName,
+        environment[Self.testSessionEnvironmentKey]?.isEmpty == false else {
+            return false
+        }
+        return true
+    }
+}
 
 @MainActor
 protocol AppLifecycleCoordinating: AnyObject {
     func reopenMainWindow()
+    func handleApplicationActivation(hasVisibleWindows: Bool)
     func handleCloseCommand(for window: NSWindow?) -> Bool
     func shutdown() async
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private enum TerminationPolicy {
-        static let cleanupTimeout: Duration = .seconds(2)
-    }
-
     var coordinator: (any AppLifecycleCoordinating)?
 
+    private let allowsRuntimeCreation: Bool
     private var runtime: MacApplicationRuntime?
     private var terminationTask: Task<Void, Never>?
-    private var terminationTimeoutTask: Task<Void, Never>?
     private var didReplyToTermination = false
+    private let launchSourceDetector = MacApplicationLaunchSourceDetector()
+
+    init(allowsRuntimeCreation: Bool = true) {
+        self.allowsRuntimeCreation = allowsRuntimeCreation
+        super.init()
+    }
 
     func prepareForRun(_ application: NSApplication) {
-        guard runtime == nil else {
+        guard allowsRuntimeCreation, runtime == nil else {
             return
         }
 
@@ -37,10 +97,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard allowsRuntimeCreation else {
+            _ = NSApp.setActivationPolicy(.accessory)
+            return
+        }
         if runtime == nil {
             prepareForRun(NSApp)
         }
-        runtime?.launch()
+        let launchSource = launchSourceDetector.detect(
+            event: NSAppleEventManager.shared().currentAppleEvent
+        )
+        let activationPolicy: NSApplication.ActivationPolicy =
+            launchSource == .loginItem ? .accessory : .regular
+        if !NSApp.setActivationPolicy(activationPolicy) {
+            _ = NSApp.setActivationPolicy(.regular)
+            runtime?.launch(source: .interactive)
+            return
+        }
+        runtime?.launch(source: launchSource)
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -70,13 +144,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await coordinator.shutdown()
             self?.finishTermination(for: sender)
         }
-        terminationTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(for: TerminationPolicy.cleanupTimeout)
-            guard !Task.isCancelled else {
-                return
-            }
-            self?.finishTermination(for: sender)
-        }
         return .terminateLater
     }
 
@@ -95,10 +162,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func restoreMainWindowAfterActivationIfNeeded(
         hasVisibleWindows: Bool
     ) {
-        guard !hasVisibleWindows else {
-            return
-        }
-        coordinator?.reopenMainWindow()
+        coordinator?.handleApplicationActivation(
+            hasVisibleWindows: hasVisibleWindows
+        )
+    }
+
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        runtime?.applicationDockMenu
     }
 
     private func finishTermination(for application: NSApplication) {
@@ -106,9 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         didReplyToTermination = true
-        terminationTimeoutTask?.cancel()
         terminationTask = nil
-        terminationTimeoutTask = nil
         application.reply(toApplicationShouldTerminate: true)
     }
 }

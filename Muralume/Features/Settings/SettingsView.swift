@@ -25,6 +25,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
 struct SettingsView: View {
     @EnvironmentObject private var localization: AppLocalizationController
     @State private var selectedCategory = SettingsCategory.general
+    @ObservedObject var dynamicDesktopStartup:
+        DynamicDesktopStartupController
 
     let dismiss: () -> Void
 
@@ -51,6 +53,9 @@ struct SettingsView: View {
         .accessibilityIdentifier(
             MuralumeAccessibilityIdentifier.settingsView
         )
+        .onAppear {
+            dynamicDesktopStartup.refresh()
+        }
     }
 
     private var header: some View {
@@ -155,8 +160,110 @@ struct SettingsView: View {
                 ) {
                     languageMenu
                 }
+
+                SettingsRow(
+                    title: "settings.launchAtLogin",
+                    accessibilityIdentifier:
+                        MuralumeAccessibilityIdentifier
+                            .settingsLaunchAtLoginRow
+                ) {
+                    launchAtLoginControl
+                }
             }
         }
+    }
+
+    private var launchAtLoginControl: some View {
+        VStack(alignment: .trailing, spacing: MuralumeTheme.Spacing.small) {
+            HStack(spacing: MuralumeTheme.Spacing.small) {
+                if dynamicDesktopStartup.isUpdating {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityHidden(true)
+                }
+
+                Toggle(
+                    "settings.launchAtLogin",
+                    isOn: Binding(
+                        get: {
+                            dynamicDesktopStartup.isRequested
+                        },
+                        set: { isEnabled in
+                            dynamicDesktopStartup.setEnabled(isEnabled)
+                        }
+                    )
+                )
+                .labelsHidden()
+                .toggleStyle(.checkbox)
+                .disabled(
+                    dynamicDesktopStartup.isUpdating
+                        || dynamicDesktopStartup.status == .unavailable
+                )
+                .accessibilityLabel(Text("settings.launchAtLogin"))
+                .accessibilityHint(
+                    Text("settings.launchAtLogin.accessibilityHint")
+                )
+                .accessibilityIdentifier(
+                    MuralumeAccessibilityIdentifier.launchAtLoginCheckbox
+                )
+            }
+
+            if let statusKey = launchAtLoginStatusKey {
+                Text(statusKey)
+                    .font(.caption)
+                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+                    .multilineTextAlignment(.trailing)
+                    .accessibilityIdentifier(
+                        MuralumeAccessibilityIdentifier.launchAtLoginStatus
+                    )
+            }
+
+            if shouldOfferLoginItemSettings {
+                Button("settings.launchAtLogin.openSystemSettings") {
+                    dynamicDesktopStartup.openSystemSettings()
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(MuralumeTheme.Colors.textPrimary)
+                .accessibilityIdentifier(
+                    MuralumeAccessibilityIdentifier
+                        .launchAtLoginRecoveryButton
+                )
+            }
+        }
+        .frame(maxWidth: 220, alignment: .trailing)
+    }
+
+    private var launchAtLoginStatusKey: LocalizedStringKey? {
+        if let failure = dynamicDesktopStartup.failure {
+            return switch failure {
+            case .selectMediaFirst:
+                "settings.launchAtLogin.selectMediaFirst"
+            case .presetUnavailable:
+                "settings.launchAtLogin.presetUnavailable"
+            case .enableFailed:
+                "settings.launchAtLogin.enableFailed"
+            case .disableFailed:
+                "settings.launchAtLogin.disableFailed"
+            case .automaticallyDisabled:
+                "settings.launchAtLogin.automaticallyDisabled"
+            case .manualDisableRequired:
+                "settings.launchAtLogin.manualDisableRequired"
+            }
+        }
+        return switch dynamicDesktopStartup.status {
+        case .requiresApproval:
+            "settings.launchAtLogin.requiresApproval"
+        case .unavailable:
+            "settings.launchAtLogin.unavailable"
+        case .disabled, .enabled:
+            nil
+        }
+    }
+
+    private var shouldOfferLoginItemSettings: Bool {
+        dynamicDesktopStartup.status == .requiresApproval
+            || dynamicDesktopStartup.failure == .disableFailed
+            || dynamicDesktopStartup.failure == .manualDisableRequired
     }
 
     private var languageMenu: some View {
@@ -275,11 +382,15 @@ private struct SettingsRow<Control: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: MuralumeTheme.Spacing.large) {
+        HStack(
+            alignment: .top,
+            spacing: MuralumeTheme.Spacing.large
+        ) {
             Text(title)
                 .font(.body.weight(.medium))
                 .foregroundStyle(MuralumeTheme.Colors.textPrimary)
                 .lineLimit(1)
+                .padding(.top, MuralumeTheme.Spacing.small)
                 .accessibilityHidden(true)
 
             Spacer(minLength: MuralumeTheme.Spacing.large)

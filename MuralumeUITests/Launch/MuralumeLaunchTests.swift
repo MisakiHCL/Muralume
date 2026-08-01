@@ -356,6 +356,9 @@ final class MuralumeLaunchTests: XCTestCase {
             application.menuItems["Add Folder"].isEnabled
         )
         XCTAssertFalse(
+            application.menuItems["Set as Dynamic Desktop"].isEnabled
+        )
+        XCTAssertFalse(
             application.menuItems["Toggle Full Screen"].isEnabled
         )
         application.typeKey(.escape, modifierFlags: [])
@@ -500,16 +503,47 @@ final class MuralumeLaunchTests: XCTestCase {
             .descendants(matching: .any)
             .matching(identifier: "muralume.settings-row.language")
             .firstMatch
+        let launchAtLoginRow = application
+            .descendants(matching: .any)
+            .matching(
+                identifier: "muralume.settings-row.launch-at-login"
+            )
+            .firstMatch
+        let launchAtLoginCheckbox = application
+            .checkBoxes["muralume.launch-at-login.checkbox"]
+            .firstMatch
         XCTAssertTrue(
             languageRow.waitForExistence(
                 timeout: LifecycleExpectation.windowTransitionTimeout
             )
         )
         XCTAssertTrue(
+            launchAtLoginRow.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        XCTAssertTrue(
+            launchAtLoginCheckbox.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        XCTAssertEqual(
+            launchAtLoginCheckbox.label,
+            "Start Dynamic Desktop at Login"
+        )
+        XCTAssertTrue(
             languageRow.frame.contains(
                 CGPoint(
                     x: languagePicker.frame.midX,
                     y: languagePicker.frame.midY
+                )
+            )
+        )
+        XCTAssertTrue(
+            launchAtLoginRow.frame.contains(
+                CGPoint(
+                    x: launchAtLoginCheckbox.frame.midX,
+                    y: launchAtLoginCheckbox.frame.midY
                 )
             )
         )
@@ -541,6 +575,7 @@ final class MuralumeLaunchTests: XCTestCase {
             "Volume Up",
             "Volume Down",
             "Mute",
+            "Set as Dynamic Desktop",
             "Toggle Full Screen"
         ] {
             let item = application.menuItems[itemTitle]
@@ -747,7 +782,8 @@ final class MuralumeLaunchTests: XCTestCase {
             "Back 10 seconds",
             "Forward 10 seconds",
             "Previous Video",
-            "Next Video"
+            "Next Video",
+            "Set as Dynamic Desktop"
         ]
         for itemTitle in disabledPlaybackItems {
             let item = application.menuItems[itemTitle]

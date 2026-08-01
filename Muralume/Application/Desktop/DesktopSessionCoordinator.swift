@@ -11,6 +11,8 @@ final class DesktopSessionCoordinator: ObservableObject {
     @Published private(set) var videoContentMode: DesktopVideoContentMode
 
     var didStopPlaybackHandler: (() -> Void)?
+    var didEnterDesktopHandler: (() -> Void)?
+    var didReturnToPlayerHandler: (() -> Void)?
     var canPlayNextProvider: (() -> Bool)?
     var playNextHandler: (() -> Void)?
     var quitHandler: (() -> Void)?
@@ -90,6 +92,7 @@ final class DesktopSessionCoordinator: ObservableObject {
                 }
                 mainWindow.hide()
                 isActive = true
+                didEnterDesktopHandler?()
             } catch is CancellationError {
                 if isCurrentTransition(generation) {
                     await recoverFromFailedDesktopEntry(
@@ -109,6 +112,17 @@ final class DesktopSessionCoordinator: ObservableObject {
                 transitionTask = nil
             }
         }
+    }
+
+    func enterDesktopAndWait() async -> Bool {
+        enterDesktop()
+        guard let currentTransition = transitionTask else {
+            return isActive && playback.presentation == .desktop
+        }
+        await currentTransition.value
+        return isActive
+            && playback.presentation == .desktop
+            && !isTransitioning
     }
 
     func returnToPlayer() {
@@ -149,6 +163,7 @@ final class DesktopSessionCoordinator: ObservableObject {
                 desktopHost.close()
                 statusMenu.remove()
                 isActive = false
+                didReturnToPlayerHandler?()
             } catch is CancellationError {
                 // A newer stop or quit intent owns the final presentation state.
             } catch {

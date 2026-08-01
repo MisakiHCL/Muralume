@@ -18,7 +18,7 @@ struct MediaLibraryRoot: Identifiable, Hashable, Sendable {
 }
 
 struct LibraryMediaItem: Identifiable, Hashable, Sendable {
-    struct ID: Hashable, Sendable {
+    struct ID: Codable, Hashable, Sendable {
         let rootPath: String
         let relativePath: String
     }
@@ -69,6 +69,19 @@ struct MediaLibrarySnapshot: Equatable, Sendable {
 
     let roots: [MediaLibraryRoot]
     let items: [LibraryMediaItem]
+    /// Roots that were reachable but could not be scanned completely.
+    /// Missing queue entries under these roots must not be treated as deleted.
+    let incompleteRootPaths: Set<String>
+
+    init(
+        roots: [MediaLibraryRoot],
+        items: [LibraryMediaItem],
+        incompleteRootPaths: Set<String> = []
+    ) {
+        self.roots = roots
+        self.items = items
+        self.incompleteRootPaths = incompleteRootPaths
+    }
 }
 
 enum MediaLibraryFilePolicy {

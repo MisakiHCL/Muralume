@@ -8,6 +8,23 @@ enum MediaLibraryScanState: Equatable, Sendable {
     case failed
 }
 
+enum MediaLibraryStartDisposition: Equatable, Sendable {
+    case scanStarted
+    case noRestorableRoots(hasTemporarilyUnavailableRoots: Bool)
+    case alreadyStarted
+}
+
+enum MediaLibraryQueueRestoreResult: Equatable, Sendable {
+    case restored
+    case cancelled
+    case temporarilyUnavailable
+    case permanentlyUnavailable
+}
+
+typealias RestoredPlaybackQueueShuffler = @MainActor (
+    inout PlaybackQueue<LibraryMediaItem.ID>
+) -> Void
+
 @MainActor
 final class MediaLibraryCoordinator: ObservableObject {
     @Published private(set) var scanState: MediaLibraryScanState = .idle
@@ -17,6 +34,7 @@ final class MediaLibraryCoordinator: ObservableObject {
     @Published private(set) var sort: MediaLibrarySort
     @Published private(set) var currentItemID: LibraryMediaItem.ID?
     @Published private(set) var unavailableItemIDs: Set<LibraryMediaItem.ID> = []
+    @Published private(set) var queueRevision: UInt64 = 0
 
     var currentItem: LibraryMediaItem? {
         guard let currentItemID else {
@@ -47,8 +65,10 @@ final class MediaLibraryCoordinator: ObservableObject {
     private let mediaSession: any MediaAccessSession
     private let scanner: any MediaLibraryScanning
     private let preferencesStore: (any AppPreferencesStoring)?
+    private let reshuffleRestoredQueue: RestoredPlaybackQueueShuffler
 
     private var rootURLs: [URL] = []
+    private var incompleteRootPaths: Set<String> = []
     private var queue: PlaybackQueue<LibraryMediaItem.ID>?
     private var queueItemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
     private var scanTask: Task<Void, Never>?
@@ -65,7 +85,10 @@ final class MediaLibraryCoordinator: ObservableObject {
         scanner: any MediaLibraryScanning,
         playbackOrder: PlaybackOrder,
         sort: MediaLibrarySort = MediaLibrarySort(),
-        preferencesStore: (any AppPreferencesStoring)? = nil
+        preferencesStore: (any AppPreferencesStoring)? = nil,
+        reshuffleRestoredQueue: @escaping RestoredPlaybackQueueShuffler = {
+            $0.reshufflePendingItems()
+        }
     ) {
         self.playback = playback
         self.folderSelector = folderSelector
@@ -74,6 +97,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         self.playbackOrder = playbackOrder
         self.sort = sort
         self.preferencesStore = preferencesStore
+        self.reshuffleRestoredQueue = reshuffleRestoredQueue
 
         playback.itemEndedHandler = { [weak self] in
             self?.handleItemEnded() ?? false
@@ -83,18 +107,46 @@ final class MediaLibraryCoordinator: ObservableObject {
         }
     }
 
-    func start() {
+    @discardableResult
+    func start() -> MediaLibraryStartDisposition {
         guard !hasStarted, !isShutDown else {
-            return
+            return .alreadyStarted
         }
         hasStarted = true
 
         let restoredURLs = mediaSession.restoreFolders()
         guard !restoredURLs.isEmpty else {
             scanState = .idle
-            return
+            return .noRestorableRoots(
+                hasTemporarilyUnavailableRoots:
+                    mediaSession.hasUnavailablePersistedFolders
+            )
         }
         refresh(using: restoredURLs)
+        return .scanStarted
+    }
+
+    func waitForStartupScan(
+        after disposition: MediaLibraryStartDisposition
+    ) async -> MediaLibraryScanState {
+        switch disposition {
+        case .noRestorableRoots:
+            return .idle
+        case .alreadyStarted where scanState != .scanning:
+            return scanState
+        case .scanStarted, .alreadyStarted:
+            break
+        }
+
+        for await state in $scanState.values {
+            if Task.isCancelled {
+                return scanState
+            }
+            if state != .scanning {
+                return state
+            }
+        }
+        return scanState
     }
 
     func addFolders() {
@@ -148,6 +200,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         if remainingRootURLs.isEmpty {
             invalidateScan()
             rootURLs = []
+            incompleteRootPaths = []
             scanState = .idle
             if queue == nil {
                 stopPlaybackAndClearQueue()
@@ -184,6 +237,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             order: playbackOrder
         )
         currentItemID = queue?.currentItem
+        publishQueueChange()
         unavailableItemIDs.remove(item.id)
         loadCurrentItem(attemptsRemaining: itemIDs.count)
     }
@@ -202,6 +256,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         }
         self.queue = queue
         currentItemID = nextID
+        publishQueueChange()
         loadCurrentItem(attemptsRemaining: queue.count)
         return true
     }
@@ -225,6 +280,7 @@ final class MediaLibraryCoordinator: ObservableObject {
 
             self.queue = queue
             currentItemID = previousID
+            publishQueueChange()
             loadCurrentItem(attemptsRemaining: queueCount)
             return
         }
@@ -241,6 +297,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         }
         queue.setOrder(order)
         self.queue = queue
+        publishQueueChange()
     }
 
     func setSortField(_ field: MediaLibrarySortField) {
@@ -265,6 +322,86 @@ final class MediaLibraryCoordinator: ObservableObject {
         sort.direction = direction
         items = sort.sorted(items)
         preferencesStore?.saveLibrarySort(sort)
+    }
+
+    func makeQueueSnapshot() ->
+        PlaybackQueueSnapshot<LibraryMediaItem.ID>? {
+        queue?.makeSnapshot()
+    }
+
+    func restoreQueue(
+        from snapshot: PlaybackQueueSnapshot<LibraryMediaItem.ID>
+    ) async -> MediaLibraryQueueRestoreResult {
+        guard !Task.isCancelled, !isShutDown else {
+            return .cancelled
+        }
+        guard scanState == .ready else {
+            return .temporarilyUnavailable
+        }
+        guard var restoredQueue = PlaybackQueue(snapshot: snapshot) else {
+            return .permanentlyUnavailable
+        }
+
+        let availableItemsByID = Dictionary(
+            uniqueKeysWithValues: items.map { ($0.id, $0) }
+        )
+        let missingItemIDs = Set(snapshot.items)
+            .subtracting(availableItemsByID.keys)
+        let successfulRootPaths = Set(
+            roots.map(\.id.standardizedPath)
+        )
+        let requestedRootPaths = Set(
+            rootURLs.map { $0.standardizedFileURL.path }
+        )
+        let missingRootPaths = Set(missingItemIDs.map(\.rootPath))
+        let hasIncompleteRoot = !missingRootPaths
+            .isDisjoint(with: incompleteRootPaths)
+        let hasUnavailableRequestedRoot = missingRootPaths.contains {
+            requestedRootPaths.contains($0)
+                && !successfulRootPaths.contains($0)
+        }
+        let hasPossiblyUnavailableUnresolvedRoot =
+            mediaSession.hasUnavailablePersistedFolders
+                && missingRootPaths.contains {
+                    !successfulRootPaths.contains($0)
+                }
+        if hasIncompleteRoot
+            || hasUnavailableRequestedRoot
+            || hasPossiblyUnavailableUnresolvedRoot {
+            return .temporarilyUnavailable
+        }
+
+        invalidateLoad()
+        if !missingItemIDs.isEmpty {
+            _ = restoredQueue.remove(missingItemIDs)
+        }
+        guard !restoredQueue.isEmpty,
+              let restoredItemID = restoredQueue.currentItem else {
+            stopPlaybackAndClearQueue()
+            return .permanentlyUnavailable
+        }
+
+        // The cached global mode is the runtime truth. A real process restore
+        // also refreshes the unplayed part of an existing shuffled round.
+        if restoredQueue.order != playbackOrder {
+            restoredQueue.setOrder(playbackOrder)
+        } else if playbackOrder == .shuffled {
+            reshuffleRestoredQueue(&restoredQueue)
+        }
+
+        queueItemsByID = availableItemsByID
+        queue = restoredQueue
+        currentItemID = restoredItemID
+        publishQueueChange()
+        unavailableItemIDs.formIntersection(availableItemsByID.keys)
+
+        return await loadRestoredQueueItem(
+            attemptsRemaining: restoredQueue.count
+        )
+    }
+
+    func discardRestoredQueue() {
+        stopPlaybackAndClearQueue()
     }
 
     func shutdown() async {
@@ -293,7 +430,9 @@ final class MediaLibraryCoordinator: ObservableObject {
 
         mediaSession.stop()
         rootURLs = []
+        incompleteRootPaths = []
         queue = nil
+        currentItemID = nil
         queueItemsByID.removeAll()
     }
 
@@ -315,6 +454,7 @@ final class MediaLibraryCoordinator: ObservableObject {
                 }
                 roots = snapshot.roots
                 items = sort.sorted(snapshot.items)
+                incompleteRootPaths = snapshot.incompleteRootPaths
                 unavailableItemIDs.formIntersection(
                     Set(items.map(\.id))
                 )
@@ -362,6 +502,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         }
 
         self.queue = queue
+        publishQueueChange()
         guard removedCurrentItem else {
             return
         }
@@ -372,12 +513,25 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     private func stopPlaybackAndClearQueue() {
-        invalidateLoad()
         playback.stop()
+        clearActiveQueue()
+    }
+
+    private func clearActiveQueue(
+        preservingUnavailableItems: Bool = false
+    ) {
+        invalidateLoad()
         queue = nil
         currentItemID = nil
         queueItemsByID.removeAll()
-        unavailableItemIDs.removeAll()
+        if !preservingUnavailableItems {
+            unavailableItemIDs.removeAll()
+        }
+        publishQueueChange()
+    }
+
+    private func publishQueueChange() {
+        queueRevision &+= 1
     }
 
     private func invalidateScan() {
@@ -427,11 +581,89 @@ final class MediaLibraryCoordinator: ObservableObject {
                     attemptsRemaining: attemptsRemaining - 1
                 )
                 if !didAdvance {
+                    clearActiveQueue(preservingUnavailableItems: true)
                     playback.finishQueue(with: failure)
                 }
             case .globalFailure, .cancelled:
                 break
             }
+        }
+    }
+
+    private func loadRestoredQueueItem(
+        attemptsRemaining: Int
+    ) async -> MediaLibraryQueueRestoreResult {
+        var remainingAttempts = attemptsRemaining
+
+        while remainingAttempts > 0 {
+            guard !Task.isCancelled,
+                  !isShutDown,
+                  let currentItemID,
+                  let item = queueItemsByID[currentItemID] else {
+                return Task.isCancelled ? .cancelled : .temporarilyUnavailable
+            }
+
+            let source = ResolvedMediaSource(
+                url: item.url,
+                displayName: item.displayName
+            )
+            let result = await playback.load(
+                source,
+                autoplay: false,
+                attachToPlayerSurface: false
+            )
+            guard !Task.isCancelled, !isShutDown else {
+                return .cancelled
+            }
+
+            switch result {
+            case .loaded:
+                unavailableItemIDs.remove(item.id)
+                return .restored
+            case let .mediaFailure(failure):
+                guard await isPermanentlyUnavailable(
+                    item,
+                    after: failure
+                ) else {
+                    return .temporarilyUnavailable
+                }
+
+                unavailableItemIDs.insert(item.id)
+                guard var queue else {
+                    stopPlaybackAndClearQueue()
+                    return .permanentlyUnavailable
+                }
+                let nextID = queue.remove([item.id])
+                remainingAttempts = queue.count
+                guard remainingAttempts > 0, let nextID else {
+                    stopPlaybackAndClearQueue()
+                    return .permanentlyUnavailable
+                }
+                self.queue = queue
+                self.currentItemID = nextID
+                publishQueueChange()
+            case .globalFailure:
+                return .temporarilyUnavailable
+            case .cancelled:
+                return .cancelled
+            }
+        }
+
+        stopPlaybackAndClearQueue()
+        return .permanentlyUnavailable
+    }
+
+    private func isPermanentlyUnavailable(
+        _ item: LibraryMediaItem,
+        after failure: PlaybackFailure
+    ) async -> Bool {
+        switch failure {
+        case .unsupported:
+            return true
+        case .cannotOpen:
+            return await scanner.availability(of: item) == .missing
+        case .surfaceTimeout:
+            return false
         }
     }
 
@@ -451,6 +683,7 @@ final class MediaLibraryCoordinator: ObservableObject {
 
         self.queue = queue
         currentItemID = nextID
+        publishQueueChange()
         loadCurrentItem(attemptsRemaining: attemptsRemaining)
         return true
     }
@@ -476,11 +709,13 @@ final class MediaLibraryCoordinator: ObservableObject {
             maximumAdvances: queueCount,
             excluding: failedItemID
         ) else {
+            clearActiveQueue(preservingUnavailableItems: true)
             return false
         }
 
         self.queue = queue
         currentItemID = nextID
+        publishQueueChange()
         loadCurrentItem(attemptsRemaining: queueCount)
         return true
     }
