@@ -20,7 +20,7 @@ jobs:
   analyze:
     name: Analyze Swift
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -34,6 +34,17 @@ jobs:
           build-mode: manual
           queries: security-extended
       - name: Build for analysis
-        run: ./Scripts/verify.sh release
+        run: |
+          xcodebuild \
+            -project Muralume.xcodeproj \
+            -scheme Muralume \
+            -configuration Debug \
+            -destination "platform=macOS,arch=arm64" \
+            -derivedDataPath "$RUNNER_TEMP/MuralumeCodeQLDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=YES \
+            SWIFT_COMPILATION_MODE=singlefile \
+            SWIFT_OPTIMIZATION_LEVEL=-Onone \
+            build
       - name: Analyze
         uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
