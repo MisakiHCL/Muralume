@@ -392,7 +392,7 @@ final class PlaybackSessionControllerTests: XCTestCase {
         playback.registerPlayerSurface(playerSurface)
         let library = MediaLibraryCoordinator(
             playback: playback,
-            folderSelector: SessionFolderSelector(),
+            sourceSelector: SessionFolderSelector(),
             mediaSession: SessionMediaAccessSession(rootURLs: [rootURL]),
             scanner: SessionMediaScanner(
                 snapshot: MediaLibrarySnapshot(

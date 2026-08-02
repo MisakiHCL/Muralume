@@ -28,7 +28,7 @@
   >
 </p>
 
-Muralume is a private, native video player that turns folders on your Mac into playlists—and any playlist into a Dynamic Desktop. It works directly with local files, without an account, cloud upload, or tracking.
+Muralume is a private, native video player that turns local videos and folders into playlists—and any playlist into a Dynamic Desktop. It works directly with local files, without an account, cloud upload, or tracking.
 
 > This page documents the current `main` branch. See the [latest release](https://github.com/MisakiHCL/Muralume/releases/latest) for the signed download and exact shipped scope.
 
@@ -36,7 +36,7 @@ Muralume is a private, native video player that turns folders on your Mac into p
 
 ### Private by design
 
-Your source videos stay exactly where you put them. Muralume receives read-only access only to the folders you choose and never uploads, moves, renames, or deletes their contents. There is no account system, product telemetry, or automatic crash reporting.
+Your source videos stay exactly where you put them. Muralume receives read-only access only to the videos or folders you choose and never uploads, moves, renames, or deletes them. There is no account system, product telemetry, or automatic crash reporting.
 
 ### An energy-aware Dynamic Desktop
 
@@ -44,9 +44,9 @@ Place the current queue behind desktop files and widgets while keeping the deskt
 
 By default, Muralume keeps the full video sharp and fills any remaining space with a softly blurred version of the same frame.
 
-### Folders become playlists
+### Videos and folders become playlists
 
-Add folders from your Mac or an external drive. Muralume recursively discovers MP4, MOV, and M4V videos, generates local thumbnails, and sorts them by name, creation date, or file size—without reorganizing anything on disk.
+Add individual videos, add folders from your Mac or an external drive, or drop either from Finder. Muralume recursively discovers MP4, MOV, and M4V videos in folders, generates local thumbnails, and sorts everything by name, creation date, or file size—without reorganizing anything on disk.
 
 ### Focused native playback
 
@@ -66,7 +66,7 @@ The latest release includes a Developer ID–signed and Apple-notarized DMG plus
 
 ## Quick start
 
-1. Add one or more folders containing videos.
+1. Add individual videos or folders, or drop them into the player from Finder. The first dropped video starts playing.
 2. Select a video from the playlist and choose ordered playback or shuffle.
 3. Select the display button, use **Actions → Set as Dynamic Desktop**, or choose the same action from Muralume’s Dock menu.
 4. To restore it automatically after login, open Settings and enable **Start Dynamic Desktop at Login** while a video queue is active. macOS may ask you to approve Muralume in Login Items.
@@ -77,7 +77,8 @@ The menu bar item lets you pause, skip, change playback speed or desktop fit, re
 
 | Action | Shortcut |
 |---|---|
-| Add folder | `⌘O` |
+| Add video | `⌘O` |
+| Add folder | `⇧⌘O` |
 | Set as Dynamic Desktop | `⌘D` |
 | Play / pause | `Space` |
 | Back / forward 10 seconds | `←` / `→` |

@@ -1046,7 +1046,7 @@ final class DesktopPresetControllerTests: XCTestCase {
         let playback = PlaybackCoordinator(engine: engine)
         let library = MediaLibraryCoordinator(
             playback: playback,
-            folderSelector: EmptyFolderSelector(),
+            sourceSelector: EmptyFolderSelector(),
             mediaSession: RestoredMediaSession(
                 urls: restoredRootURLs ?? [rootURL],
                 hasUnavailablePersistedFolders:

@@ -97,10 +97,394 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.session.addedURLs, [rootURL])
         XCTAssertEqual(fixture.scanner.scannedRootURLs, [[rootURL]])
         XCTAssertEqual(
+            fixture.scanner.scannedSources,
+            [[MediaSource(url: rootURL, kind: .folder)]]
+        )
+        XCTAssertEqual(
             fixture.coordinator.items.map(\.displayName),
             ["Clip 2", "Clip 10"]
         )
         XCTAssertEqual(fixture.coordinator.scanState, .ready)
+    }
+
+    func testAddingVideosImportsAllAndPlaysFirstExplicitFile() async {
+        let firstURL = URL(fileURLWithPath: "/tmp/First.mov")
+        let secondURL = URL(fileURLWithPath: "/tmp/Second.mp4")
+        let first = makeFileItem(url: firstURL, name: "First")
+        let second = makeFileItem(url: secondURL, name: "Second")
+        let fixture = makeFixture(
+            selectedURLs: [],
+            selectedVideoURLs: [secondURL, firstURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: firstURL,
+                        displayName: firstURL.lastPathComponent,
+                        kind: .file
+                    ),
+                    MediaLibraryRoot(
+                        url: secondURL,
+                        displayName: secondURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [first, second]
+            )
+        )
+
+        fixture.coordinator.addVideos()
+        await waitForScan(fixture.coordinator)
+        await waitForLoads(fixture.engine, count: 1)
+
+        XCTAssertEqual(fixture.coordinator.items.count, 2)
+        XCTAssertEqual(fixture.coordinator.currentItemID, second.id)
+        XCTAssertEqual(fixture.playback.source?.url, secondURL)
+        XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+        XCTAssertEqual(fixture.coordinator.queueCount, 2)
+        XCTAssertEqual(
+            fixture.scanner.scannedSources.first?.map(\.kind),
+            [.file, .file]
+        )
+
+        XCTAssertTrue(fixture.coordinator.playNext())
+        await waitForLoads(fixture.engine, count: 2)
+        XCTAssertEqual(fixture.coordinator.currentItemID, first.id)
+        XCTAssertEqual(fixture.playback.source?.url, firstURL)
+    }
+
+    func testImportingCurrentVideoAgainIsIdempotent() async {
+        let fileURL = URL(fileURLWithPath: "/tmp/Current.mov")
+        let item = makeFileItem(url: fileURL, name: "Current")
+        let fixture = makeFixture(
+            selectedURLs: [],
+            selectedVideoURLs: [fileURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: fileURL,
+                        displayName: fileURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [item]
+            )
+        )
+
+        fixture.coordinator.addVideos()
+        await waitForScan(fixture.coordinator)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+        let queueRevision = fixture.coordinator.queueRevision
+
+        fixture.coordinator.addVideos()
+        await Task.yield()
+
+        XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+        XCTAssertEqual(fixture.coordinator.currentItemID, item.id)
+        XCTAssertEqual(fixture.coordinator.queueRevision, queueRevision)
+    }
+
+    func testFolderOnlyImportDoesNotInterruptActiveQueue() async throws {
+        let firstRootURL = URL(fileURLWithPath: "/tmp/First Library")
+        let secondRootURL = URL(fileURLWithPath: "/tmp/Second Library")
+        let first = makeItem(
+            rootURL: firstRootURL,
+            name: "First",
+            path: "First.mov"
+        )
+        let second = makeItem(
+            rootURL: secondRootURL,
+            name: "Second",
+            path: "Second.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [firstRootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: firstRootURL,
+                        displayName: "First Library"
+                    ),
+                    MediaLibraryRoot(
+                        url: secondRootURL,
+                        displayName: "Second Library"
+                    )
+                ],
+                items: [first, second]
+            )
+        )
+        fixture.coordinator.addFolders()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.play(first)
+        await waitForLoads(fixture.engine, count: 1)
+        let queueSnapshot = fixture.coordinator.makeQueueSnapshot()
+
+        let preparation = try XCTUnwrap(
+            fixture.coordinator.prepareImport(
+                [secondRootURL],
+                autoplayFirstExplicitFile: false
+            )
+        )
+        fixture.coordinator.commitImport(preparation)
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(fixture.coordinator.items.count, 2)
+        XCTAssertEqual(fixture.coordinator.currentItemID, first.id)
+        XCTAssertEqual(fixture.coordinator.makeQueueSnapshot(), queueSnapshot)
+        XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+    }
+
+    func testParentFolderAdoptionKeepsMediaIdentityAndDoesNotReload()
+        async throws {
+        let folderURL = URL(fileURLWithPath: "/tmp/Adopted Library")
+        let fileURL = folderURL.appendingPathComponent("Clip.mov")
+        let fileItem = makeFileItem(url: fileURL, name: "Clip")
+        let folderItem = makeItem(
+            rootURL: folderURL,
+            name: "Clip",
+            path: "Clip.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [],
+            selectedVideoURLs: [fileURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: fileURL,
+                        displayName: fileURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [fileItem]
+            )
+        )
+        fixture.session.replacesFilesCoveredByAddedFolder = true
+        fixture.coordinator.addVideos()
+        await waitForScan(fixture.coordinator)
+        await waitForLoads(fixture.engine, count: 1)
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: folderURL,
+                        displayName: folderURL.lastPathComponent
+                    )
+                ],
+                items: [folderItem]
+            )
+        )
+
+        let preparation = try XCTUnwrap(
+            fixture.coordinator.prepareImport(
+                [folderURL],
+                autoplayFirstExplicitFile: false
+            )
+        )
+        fixture.coordinator.commitImport(preparation)
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(fileItem.id, folderItem.id)
+        XCTAssertEqual(fixture.coordinator.currentItemID, folderItem.id)
+        XCTAssertEqual(fixture.coordinator.currentItem?.rootURL, folderURL)
+        XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+        let persistedQueue = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+        XCTAssertEqual(persistedQueue.currentItem.rootPath, folderURL.path)
+        XCTAssertEqual(persistedQueue.currentItem.relativePath, "Clip.mov")
+    }
+
+    func testFolderImportPreservesPendingExplicitPlaybackIntent() async throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/Pending.mov")
+        let folderURL = URL(fileURLWithPath: "/tmp/Later Folder")
+        let fileItem = makeFileItem(url: fileURL, name: "Pending")
+        let folderItem = makeItem(
+            rootURL: folderURL,
+            name: "Later",
+            path: "Later.mp4"
+        )
+        let candidateSnapshot = MediaLibrarySnapshot(
+            roots: [
+                MediaLibraryRoot(
+                    url: fileURL,
+                    displayName: fileURL.lastPathComponent,
+                    kind: .file
+                )
+            ],
+            items: [fileItem]
+        )
+        let fullSnapshot = MediaLibrarySnapshot(
+            roots: candidateSnapshot.roots + [
+                MediaLibraryRoot(
+                    url: folderURL,
+                    displayName: folderURL.lastPathComponent
+                )
+            ],
+            items: [fileItem, folderItem]
+        )
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: fullSnapshot
+        )
+        fixture.scanner.blockNextScan()
+        fixture.scanner.enqueueSnapshot(candidateSnapshot)
+        fixture.scanner.enqueueSnapshot(fullSnapshot)
+
+        let videoPreparation = try XCTUnwrap(
+            fixture.coordinator.prepareImport(
+                [fileURL],
+                autoplayFirstExplicitFile: true
+            )
+        )
+        fixture.coordinator.commitImport(videoPreparation)
+        while !fixture.scanner.didBeginBlockedScan {
+            await Task.yield()
+        }
+
+        let folderPreparation = try XCTUnwrap(
+            fixture.coordinator.prepareImport(
+                [folderURL],
+                autoplayFirstExplicitFile: false
+            )
+        )
+        fixture.coordinator.commitImport(folderPreparation)
+        fixture.scanner.finishBlockedScan()
+        await waitForScan(fixture.coordinator)
+        await waitForLoads(fixture.engine, count: 1)
+
+        XCTAssertEqual(fixture.coordinator.currentItemID, fileItem.id)
+        XCTAssertEqual(fixture.playback.source?.url, fileURL)
+        XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+    }
+
+    func testLatestExplicitImportKeepsEarlierPendingFilesInQueue()
+        async throws {
+        let firstURL = URL(fileURLWithPath: "/tmp/Pending First.mov")
+        let latestURL = URL(fileURLWithPath: "/tmp/Pending Latest.mp4")
+        let first = makeFileItem(url: firstURL, name: "First")
+        let latest = makeFileItem(url: latestURL, name: "Latest")
+        let snapshot = MediaLibrarySnapshot(
+            roots: [firstURL, latestURL].map {
+                MediaLibraryRoot(
+                    url: $0,
+                    displayName: $0.lastPathComponent,
+                    kind: .file
+                )
+            },
+            items: [first, latest]
+        )
+        let fixture = makeFixture(selectedURLs: [], snapshot: snapshot)
+        fixture.scanner.blockNextScan()
+        fixture.scanner.enqueueSnapshot(snapshot)
+
+        let firstPreparation = try XCTUnwrap(
+            fixture.coordinator.prepareImport(
+                [firstURL],
+                autoplayFirstExplicitFile: true
+            )
+        )
+        fixture.coordinator.commitImport(firstPreparation)
+        while !fixture.scanner.didBeginBlockedScan {
+            await Task.yield()
+        }
+
+        let latestPreparation = try XCTUnwrap(
+            fixture.coordinator.prepareImport(
+                [latestURL],
+                autoplayFirstExplicitFile: true
+            )
+        )
+        fixture.coordinator.commitImport(latestPreparation)
+        fixture.scanner.finishBlockedScan()
+        await waitForScan(fixture.coordinator)
+        await waitForLoads(fixture.engine, count: 1)
+
+        XCTAssertEqual(fixture.coordinator.currentItemID, latest.id)
+        XCTAssertEqual(fixture.coordinator.queueCount, 2)
+        XCTAssertEqual(fixture.playback.source?.url, latestURL)
+    }
+
+    func testStaleImportPreparationCannotClearLatestExplicitPlayIntent()
+        async throws {
+        let firstURL = URL(fileURLWithPath: "/tmp/Stale First.mov")
+        let latestURL = URL(fileURLWithPath: "/tmp/Stale Latest.mov")
+        let first = makeFileItem(url: firstURL, name: "First")
+        let latest = makeFileItem(url: latestURL, name: "Latest")
+        let snapshot = MediaLibrarySnapshot(
+            roots: [firstURL, latestURL].map {
+                MediaLibraryRoot(
+                    url: $0,
+                    displayName: $0.lastPathComponent,
+                    kind: .file
+                )
+            },
+            items: [first, latest]
+        )
+        let fixture = makeFixture(selectedURLs: [], snapshot: snapshot)
+
+        let stalePreparation = try XCTUnwrap(
+            fixture.coordinator.prepareImport(
+                [firstURL],
+                autoplayFirstExplicitFile: true
+            )
+        )
+        let latestPreparation = try XCTUnwrap(
+            fixture.coordinator.prepareImport(
+                [latestURL],
+                autoplayFirstExplicitFile: true
+            )
+        )
+
+        fixture.coordinator.commitImport(
+            stalePreparation,
+            autoplayExplicitFiles: false
+        )
+        fixture.coordinator.commitImport(latestPreparation)
+        await waitForScan(fixture.coordinator)
+        await waitForLoads(fixture.engine, count: 1)
+
+        XCTAssertEqual(fixture.session.addedURLs, [firstURL, latestURL])
+        XCTAssertEqual(
+            fixture.scanner.scannedRootURLs,
+            [[firstURL, latestURL]]
+        )
+        XCTAssertEqual(
+            Set(fixture.coordinator.items),
+            Set([first, latest])
+        )
+        XCTAssertEqual(fixture.coordinator.currentItemID, latest.id)
+        XCTAssertEqual(fixture.playback.source?.url, latestURL)
+        XCTAssertEqual(fixture.engine.loadedSources.map(\.url), [latestURL])
+    }
+
+    func testRestoreTreatsAdoptedFileInsideIncompleteFolderAsTemporary()
+        async {
+        let folderURL = URL(fileURLWithPath: "/tmp/Incomplete Adoption")
+        let fileURL = folderURL.appendingPathComponent("Missing For Now.mov")
+        let legacyFileItem = makeFileItem(url: fileURL)
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: folderURL,
+                        displayName: folderURL.lastPathComponent
+                    )
+                ],
+                items: [],
+                incompleteRootPaths: [folderURL.path]
+            )
+        )
+        fixture.session.restoredURLs = [folderURL]
+        let start = fixture.coordinator.start()
+        _ = await fixture.coordinator.waitForStartupScan(after: start)
+        let savedQueue = PlaybackQueue(items: [legacyFileItem.id])
+
+        let result = await fixture.coordinator.restoreQueue(
+            from: savedQueue.makeSnapshot()!
+        )
+
+        XCTAssertEqual(result, .temporarilyUnavailable)
     }
 
     func testRemovingLastRootReturnsLibraryToEmptyIdleState() async {
@@ -183,7 +567,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             await fixture.coordinator.removeRoot(root)
         }
         while fixture.session.preparedRemovalURLs.isEmpty
-            || thumbnailProvider.invalidatedRootIDs.isEmpty {
+            || thumbnailProvider.invalidatedRootIDs != [root.id] {
             await Task.yield()
         }
 
@@ -210,6 +594,393 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             [root.id]
         )
         XCTAssertEqual(fixture.coordinator.scanState, .idle)
+    }
+
+    func testRemovingAdoptingFolderDrainsSupersededFileThumbnailRoot()
+        async throws {
+        let folderURL = URL(fileURLWithPath: "/tmp/Adoption Drain")
+        let fileURL = folderURL.appendingPathComponent("Clip.mov")
+        let fileItem = makeFileItem(url: fileURL)
+        let folderItem = makeItem(
+            rootURL: folderURL,
+            name: "Clip",
+            path: "Clip.mov"
+        )
+        let thumbnailProvider = TestMediaThumbnailProvider()
+        thumbnailProvider.shouldBlockInvalidation = true
+        let fixture = makeFixture(
+            selectedURLs: [],
+            selectedVideoURLs: [fileURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: fileURL,
+                        displayName: fileURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [fileItem]
+            ),
+            mediaThumbnailProvider: thumbnailProvider
+        )
+        fixture.session.replacesFilesCoveredByAddedFolder = true
+        fixture.coordinator.addVideos()
+        await waitForScan(fixture.coordinator)
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: folderURL,
+                        displayName: folderURL.lastPathComponent
+                    )
+                ],
+                items: [folderItem]
+            )
+        )
+        let preparation = try XCTUnwrap(
+            fixture.coordinator.prepareImport(
+                [folderURL],
+                autoplayFirstExplicitFile: false
+            )
+        )
+        fixture.coordinator.commitImport(preparation)
+        await waitForScan(fixture.coordinator)
+
+        let root = try XCTUnwrap(fixture.coordinator.roots.first)
+        let fileRootID = MediaLibraryRoot.ID(
+            standardizedPath: fileURL.standardizedFileURL.path
+        )
+        let removalTask = Task {
+            await fixture.coordinator.removeRoot(root)
+        }
+        while thumbnailProvider.invalidatedRootIDs != [root.id] {
+            await Task.yield()
+        }
+        XCTAssertTrue(fixture.session.removedURLs.isEmpty)
+
+        thumbnailProvider.finishInvalidation(for: root.id)
+        while thumbnailProvider.invalidatedRootIDs != [root.id, fileRootID] {
+            await Task.yield()
+        }
+        XCTAssertTrue(fixture.session.removedURLs.isEmpty)
+
+        thumbnailProvider.finishInvalidation(for: fileRootID)
+        await removalTask.value
+
+        XCTAssertEqual(fixture.session.removedURLs, [folderURL])
+        XCTAssertTrue(fixture.coordinator.items.isEmpty)
+        XCTAssertFalse(fixture.coordinator.hasActiveQueue)
+    }
+
+    func testCoveredCandidateUsesFolderRootBeforeRemovalDrain()
+        async throws {
+        let siblingURL = URL(fileURLWithPath: "/tmp/Candidate Library")
+        let folderURL = URL(
+            fileURLWithPath: "/tmp/Candidate Library Archive"
+        )
+        let candidateURL = folderURL.appendingPathComponent("Candidate.mov")
+        let candidate = makeFileItem(url: candidateURL)
+        let thumbnailProvider = TestMediaThumbnailProvider()
+        thumbnailProvider.shouldBlockInvalidation = true
+        let initialSnapshot = MediaLibrarySnapshot(
+            roots: [
+                MediaLibraryRoot(
+                    url: siblingURL,
+                    displayName: siblingURL.lastPathComponent
+                ),
+                MediaLibraryRoot(
+                    url: folderURL,
+                    displayName: folderURL.lastPathComponent
+                )
+            ],
+            items: []
+        )
+        let fixture = makeFixture(
+            selectedURLs: [siblingURL, folderURL],
+            snapshot: initialSnapshot,
+            mediaThumbnailProvider: thumbnailProvider
+        )
+        fixture.coordinator.addFolders()
+        await waitForScan(fixture.coordinator)
+
+        fixture.session.treatsFilesInsideActiveFoldersAsCovered = true
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: candidateURL,
+                        displayName: candidateURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [candidate]
+            )
+        )
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: initialSnapshot.roots,
+                items: [candidate]
+            )
+        )
+        fixture.scanner.blockNextScan(
+            matching: [siblingURL, folderURL]
+        )
+        fixture.engine.shouldBlockLoads = true
+
+        let preparation = try XCTUnwrap(
+            fixture.coordinator.prepareImport(
+                [candidateURL],
+                autoplayFirstExplicitFile: true
+            )
+        )
+        fixture.coordinator.commitImport(preparation)
+        while !fixture.scanner.didBeginBlockedScan
+            || !fixture.engine.didBeginBlockedLoad {
+            await Task.yield()
+        }
+
+        let representedCandidate = try XCTUnwrap(
+            fixture.coordinator.items.first
+        )
+        XCTAssertEqual(representedCandidate.id, candidate.id)
+        XCTAssertEqual(representedCandidate.rootURL, folderURL)
+        XCTAssertEqual(representedCandidate.kind, .folder)
+        XCTAssertEqual(representedCandidate.relativePath, "Candidate.mov")
+        XCTAssertEqual(fixture.coordinator.currentItemID, candidate.id)
+        let removedRoot = try XCTUnwrap(
+            fixture.coordinator.roots.first {
+                $0.id.standardizedPath == folderURL.path
+            }
+        )
+        let removalTask = Task {
+            await fixture.coordinator.removeRoot(removedRoot)
+        }
+        while fixture.session.preparedRemovalURLs.isEmpty
+            || thumbnailProvider.invalidatedRootIDs != [removedRoot.id] {
+            await Task.yield()
+        }
+
+        XCTAssertTrue(fixture.coordinator.items.isEmpty)
+        XCTAssertFalse(fixture.coordinator.hasActiveQueue)
+        XCTAssertNil(fixture.coordinator.currentItemID)
+        XCTAssertEqual(fixture.playback.readiness, .empty)
+        XCTAssertTrue(fixture.session.removedURLs.isEmpty)
+
+        fixture.scanner.finishBlockedScan()
+        fixture.engine.finishBlockedLoad()
+        thumbnailProvider.finishInvalidation(for: removedRoot.id)
+        await removalTask.value
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(fixture.session.removedURLs, [folderURL])
+        XCTAssertEqual(
+            thumbnailProvider.invalidatedRootIDs,
+            [removedRoot.id]
+        )
+        XCTAssertEqual(
+            fixture.coordinator.roots.map(\.id.standardizedPath),
+            [siblingURL.path]
+        )
+        XCTAssertTrue(fixture.coordinator.items.isEmpty)
+        XCTAssertFalse(fixture.coordinator.hasActiveQueue)
+        XCTAssertNil(fixture.coordinator.currentItemID)
+        XCTAssertEqual(fixture.playback.readiness, .empty)
+        XCTAssertNil(fixture.playback.source)
+        XCTAssertFalse(fixture.engine.isPlaying)
+        XCTAssertEqual(fixture.engine.loadedSources.map(\.url), [candidateURL])
+    }
+
+    func testCoveredCandidateKeepsFolderRootAfterFullScanPublishes()
+        async throws {
+        let fileManager = FileManager.default
+        let testDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("MuralumeCandidate-\(UUID().uuidString)")
+        let realParentURL = testDirectory.appendingPathComponent("Real")
+        let linkedParentURL = testDirectory.appendingPathComponent("Linked")
+        let canonicalFolderURL = realParentURL
+            .appendingPathComponent("Published Candidate")
+        let folderURL = linkedParentURL
+            .appendingPathComponent("Published Candidate")
+        let candidateURL = canonicalFolderURL
+            .appendingPathComponent("Candidate.mov")
+        try fileManager.createDirectory(
+            at: canonicalFolderURL,
+            withIntermediateDirectories: true
+        )
+        try fileManager.createSymbolicLink(
+            at: linkedParentURL,
+            withDestinationURL: realParentURL
+        )
+        XCTAssertTrue(
+            fileManager.createFile(
+                atPath: candidateURL.path,
+                contents: Data()
+            )
+        )
+        defer {
+            try? fileManager.removeItem(at: testDirectory)
+        }
+
+        let candidate = makeFileItem(url: candidateURL)
+        let folderItem = makeItem(
+            rootURL: folderURL,
+            name: "Candidate",
+            path: "Candidate.mov"
+        )
+        let root = MediaLibraryRoot(
+            url: folderURL,
+            displayName: folderURL.lastPathComponent
+        )
+        let fixture = makeFixture(
+            selectedURLs: [folderURL],
+            snapshot: MediaLibrarySnapshot(roots: [root], items: [])
+        )
+        fixture.coordinator.addFolders()
+        await waitForScan(fixture.coordinator)
+
+        fixture.session.treatsFilesInsideActiveFoldersAsCovered = true
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: candidateURL,
+                        displayName: candidateURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [candidate]
+            )
+        )
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(roots: [root], items: [folderItem])
+        )
+        fixture.scanner.blockNextScan(matching: [folderURL])
+
+        let preparation = try XCTUnwrap(
+            fixture.coordinator.prepareImport(
+                [candidateURL],
+                autoplayFirstExplicitFile: true
+            )
+        )
+        fixture.coordinator.commitImport(preparation)
+        while !fixture.scanner.didBeginBlockedScan {
+            await Task.yield()
+        }
+
+        let candidateBeforePublish = try XCTUnwrap(
+            fixture.coordinator.items.first
+        )
+        XCTAssertEqual(candidateBeforePublish.id, folderItem.id)
+        XCTAssertEqual(candidateBeforePublish.id.rootPath, folderURL.path)
+        XCTAssertEqual(candidateBeforePublish.kind, .folder)
+        XCTAssertEqual(candidateBeforePublish.url, folderItem.url)
+        XCTAssertEqual(fixture.coordinator.currentItemID, folderItem.id)
+
+        fixture.scanner.finishBlockedScan()
+        await waitForScan(fixture.coordinator)
+
+        let candidateAfterPublish = try XCTUnwrap(
+            fixture.coordinator.items.first
+        )
+        XCTAssertEqual(candidateAfterPublish, folderItem)
+        XCTAssertEqual(candidateAfterPublish.id.rootPath, folderURL.path)
+        XCTAssertEqual(candidateAfterPublish.kind, .folder)
+    }
+
+    func testRemovingExactFileThroughEscapingSymlinkDoesNotUseFolderScope()
+        async throws {
+        let fileManager = FileManager.default
+        let testDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("MuralumeScopeEscape-\(UUID().uuidString)")
+        let folderURL = testDirectory.appendingPathComponent("Library")
+        let outsideURL = testDirectory.appendingPathComponent("Outside")
+        let linkedDirectoryURL = folderURL.appendingPathComponent("Linked")
+        let canonicalFileURL = outsideURL.appendingPathComponent("Clip.mov")
+        let linkedFileURL = linkedDirectoryURL
+            .appendingPathComponent("Clip.mov")
+        try fileManager.createDirectory(
+            at: folderURL,
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: outsideURL,
+            withIntermediateDirectories: true
+        )
+        try fileManager.createSymbolicLink(
+            at: linkedDirectoryURL,
+            withDestinationURL: outsideURL
+        )
+        XCTAssertTrue(
+            fileManager.createFile(
+                atPath: canonicalFileURL.path,
+                contents: Data()
+            )
+        )
+        defer {
+            try? fileManager.removeItem(at: testDirectory)
+        }
+
+        let folderRoot = MediaLibraryRoot(
+            url: folderURL,
+            displayName: folderURL.lastPathComponent
+        )
+        let fileRoot = MediaLibraryRoot(
+            url: linkedFileURL,
+            displayName: linkedFileURL.lastPathComponent,
+            kind: .file
+        )
+        let fileItem = makeFileItem(url: linkedFileURL)
+        let thumbnailProvider = TestMediaThumbnailProvider()
+        thumbnailProvider.shouldBlockInvalidation = true
+        let fixture = makeFixture(
+            selectedURLs: [folderURL],
+            selectedVideoURLs: [linkedFileURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [folderRoot],
+                items: []
+            ),
+            mediaThumbnailProvider: thumbnailProvider
+        )
+        fixture.coordinator.addFolders()
+        await waitForScan(fixture.coordinator)
+
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(roots: [fileRoot], items: [fileItem])
+        )
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [folderRoot, fileRoot],
+                items: [fileItem]
+            )
+        )
+        fixture.coordinator.addVideos()
+        await waitForScan(fixture.coordinator)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+
+        let exactFileRoot = try XCTUnwrap(
+            fixture.coordinator.roots.first { $0.kind == .file }
+        )
+        let removalTask = Task {
+            await fixture.coordinator.removeRoot(exactFileRoot)
+        }
+        while thumbnailProvider.invalidatedRootIDs != [exactFileRoot.id] {
+            await Task.yield()
+        }
+
+        XCTAssertTrue(fixture.session.removedURLs.isEmpty)
+        XCTAssertTrue(fixture.coordinator.items.isEmpty)
+        XCTAssertFalse(fixture.coordinator.hasActiveQueue)
+        XCTAssertNil(fixture.coordinator.currentItemID)
+        XCTAssertEqual(fixture.playback.readiness, .empty)
+
+        thumbnailProvider.finishInvalidation(for: exactFileRoot.id)
+        await removalTask.value
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(fixture.session.removedURLs, [linkedFileURL])
+        XCTAssertEqual(fixture.coordinator.roots, [folderRoot])
+        XCTAssertTrue(fixture.coordinator.items.isEmpty)
     }
 
     func testRemovingPlayingRootLoadsSurvivorAndPreservesPlaybackIntent()
@@ -614,6 +1385,33 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         )
     }
 
+    func testRestoredFileKindReachesTypedScannerEntryPoint() async {
+        let fileURL = URL(fileURLWithPath: "/tmp/Restored File.mov")
+        let item = makeFileItem(url: fileURL)
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: fileURL,
+                        displayName: fileURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [item]
+            )
+        )
+        fixture.session.restoredURLs = [fileURL]
+
+        _ = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(
+            fixture.scanner.scannedSources,
+            [[MediaSource(url: fileURL, kind: .file)]]
+        )
+    }
+
     func testQueueRestoreReconcilesOrderedSnapshotToGlobalShuffleMode() async throws {
         let rootURL = URL(fileURLWithPath: "/tmp/RestoredLibrary")
         let restoredItems = ["A", "B", "C", "D"].map {
@@ -919,7 +1717,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             )
         )
         fixture.session.restoredURLs = [availableRootURL]
-        fixture.session.hasUnavailablePersistedFolders = true
+        fixture.session.hasUnavailablePersistedSources = true
         _ = fixture.coordinator.start()
         await waitForScan(fixture.coordinator)
         let queue = PlaybackQueue(items: [missingItem.id])

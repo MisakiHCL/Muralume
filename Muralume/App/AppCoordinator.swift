@@ -165,13 +165,45 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         mainWindowPresenter.attach(window)
     }
 
-    func addFolders() {
-        guard !desktopSession.isActive,
-              !desktopSession.isTransitioning,
-              !isShutDown else {
+    func addVideos() {
+        guard canImportMedia else {
             return
         }
-        library.addFolders()
+        performAfterCancellingInitialRestore { [weak self] in
+            guard let self, canImportMedia else {
+                return
+            }
+            library.addVideos()
+        }
+    }
+
+    func addFolders() {
+        guard canImportMedia else {
+            return
+        }
+        performAfterCancellingInitialRestore { [weak self] in
+            guard let self, canImportMedia else {
+                return
+            }
+            library.addFolders()
+        }
+    }
+
+    @discardableResult
+    func importDroppedURLs(_ urls: [URL]) -> Bool {
+        guard canImportMedia, !urls.isEmpty else {
+            return false
+        }
+        let preparation = library.prepareImport(
+            urls,
+            autoplayFirstExplicitFile: true
+        )
+        guard let preparation else {
+            return true
+        }
+
+        commitPreparedDropAfterCancellingInitialRestore(preparation)
+        return true
     }
 
     func enterDesktop() {
@@ -188,6 +220,14 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             return
         }
         mainWindowPresenter.toggleFullScreen()
+    }
+
+    private var canImportMedia: Bool {
+        !desktopSession.isActive
+            && !desktopSession.isTransitioning
+            && !playback.isPlayerWindowDismissed
+            && !playerChrome.isSettingsPresented
+            && !isShutDown
     }
 
     func dismissMainWindow() {
@@ -328,6 +368,44 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                 return
             }
             action()
+        }
+    }
+
+    private func commitPreparedDropAfterCancellingInitialRestore(
+        _ preparation: MediaLibraryImportPreparation
+    ) {
+        guard let pendingTask = cancelInitialRestore() else {
+            library.commitImport(preparation)
+            return
+        }
+        let restoreGeneration = initialRestoreGeneration
+        Task { [weak self] in
+            await pendingTask.value
+            guard let self, !isShutDown else {
+                return
+            }
+            await desktopSession.waitForTransitionToSettle()
+            guard !isShutDown else {
+                return
+            }
+
+            // Only the action that still owns restore cancellation should
+            // adopt presentation state. The import itself is durable and must
+            // still be published if a later settings/close action superseded
+            // this presentation generation.
+            if restoreGeneration == initialRestoreGeneration {
+                await playbackSession
+                    .adoptPlayerPresentationAfterCancelledRestore()
+            }
+            guard !isShutDown else {
+                return
+            }
+            library.commitImport(
+                preparation,
+                autoplayExplicitFiles:
+                    restoreGeneration == initialRestoreGeneration
+                        && canImportMedia
+            )
         }
     }
 

@@ -73,6 +73,159 @@ final class AppCoordinatorTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
+    func testSettingsSupersedesPreparedVideoDropAutoplayButStillRefreshes()
+        async {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            blockSessionLoad: true
+        )
+        let droppedVideoURL = URL(
+            fileURLWithPath: "/tmp/AppCoordinatorTests/Dropped Video.mov"
+        )
+        let droppedVideo = LibraryMediaItem(
+            rootURL: droppedVideoURL,
+            rootName: droppedVideoURL.lastPathComponent,
+            kind: .file,
+            url: droppedVideoURL,
+            displayName: "Dropped Video",
+            relativePath: "",
+            relativeDirectory: "",
+            creationDate: nil,
+            fileSize: 1
+        )
+        fixture.scanner.replaceSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: fixture.item.rootURL,
+                        displayName: fixture.item.rootName
+                    ),
+                    MediaLibraryRoot(
+                        url: droppedVideoURL,
+                        displayName: droppedVideoURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [fixture.item, droppedVideo]
+            )
+        )
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            await fixture.sessionStore.didBeginBlockedLoad
+        }
+
+        XCTAssertTrue(
+            fixture.coordinator.importDroppedURLs([droppedVideoURL])
+        )
+        fixture.coordinator.openSettings()
+        await fixture.sessionStore.finishBlockedLoad()
+        await waitUntil {
+            fixture.coordinator.playerChrome.isSettingsPresented
+                && fixture.scanner.scannedRootURLs.contains {
+                    $0.contains(droppedVideoURL)
+                }
+        }
+
+        XCTAssertTrue(
+            fixture.mediaSession.activeSources.contains {
+                $0.url == droppedVideoURL
+            }
+        )
+        XCTAssertTrue(fixture.engine.loadedSources.isEmpty)
+        XCTAssertNil(fixture.playback.source)
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testLatestOfTwoDropsDuringBlockedRestoreAutoplaysOnce() async {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            blockSessionLoad: true
+        )
+        let firstURL = URL(
+            fileURLWithPath: "/tmp/AppCoordinatorTests/First Drop.mov"
+        )
+        let latestURL = URL(
+            fileURLWithPath: "/tmp/AppCoordinatorTests/Latest Drop.mov"
+        )
+        let makeDroppedItem: (URL, String) -> LibraryMediaItem = {
+            url,
+            displayName in
+            LibraryMediaItem(
+                rootURL: url,
+                rootName: url.lastPathComponent,
+                kind: .file,
+                url: url,
+                displayName: displayName,
+                relativePath: "",
+                relativeDirectory: "",
+                creationDate: nil,
+                fileSize: 1
+            )
+        }
+        let first = makeDroppedItem(firstURL, "First Drop")
+        let latest = makeDroppedItem(latestURL, "Latest Drop")
+        fixture.scanner.replaceSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: fixture.item.rootURL,
+                        displayName: fixture.item.rootName
+                    ),
+                    MediaLibraryRoot(
+                        url: firstURL,
+                        displayName: firstURL.lastPathComponent,
+                        kind: .file
+                    ),
+                    MediaLibraryRoot(
+                        url: latestURL,
+                        displayName: latestURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [fixture.item, first, latest]
+            )
+        )
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            await fixture.sessionStore.didBeginBlockedLoad
+        }
+
+        XCTAssertTrue(fixture.coordinator.importDroppedURLs([firstURL]))
+        XCTAssertTrue(fixture.coordinator.importDroppedURLs([latestURL]))
+        await fixture.sessionStore.finishBlockedLoad()
+        await waitUntil {
+            fixture.library.scanState == .ready
+                && fixture.library.currentItemID == latest.id
+                && fixture.engine.loadedSources.count == 1
+        }
+
+        XCTAssertTrue(
+            fixture.mediaSession.activeSources.contains {
+                $0.url == firstURL
+            }
+        )
+        XCTAssertTrue(
+            fixture.mediaSession.activeSources.contains {
+                $0.url == latestURL
+            }
+        )
+        XCTAssertTrue(
+            fixture.scanner.scannedRootURLs.contains {
+                Set($0.map { $0.standardizedFileURL.path })
+                    == Set([
+                        firstURL.standardizedFileURL.path,
+                        latestURL.standardizedFileURL.path
+                    ])
+            }
+        )
+        XCTAssertEqual(fixture.library.currentItemID, latest.id)
+        XCTAssertEqual(fixture.playback.source?.url, latestURL)
+        XCTAssertEqual(fixture.engine.loadedSources.map(\.url), [latestURL])
+
+        await fixture.coordinator.shutdown()
+    }
+
     func testLoginLaunchFallsBackToPlayerWhenApprovalIsNotEffective() async {
         let fixture = makeFixture(launchStatus: .requiresApproval)
 
@@ -350,21 +503,22 @@ final class AppCoordinatorTests: XCTestCase {
         playback.registerPlayerSurface(playerSurface)
         let mediaSession = AppCoordinatorMediaSession(rootURL: rootURL)
         let thumbnailProvider = AppCoordinatorThumbnailProvider()
+        let scanner = AppCoordinatorMediaScanner(
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Library"
+                    )
+                ],
+                items: [item]
+            )
+        )
         let library = MediaLibraryCoordinator(
             playback: playback,
-            folderSelector: AppCoordinatorFolderSelector(),
+            sourceSelector: AppCoordinatorFolderSelector(),
             mediaSession: mediaSession,
-            scanner: AppCoordinatorMediaScanner(
-                snapshot: MediaLibrarySnapshot(
-                    roots: [
-                        MediaLibraryRoot(
-                            url: rootURL,
-                            displayName: "Library"
-                        )
-                    ],
-                    items: [item]
-                )
-            ),
+            scanner: scanner,
             mediaThumbnailProvider: thumbnailProvider,
             playbackOrder: .ordered
         )
@@ -442,6 +596,7 @@ final class AppCoordinatorTests: XCTestCase {
             applicationPresence: applicationPresence,
             thumbnailProvider: thumbnailProvider,
             mediaSession: mediaSession,
+            scanner: scanner,
             store: store,
             sessionStore: sessionStore,
             engine: engine,
@@ -476,6 +631,7 @@ private struct AppCoordinatorFixture {
     let applicationPresence: TestApplicationPresenceController
     let thumbnailProvider: AppCoordinatorThumbnailProvider
     let mediaSession: AppCoordinatorMediaSession
+    let scanner: AppCoordinatorMediaScanner
     let store: AppCoordinatorPresetStore
     let sessionStore: AppCoordinatorPlaybackSessionStore
     let engine: AppCoordinatorPlaybackEngine
@@ -496,6 +652,7 @@ private final class AppCoordinatorPlaybackEngine: PlaybackEngine {
     private(set) var isPlaying = false
     private(set) var isMuted = false
     private(set) var stopCount = 0
+    private(set) var loadedSources: [ResolvedMediaSource] = []
     private var blocksDesktopAttachment: Bool
     private var desktopAttachmentContinuation:
         CheckedContinuation<Void, any Error>?
@@ -508,7 +665,8 @@ private final class AppCoordinatorPlaybackEngine: PlaybackEngine {
     }
 
     func load(_ source: ResolvedMediaSource) async throws -> TimeInterval {
-        120
+        loadedSources.append(source)
+        return 120
     }
 
     func attach(to surface: any PlaybackRenderSurface) async throws {
@@ -581,23 +739,47 @@ private final class AppCoordinatorFolderSelector: MediaFolderSelecting {
 
 @MainActor
 private final class AppCoordinatorMediaSession: MediaAccessSession {
-    private let rootURL: URL
+    private(set) var activeSources: [MediaSource]
     private(set) var stopCount = 0
 
     init(rootURL: URL) {
-        self.rootURL = rootURL
+        activeSources = [MediaSource(url: rootURL, kind: .folder)]
     }
 
-    func restoreFolders() -> [URL] {
-        [rootURL]
+    func restoreSources() -> [MediaSource] {
+        activeSources
     }
 
-    func addFolders(_ urls: [URL]) -> [URL] {
-        [rootURL]
+    func addSources(_ urls: [URL]) -> MediaAccessUpdate {
+        var didChangeSources = false
+        for url in urls {
+            let source = MediaSource(
+                url: url,
+                kind: MediaLibraryFilePolicy.supportedVideoExtensions.contains(
+                    url.pathExtension.lowercased()
+                ) ? .file : .folder
+            )
+            if !activeSources.contains(where: { $0.id == source.id }) {
+                activeSources.append(source)
+                didChangeSources = true
+            }
+        }
+        return MediaAccessUpdate(
+            activeSources: activeSources,
+            requestedFileURLs: urls.filter {
+                MediaLibraryFilePolicy.supportedVideoExtensions.contains(
+                    $0.pathExtension.lowercased()
+                )
+            },
+            acceptedRequestCount: urls.count,
+            rejectedRequestCount: 0,
+            didChangeSources: didChangeSources
+        )
     }
 
-    func removeFolder(_ url: URL) -> [URL] {
-        []
+    func removeSource(_ source: MediaSource) -> [MediaSource] {
+        activeSources.removeAll { $0.id == source.id }
+        return activeSources
     }
 
     func stop() {
@@ -608,14 +790,29 @@ private final class AppCoordinatorMediaSession: MediaAccessSession {
 private final class AppCoordinatorMediaScanner:
     MediaLibraryScanning,
     @unchecked Sendable {
-    private let snapshot: MediaLibrarySnapshot
+    private var snapshot: MediaLibrarySnapshot
+    private let lock = NSLock()
+    private var storedScannedRootURLs: [[URL]] = []
+
+    var scannedRootURLs: [[URL]] {
+        lock.withLock { storedScannedRootURLs }
+    }
 
     init(snapshot: MediaLibrarySnapshot) {
         self.snapshot = snapshot
     }
 
     func scan(rootURLs: [URL]) async throws -> MediaLibrarySnapshot {
-        snapshot
+        lock.withLock {
+            storedScannedRootURLs.append(rootURLs)
+            return snapshot
+        }
+    }
+
+    func replaceSnapshot(_ snapshot: MediaLibrarySnapshot) {
+        lock.withLock {
+            self.snapshot = snapshot
+        }
     }
 
     func availability(

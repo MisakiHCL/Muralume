@@ -74,6 +74,8 @@ enum MuralumeTheme {
         static let settingsPanelWidth: CGFloat = 400
         static let settingsRowMinimumHeight: CGFloat = 60
         static let playlistHeaderActionWidth: CGFloat = 68
+        static let mediaDropOverlayMaximumWidth: CGFloat = 360
+        static let mediaDropOverlayIcon: CGFloat = 32
         static let playerControlsMaximumWidth: CGFloat = 1_040
         static let widePlayerControlsMinimumWidth: CGFloat = 1_000
         static let playlistRowHeight: CGFloat = 72
@@ -128,7 +130,8 @@ enum MuralumeAccessibilityIdentifier {
     static let librarySidebar = "muralume.library-sidebar"
     static let libraryTitle = "muralume.library-title"
     static let editLibraryButton = "muralume.edit-library"
-    static let addFolderButton = "muralume.add-folder"
+    static let addMediaButton = "muralume.add-media"
+    static let mediaDropOverlay = "muralume.media-drop-overlay"
     static let playbackOrderButton = "muralume.playback-order"
     static let librarySortButton = "muralume.library-sort"
     static let openSettingsButton = "muralume.open-settings"

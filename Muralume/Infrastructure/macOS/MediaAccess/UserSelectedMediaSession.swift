@@ -51,67 +51,163 @@ struct SecurityScopedMediaAccess {
 @MainActor
 final class UserSelectedMediaSession: MediaAccessSession {
     private enum Storage {
-        static let bookmarkKey = "media-library.root-bookmarks"
+        static let legacyBookmarkKey = "media-library.root-bookmarks"
+        static let sourceRecordKey = "media-library.source-records"
+        static let currentSchemaVersion = 1
+
+        enum RecordField {
+            static let schemaVersion = "schemaVersion"
+            static let kind = "kind"
+            static let bookmark = "bookmark"
+        }
+    }
+
+    private struct PersistedSourceRecord {
+        let schemaVersion: Int
+        let kind: MediaSourceKind
+        let bookmark: Data
+
+        init(kind: MediaSourceKind, bookmark: Data) {
+            schemaVersion = Storage.currentSchemaVersion
+            self.kind = kind
+            self.bookmark = bookmark
+        }
+
+        init?(storedValue: Any) {
+            guard let fields = storedValue as? [String: Any],
+                  let schemaVersion = fields[
+                      Storage.RecordField.schemaVersion
+                  ] as? Int,
+                  schemaVersion == Storage.currentSchemaVersion,
+                  let rawKind = fields[Storage.RecordField.kind] as? String,
+                  let kind = MediaSourceKind(rawValue: rawKind),
+                  let bookmark = fields[
+                      Storage.RecordField.bookmark
+                  ] as? Data else {
+                return nil
+            }
+            self.schemaVersion = schemaVersion
+            self.kind = kind
+            self.bookmark = bookmark
+        }
+
+        var storedValue: [String: Any] {
+            [
+                Storage.RecordField.schemaVersion: schemaVersion,
+                Storage.RecordField.kind: kind.rawValue,
+                Storage.RecordField.bookmark: bookmark
+            ]
+        }
+    }
+
+    private enum RestoreOrigin {
+        case typed(storedValue: Any)
+        case legacy(bookmark: Data)
+    }
+
+    private struct RestoreCandidate {
+        let record: PersistedSourceRecord
+        let origin: RestoreOrigin
+    }
+
+    private struct PendingLinkedCandidate {
+        let candidate: RestoreCandidate
+        let targetSource: MediaSource?
     }
 
     private let defaults: UserDefaults
     private let securityAccess: SecurityScopedMediaAccess
-    private var activeRootURLsByPath: [String: URL] = [:]
-    private var activeBookmarksByPath: [String: Data] = [:]
-    private(set) var hasUnavailablePersistedFolders = false
+    private let sourceKindResolver: (URL) -> MediaSourceKind?
+    private var activeSourcesByKey: [String: MediaSource] = [:]
+    private var activeRecordsByKey: [String: PersistedSourceRecord] = [:]
+    private var activeResourceIdentifiersByKey: [String: NSObject] = [:]
+    private var unavailableStoredRecordValues: [Any] = []
+    private var unavailableLegacyBookmarks: [Data] = []
+    private var didAttemptRestore = false
+    private(set) var hasUnavailablePersistedSources = false
 
     init(
         defaults: UserDefaults = .standard,
-        securityAccess: SecurityScopedMediaAccess = .live
+        securityAccess: SecurityScopedMediaAccess = .live,
+        sourceKindResolver: @escaping (URL) -> MediaSourceKind? = {
+            UserSelectedMediaSession.liveSourceKind(at: $0)
+        }
     ) {
         self.defaults = defaults
         self.securityAccess = securityAccess
+        self.sourceKindResolver = sourceKindResolver
+    }
+
+    func restoreSources() -> [MediaSource] {
+        guard !didAttemptRestore else {
+            return activeSources
+        }
+        didAttemptRestore = true
+
+        let storedRecordValues = storedSourceRecordValues
+        let legacyBookmarks = storedLegacyBookmarks
+        unavailableStoredRecordValues = []
+        unavailableLegacyBookmarks = []
+        hasUnavailablePersistedSources = false
+        var pendingLinkedCandidates: [PendingLinkedCandidate] = []
+
+        for storedValue in storedRecordValues {
+            guard let record = PersistedSourceRecord(
+                storedValue: storedValue
+            ) else {
+                preserveUnavailableStoredRecord(storedValue)
+                continue
+            }
+            restore(
+                RestoreCandidate(
+                    record: record,
+                    origin: .typed(storedValue: storedValue)
+                ),
+                pendingLinkedCandidates: &pendingLinkedCandidates
+            )
+        }
+
+        for bookmark in legacyBookmarks {
+            restore(
+                RestoreCandidate(
+                    record: PersistedSourceRecord(
+                        kind: .folder,
+                        bookmark: bookmark
+                    ),
+                    origin: .legacy(bookmark: bookmark)
+                ),
+                pendingLinkedCandidates: &pendingLinkedCandidates
+            )
+        }
+
+        for pending in pendingLinkedCandidates {
+            guard let targetSource = pending.targetSource,
+                  case .covered = disposition(for: targetSource) else {
+                preserveUnavailable(pending.candidate)
+                continue
+            }
+        }
+
+        storeSourceRecords(currentStoredRecordValues)
+        storeLegacyBookmarks(unavailableLegacyBookmarks)
+        return activeSources
     }
 
     func restoreFolders() -> [URL] {
-        guard activeRootURLsByPath.isEmpty else {
-            return activeRootURLs
+        restoreSources().compactMap { source in
+            source.kind == .folder ? source.url : nil
         }
-
-        let bookmarks = storedBookmarks
-        var refreshedBookmarks: [Data] = []
-        hasUnavailablePersistedFolders = false
-
-        for bookmark in bookmarks {
-            guard let resolvedBookmark = securityAccess.resolveBookmark(bookmark),
-                  securityAccess.startAccess(resolvedBookmark.url) else {
-                hasUnavailablePersistedFolders = true
-                refreshedBookmarks.append(bookmark)
-                continue
-            }
-
-            let resolvedURL = resolvedBookmark.url
-            guard !overlapsActiveRoot(resolvedURL) else {
-                securityAccess.stopAccess(resolvedURL)
-                continue
-            }
-
-            let resolvedRootKey = rootKey(for: resolvedURL)
-            activeRootURLsByPath[resolvedRootKey] = resolvedURL
-            let activeBookmark = if resolvedBookmark.isStale {
-                securityAccess.makeBookmark(resolvedURL) ?? bookmark
-            } else {
-                bookmark
-            }
-            activeBookmarksByPath[resolvedRootKey] = activeBookmark
-            refreshedBookmarks.append(activeBookmark)
-        }
-
-        if refreshedBookmarks != bookmarks {
-            store(refreshedBookmarks)
-        }
-        return activeRootURLs
     }
 
-    func addFolders(_ urls: [URL]) -> [URL] {
-        var bookmarks = storedBookmarks
+    func addSources(_ urls: [URL]) -> MediaAccessUpdate {
+        _ = restoreSources()
+        var requestedFileURLs: [URL] = []
+        var requestedFileIDs: Set<LibraryMediaItem.ID> = []
+        var acceptedRequestCount = 0
+        var rejectedRequestCount = 0
+        var didChangeSources = false
 
-        for selectedURL in urls {
+        for (requestIndex, selectedURL) in urls.enumerated() {
             // URLs returned by NSOpenPanel already hold an implicit Powerbox
             // security scope. Always relinquish that grant after converting it
             // into the persistent bookmark used by this session.
@@ -119,143 +215,503 @@ final class UserSelectedMediaSession: MediaAccessSession {
                 securityAccess.stopAccess(selectedURL)
             }
 
-            guard !overlapsActiveRoot(selectedURL),
-                  let bookmark = securityAccess.makeBookmark(selectedURL),
+            guard requestIndex < MediaImportPolicy.maximumTopLevelSourceCount else {
+                rejectedRequestCount += 1
+                continue
+            }
+
+            let selectedLinkResolution = Self.linkResolution(for: selectedURL)
+            guard let selectedKind = sourceKindResolver(
+                selectedLinkResolution.targetURL
+            ), Self.isSupported(
+                kind: selectedKind,
+                url: selectedLinkResolution.targetURL
+            ) else {
+                rejectedRequestCount += 1
+                continue
+            }
+            let selectedSource = MediaSource(
+                url: selectedLinkResolution.didResolveLink
+                    ? selectedLinkResolution.targetURL
+                    : selectedURL,
+                kind: selectedKind
+            )
+            switch disposition(for: selectedSource) {
+            case .covered:
+                acceptedRequestCount += 1
+                if selectedKind == .file {
+                    appendRequestedFileURL(
+                        playbackURL(for: selectedSource),
+                        to: &requestedFileURLs,
+                        seenIDs: &requestedFileIDs
+                    )
+                }
+                continue
+            case .rejected:
+                rejectedRequestCount += 1
+                continue
+            case .insert:
+                break
+            }
+            guard !selectedLinkResolution.didResolveLink else {
+                rejectedRequestCount += 1
+                continue
+            }
+
+            guard let bookmark = securityAccess.makeBookmark(selectedURL),
                   let resolvedBookmark = securityAccess.resolveBookmark(bookmark),
                   securityAccess.startAccess(resolvedBookmark.url) else {
+                rejectedRequestCount += 1
                 continue
             }
 
             let resolvedURL = resolvedBookmark.url
-            guard !overlapsActiveRoot(resolvedURL) else {
+            let resolvedLinkResolution = Self.linkResolution(for: resolvedURL)
+            guard let resolvedKind = sourceKindResolver(
+                resolvedLinkResolution.targetURL
+            ), Self.isSupported(
+                kind: resolvedKind,
+                url: resolvedLinkResolution.targetURL
+            ) else {
                 securityAccess.stopAccess(resolvedURL)
+                rejectedRequestCount += 1
                 continue
             }
+            let resolvedSource = MediaSource(
+                url: resolvedLinkResolution.didResolveLink
+                    ? resolvedLinkResolution.targetURL
+                    : resolvedURL,
+                kind: resolvedKind
+            )
+            if resolvedLinkResolution.didResolveLink {
+                securityAccess.stopAccess(resolvedURL)
+                if case .covered = disposition(for: resolvedSource) {
+                    acceptedRequestCount += 1
+                    if resolvedKind == .file {
+                        appendRequestedFileURL(
+                            playbackURL(for: resolvedSource),
+                            to: &requestedFileURLs,
+                            seenIDs: &requestedFileIDs
+                        )
+                    }
+                } else {
+                    rejectedRequestCount += 1
+                }
+                continue
+            }
+            let resolvedDisposition = disposition(for: resolvedSource)
+            if case .rejected = resolvedDisposition {
+                securityAccess.stopAccess(resolvedURL)
+                rejectedRequestCount += 1
+                continue
+            }
+            acceptedRequestCount += 1
+            if resolvedKind == .file {
+                let playbackURL = if case .covered = resolvedDisposition {
+                    playbackURL(for: resolvedSource)
+                } else {
+                    resolvedURL
+                }
+                appendRequestedFileURL(
+                    playbackURL,
+                    to: &requestedFileURLs,
+                    seenIDs: &requestedFileIDs
+                )
+            }
 
-            let resolvedRootKey = rootKey(for: resolvedURL)
-            activeRootURLsByPath[resolvedRootKey] = resolvedURL
             let activeBookmark = (
                 resolvedBookmark.isStale
                     ? securityAccess.makeBookmark(resolvedURL) ?? bookmark
                     : bookmark
             )
-            activeBookmarksByPath[resolvedRootKey] = activeBookmark
-            bookmarks.append(activeBookmark)
+
+            switch resolvedDisposition {
+            case .covered:
+                securityAccess.stopAccess(resolvedURL)
+            case .rejected:
+                securityAccess.stopAccess(resolvedURL)
+            case let .insert(replacingKeys):
+                let replacedURLs = install(
+                    resolvedSource,
+                    bookmark: activeBookmark,
+                    replacingKeys: replacingKeys
+                )
+                // Persist the broader grant before relinquishing exact-file
+                // scopes that it replaces.
+                storeSourceRecords(currentStoredRecordValues)
+                for replacedURL in replacedURLs {
+                    securityAccess.stopAccess(replacedURL)
+                }
+                didChangeSources = true
+            }
         }
 
-        store(bookmarks)
-        return activeRootURLs
+        return MediaAccessUpdate(
+            activeSources: activeSources,
+            requestedFileURLs: requestedFileURLs,
+            acceptedRequestCount: acceptedRequestCount,
+            rejectedRequestCount: rejectedRequestCount,
+            didChangeSources: didChangeSources
+        )
+    }
+
+    func addFolders(_ urls: [URL]) -> [URL] {
+        addSources(urls).activeSources.compactMap { source in
+            source.kind == .folder ? source.url : nil
+        }
+    }
+
+    func prepareToRemoveSource(_ source: MediaSource) {
+        guard let activeKey = activeKey(matching: source) else {
+            return
+        }
+        activeRecordsByKey.removeValue(forKey: activeKey)
+        storeSourceRecords(currentStoredRecordValues)
     }
 
     func prepareToRemoveFolder(_ url: URL) {
-        let removedRootKey = rootKey(for: url)
-        let activeBookmark = activeBookmarksByPath.removeValue(
-            forKey: removedRootKey
-        )
+        prepareToRemoveSource(MediaSource(url: url, kind: .folder))
+    }
 
-        let remainingBookmarks = storedBookmarks.filter { bookmark in
-            if let activeBookmark, bookmark == activeBookmark {
-                return false
-            }
-            guard let resolvedBookmark = securityAccess.resolveBookmark(
-                bookmark
-            ) else {
-                return true
-            }
-            return rootKey(for: resolvedBookmark.url) != removedRootKey
+    func removeSource(_ source: MediaSource) -> [MediaSource] {
+        prepareToRemoveSource(source)
+        guard let activeKey = activeKey(matching: source),
+              let activeSource = activeSourcesByKey.removeValue(
+                  forKey: activeKey
+              ) else {
+            return activeSources
         }
-        store(remainingBookmarks)
+        activeRecordsByKey.removeValue(forKey: activeKey)
+        activeResourceIdentifiersByKey.removeValue(forKey: activeKey)
+        securityAccess.stopAccess(activeSource.url)
+        return activeSources
     }
 
     func removeFolder(_ url: URL) -> [URL] {
-        prepareToRemoveFolder(url)
-        let removedRootKey = rootKey(for: url)
-        if let activeURL = activeRootURLsByPath.removeValue(
-            forKey: removedRootKey
-        ) {
-            securityAccess.stopAccess(activeURL)
+        removeSource(MediaSource(url: url, kind: .folder)).compactMap { source in
+            source.kind == .folder ? source.url : nil
         }
-        return activeRootURLs
     }
 
     func stop() {
-        for url in activeRootURLsByPath.values {
-            securityAccess.stopAccess(url)
+        for source in activeSourcesByKey.values {
+            securityAccess.stopAccess(source.url)
         }
-        activeRootURLsByPath.removeAll()
-        activeBookmarksByPath.removeAll()
-        hasUnavailablePersistedFolders = false
+        activeSourcesByKey.removeAll()
+        activeRecordsByKey.removeAll()
+        activeResourceIdentifiersByKey.removeAll()
+        unavailableStoredRecordValues.removeAll()
+        unavailableLegacyBookmarks.removeAll()
+        hasUnavailablePersistedSources = false
+        didAttemptRestore = false
     }
 
-    private var storedBookmarks: [Data] {
-        defaults.array(forKey: Storage.bookmarkKey) as? [Data] ?? []
+    private var storedSourceRecordValues: [Any] {
+        defaults.array(forKey: Storage.sourceRecordKey) ?? []
     }
 
-    private var activeRootURLs: [URL] {
-        activeRootURLsByPath.values.sorted {
-            rootKey(for: $0).localizedStandardCompare(rootKey(for: $1))
-                == .orderedAscending
+    private var storedLegacyBookmarks: [Data] {
+        defaults.array(forKey: Storage.legacyBookmarkKey) as? [Data] ?? []
+    }
+
+    private var activeSources: [MediaSource] {
+        activeSourcesByKey.keys.sorted {
+            $0.localizedStandardCompare($1) == .orderedAscending
+        }.compactMap {
+            activeSourcesByKey[$0]
         }
     }
 
-    private func overlapsActiveRoot(_ candidateURL: URL) -> Bool {
-        activeRootURLsByPath.values.contains { activeURL in
-            Self.rootsOverlap(candidateURL, activeURL)
-        }
+    private var currentStoredRecordValues: [Any] {
+        unavailableStoredRecordValues
+            + activeSourcesByKey.keys.sorted().compactMap {
+                activeRecordsByKey[$0]?.storedValue
+            }
     }
 
-    private func rootKey(for url: URL) -> String {
+    private func sourceKey(for url: URL) -> String {
         Self.comparisonURL(for: url).path
     }
 
-    private func store(_ bookmarks: [Data]) {
-        defaults.set(bookmarks, forKey: Storage.bookmarkKey)
+    private func storeSourceRecords(_ storedValues: [Any]) {
+        defaults.set(storedValues, forKey: Storage.sourceRecordKey)
     }
 
-    private static func rootsOverlap(_ firstURL: URL, _ secondURL: URL) -> Bool {
-        let firstComparisonURL = comparisonURL(for: firstURL)
-        let secondComparisonURL = comparisonURL(for: secondURL)
+    private func storeLegacyBookmarks(_ bookmarks: [Data]) {
+        guard !bookmarks.isEmpty else {
+            defaults.removeObject(forKey: Storage.legacyBookmarkKey)
+            return
+        }
+        defaults.set(bookmarks, forKey: Storage.legacyBookmarkKey)
+    }
 
-        if firstComparisonURL.path == secondComparisonURL.path
-            || resourceIdentifiersMatch(
-                firstComparisonURL,
-                secondComparisonURL
-            ) {
-            return true
+    private enum SourceDisposition {
+        case covered
+        case rejected
+        case insert(replacingKeys: [String])
+    }
+
+    private func disposition(for candidate: MediaSource) -> SourceDisposition {
+        let candidateComparisonURL = Self.comparisonURL(for: candidate.url)
+        let candidateKey = candidateComparisonURL.path
+        if activeSourcesByKey[candidateKey] != nil {
+            return .covered
+        }
+        if let candidateIdentifier = Self.resourceIdentifier(
+            for: candidateComparisonURL
+        ), activeResourceIdentifiersByKey.values.contains(where: {
+            $0.isEqual(candidateIdentifier)
+        }) {
+            return .covered
         }
 
+        guard candidate.kind == .folder else {
+            if activeSourcesByKey.contains(where: { key, source in
+                source.kind == .folder
+                    && Self.folder(
+                        URL(fileURLWithPath: key, isDirectory: true),
+                        covers: candidateComparisonURL
+                    )
+            }) {
+                return .covered
+            }
+            return .insert(replacingKeys: [])
+        }
+
+        let overlapsActiveFolder = activeSourcesByKey.contains { key, source in
+            guard source.kind == .folder else {
+                return false
+            }
+            let activeFolderURL = URL(
+                fileURLWithPath: key,
+                isDirectory: true
+            )
+            return Self.folder(activeFolderURL, covers: candidateComparisonURL)
+                || Self.folder(candidateComparisonURL, covers: activeFolderURL)
+        }
+        guard !overlapsActiveFolder else {
+            return .rejected
+        }
+
+        let replacingKeys: [String] = activeSourcesByKey.compactMap { key, source in
+            guard source.kind == .file else {
+                return nil
+            }
+            return Self.folder(
+                candidateComparisonURL,
+                covers: URL(fileURLWithPath: key)
+            ) ? key : nil
+        }
+        return .insert(replacingKeys: replacingKeys)
+    }
+
+    private func install(
+        _ source: MediaSource,
+        bookmark: Data,
+        replacingKeys: [String]
+    ) -> [URL] {
+        let replacedURLs = replacingKeys.compactMap {
+            activeSourcesByKey.removeValue(forKey: $0)?.url
+        }
+        for key in replacingKeys {
+            activeRecordsByKey.removeValue(forKey: key)
+            activeResourceIdentifiersByKey.removeValue(forKey: key)
+        }
+        let key = sourceKey(for: source.url)
+        activeSourcesByKey[key] = source
+        activeRecordsByKey[key] = PersistedSourceRecord(
+            kind: source.kind,
+            bookmark: bookmark
+        )
+        activeResourceIdentifiersByKey[key] = Self.resourceIdentifier(
+            for: URL(fileURLWithPath: key)
+        )
+        return replacedURLs
+    }
+
+    private func activeKey(matching source: MediaSource) -> String? {
+        let comparisonURL = Self.comparisonURL(for: source.url)
+        if activeSourcesByKey[comparisonURL.path] != nil {
+            return comparisonURL.path
+        }
+        guard let identifier = Self.resourceIdentifier(for: comparisonURL) else {
+            return nil
+        }
+        return activeResourceIdentifiersByKey.first {
+            $0.value.isEqual(identifier)
+        }?.key
+    }
+
+    private func restore(
+        _ candidate: RestoreCandidate,
+        pendingLinkedCandidates: inout [PendingLinkedCandidate]
+    ) {
+        let record = candidate.record
+        guard let resolvedBookmark = securityAccess.resolveBookmark(
+            record.bookmark
+        ), securityAccess.startAccess(resolvedBookmark.url) else {
+            preserveUnavailable(candidate)
+            return
+        }
+
+        let resolvedURL = resolvedBookmark.url
+        let linkResolution = Self.linkResolution(for: resolvedURL)
+        guard sourceKindResolver(linkResolution.targetURL) == record.kind,
+              Self.isSupported(
+                  kind: record.kind,
+                  url: linkResolution.targetURL
+              ) else {
+            securityAccess.stopAccess(resolvedURL)
+            preserveUnavailable(candidate)
+            return
+        }
+
+        if linkResolution.didResolveLink {
+            securityAccess.stopAccess(resolvedURL)
+            pendingLinkedCandidates.append(
+                PendingLinkedCandidate(
+                    candidate: candidate,
+                    targetSource: MediaSource(
+                        url: linkResolution.targetURL,
+                        kind: record.kind
+                    )
+                )
+            )
+            return
+        }
+
+        let source = MediaSource(url: resolvedURL, kind: record.kind)
+        let activeBookmark = if resolvedBookmark.isStale {
+            securityAccess.makeBookmark(resolvedURL) ?? record.bookmark
+        } else {
+            record.bookmark
+        }
+
+        switch disposition(for: source) {
+        case .covered, .rejected:
+            securityAccess.stopAccess(resolvedURL)
+        case let .insert(replacingKeys):
+            let replacedURLs = install(
+                source,
+                bookmark: activeBookmark,
+                replacingKeys: replacingKeys
+            )
+            for replacedURL in replacedURLs {
+                securityAccess.stopAccess(replacedURL)
+            }
+        }
+    }
+
+    private func playbackURL(for candidate: MediaSource) -> URL {
+        let comparisonURL = Self.comparisonURL(for: candidate.url)
+        if let exactSource = activeSourcesByKey[comparisonURL.path],
+           exactSource.kind == .file {
+            return exactSource.url
+        }
+        if let identifier = Self.resourceIdentifier(for: comparisonURL),
+           let matchingKey = activeResourceIdentifiersByKey.first(where: {
+               $0.value.isEqual(identifier)
+           })?.key,
+           let matchingSource = activeSourcesByKey[matchingKey],
+           matchingSource.kind == .file {
+            return matchingSource.url
+        }
+        return comparisonURL
+    }
+
+    private func preserveUnavailable(_ candidate: RestoreCandidate) {
+        switch candidate.origin {
+        case let .typed(storedValue):
+            unavailableStoredRecordValues.append(storedValue)
+        case let .legacy(bookmark):
+            unavailableLegacyBookmarks.append(bookmark)
+        }
+        hasUnavailablePersistedSources = true
+    }
+
+    private func preserveUnavailableStoredRecord(_ storedValue: Any) {
+        unavailableStoredRecordValues.append(storedValue)
+        hasUnavailablePersistedSources = true
+    }
+
+    private func appendRequestedFileURL(
+        _ url: URL,
+        to urls: inout [URL],
+        seenIDs: inout Set<LibraryMediaItem.ID>
+    ) {
+        let id = LibraryMediaItem.ID(mediaURL: url)
+        if seenIDs.insert(id).inserted {
+            urls.append(url.standardizedFileURL)
+        }
+    }
+
+    private static func liveSourceKind(at url: URL) -> MediaSourceKind? {
+        guard let values = try? url.resourceValues(
+            forKeys: [.isDirectoryKey, .isRegularFileKey]
+        ) else {
+            return nil
+        }
+        if values.isDirectory == true {
+            return .folder
+        }
+        if values.isRegularFile == true {
+            return .file
+        }
+        return nil
+    }
+
+    private static func isSupported(
+        kind: MediaSourceKind,
+        url: URL
+    ) -> Bool {
+        kind == .folder
+            || MediaLibraryFilePolicy.supportedVideoExtensions.contains(
+                url.pathExtension.lowercased()
+            )
+    }
+
+    private static func folder(
+        _ directoryURL: URL,
+        covers itemURL: URL
+    ) -> Bool {
         return relationship(
-            directoryURL: firstComparisonURL,
-            itemURL: secondComparisonURL
+            directoryURL: directoryURL,
+            itemURL: itemURL
         ) != .other
-            || relationship(
-                directoryURL: secondComparisonURL,
-                itemURL: firstComparisonURL
-            ) != .other
     }
 
     private static func comparisonURL(for url: URL) -> URL {
-        let aliasResolvedURL = (
-            try? URL(
-                resolvingAliasFileAt: url,
-                options: [.withoutUI, .withoutMounting]
-            )
-        ) ?? url
-
-        return aliasResolvedURL
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
+        linkResolution(for: url).targetURL
     }
 
-    private static func resourceIdentifiersMatch(
-        _ firstURL: URL,
-        _ secondURL: URL
-    ) -> Bool {
-        guard let firstIdentifier = resourceIdentifier(for: firstURL),
-              let secondIdentifier = resourceIdentifier(for: secondURL) else {
-            return false
+    private struct LinkResolution {
+        let targetURL: URL
+        let didResolveLink: Bool
+    }
+
+    private static func linkResolution(for url: URL) -> LinkResolution {
+        let values = try? url.resourceValues(
+            forKeys: [.isAliasFileKey, .isSymbolicLinkKey]
+        )
+        let isAlias = values?.isAliasFile == true
+        let isSymbolicLink = values?.isSymbolicLink == true
+        let aliasResolvedURL = if isAlias {
+            (
+                try? URL(
+                    resolvingAliasFileAt: url,
+                    options: [.withoutUI, .withoutMounting]
+                )
+            ) ?? url
+        } else {
+            url
         }
-        return firstIdentifier.isEqual(secondIdentifier)
+
+        return LinkResolution(
+            targetURL: aliasResolvedURL
+                .resolvingSymlinksInPath()
+                .standardizedFileURL,
+            didResolveLink: isAlias || isSymbolicLink
+        )
     }
 
     private static func resourceIdentifier(for url: URL) -> NSObject? {

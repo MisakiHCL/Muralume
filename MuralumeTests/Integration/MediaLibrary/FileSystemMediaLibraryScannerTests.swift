@@ -86,6 +86,135 @@ final class FileSystemMediaLibraryScannerTests: XCTestCase {
         XCTAssertEqual(snapshot, repeatedSnapshot)
     }
 
+    func testScansSingleFileAndMixedSourcesWithPartialUnsupportedInput() async throws {
+        let sandboxURL = try makeSandbox()
+        defer { removeSandbox(sandboxURL) }
+        let folderURL = sandboxURL.appendingPathComponent(
+            "Folder",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: folderURL,
+            withIntermediateDirectories: true
+        )
+        let folderMediaURL = folderURL.appendingPathComponent("Folder.mov")
+        let directMediaURL = sandboxURL.appendingPathComponent("Direct.mp4")
+        let unsupportedURL = sandboxURL.appendingPathComponent("Notes.txt")
+        try writeFile(at: folderMediaURL, byteCount: 2)
+        try writeFile(at: directMediaURL, byteCount: 3)
+        try writeFile(at: unsupportedURL, byteCount: 1)
+
+        let snapshot = try await FileSystemMediaLibraryScanner().scan(
+            sources: [
+                MediaSource(url: directMediaURL, kind: .file),
+                MediaSource(url: unsupportedURL, kind: .file),
+                MediaSource(url: folderURL, kind: .folder)
+            ]
+        )
+
+        XCTAssertEqual(
+            snapshot.roots.map(\.url),
+            [directMediaURL, folderURL]
+                .map(\.standardizedFileURL)
+                .sorted { $0.path < $1.path }
+        )
+        XCTAssertEqual(
+            snapshot.roots.map(\.kind),
+            snapshot.roots.map {
+                $0.url == directMediaURL.standardizedFileURL ? .file : .folder
+            }
+        )
+        XCTAssertEqual(
+            snapshot.items.map(\.url),
+            [directMediaURL, folderMediaURL]
+                .map(\.standardizedFileURL)
+                .sorted { $0.path < $1.path }
+        )
+        let directItem = try XCTUnwrap(
+            snapshot.items.first {
+                $0.url == directMediaURL.standardizedFileURL
+            }
+        )
+        XCTAssertEqual(directItem.kind, .file)
+        XCTAssertEqual(directItem.rootURL, directMediaURL.standardizedFileURL)
+        XCTAssertEqual(directItem.relativePath, "")
+        XCTAssertEqual(directItem.relativeDirectory, "")
+        XCTAssertEqual(directItem.displayName, "Direct")
+        XCTAssertEqual(directItem.fileSize, 3)
+    }
+
+    func testTypedFileSourceDoesNotExpandIntoReplacementDirectory()
+        async throws {
+        let rootURL = try makeSandbox()
+        defer { removeSandbox(rootURL) }
+
+        do {
+            _ = try await FileSystemMediaLibraryScanner().scan(
+                sources: [MediaSource(url: rootURL, kind: .file)]
+            )
+            XCTFail("Expected a source-kind mismatch")
+        } catch let error as MediaLibraryScanError {
+            XCTAssertEqual(
+                error,
+                .sourceKindMismatch(rootURL, expected: .file)
+            )
+        }
+    }
+
+    func testTypedFolderSourceDoesNotChangeIntoReplacementFile()
+        async throws {
+        let sandboxURL = try makeSandbox()
+        defer { removeSandbox(sandboxURL) }
+        let fileURL = sandboxURL.appendingPathComponent("Replacement.mp4")
+        try writeFile(at: fileURL, byteCount: 1)
+
+        do {
+            _ = try await FileSystemMediaLibraryScanner().scan(
+                sources: [MediaSource(url: fileURL, kind: .folder)]
+            )
+            XCTFail("Expected a source-kind mismatch")
+        } catch let error as MediaLibraryScanError {
+            XCTAssertEqual(
+                error,
+                .sourceKindMismatch(fileURL, expected: .folder)
+            )
+        }
+    }
+
+    func testFolderRepresentativeWinsWhenFileSourceIsAlreadyCovered() async throws {
+        let sandboxURL = try makeSandbox()
+        defer { removeSandbox(sandboxURL) }
+        let folderURL = sandboxURL.appendingPathComponent(
+            "Library",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: folderURL,
+            withIntermediateDirectories: true
+        )
+        let mediaURL = folderURL.appendingPathComponent("Only.mp4")
+        try writeFile(at: mediaURL, byteCount: 1)
+
+        let snapshot = try await FileSystemMediaLibraryScanner().scan(
+            sources: [
+                MediaSource(url: mediaURL, kind: .file),
+                MediaSource(url: folderURL, kind: .folder),
+                MediaSource(url: mediaURL, kind: .file)
+            ]
+        )
+
+        XCTAssertEqual(snapshot.roots.count, 1)
+        XCTAssertEqual(snapshot.roots.first?.url, folderURL.standardizedFileURL)
+        XCTAssertEqual(snapshot.roots.first?.kind, .folder)
+        XCTAssertEqual(snapshot.items.count, 1)
+        XCTAssertEqual(snapshot.items.first?.url, mediaURL.standardizedFileURL)
+        XCTAssertEqual(snapshot.items.first?.kind, .folder)
+
+        let directID = LibraryMediaItem.ID(mediaURL: mediaURL)
+        XCTAssertEqual(snapshot.items.first?.id, directID)
+        XCTAssertEqual(Set([snapshot.items[0].id, directID]).count, 1)
+    }
+
     func testExcludesUnsupportedHiddenPackageAndSymbolicLinkEntries() async throws {
         let sandboxURL = try makeSandbox()
         defer { removeSandbox(sandboxURL) }
@@ -173,17 +302,17 @@ final class FileSystemMediaLibraryScannerTests: XCTestCase {
             )
         }
 
-        let fileRootURL = sandboxURL.appendingPathComponent("Not a Folder.mp4")
-        try writeFile(at: fileRootURL, byteCount: 1)
+        let unsupportedRootURL = sandboxURL.appendingPathComponent("Not Video.txt")
+        try writeFile(at: unsupportedRootURL, byteCount: 1)
         do {
             _ = try await FileSystemMediaLibraryScanner().scan(
-                rootURLs: [fileRootURL]
+                rootURLs: [unsupportedRootURL]
             )
-            XCTFail("Expected a file root to fail")
+            XCTFail("Expected an unsupported file root to fail")
         } catch let error as MediaLibraryScanError {
             XCTAssertEqual(
                 error,
-                .rootIsNotDirectory(fileRootURL.standardizedFileURL)
+                .unsupportedMediaFile(unsupportedRootURL.standardizedFileURL)
             )
         }
 

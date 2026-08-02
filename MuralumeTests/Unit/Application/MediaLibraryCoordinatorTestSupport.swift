@@ -5,6 +5,7 @@ import Foundation
 @MainActor
 func makeFixture(
     selectedURLs: [URL],
+    selectedVideoURLs: [URL] = [],
     snapshot: MediaLibrarySnapshot,
     playbackOrder: PlaybackOrder = .ordered,
     sort: MediaLibrarySort = MediaLibrarySort(),
@@ -17,12 +18,15 @@ func makeFixture(
 ) -> Fixture {
     let engine = TestPlaybackEngine()
     let playback = PlaybackCoordinator(engine: engine)
-    let selector = TestMediaFolderSelector(selectedURLs: selectedURLs)
+    let selector = TestMediaSourceSelector(
+        selectedFolderURLs: selectedURLs,
+        selectedVideoURLs: selectedVideoURLs
+    )
     let session = TestMediaAccessSession()
     let scanner = TestMediaLibraryScanner(snapshot: snapshot)
     let coordinator = MediaLibraryCoordinator(
         playback: playback,
-        folderSelector: selector,
+        sourceSelector: selector,
         mediaSession: session,
         scanner: scanner,
         mediaThumbnailProvider: mediaThumbnailProvider,
@@ -56,6 +60,21 @@ func makeItem(
         relativeDirectory: "",
         creationDate: nil,
         fileSize: fileSize
+    )
+}
+
+func makeFileItem(url: URL, name: String? = nil) -> LibraryMediaItem {
+    LibraryMediaItem(
+        rootURL: url,
+        rootName: url.lastPathComponent,
+        kind: .file,
+        url: url,
+        displayName: name
+            ?? url.deletingPathExtension().lastPathComponent,
+        relativePath: "",
+        relativeDirectory: "",
+        creationDate: nil,
+        fileSize: 0
     )
 }
 
@@ -104,15 +123,21 @@ struct Fixture {
 }
 
 @MainActor
-final class TestMediaFolderSelector: MediaFolderSelecting {
-    let selectedURLs: [URL]
+final class TestMediaSourceSelector: MediaSourceSelecting {
+    let selectedFolderURLs: [URL]
+    let selectedVideoURLs: [URL]
 
-    init(selectedURLs: [URL]) {
-        self.selectedURLs = selectedURLs
+    init(selectedFolderURLs: [URL], selectedVideoURLs: [URL]) {
+        self.selectedFolderURLs = selectedFolderURLs
+        self.selectedVideoURLs = selectedVideoURLs
     }
 
     func selectFolders() -> [URL] {
-        selectedURLs
+        selectedFolderURLs
+    }
+
+    func selectVideos() -> [URL] {
+        selectedVideoURLs
     }
 }
 
@@ -122,22 +147,58 @@ final class TestMediaAccessSession: MediaAccessSession {
     private(set) var preparedRemovalURLs: [URL] = []
     private(set) var removedURLs: [URL] = []
     var restoredURLs: [URL] = []
-    var hasUnavailablePersistedFolders = false
+    var hasUnavailablePersistedSources = false
+    var treatsFilesInsideActiveFoldersAsCovered = false
+    var replacesFilesCoveredByAddedFolder = false
 
-    func restoreFolders() -> [URL] {
-        restoredURLs
+    func restoreSources() -> [MediaSource] {
+        activeURLs.map(makeSource)
     }
 
-    func addFolders(_ urls: [URL]) -> [URL] {
-        addedURLs.append(contentsOf: urls)
-        return addedURLs
+    func addSources(_ urls: [URL]) -> MediaAccessUpdate {
+        var didChangeSources = false
+        for url in urls {
+            if replacesFilesCoveredByAddedFolder,
+               !isSupportedVideo(url) {
+                let removedAddedCount = addedURLs.count
+                let removedRestoredCount = restoredURLs.count
+                addedURLs.removeAll {
+                    isSupportedVideo($0)
+                        && $0.standardizedFileURL.pathComponents.starts(
+                            with: url.standardizedFileURL.pathComponents
+                        )
+                }
+                restoredURLs.removeAll {
+                    isSupportedVideo($0)
+                        && $0.standardizedFileURL.pathComponents.starts(
+                            with: url.standardizedFileURL.pathComponents
+                        )
+                }
+                didChangeSources = didChangeSources
+                    || removedAddedCount != addedURLs.count
+                    || removedRestoredCount != restoredURLs.count
+            }
+            guard !isAlreadyActiveOrCovered(url) else {
+                continue
+            }
+            addedURLs.append(url)
+            didChangeSources = true
+        }
+        return MediaAccessUpdate(
+            activeSources: activeURLs.map(makeSource),
+            requestedFileURLs: urls.filter(isSupportedVideo),
+            acceptedRequestCount: urls.count,
+            rejectedRequestCount: 0,
+            didChangeSources: didChangeSources
+        )
     }
 
-    func prepareToRemoveFolder(_ url: URL) {
-        preparedRemovalURLs.append(url)
+    func prepareToRemoveSource(_ source: MediaSource) {
+        preparedRemovalURLs.append(source.url)
     }
 
-    func removeFolder(_ url: URL) -> [URL] {
+    func removeSource(_ source: MediaSource) -> [MediaSource] {
+        let url = source.url
         removedURLs.append(url)
         addedURLs.removeAll {
             $0.standardizedFileURL == url.standardizedFileURL
@@ -145,17 +206,65 @@ final class TestMediaAccessSession: MediaAccessSession {
         restoredURLs.removeAll {
             $0.standardizedFileURL == url.standardizedFileURL
         }
-        return addedURLs.isEmpty ? restoredURLs : addedURLs
+        return activeURLs.map(makeSource)
     }
 
     func stop() {}
+
+    private func makeSource(_ url: URL) -> MediaSource {
+        MediaSource(
+            url: url,
+            kind: isSupportedVideo(url) ? .file : .folder
+        )
+    }
+
+    private func isSupportedVideo(_ url: URL) -> Bool {
+        MediaLibraryFilePolicy.supportedVideoExtensions.contains(
+            url.pathExtension.lowercased()
+        )
+    }
+
+    private var activeURLs: [URL] {
+        var knownPaths: Set<String> = []
+        return (restoredURLs + addedURLs).filter {
+            knownPaths.insert($0.standardizedFileURL.path).inserted
+        }
+    }
+
+    private func isAlreadyActiveOrCovered(_ url: URL) -> Bool {
+        let standardizedURL = comparisonURL(url)
+        if activeURLs.contains(where: {
+            comparisonURL($0).path == standardizedURL.path
+        }) {
+            return true
+        }
+        guard treatsFilesInsideActiveFoldersAsCovered,
+              isSupportedVideo(standardizedURL) else {
+            return false
+        }
+        return activeURLs.contains { activeURL in
+            guard !isSupportedVideo(activeURL) else {
+                return false
+            }
+            return standardizedURL.pathComponents.starts(
+                with: comparisonURL(activeURL).pathComponents
+            )
+        }
+    }
+
+    private func comparisonURL(_ url: URL) -> URL {
+        url.resolvingSymlinksInPath().standardizedFileURL
+    }
 }
 
 final class TestMediaLibraryScanner: MediaLibraryScanning, @unchecked Sendable {
     private let lock = NSLock()
     private let snapshot: MediaLibrarySnapshot
+    private var queuedSnapshots: [MediaLibrarySnapshot] = []
     private var storedScannedRootURLs: [[URL]] = []
+    private var storedScannedSources: [[MediaSource]] = []
     private var shouldBlockNextScan = false
+    private var blockedScanSourcePaths: Set<String>?
     private var blockedScanDidBegin = false
     private var blockedScanContinuation: CheckedContinuation<Void, Never>?
     var availabilityByItemID:
@@ -164,6 +273,12 @@ final class TestMediaLibraryScanner: MediaLibraryScanning, @unchecked Sendable {
     var scannedRootURLs: [[URL]] {
         lock.withLock {
             storedScannedRootURLs
+        }
+    }
+
+    var scannedSources: [[MediaSource]] {
+        lock.withLock {
+            storedScannedSources
         }
     }
 
@@ -177,13 +292,27 @@ final class TestMediaLibraryScanner: MediaLibraryScanning, @unchecked Sendable {
         self.snapshot = snapshot
     }
 
+    func scan(sources: [MediaSource]) async throws -> MediaLibrarySnapshot {
+        lock.withLock {
+            storedScannedSources.append(sources)
+        }
+        return try await scan(rootURLs: sources.map(\.url))
+    }
+
     func scan(rootURLs: [URL]) async throws -> MediaLibrarySnapshot {
         let shouldBlock = lock.withLock {
             storedScannedRootURLs.append(rootURLs)
             guard shouldBlockNextScan else {
                 return false
             }
+            if let blockedScanSourcePaths,
+               blockedScanSourcePaths != Set(
+                   rootURLs.map { $0.standardizedFileURL.path }
+               ) {
+                return false
+            }
             shouldBlockNextScan = false
+            blockedScanSourcePaths = nil
             blockedScanDidBegin = true
             return true
         }
@@ -195,12 +324,26 @@ final class TestMediaLibraryScanner: MediaLibraryScanning, @unchecked Sendable {
             }
             try Task.checkCancellation()
         }
-        return snapshot
+        return lock.withLock {
+            guard !queuedSnapshots.isEmpty else {
+                return snapshot
+            }
+            return queuedSnapshots.removeFirst()
+        }
     }
 
-    func blockNextScan() {
+    func enqueueSnapshot(_ snapshot: MediaLibrarySnapshot) {
+        lock.withLock {
+            queuedSnapshots.append(snapshot)
+        }
+    }
+
+    func blockNextScan(matching rootURLs: [URL]? = nil) {
         lock.withLock {
             shouldBlockNextScan = true
+            blockedScanSourcePaths = rootURLs.map { urls in
+                Set(urls.map { $0.standardizedFileURL.path })
+            }
             blockedScanDidBegin = false
         }
     }

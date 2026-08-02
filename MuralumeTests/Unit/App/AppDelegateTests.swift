@@ -313,9 +313,27 @@ final class AppDelegateTests: XCTestCase {
 
         XCTAssertEqual(
             actionsMenu.items.first {
-                $0.title == "Add Folder"
+                $0.title == "Add Video…"
             }?.keyEquivalent,
             "o"
+        )
+        XCTAssertEqual(
+            actionsMenu.items.first {
+                $0.title == "Add Video…"
+            }?.keyEquivalentModifierMask,
+            [.command]
+        )
+        XCTAssertEqual(
+            actionsMenu.items.first {
+                $0.title == "Add Folder…"
+            }?.keyEquivalent,
+            "o"
+        )
+        XCTAssertEqual(
+            actionsMenu.items.first {
+                $0.title == "Add Folder…"
+            }?.keyEquivalentModifierMask,
+            [.command, .shift]
         )
         XCTAssertEqual(
             actionsMenu.items.first {
@@ -345,7 +363,7 @@ final class AppDelegateTests: XCTestCase {
             actionsMenu.items
                 .prefix { !$0.isSeparatorItem }
                 .map(\.title),
-            ["Add Folder", "Set as Dynamic Desktop"]
+            ["Add Video…", "Add Folder…", "Set as Dynamic Desktop"]
         )
 
         let activeState = MacMainMenuCommandState(
@@ -416,7 +434,8 @@ final class AppDelegateTests: XCTestCase {
         )
 
         for title in [
-            "Add Folder",
+            "Add Video…",
+            "Add Folder…",
             "Volume Up",
             "Volume Down",
             "Mute",
@@ -624,6 +643,7 @@ private final class TestMainMenuCommandHandler:
     }
 
     func openSettings() {}
+    func addVideos() {}
     func addFolders() {}
     func togglePlaybackFromMenu() {
         togglePlaybackCommandCount += 1

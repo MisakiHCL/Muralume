@@ -1,5 +1,28 @@
 import Foundation
 
+enum MediaSourceKind: String, Codable, Hashable, Sendable {
+    case file
+    case folder
+}
+
+struct MediaSource: Identifiable, Hashable, Sendable {
+    struct ID: Hashable, Sendable {
+        let standardizedPath: String
+    }
+
+    let id: ID
+    /// Keep the resolved URL intact so security-scope teardown uses the exact
+    /// URL whose scope was started.
+    let url: URL
+    let kind: MediaSourceKind
+
+    init(url: URL, kind: MediaSourceKind) {
+        id = ID(standardizedPath: url.standardizedFileURL.path)
+        self.url = url
+        self.kind = kind
+    }
+}
+
 struct MediaLibraryRoot: Identifiable, Hashable, Sendable {
     struct ID: Hashable, Sendable {
         let standardizedPath: String
@@ -8,12 +31,18 @@ struct MediaLibraryRoot: Identifiable, Hashable, Sendable {
     let id: ID
     let url: URL
     let displayName: String
+    let kind: MediaSourceKind
 
-    init(url: URL, displayName: String) {
+    init(
+        url: URL,
+        displayName: String,
+        kind: MediaSourceKind = .folder
+    ) {
         let standardizedURL = url.standardizedFileURL
         id = ID(standardizedPath: standardizedURL.path)
         self.url = standardizedURL
         self.displayName = displayName
+        self.kind = kind
     }
 }
 
@@ -21,11 +50,47 @@ struct LibraryMediaItem: Identifiable, Hashable, Sendable {
     struct ID: Codable, Hashable, Sendable {
         let rootPath: String
         let relativePath: String
+
+        init(rootPath: String, relativePath: String) {
+            self.rootPath = rootPath
+            self.relativePath = relativePath
+        }
+
+        init(mediaURL: URL) {
+            rootPath = mediaURL.standardizedFileURL.path
+            relativePath = ""
+        }
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.normalizedMediaPath == rhs.normalizedMediaPath
+        }
+
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(normalizedMediaPath)
+        }
+
+        var standardizedMediaPath: String {
+            normalizedMediaPath
+        }
+
+        private var normalizedMediaPath: String {
+            let rootURL = URL(fileURLWithPath: rootPath)
+            let mediaURL = if relativePath.isEmpty {
+                rootURL
+            } else {
+                rootURL.appendingPathComponent(relativePath)
+            }
+            // Hashing must stay independent of mutable filesystem state.
+            // Alias/symlink/resource-ID normalization happens before IDs enter
+            // long-lived sets and dictionaries.
+            return mediaURL.standardizedFileURL.path
+        }
     }
 
     let id: ID
     let rootURL: URL
     let rootName: String
+    let kind: MediaSourceKind
     let url: URL
     let displayName: String
     let relativePath: String
@@ -37,6 +102,7 @@ struct LibraryMediaItem: Identifiable, Hashable, Sendable {
     init(
         rootURL: URL,
         rootName: String,
+        kind: MediaSourceKind = .folder,
         url: URL,
         displayName: String,
         relativePath: String,
@@ -54,6 +120,7 @@ struct LibraryMediaItem: Identifiable, Hashable, Sendable {
         )
         self.rootURL = standardizedRootURL
         self.rootName = rootName
+        self.kind = kind
         self.url = standardizedURL
         self.displayName = displayName
         self.relativePath = relativePath
@@ -90,4 +157,9 @@ enum MediaLibraryFilePolicy {
         "mov",
         "mp4"
     ]
+}
+
+enum MediaImportPolicy {
+    /// Bounds one picker/drop transaction before any bookmark work begins.
+    static let maximumTopLevelSourceCount = 256
 }

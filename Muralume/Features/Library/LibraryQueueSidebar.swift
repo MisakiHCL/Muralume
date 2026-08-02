@@ -9,6 +9,7 @@ struct LibraryQueueSidebar: View {
     @State private var pendingRootRemoval: MediaLibraryRoot?
     @State private var playbackStatus: LibraryPlaybackStatus
     let mediaThumbnailProvider: any MediaThumbnailProviding
+    let addVideos: () -> Void
     let addFolders: () -> Void
     let dismiss: () -> Void
 
@@ -16,12 +17,14 @@ struct LibraryQueueSidebar: View {
         library: MediaLibraryCoordinator,
         playback: PlaybackCoordinator,
         mediaThumbnailProvider: any MediaThumbnailProviding,
+        addVideos: @escaping () -> Void,
         addFolders: @escaping () -> Void,
         dismiss: @escaping () -> Void
     ) {
         self.library = library
         self.playback = playback
         self.mediaThumbnailProvider = mediaThumbnailProvider
+        self.addVideos = addVideos
         self.addFolders = addFolders
         self.dismiss = dismiss
         _playbackStatus = State(
@@ -50,11 +53,14 @@ struct LibraryQueueSidebar: View {
             MuralumeAccessibilityIdentifier.librarySidebar
         )
         .alert(
-            "library.folder.remove.title",
+            LocalizedStringKey(rootRemovalTitleKey),
             isPresented: rootRemovalAlertIsPresented,
             presenting: pendingRootRemoval
         ) { root in
-            Button("library.folder.remove.confirm", role: .destructive) {
+            Button(
+                LocalizedStringKey(rootRemovalConfirmKey(for: root)),
+                role: .destructive
+            ) {
                 let removesLastRoot = library.roots.count == 1
                 pendingRootRemoval = nil
                 if removesLastRoot {
@@ -70,7 +76,7 @@ struct LibraryQueueSidebar: View {
         } message: { root in
             Text(
                 verbatim: localization.localizedFormat(
-                    "library.folder.remove.message",
+                    rootRemovalMessageKey(for: root),
                     root.displayName
                 )
             )
@@ -92,23 +98,30 @@ struct LibraryQueueSidebar: View {
             Spacer(minLength: MuralumeTheme.Spacing.small)
 
             if !isEditing {
-                Button(action: addFolders) {
+                Menu {
+                    Button(action: addVideos) {
+                        Label("library.add.video", systemImage: "film")
+                    }
+                    Button(action: addFolders) {
+                        Label("library.add.folder", systemImage: "folder")
+                    }
+                } label: {
                     headerActionLabel(
                         titleKey: "library.add",
-                        systemImage: "folder.badge.plus"
+                        systemImage: "plus"
                     )
                 }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .buttonStyle(
                     MuralumeToolbarButtonStyle(
                         width: MuralumeTheme.Size.playlistHeaderActionWidth
                     )
                 )
-                .help(Text(LocalizedStringKey(addFolderLabelKey)))
-                .accessibilityLabel(
-                    Text(LocalizedStringKey(addFolderLabelKey))
-                )
+                .help(Text("library.add"))
+                .accessibilityLabel(Text("library.add"))
                 .accessibilityIdentifier(
-                    MuralumeAccessibilityIdentifier.addFolderButton
+                    MuralumeAccessibilityIdentifier.addMediaButton
                 )
             }
 
@@ -203,7 +216,7 @@ struct LibraryQueueSidebar: View {
             LazyVStack(spacing: MuralumeTheme.Spacing.small) {
                 ForEach(library.roots) { root in
                     HStack(spacing: MuralumeTheme.Spacing.medium) {
-                        Image(systemName: "folder.fill")
+                        Image(systemName: sourceIcon(for: root))
                             .font(.system(size: MuralumeTheme.Size.icon))
                             .foregroundStyle(MuralumeTheme.Colors.controlAccent)
 
@@ -247,8 +260,20 @@ struct LibraryQueueSidebar: View {
                         }
                         .buttonStyle(.plain)
                         .contentShape(Rectangle())
-                        .help(Text("library.folder.remove"))
-                        .accessibilityLabel(Text("library.folder.remove"))
+                        .help(
+                            Text(
+                                LocalizedStringKey(
+                                    rootRemovalLabelKey(for: root)
+                                )
+                            )
+                        )
+                        .accessibilityLabel(
+                            Text(
+                                LocalizedStringKey(
+                                    rootRemovalLabelKey(for: root)
+                                )
+                            )
+                        )
                     }
                     .padding(MuralumeTheme.Spacing.small)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -337,8 +362,8 @@ struct LibraryQueueSidebar: View {
                         )
                     }
                 }
-                if let rootText {
-                    Text(rootText)
+                if let sourceText {
+                    Text(sourceText)
                         .foregroundStyle(MuralumeTheme.Colors.textTertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -426,7 +451,7 @@ struct LibraryQueueSidebar: View {
         if library.items.isEmpty {
             LibrarySidebarEmptyState(
                 scanState: library.scanState,
-                hasRoots: !library.roots.isEmpty
+                hasSources: !library.roots.isEmpty
             )
         } else {
             ScrollViewReader { proxy in
@@ -513,13 +538,55 @@ struct LibraryQueueSidebar: View {
         )
     }
 
-    private var addFolderLabelKey: String {
-        library.roots.isEmpty
-            ? "library.add.folder"
-            : "library.add.another.folder"
+    private func sourceIcon(for root: MediaLibraryRoot) -> String {
+        switch root.kind {
+        case .file:
+            "film.fill"
+        case .folder:
+            "folder.fill"
+        }
     }
 
-    private var rootText: String? {
+    private func rootRemovalLabelKey(for root: MediaLibraryRoot) -> String {
+        switch root.kind {
+        case .file:
+            "library.video.remove"
+        case .folder:
+            "library.folder.remove"
+        }
+    }
+
+    private var rootRemovalTitleKey: String {
+        guard let pendingRootRemoval else {
+            return "library.source.remove.title"
+        }
+        switch pendingRootRemoval.kind {
+        case .file:
+            return "library.video.remove.title"
+        case .folder:
+            return "library.folder.remove.title"
+        }
+    }
+
+    private func rootRemovalMessageKey(for root: MediaLibraryRoot) -> String {
+        switch root.kind {
+        case .file:
+            "library.video.remove.message"
+        case .folder:
+            "library.folder.remove.message"
+        }
+    }
+
+    private func rootRemovalConfirmKey(for root: MediaLibraryRoot) -> String {
+        switch root.kind {
+        case .file:
+            "library.video.remove.confirm"
+        case .folder:
+            "library.folder.remove.confirm"
+        }
+    }
+
+    private var sourceText: String? {
         guard !library.roots.isEmpty else {
             return nil
         }
@@ -527,7 +594,7 @@ struct LibraryQueueSidebar: View {
             return library.roots[0].displayName
         }
         return localization.localizedFormat(
-            "library.folder.count",
+            "library.source.count",
             library.roots.count
         )
     }
@@ -785,7 +852,7 @@ private struct LibraryMediaRow: View {
 
 private struct LibrarySidebarEmptyState: View {
     let scanState: MediaLibraryScanState
-    let hasRoots: Bool
+    let hasSources: Bool
 
     var body: some View {
         VStack(spacing: MuralumeTheme.Spacing.medium) {
@@ -794,7 +861,7 @@ private struct LibrarySidebarEmptyState: View {
             Image(
                 systemName: scanState == .scanning
                     ? "magnifyingglass"
-                    : "folder.badge.plus"
+                    : "plus.rectangle.on.folder"
             )
             .font(.system(size: 32, weight: .medium))
             .foregroundStyle(MuralumeTheme.Colors.controlAccent)
@@ -804,7 +871,7 @@ private struct LibrarySidebarEmptyState: View {
                 LocalizedStringKey(
                     scanState == .scanning
                         ? "library.scanning"
-                        : hasRoots
+                        : hasSources
                             ? "library.empty.title"
                             : "media.none.title"
                 )
@@ -815,7 +882,7 @@ private struct LibrarySidebarEmptyState: View {
             if scanState != .scanning {
                 Text(
                     LocalizedStringKey(
-                        hasRoots
+                        hasSources
                             ? "library.empty.detail"
                             : "media.none.detail"
                     )

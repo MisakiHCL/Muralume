@@ -39,39 +39,47 @@ final class MuralumeLaunchTests: XCTestCase {
             .firstMatch
         XCTAssertTrue(sidebar.waitForExistence(timeout: 5))
 
-        let addFolderButton = application.buttons[
-            "muralume.add-folder"
-        ].firstMatch
+        let addMediaButton = application
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.add-media")
+            .firstMatch
         XCTAssertTrue(
-            addFolderButton.waitForExistence(timeout: 5)
+            addMediaButton.waitForExistence(timeout: 5)
         )
-        XCTAssertEqual(addFolderButton.label, "Add Folder")
+        XCTAssertEqual(addMediaButton.label, "Add")
         XCTAssertGreaterThanOrEqual(
-            addFolderButton.frame.width,
+            addMediaButton.frame.width,
             LayoutExpectation.minimumLabeledHeaderActionWidth
         )
         XCTAssertEqual(
-            application.buttons.matching(
-                identifier: "muralume.add-folder"
-            ).count,
+            application
+                .descendants(matching: .any)
+                .matching(identifier: "muralume.add-media")
+                .count,
             1
         )
         XCTAssertTrue(
             sidebar.frame.contains(
                 CGPoint(
-                    x: addFolderButton.frame.midX,
-                    y: addFolderButton.frame.midY
+                    x: addMediaButton.frame.midX,
+                    y: addMediaButton.frame.midY
                 )
             )
         )
         XCTAssertLessThanOrEqual(
-            addFolderButton.frame.minY - sidebar.frame.minY,
+            addMediaButton.frame.minY - sidebar.frame.minY,
             LayoutExpectation.maximumSidebarHeaderTopInset
         )
         XCTAssertLessThanOrEqual(
-            sidebar.frame.maxX - addFolderButton.frame.maxX,
+            sidebar.frame.maxX - addMediaButton.frame.maxX,
             LayoutExpectation.maximumSidebarHeaderTrailingInset
         )
+        addMediaButton.click()
+        XCTAssertTrue(
+            application.menuItems["Add Video…"].waitForExistence(timeout: 2)
+        )
+        XCTAssertTrue(application.menuItems["Add Folder…"].exists)
+        application.typeKey(.escape, modifierFlags: [])
 
         let settingsButton = application.buttons[
             "muralume.open-settings"
@@ -154,9 +162,10 @@ final class MuralumeLaunchTests: XCTestCase {
         playlistToggle.click()
         XCTAssertTrue(sidebar.waitForExistence(timeout: 2))
         XCTAssertEqual(
-            application.buttons.matching(
-                identifier: "muralume.add-folder"
-            ).count,
+            application
+                .descendants(matching: .any)
+                .matching(identifier: "muralume.add-media")
+                .count,
             1
         )
 
@@ -416,7 +425,10 @@ final class MuralumeLaunchTests: XCTestCase {
             application.menuBars.menuBarItems["Actions"]
         hiddenWindowActionsMenu.click()
         XCTAssertFalse(
-            application.menuItems["Add Folder"].isEnabled
+            application.menuItems["Add Video…"].isEnabled
+        )
+        XCTAssertFalse(
+            application.menuItems["Add Folder…"].isEnabled
         )
         XCTAssertFalse(
             application.menuItems["Set as Dynamic Desktop"].isEnabled
@@ -629,7 +641,8 @@ final class MuralumeLaunchTests: XCTestCase {
         XCTAssertTrue(actionsMenu.waitForExistence(timeout: 5))
         actionsMenu.click()
         for itemTitle in [
-            "Add Folder",
+            "Add Video…",
+            "Add Folder…",
             "Play",
             "Back 10 seconds",
             "Forward 10 seconds",
@@ -719,6 +732,8 @@ final class MuralumeLaunchTests: XCTestCase {
             "1",
             "-settings.playback.order",
             "shuffled",
+            "-media-library.source-records",
+            "",
             "-media-library.root-bookmarks",
             ""
         ]
@@ -864,9 +879,11 @@ final class MuralumeLaunchTests: XCTestCase {
             XCTAssertTrue(item.isEnabled, file: file, line: line)
         }
 
-        let addFolderItem = application.menuItems["Add Folder"]
-        XCTAssertTrue(addFolderItem.exists, file: file, line: line)
-        XCTAssertTrue(addFolderItem.isEnabled, file: file, line: line)
+        for itemTitle in ["Add Video…", "Add Folder…"] {
+            let addMediaItem = application.menuItems[itemTitle]
+            XCTAssertTrue(addMediaItem.exists, file: file, line: line)
+            XCTAssertTrue(addMediaItem.isEnabled, file: file, line: line)
+        }
 
         let fullScreenItem = application.menuItems["Toggle Full Screen"]
         XCTAssertTrue(fullScreenItem.exists, file: file, line: line)

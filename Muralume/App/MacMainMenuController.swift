@@ -19,6 +19,7 @@ protocol MacMainMenuCommandHandling: AnyObject {
     var mainMenuCommandStateDidChange: AnyPublisher<Void, Never> { get }
 
     func openSettings()
+    func addVideos()
     func addFolders()
     func togglePlaybackFromMenu()
     func seekBackwardFromMenu()
@@ -36,6 +37,7 @@ protocol MacMainMenuCommandHandling: AnyObject {
 @MainActor
 final class MacMainMenuController: NSObject, NSMenuDelegate {
     private enum Shortcut {
+        static let addVideo = "o"
         static let addFolder = "o"
         static let togglePlayback = " "
         static let seekBackward = functionKey(NSLeftArrowFunctionKey)
@@ -63,6 +65,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     }
 
     private enum PlayerCommand {
+        case addVideos
         case addFolders
         case togglePlayback
         case seekBackward
@@ -105,6 +108,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private let showAllApplicationsItem = NSMenuItem()
     private let quitApplicationItem = NSMenuItem()
 
+    private let addVideoItem = NSMenuItem()
     private let addFolderItem = NSMenuItem()
     private let togglePlaybackItem = NSMenuItem()
     private let seekBackwardItem = NSMenuItem()
@@ -197,6 +201,8 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         state: MacMainMenuCommandState,
         hasPlayerFocus: Bool
     ) {
+        addVideoItem.isEnabled =
+            hasPlayerFocus && isEnabled(.addVideos, in: state)
         addFolderItem.isEnabled =
             hasPlayerFocus && isEnabled(.addFolders, in: state)
         togglePlaybackItem.isEnabled =
@@ -312,10 +318,16 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
 
     private func configureActionsMenu() {
         configure(
+            addVideoItem,
+            action: #selector(addVideos(_:)),
+            keyEquivalent: Shortcut.addVideo,
+            modifiers: [.command]
+        )
+        configure(
             addFolderItem,
             action: #selector(addFolders(_:)),
             keyEquivalent: Shortcut.addFolder,
-            modifiers: [.command]
+            modifiers: [.command, .shift]
         )
         configure(
             togglePlaybackItem,
@@ -371,6 +383,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             keyEquivalent: Shortcut.toggleFullScreen
         )
 
+        actionsMenu.addItem(addVideoItem)
         actionsMenu.addItem(addFolderItem)
         actionsMenu.addItem(enterDesktopItem)
         actionsMenu.addItem(.separator())
@@ -511,6 +524,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             "menu.quitApplication"
         )
 
+        addVideoItem.title = localization.localized("library.add.video")
         addFolderItem.title = localization.localized("library.add.folder")
         seekBackwardItem.title = localization.localized("player.back")
         seekForwardItem.title = localization.localized("player.forward")
@@ -538,6 +552,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
 
     private func disablePlayerCommands() {
         [
+            addVideoItem,
             addFolderItem,
             togglePlaybackItem,
             seekBackwardItem,
@@ -572,7 +587,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         in state: MacMainMenuCommandState
     ) -> Bool {
         switch command {
-        case .addFolders, .toggleFullScreen:
+        case .addVideos, .addFolders, .toggleFullScreen:
             state.canUseWindowActions
         case .enterDesktop:
             state.canEnterDesktop
@@ -660,6 +675,13 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     @objc
     private func quitApplication(_ sender: Any?) {
         application?.terminate(sender)
+    }
+
+    @objc
+    private func addVideos(_ sender: Any?) {
+        performPlayerCommand(.addVideos) {
+            $0.addVideos()
+        }
     }
 
     @objc

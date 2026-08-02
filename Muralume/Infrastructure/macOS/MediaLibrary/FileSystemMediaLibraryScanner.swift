@@ -7,7 +7,17 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
     }
 
     func scan(rootURLs: [URL]) async throws -> MediaLibrarySnapshot {
-        try Self.scanSynchronously(rootURLs: rootURLs)
+        let sources = rootURLs.map { url in
+            MediaSource(
+                url: url,
+                kind: Self.sourceKindHint(at: url) ?? .folder
+            )
+        }
+        return try Self.scanSynchronously(sources: sources)
+    }
+
+    func scan(sources: [MediaSource]) async throws -> MediaLibrarySnapshot {
+        try Self.scanSynchronously(sources: sources)
     }
 
     func availability(
@@ -37,20 +47,20 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
     }
 
     private static func scanSynchronously(
-        rootURLs: [URL]
+        sources: [MediaSource]
     ) throws -> MediaLibrarySnapshot {
         let fileManager = FileManager.default
-        let normalizedRootURLs = normalizedUniqueRootURLs(rootURLs)
+        let normalizedSources = normalizedUniqueSources(sources)
         var roots: [MediaLibraryRoot] = []
-        var items: [LibraryMediaItem] = []
+        var itemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
         var incompleteRootPaths: Set<String> = []
         var firstRootError: MediaLibraryScanError?
 
-        for rootURL in normalizedRootURLs {
+        for source in normalizedSources {
             try Task.checkCancellation()
             do {
                 let root = try inspectRoot(
-                    at: rootURL,
+                    source,
                     fileManager: fileManager
                 )
                 let rootScan = try scan(
@@ -58,7 +68,13 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                     fileManager: fileManager
                 )
                 roots.append(root)
-                items.append(contentsOf: rootScan.items)
+                for item in rootScan.items {
+                    if let existingItem = itemsByID[item.id],
+                       existingItem.kind == .folder {
+                        continue
+                    }
+                    itemsByID[item.id] = item
+                }
                 if !rootScan.isComplete {
                     incompleteRootPaths.insert(root.id.standardizedPath)
                 }
@@ -74,27 +90,40 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         }
 
         return MediaLibrarySnapshot(
-            roots: roots,
-            items: items.sorted(by: itemPathPrecedes),
+            roots: roots.sorted(by: rootPathPrecedes),
+            items: itemsByID.values.sorted(by: itemPathPrecedes),
             incompleteRootPaths: incompleteRootPaths
         )
     }
 
-    private static func normalizedUniqueRootURLs(
-        _ rootURLs: [URL]
-    ) -> [URL] {
-        var seenPaths: Set<String> = []
+    private static func normalizedUniqueSources(
+        _ sources: [MediaSource]
+    ) -> [MediaSource] {
+        var acceptedSources: [MediaSource] = []
+        let sortedSources = sources
+            .map {
+                MediaSource(url: $0.url.standardizedFileURL, kind: $0.kind)
+            }
+            .sorted(by: sourcePrecedes)
 
-        return rootURLs
-            .map(\.standardizedFileURL)
-            .filter { seenPaths.insert($0.path).inserted }
-            .sorted { $0.path < $1.path }
+        for candidate in sortedSources {
+            if acceptedSources.contains(where: {
+                representsSameItem($0.url, candidate.url)
+                    || ($0.kind == .folder
+                        && folder($0.url, covers: candidate.url))
+            }) {
+                continue
+            }
+            acceptedSources.append(candidate)
+        }
+        return acceptedSources
     }
 
     private static func inspectRoot(
-        at rootURL: URL,
+        _ source: MediaSource,
         fileManager: FileManager
     ) throws -> MediaLibraryRoot {
+        let rootURL = source.url
         guard fileManager.fileExists(atPath: rootURL.path) else {
             throw MediaLibraryScanError.rootUnavailable(rootURL)
         }
@@ -104,6 +133,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
             values = try rootURL.resourceValues(
                 forKeys: [
                     .isDirectoryKey,
+                    .isRegularFileKey,
                     .isSymbolicLinkKey,
                     .nameKey
                 ]
@@ -115,8 +145,24 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         guard values.isSymbolicLink != true else {
             throw MediaLibraryScanError.rootIsSymbolicLink(rootURL)
         }
-        guard values.isDirectory == true else {
+        let liveKind: MediaSourceKind
+        if values.isDirectory == true {
+            liveKind = .folder
+        } else if values.isRegularFile == true {
+            guard MediaLibraryFilePolicy.supportedVideoExtensions.contains(
+                rootURL.pathExtension.lowercased()
+            ) else {
+                throw MediaLibraryScanError.unsupportedMediaFile(rootURL)
+            }
+            liveKind = .file
+        } else {
             throw MediaLibraryScanError.rootIsNotDirectory(rootURL)
+        }
+        guard liveKind == source.kind else {
+            throw MediaLibraryScanError.sourceKindMismatch(
+                rootURL,
+                expected: source.kind
+            )
         }
 
         return MediaLibraryRoot(
@@ -124,7 +170,8 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
             displayName: rootDisplayName(
                 resourceName: values.name,
                 rootURL: rootURL
-            )
+            ),
+            kind: source.kind
         )
     }
 
@@ -132,6 +179,13 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         root: MediaLibraryRoot,
         fileManager: FileManager
     ) throws -> RootScanResult {
+        if root.kind == .file {
+            return RootScanResult(
+                items: [try inspectFile(root: root)],
+                isComplete: true
+            )
+        }
+
         let rootFailureRecorder = RootEnumerationFailureRecorder(
             rootURL: root.url
         )
@@ -206,6 +260,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                 LibraryMediaItem(
                     rootURL: root.url,
                     rootName: root.displayName,
+                    kind: .folder,
                     url: fileURL,
                     displayName: fileURL
                         .deletingPathExtension()
@@ -244,6 +299,32 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         .isRegularFileKey,
         .isSymbolicLinkKey
     ]
+
+    private static func inspectFile(
+        root: MediaLibraryRoot
+    ) throws -> LibraryMediaItem {
+        let values: URLResourceValues
+        do {
+            values = try root.url.resourceValues(forKeys: mediaResourceKeys)
+        } catch {
+            throw MediaLibraryScanError.resourceAccessFailed(root.url)
+        }
+        guard values.isRegularFile == true else {
+            throw MediaLibraryScanError.resourceAccessFailed(root.url)
+        }
+        return LibraryMediaItem(
+            rootURL: root.url,
+            rootName: root.displayName,
+            kind: .file,
+            url: root.url,
+            displayName: root.url.deletingPathExtension().lastPathComponent,
+            relativePath: "",
+            relativeDirectory: "",
+            creationDate: values.creationDate,
+            modificationDate: values.contentModificationDate,
+            fileSize: Int64(values.fileSize ?? 0)
+        )
+    }
 
     private static func relativePath(
         for fileURL: URL,
@@ -294,6 +375,82 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
             return lhs.rootURL.path < rhs.rootURL.path
         }
         return lhs.relativePath < rhs.relativePath
+    }
+
+    private static func rootPathPrecedes(
+        _ lhs: MediaLibraryRoot,
+        _ rhs: MediaLibraryRoot
+    ) -> Bool {
+        lhs.url.path < rhs.url.path
+    }
+
+    private static func sourcePrecedes(
+        _ lhs: MediaSource,
+        _ rhs: MediaSource
+    ) -> Bool {
+        if lhs.kind != rhs.kind {
+            return lhs.kind == .folder
+        }
+        let lhsDepth = lhs.url.pathComponents.count
+        let rhsDepth = rhs.url.pathComponents.count
+        if lhsDepth != rhsDepth {
+            return lhsDepth < rhsDepth
+        }
+        return lhs.url.path < rhs.url.path
+    }
+
+    private static func sourceKindHint(at url: URL) -> MediaSourceKind? {
+        guard let values = try? url.resourceValues(
+            forKeys: [.isDirectoryKey, .isRegularFileKey]
+        ) else {
+            return nil
+        }
+        if values.isDirectory == true {
+            return .folder
+        }
+        if values.isRegularFile == true {
+            return .file
+        }
+        return nil
+    }
+
+    private static func representsSameItem(
+        _ firstURL: URL,
+        _ secondURL: URL
+    ) -> Bool {
+        let firstURL = firstURL.standardizedFileURL.resolvingSymlinksInPath()
+        let secondURL = secondURL.standardizedFileURL.resolvingSymlinksInPath()
+        if firstURL.path == secondURL.path {
+            return true
+        }
+        guard let firstIdentifier = resourceIdentifier(for: firstURL),
+              let secondIdentifier = resourceIdentifier(for: secondURL) else {
+            return false
+        }
+        return firstIdentifier.isEqual(secondIdentifier)
+    }
+
+    private static func resourceIdentifier(for url: URL) -> NSObject? {
+        try? url.resourceValues(
+            forKeys: [.fileResourceIdentifierKey]
+        ).fileResourceIdentifier as? NSObject
+    }
+
+    private static func folder(
+        _ directoryURL: URL,
+        covers itemURL: URL
+    ) -> Bool {
+        var relationship = FileManager.URLRelationship.other
+        do {
+            try FileManager.default.getRelationship(
+                &relationship,
+                ofDirectoryAt: directoryURL,
+                toItemAt: itemURL
+            )
+            return relationship != .other
+        } catch {
+            return false
+        }
     }
 }
 
