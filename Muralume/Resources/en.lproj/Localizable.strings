@@ -13,6 +13,7 @@
 "media.error.unsupported" = "This version of Muralume cannot play this video.";
 "media.error.open" = "Muralume could not open this video.";
 "media.error.surface" = "Video playback did not become ready in time. Muralume returned to the player.";
+"desktop.error.statusMenu" = "Muralume could not create its menu bar controls and returned to the player.";
 "media.error.choose.from.playlist" = "Choose another video from the playlist.";
 "player.play" = "Play";
 "player.pause" = "Pause";

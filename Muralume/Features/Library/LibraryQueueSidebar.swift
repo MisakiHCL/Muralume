@@ -56,10 +56,12 @@ struct LibraryQueueSidebar: View {
         ) { root in
             Button("library.folder.remove.confirm", role: .destructive) {
                 let removesLastRoot = library.roots.count == 1
-                library.removeRoot(root)
                 pendingRootRemoval = nil
                 if removesLastRoot {
                     isEditing = false
+                }
+                Task {
+                    await library.removeRoot(root)
                 }
             }
             Button("action.cancel", role: .cancel) {

@@ -442,6 +442,99 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
         XCTAssertEqual(generator.cancellationCount, 1)
     }
 
+    func testInvalidatingRootDrainsOnlyItsRequestsAndAllowsReadding()
+        async throws {
+        let url = try TestMediaFixture.h264URL(for: Self.self)
+        let scannedItem = try makeLibraryItem(for: url)
+        let firstRootURL = URL(fileURLWithPath: "/tmp/FirstThumbnailRoot")
+        let secondRootURL = URL(fileURLWithPath: "/tmp/SecondThumbnailRoot")
+        let firstItem = replacingRoot(in: scannedItem, with: firstRootURL)
+        let secondItem = replacingRoot(in: scannedItem, with: secondRootURL)
+        let thumbnail = try makeTestThumbnail()
+        let generator = BlockingQuickLookThumbnailGenerator(image: thumbnail)
+        let provider = QuickLookMediaThumbnailProvider(generator: generator)
+
+        let firstRequest = Task {
+            await provider.thumbnail(
+                for: firstItem,
+                size: ThumbnailExpectation.pointSize,
+                scale: ThumbnailExpectation.scale
+            )
+        }
+        guard await waitForGenerationCount(1, generator: generator) else {
+            firstRequest.cancel()
+            return
+        }
+        let secondRequest = Task {
+            await provider.thumbnail(
+                for: secondItem,
+                size: ThumbnailExpectation.pointSize,
+                scale: ThumbnailExpectation.scale
+            )
+        }
+        guard await waitForGenerationCount(2, generator: generator) else {
+            firstRequest.cancel()
+            secondRequest.cancel()
+            return
+        }
+
+        let invalidationFinished = TestFlag()
+        let invalidation = Task {
+            await provider.invalidateThumbnails(
+                forRootID: MediaLibraryRoot.ID(
+                    standardizedPath: firstRootURL.path
+                )
+            )
+            invalidationFinished.value = true
+        }
+        await waitForCancellationCount(1, generator: generator)
+
+        let firstImage = await firstRequest.value
+        XCTAssertNil(firstImage)
+        XCTAssertFalse(invalidationFinished.value)
+        XCTAssertEqual(generator.cancellationCount, 1)
+
+        generator.finishNextRequest()
+        await invalidation.value
+        XCTAssertTrue(invalidationFinished.value)
+        XCTAssertEqual(generator.cancellationCount, 1)
+
+        generator.finishNextRequest()
+        let secondImage = await secondRequest.value
+        XCTAssertTrue(secondImage === thumbnail)
+
+        let rejectedImage = await provider.thumbnail(
+            for: firstItem,
+            size: ThumbnailExpectation.pointSize,
+            scale: ThumbnailExpectation.scale
+        )
+        XCTAssertNil(rejectedImage)
+        XCTAssertEqual(generator.generationCount, 2)
+
+        provider.allowThumbnails(
+            forRootIDs: [
+                MediaLibraryRoot.ID(
+                    standardizedPath: firstRootURL.path
+                )
+            ]
+        )
+        let readdedRequest = Task {
+            await provider.thumbnail(
+                for: firstItem,
+                size: ThumbnailExpectation.pointSize,
+                scale: ThumbnailExpectation.scale
+            )
+        }
+        guard await waitForGenerationCount(3, generator: generator) else {
+            readdedRequest.cancel()
+            return
+        }
+        generator.finishNextRequest()
+        let readdedImage = await readdedRequest.value
+        XCTAssertTrue(readdedImage === thumbnail)
+        await provider.shutdown()
+    }
+
     func testRequestStartedBeforePurgeDoesNotRepopulateMemoryCache() async throws {
         let url = try TestMediaFixture.h264URL(for: Self.self)
         let item = try makeLibraryItem(for: url)
@@ -592,6 +685,23 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
             creationDate: item.creationDate,
             modificationDate: modificationDate,
             fileSize: fileSize
+        )
+    }
+
+    private func replacingRoot(
+        in item: LibraryMediaItem,
+        with rootURL: URL
+    ) -> LibraryMediaItem {
+        LibraryMediaItem(
+            rootURL: rootURL,
+            rootName: rootURL.lastPathComponent,
+            url: item.url,
+            displayName: item.displayName,
+            relativePath: item.relativePath,
+            relativeDirectory: item.relativeDirectory,
+            creationDate: item.creationDate,
+            modificationDate: item.modificationDate,
+            fileSize: item.fileSize
         )
     }
 

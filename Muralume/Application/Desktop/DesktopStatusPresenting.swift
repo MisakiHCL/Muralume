@@ -19,6 +19,7 @@ protocol DesktopStatusPresenting: AnyObject {
     }
     var quitHandler: (() -> Void)? { get set }
 
-    func show()
+    @discardableResult
+    func show() -> Bool
     func remove()
 }

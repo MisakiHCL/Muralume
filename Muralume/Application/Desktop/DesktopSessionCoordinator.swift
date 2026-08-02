@@ -1,13 +1,19 @@
 import Combine
 
 private enum DesktopSessionTransitionError: Error {
+    case statusMenuUnavailable
     case applicationPresenceUnavailable
+}
+
+enum DesktopSessionFailure: Equatable, Sendable {
+    case playback(PlaybackFailure)
+    case statusMenuUnavailable
 }
 
 @MainActor
 final class DesktopSessionCoordinator: ObservableObject {
     @Published private(set) var isActive = false
-    @Published private(set) var transientFailure: PlaybackFailure?
+    @Published private(set) var transientFailure: DesktopSessionFailure?
     @Published private(set) var videoContentMode: DesktopVideoContentMode
 
     var didStopPlaybackHandler: (() -> Void)?
@@ -84,8 +90,10 @@ final class DesktopSessionCoordinator: ObservableObject {
             do {
                 try await playback.transitionToDesktop(surface)
                 try Task.checkCancellation()
+                guard statusMenu.show() else {
+                    throw DesktopSessionTransitionError.statusMenuUnavailable
+                }
                 desktopHost.reveal()
-                statusMenu.show()
                 guard applicationPresence.setMode(.menuBarOnly) else {
                     throw DesktopSessionTransitionError
                         .applicationPresenceUnavailable
@@ -96,14 +104,21 @@ final class DesktopSessionCoordinator: ObservableObject {
             } catch is CancellationError {
                 if isCurrentTransition(generation) {
                     await recoverFromFailedDesktopEntry(
-                        reportFailure: false,
+                        failure: nil,
+                        generation: generation
+                    )
+                }
+            } catch DesktopSessionTransitionError.statusMenuUnavailable {
+                if isCurrentTransition(generation) {
+                    await recoverFromFailedDesktopEntry(
+                        failure: .statusMenuUnavailable,
                         generation: generation
                     )
                 }
             } catch {
                 if isCurrentTransition(generation) {
                     await recoverFromFailedDesktopEntry(
-                        reportFailure: true,
+                        failure: .playback(.surfaceTimeout),
                         generation: generation
                     )
                 }
@@ -148,7 +163,7 @@ final class DesktopSessionCoordinator: ObservableObject {
         transientFailure = nil
         if revealWindow {
             guard applicationPresence.setMode(.standard) else {
-                transientFailure = .surfaceTimeout
+                transientFailure = .playback(.surfaceTimeout)
                 return
             }
         }
@@ -186,7 +201,7 @@ final class DesktopSessionCoordinator: ObservableObject {
                     mainWindow.hideAfterFailedReturn()
                     desktopHost.reassertDesktopPlacement()
                     isActive = true
-                    transientFailure = .surfaceTimeout
+                    transientFailure = .playback(.surfaceTimeout)
                 }
             }
             if isCurrentTransition(generation) {
@@ -316,7 +331,7 @@ final class DesktopSessionCoordinator: ObservableObject {
         guard isActive else {
             return
         }
-        transientFailure = failure
+        transientFailure = .playback(failure)
         invalidateTransition()
         let restoredStandardPresence = applicationPresence.setMode(.standard)
         mainWindow.show()
@@ -348,7 +363,7 @@ final class DesktopSessionCoordinator: ObservableObject {
     }
 
     private func recoverFromFailedDesktopEntry(
-        reportFailure: Bool,
+        failure: DesktopSessionFailure?,
         generation: UInt64
     ) async {
         guard !isShutDown, isCurrentTransition(generation) else {
@@ -381,9 +396,7 @@ final class DesktopSessionCoordinator: ObservableObject {
         desktopHost.close()
         mainWindow.show()
         isActive = !restoredStandardPresence
-        if reportFailure {
-            transientFailure = .surfaceTimeout
-        }
+        transientFailure = failure
     }
 
     private func returnToPlayerFromCurrentTransition(
@@ -399,7 +412,7 @@ final class DesktopSessionCoordinator: ObservableObject {
         transientFailure = nil
         if revealWindow {
             guard applicationPresence.setMode(.standard) else {
-                transientFailure = .surfaceTimeout
+                transientFailure = .playback(.surfaceTimeout)
                 return
             }
         }

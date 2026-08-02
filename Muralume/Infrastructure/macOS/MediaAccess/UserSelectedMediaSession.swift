@@ -147,13 +147,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
         return activeRootURLs
     }
 
-    func removeFolder(_ url: URL) -> [URL] {
+    func prepareToRemoveFolder(_ url: URL) {
         let removedRootKey = rootKey(for: url)
-        if let activeURL = activeRootURLsByPath.removeValue(
-            forKey: removedRootKey
-        ) {
-            securityAccess.stopAccess(activeURL)
-        }
         let activeBookmark = activeBookmarksByPath.removeValue(
             forKey: removedRootKey
         )
@@ -170,6 +165,16 @@ final class UserSelectedMediaSession: MediaAccessSession {
             return rootKey(for: resolvedBookmark.url) != removedRootKey
         }
         store(remainingBookmarks)
+    }
+
+    func removeFolder(_ url: URL) -> [URL] {
+        prepareToRemoveFolder(url)
+        let removedRootKey = rootKey(for: url)
+        if let activeURL = activeRootURLsByPath.removeValue(
+            forKey: removedRootKey
+        ) {
+            securityAccess.stopAccess(activeURL)
+        }
         return activeRootURLs
     }
 

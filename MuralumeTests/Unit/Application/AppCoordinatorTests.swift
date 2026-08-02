@@ -349,6 +349,7 @@ final class AppCoordinatorTests: XCTestCase {
         let playerSurface = TestPlaybackSurface(id: .player)
         playback.registerPlayerSurface(playerSurface)
         let mediaSession = AppCoordinatorMediaSession(rootURL: rootURL)
+        let thumbnailProvider = AppCoordinatorThumbnailProvider()
         let library = MediaLibraryCoordinator(
             playback: playback,
             folderSelector: AppCoordinatorFolderSelector(),
@@ -364,6 +365,7 @@ final class AppCoordinatorTests: XCTestCase {
                     items: [item]
                 )
             ),
+            mediaThumbnailProvider: thumbnailProvider,
             playbackOrder: .ordered
         )
         let windowPresenter = MacMainWindowPresenter()
@@ -410,7 +412,6 @@ final class AppCoordinatorTests: XCTestCase {
             launchAtLogin: LaunchAtLoginController(service: launchService),
             desktopPreset: desktopPreset
         )
-        let thumbnailProvider = AppCoordinatorThumbnailProvider()
         let coordinator = AppCoordinator(
             playback: playback,
             desktopSession: desktopSession,
@@ -755,6 +756,12 @@ private final class AppCoordinatorThumbnailProvider: MediaThumbnailProviding {
     func purgeMemoryCache() {
         purgeMemoryCacheCount += 1
     }
+
+    func allowThumbnails(forRootIDs rootIDs: Set<MediaLibraryRoot.ID>) {}
+
+    func invalidateThumbnails(
+        forRootID rootID: MediaLibraryRoot.ID
+    ) async {}
 
     func shutdown() async {
         shutdownCount += 1

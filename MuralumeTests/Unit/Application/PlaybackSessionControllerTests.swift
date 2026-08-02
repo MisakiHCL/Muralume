@@ -350,6 +350,7 @@ final class PlaybackSessionControllerTests: XCTestCase {
                     items: items
                 )
             ),
+            mediaThumbnailProvider: TestMediaThumbnailProvider(),
             playbackOrder: .ordered
         )
         let applicationPresence = TestApplicationPresenceController()

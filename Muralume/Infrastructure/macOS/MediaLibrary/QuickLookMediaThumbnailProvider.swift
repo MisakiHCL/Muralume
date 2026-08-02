@@ -134,13 +134,20 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         }
     }
 
+    private struct RootDrainWaiter {
+        let rootPath: String
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
     private let generator: any QuickLookThumbnailGenerating
     private let cache = NSCache<CacheKey, ImageBox>()
     private var attachableRequests: [CacheKey: ActiveRequest] = [:]
     // A cancelled request remains here until Quick Look actually returns.
     private var runningRequests: [ObjectIdentifier: ActiveRequest] = [:]
     private var requestByWaiterID: [UUID: ActiveRequest] = [:]
+    private var rootDrainWaiters: [RootDrainWaiter] = []
     private var shutdownWaiters: [CheckedContinuation<Void, Never>] = []
+    private var invalidatedRootPaths: Set<String> = []
     private var cacheGeneration: UInt64 = 0
     private var isShutDown = false
 
@@ -158,7 +165,8 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         size: CGSize,
         scale: CGFloat
     ) async -> CGImage? {
-        guard !isShutDown else {
+        guard !isShutDown,
+              !invalidatedRootPaths.contains(item.id.rootPath) else {
             return nil
         }
 
@@ -186,6 +194,44 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
     func purgeMemoryCache() {
         cacheGeneration &+= 1
         cache.removeAllObjects()
+    }
+
+    func allowThumbnails(forRootIDs rootIDs: Set<MediaLibraryRoot.ID>) {
+        invalidatedRootPaths.subtract(
+            rootIDs.map(\.standardizedPath)
+        )
+    }
+
+    func invalidateThumbnails(
+        forRootID rootID: MediaLibraryRoot.ID
+    ) async {
+        purgeMemoryCache()
+        let rootPath = rootID.standardizedPath
+        invalidatedRootPaths.insert(rootPath)
+        let matchingRequests = runningRequests.values.filter {
+            $0.cacheKey.itemID.rootPath == rootPath
+        }
+
+        for activeRequest in matchingRequests {
+            detachWaiters(from: activeRequest)
+            if attachableRequests[activeRequest.cacheKey] === activeRequest {
+                attachableRequests[activeRequest.cacheKey] = nil
+            }
+            activeRequest.task?.cancel()
+            activeRequest.cancellation.cancel()
+        }
+
+        guard hasRunningRequest(forRootPath: rootPath) else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            rootDrainWaiters.append(
+                RootDrainWaiter(
+                    rootPath: rootPath,
+                    continuation: continuation
+                )
+            )
+        }
     }
 
     func shutdown() async {
@@ -337,15 +383,39 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             requestByWaiterID[waiterID] = nil
             continuation.resume(returning: result)
         }
-        resumeShutdownWaitersIfNeeded()
+        resumeDrainWaitersIfNeeded()
     }
 
-    private func resumeShutdownWaitersIfNeeded() {
-        guard runningRequests.isEmpty else {
-            return
+    private func detachWaiters(from activeRequest: ActiveRequest) {
+        let waiters = activeRequest.waiters
+        activeRequest.waiters.removeAll()
+        for (waiterID, continuation) in waiters {
+            requestByWaiterID[waiterID] = nil
+            continuation.resume(returning: nil)
         }
-        let waiters = shutdownWaiters
-        shutdownWaiters.removeAll()
-        waiters.forEach { $0.resume() }
+    }
+
+    private func hasRunningRequest(forRootPath rootPath: String) -> Bool {
+        runningRequests.values.contains {
+            $0.cacheKey.itemID.rootPath == rootPath
+        }
+    }
+
+    private func resumeDrainWaitersIfNeeded() {
+        var pendingRootWaiters: [RootDrainWaiter] = []
+        for waiter in rootDrainWaiters {
+            if hasRunningRequest(forRootPath: waiter.rootPath) {
+                pendingRootWaiters.append(waiter)
+            } else {
+                waiter.continuation.resume()
+            }
+        }
+        rootDrainWaiters = pendingRootWaiters
+
+        if runningRequests.isEmpty {
+            let waiters = shutdownWaiters
+            shutdownWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+        }
     }
 }

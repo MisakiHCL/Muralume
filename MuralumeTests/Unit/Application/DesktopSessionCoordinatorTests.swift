@@ -4,6 +4,13 @@ import XCTest
 
 @MainActor
 final class DesktopSessionCoordinatorTests: XCTestCase {
+    private enum DesktopEntryEvent: Equatable {
+        case showStatusMenu
+        case revealDesktop
+        case setApplicationPresence(ApplicationPresenceMode)
+        case hideMainWindow
+    }
+
     private enum TestPolicy {
         static let statePropagationAttempts = 100
         static let currentMenuTitleMaximumWidth: CGFloat = 360
@@ -83,6 +90,114 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
 
         statusMenu.playNextHandler?()
         XCTAssertEqual(playNextCount, 1)
+    }
+
+    func testStatusMenuFailureRestoresPlayerBeforeHidingApplication() async {
+        let engine = TestPlaybackEngine()
+        let playback = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        let desktopHost = TestDesktopHost()
+        let statusMenu = TestDesktopStatusPresenter()
+        statusMenu.showResult = false
+        let mainWindow = TestMainWindowPresenter()
+        let applicationPresence = TestApplicationPresenceController()
+        let session = DesktopSessionCoordinator(
+            playback: playback,
+            desktopHost: desktopHost,
+            statusMenu: statusMenu,
+            videoContentModeStore: TestDesktopVideoContentModeStore(),
+            lifecycleMonitor: TestSystemLifecycleMonitor(),
+            mainWindow: mainWindow,
+            applicationPresence: applicationPresence
+        )
+        var didEnterDesktopCount = 0
+        session.didEnterDesktopHandler = {
+            didEnterDesktopCount += 1
+        }
+        defer {
+            session.shutdown()
+        }
+
+        playback.registerPlayerSurface(playerSurface)
+        await Task.yield()
+        await playback.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+
+        let didEnterDesktop = await session.enterDesktopAndWait()
+
+        XCTAssertFalse(didEnterDesktop)
+        XCTAssertFalse(session.isActive)
+        XCTAssertEqual(playback.presentation, .player)
+        XCTAssertEqual(session.transientFailure, .statusMenuUnavailable)
+        XCTAssertEqual(statusMenu.showCount, 1)
+        XCTAssertEqual(statusMenu.removeCount, 1)
+        XCTAssertEqual(desktopHost.revealCount, 0)
+        XCTAssertEqual(desktopHost.closeCount, 1)
+        XCTAssertEqual(mainWindow.hideCount, 0)
+        XCTAssertEqual(mainWindow.showCount, 1)
+        XCTAssertEqual(applicationPresence.appliedModes, [.standard])
+        XCTAssertEqual(didEnterDesktopCount, 0)
+    }
+
+    func testDesktopEntryEstablishesStatusMenuBeforeHidingApplication() async {
+        let engine = TestPlaybackEngine()
+        let playback = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        let desktopHost = TestDesktopHost()
+        let statusMenu = TestDesktopStatusPresenter()
+        let mainWindow = TestMainWindowPresenter()
+        let applicationPresence = TestApplicationPresenceController()
+        let session = DesktopSessionCoordinator(
+            playback: playback,
+            desktopHost: desktopHost,
+            statusMenu: statusMenu,
+            videoContentModeStore: TestDesktopVideoContentModeStore(),
+            lifecycleMonitor: TestSystemLifecycleMonitor(),
+            mainWindow: mainWindow,
+            applicationPresence: applicationPresence
+        )
+        defer {
+            session.shutdown()
+        }
+        var events: [DesktopEntryEvent] = []
+        statusMenu.showHandler = {
+            events.append(.showStatusMenu)
+        }
+        desktopHost.revealHandler = {
+            events.append(.revealDesktop)
+        }
+        applicationPresence.setModeHandler = {
+            events.append(.setApplicationPresence($0))
+        }
+        mainWindow.hideHandler = {
+            events.append(.hideMainWindow)
+        }
+
+        playback.registerPlayerSurface(playerSurface)
+        await Task.yield()
+        await playback.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+
+        let didEnterDesktop = await session.enterDesktopAndWait()
+
+        XCTAssertTrue(didEnterDesktop)
+        XCTAssertEqual(
+            events,
+            [
+                .showStatusMenu,
+                .revealDesktop,
+                .setApplicationPresence(.menuBarOnly),
+                .hideMainWindow
+            ]
+        )
     }
 
     func testCancellingDesktopEntryPreservesPlaybackIntent() async {
@@ -388,7 +503,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
 
         session.enterDesktop()
         await waitUntil {
-            session.transientFailure == .surfaceTimeout
+            session.transientFailure == .playback(.surfaceTimeout)
                 && playback.presentation == .player
         }
 
@@ -435,7 +550,10 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         XCTAssertFalse(didEnterDesktop)
         XCTAssertEqual(playback.presentation, .player)
         XCTAssertTrue(session.isActive)
-        XCTAssertEqual(session.transientFailure, .surfaceTimeout)
+        XCTAssertEqual(
+            session.transientFailure,
+            .playback(.surfaceTimeout)
+        )
     }
 
     func testFailedStandardPresenceKeepsStatusEntryUntilRetry() async {
@@ -478,7 +596,10 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(playback.presentation, .desktop)
         XCTAssertEqual(statusMenu.removeCount, 0)
         XCTAssertEqual(mainWindow.prepareForReturnCount, 0)
-        XCTAssertEqual(session.transientFailure, .surfaceTimeout)
+        XCTAssertEqual(
+            session.transientFailure,
+            .playback(.surfaceTimeout)
+        )
 
         session.returnToPlayer()
         await waitUntil {
@@ -637,6 +758,20 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
 
         menu.items[4].submenu?.performActionForItem(at: 0)
         XCTAssertEqual(selectedContentMode, .cover)
+    }
+
+    func testStatusMenuShowCreatesUsableIdempotentEntry() {
+        let controller = DesktopStatusMenuController(
+            localization: AppLocalizationController(
+                initialLanguage: .english
+            )
+        )
+        defer {
+            controller.remove()
+        }
+
+        XCTAssertTrue(controller.show())
+        XCTAssertTrue(controller.show())
     }
 
     private func waitUntil(

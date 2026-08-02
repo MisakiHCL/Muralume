@@ -12,6 +12,10 @@ protocol MediaAccessSession: AnyObject {
     /// Persists newly selected folders and returns every currently active root.
     func addFolders(_ urls: [URL]) -> [URL]
 
+    /// Persists the user's removal decision while keeping the active security
+    /// scope alive until in-flight readers have drained.
+    func prepareToRemoveFolder(_ url: URL)
+
     /// Removes one persisted folder grant without modifying files on disk.
     func removeFolder(_ url: URL) -> [URL]
 
@@ -22,4 +26,6 @@ extension MediaAccessSession {
     var hasUnavailablePersistedFolders: Bool {
         false
     }
+
+    func prepareToRemoveFolder(_ url: URL) {}
 }

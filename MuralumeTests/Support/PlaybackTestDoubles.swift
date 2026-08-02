@@ -190,6 +190,7 @@ enum TestMediaFixture {
 
 @MainActor
 final class TestDesktopHost: DesktopHosting {
+    var revealHandler: (() -> Void)?
     let surface = TestPlaybackSurface(id: .desktop)
     private(set) var prepareCount = 0
     private(set) var preparedContentModes: [DesktopVideoContentMode] = []
@@ -212,6 +213,7 @@ final class TestDesktopHost: DesktopHosting {
 
     func reveal() {
         revealCount += 1
+        revealHandler?()
     }
 
     func reassertDesktopPlacement() {
@@ -232,11 +234,16 @@ final class TestDesktopStatusPresenter: DesktopStatusPresenting {
     var returnToPlayerHandler: (() -> Void)?
     var setVideoContentModeHandler: ((DesktopVideoContentMode) -> Void)?
     var quitHandler: (() -> Void)?
+    var showHandler: (() -> Void)?
+    var showResult = true
     private(set) var showCount = 0
     private(set) var removeCount = 0
 
-    func show() {
+    @discardableResult
+    func show() -> Bool {
         showCount += 1
+        showHandler?()
+        return showResult
     }
 
     func remove() {
@@ -246,6 +253,7 @@ final class TestDesktopStatusPresenter: DesktopStatusPresenting {
 
 @MainActor
 final class TestApplicationPresenceController: ApplicationPresenceControlling {
+    var setModeHandler: ((ApplicationPresenceMode) -> Void)?
     private(set) var appliedModes: [ApplicationPresenceMode] = []
     var results: [Bool]
 
@@ -256,6 +264,7 @@ final class TestApplicationPresenceController: ApplicationPresenceControlling {
     @discardableResult
     func setMode(_ mode: ApplicationPresenceMode) -> Bool {
         appliedModes.append(mode)
+        setModeHandler?(mode)
         guard !results.isEmpty else {
             return true
         }
@@ -302,6 +311,7 @@ final class TestSystemLifecycleMonitor: SystemLifecycleMonitoring {
 
 @MainActor
 final class TestMainWindowPresenter: MainWindowPresenting {
+    var hideHandler: (() -> Void)?
     private(set) var hideCount = 0
     private(set) var prepareForReturnCount = 0
     private(set) var showCount = 0
@@ -312,6 +322,7 @@ final class TestMainWindowPresenter: MainWindowPresenting {
 
     func hide() {
         hideCount += 1
+        hideHandler?()
     }
 
     func prepareForReturn() {

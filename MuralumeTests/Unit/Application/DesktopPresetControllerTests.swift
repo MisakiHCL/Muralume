@@ -715,7 +715,9 @@ final class DesktopPresetControllerTests: XCTestCase {
             desktopPreset: fixture.controller
         )
 
-        fixture.library.removeRoot(try XCTUnwrap(fixture.library.roots.first))
+        await fixture.library.removeRoot(
+            try XCTUnwrap(fixture.library.roots.first)
+        )
         while service.unregisterCount == 0 {
             await Task.yield()
         }
@@ -743,7 +745,9 @@ final class DesktopPresetControllerTests: XCTestCase {
             desktopPreset: fixture.controller
         )
 
-        fixture.library.removeRoot(try XCTUnwrap(fixture.library.roots.first))
+        await fixture.library.removeRoot(
+            try XCTUnwrap(fixture.library.roots.first)
+        )
         while service.unregisterCount == 0 {
             await Task.yield()
         }
@@ -1009,6 +1013,7 @@ final class DesktopPresetControllerTests: XCTestCase {
                     items: items
                 )
             ),
+            mediaThumbnailProvider: TestMediaThumbnailProvider(),
             playbackOrder: .shuffled
         )
         let desktopHost = TestDesktopHost()

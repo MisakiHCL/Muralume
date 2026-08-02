@@ -131,7 +131,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         guard let root = fixture.coordinator.roots.first else {
             return XCTFail("Expected the selected root to be available.")
         }
-        fixture.coordinator.removeRoot(root)
+        await fixture.coordinator.removeRoot(root)
 
         XCTAssertTrue(fixture.coordinator.roots.isEmpty)
         XCTAssertTrue(fixture.coordinator.items.isEmpty)
@@ -139,6 +139,131 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertFalse(fixture.coordinator.hasActiveQueue)
         XCTAssertNil(fixture.coordinator.currentItemID)
         XCTAssertEqual(fixture.playback.readiness, .empty)
+    }
+
+    func testRootScopeIsReleasedOnlyAfterConsumersDrain() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/DrainingLibrary")
+        let item = makeItem(
+            rootURL: rootURL,
+            name: "Clip",
+            path: "Clip.mov"
+        )
+        let thumbnailProvider = TestMediaThumbnailProvider()
+        thumbnailProvider.shouldBlockInvalidation = true
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Library"
+                    )
+                ],
+                items: [item]
+            ),
+            mediaThumbnailProvider: thumbnailProvider
+        )
+        fixture.coordinator.addFolders()
+        await waitForScan(fixture.coordinator)
+
+        fixture.scanner.blockNextScan()
+        fixture.coordinator.refresh()
+        while !fixture.scanner.didBeginBlockedScan {
+            await Task.yield()
+        }
+
+        fixture.engine.shouldBlockLoads = true
+        fixture.coordinator.play(item)
+        while !fixture.engine.didBeginBlockedLoad {
+            await Task.yield()
+        }
+
+        let root = try XCTUnwrap(fixture.coordinator.roots.first)
+        let removalTask = Task {
+            await fixture.coordinator.removeRoot(root)
+        }
+        while fixture.session.preparedRemovalURLs.isEmpty
+            || thumbnailProvider.invalidatedRootIDs.isEmpty {
+            await Task.yield()
+        }
+
+        XCTAssertTrue(fixture.coordinator.roots.isEmpty)
+        XCTAssertTrue(fixture.coordinator.items.isEmpty)
+        XCTAssertEqual(fixture.playback.readiness, .empty)
+        XCTAssertTrue(fixture.session.removedURLs.isEmpty)
+
+        fixture.scanner.finishBlockedScan()
+        await Task.yield()
+        XCTAssertTrue(fixture.session.removedURLs.isEmpty)
+
+        fixture.engine.finishBlockedLoad()
+        await Task.yield()
+        XCTAssertTrue(fixture.session.removedURLs.isEmpty)
+
+        thumbnailProvider.finishInvalidation(for: root.id)
+        await removalTask.value
+
+        XCTAssertEqual(fixture.session.preparedRemovalURLs, [rootURL])
+        XCTAssertEqual(fixture.session.removedURLs, [rootURL])
+        XCTAssertEqual(
+            thumbnailProvider.invalidatedRootIDs,
+            [root.id]
+        )
+        XCTAssertEqual(fixture.coordinator.scanState, .idle)
+    }
+
+    func testRemovingPlayingRootLoadsSurvivorAndPreservesPlaybackIntent()
+        async throws {
+        let firstRootURL = URL(fileURLWithPath: "/tmp/PlayingRoot")
+        let secondRootURL = URL(fileURLWithPath: "/tmp/SurvivingRoot")
+        let first = makeItem(
+            rootURL: firstRootURL,
+            name: "First",
+            path: "First.mov"
+        )
+        let second = makeItem(
+            rootURL: secondRootURL,
+            name: "Second",
+            path: "Second.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [firstRootURL, secondRootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: firstRootURL,
+                        displayName: "Playing Root"
+                    ),
+                    MediaLibraryRoot(
+                        url: secondRootURL,
+                        displayName: "Surviving Root"
+                    )
+                ],
+                items: [first, second]
+            )
+        )
+        fixture.coordinator.addFolders()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.play(first)
+        await waitForReady(fixture.playback)
+
+        let playingRoot = try XCTUnwrap(
+            fixture.coordinator.roots.first {
+                $0.id.standardizedPath == firstRootURL.path
+            }
+        )
+        await fixture.coordinator.removeRoot(playingRoot)
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+
+        XCTAssertEqual(fixture.coordinator.currentItemID, second.id)
+        XCTAssertEqual(fixture.playback.source?.url, second.url)
+        XCTAssertTrue(fixture.playback.isPlaybackRequested)
+        XCTAssertEqual(
+            fixture.engine.loadedSources.map(\.displayName),
+            ["First", "Second"]
+        )
+        XCTAssertEqual(fixture.session.removedURLs, [firstRootURL])
     }
 
     func testPlayingAnItemCreatesStableQueueAndNavigates() async {
@@ -157,6 +282,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
 
         fixture.coordinator.play(first)
         await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
         fixture.coordinator.playNext()
         await waitForLoads(fixture.engine, count: 2)
         fixture.coordinator.playPrevious()
@@ -213,7 +339,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
                 $0.id.standardizedPath == secondRootURL.path
             }
         )
-        fixture.coordinator.removeRoot(secondRoot)
+        await fixture.coordinator.removeRoot(secondRoot)
 
         XCTAssertGreaterThan(revisionAfterOrder, revisionAfterPlay)
         XCTAssertGreaterThan(
@@ -225,6 +351,8 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             [first.id]
         )
         XCTAssertEqual(fixture.coordinator.currentItemID, first.id)
+        XCTAssertEqual(fixture.playback.readiness, .ready)
+        XCTAssertEqual(fixture.engine.loadedSources.count, 1)
     }
 
     func testClickingVisibleItemRebuildsQueueFromCurrentSortOrder() async {

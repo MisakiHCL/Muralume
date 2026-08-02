@@ -12,6 +12,7 @@ enum AppCompositionRoot {
         )
         let mainWindowPresenter = MacMainWindowPresenter()
         let applicationPresence = MacApplicationPresenceController()
+        let mediaThumbnailProvider = QuickLookMediaThumbnailProvider()
         let desktopSession = DesktopSessionCoordinator(
             playback: playback,
             desktopHost: MacDesktopHost(),
@@ -30,6 +31,7 @@ enum AppCompositionRoot {
             ),
             mediaSession: UserSelectedMediaSession(),
             scanner: FileSystemMediaLibraryScanner(),
+            mediaThumbnailProvider: mediaThumbnailProvider,
             playbackOrder: initialPreferences.playbackOrder,
             sort: initialPreferences.librarySort,
             preferencesStore: preferencesStore
@@ -58,7 +60,7 @@ enum AppCompositionRoot {
             playback: playback,
             desktopSession: desktopSession,
             library: library,
-            mediaThumbnailProvider: QuickLookMediaThumbnailProvider(),
+            mediaThumbnailProvider: mediaThumbnailProvider,
             mainWindowPresenter: mainWindowPresenter,
             applicationPresence: applicationPresence,
             dynamicDesktopStartup: dynamicDesktopStartup,

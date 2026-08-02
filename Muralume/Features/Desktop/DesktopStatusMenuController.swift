@@ -43,24 +43,54 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         }
     }
 
-    func show() {
-        guard statusItem == nil else {
-            return
+    @discardableResult
+    func show() -> Bool {
+        if let statusItem {
+            guard isUsable(statusItem) else {
+                remove()
+                return createStatusItem()
+            }
+            return true
         }
 
-        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = statusItem.button {
-            button.image = makeMenuBarImage()
-            button.imagePosition = .imageOnly
-            button.imageScaling = .scaleProportionallyDown
-            button.toolTip = localized("app.name")
-            button.setAccessibilityLabel(localized("app.name"))
+        return createStatusItem()
+    }
+
+    private func createStatusItem() -> Bool {
+        guard let image = makeMenuBarImage() else {
+            return false
         }
+
+        let statusItem = NSStatusBar.system.statusItem(
+            withLength: NSStatusItem.squareLength
+        )
+        guard let button = statusItem.button else {
+            NSStatusBar.system.removeStatusItem(statusItem)
+            return false
+        }
+        button.image = image
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.toolTip = localized("app.name")
+        button.setAccessibilityLabel(localized("app.name"))
 
         let menu = makeMenu()
         statusItem.menu = menu
+        statusItem.isVisible = true
         self.statusItem = statusItem
         updateMenu()
+
+        guard isUsable(statusItem) else {
+            remove()
+            return false
+        }
+        return true
+    }
+
+    private func isUsable(_ statusItem: NSStatusItem) -> Bool {
+        statusItem.button?.image != nil
+            && statusItem.menu != nil
+            && statusItem.isVisible
     }
 
     func makeMenu() -> NSMenu {

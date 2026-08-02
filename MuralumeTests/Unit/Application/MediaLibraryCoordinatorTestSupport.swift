@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 @testable import Muralume
 
@@ -8,6 +9,8 @@ func makeFixture(
     playbackOrder: PlaybackOrder = .ordered,
     sort: MediaLibrarySort = MediaLibrarySort(),
     preferencesStore: (any AppPreferencesStoring)? = nil,
+    mediaThumbnailProvider: TestMediaThumbnailProvider =
+        TestMediaThumbnailProvider(),
     reshuffleRestoredQueue: @escaping RestoredPlaybackQueueShuffler = {
         $0.reshufflePendingItems()
     }
@@ -22,6 +25,7 @@ func makeFixture(
         folderSelector: selector,
         mediaSession: session,
         scanner: scanner,
+        mediaThumbnailProvider: mediaThumbnailProvider,
         playbackOrder: playbackOrder,
         sort: sort,
         preferencesStore: preferencesStore,
@@ -32,7 +36,8 @@ func makeFixture(
         playback: playback,
         engine: engine,
         session: session,
-        scanner: scanner
+        scanner: scanner,
+        mediaThumbnailProvider: mediaThumbnailProvider
     )
 }
 
@@ -95,6 +100,7 @@ struct Fixture {
     let engine: TestPlaybackEngine
     let session: TestMediaAccessSession
     let scanner: TestMediaLibraryScanner
+    let mediaThumbnailProvider: TestMediaThumbnailProvider
 }
 
 @MainActor
@@ -113,6 +119,8 @@ final class TestMediaFolderSelector: MediaFolderSelecting {
 @MainActor
 final class TestMediaAccessSession: MediaAccessSession {
     private(set) var addedURLs: [URL] = []
+    private(set) var preparedRemovalURLs: [URL] = []
+    private(set) var removedURLs: [URL] = []
     var restoredURLs: [URL] = []
     var hasUnavailablePersistedFolders = false
 
@@ -125,7 +133,12 @@ final class TestMediaAccessSession: MediaAccessSession {
         return addedURLs
     }
 
+    func prepareToRemoveFolder(_ url: URL) {
+        preparedRemovalURLs.append(url)
+    }
+
     func removeFolder(_ url: URL) -> [URL] {
+        removedURLs.append(url)
         addedURLs.removeAll {
             $0.standardizedFileURL == url.standardizedFileURL
         }
@@ -142,6 +155,9 @@ final class TestMediaLibraryScanner: MediaLibraryScanning, @unchecked Sendable {
     private let lock = NSLock()
     private let snapshot: MediaLibrarySnapshot
     private var storedScannedRootURLs: [[URL]] = []
+    private var shouldBlockNextScan = false
+    private var blockedScanDidBegin = false
+    private var blockedScanContinuation: CheckedContinuation<Void, Never>?
     var availabilityByItemID:
         [LibraryMediaItem.ID: MediaLibraryItemAvailability] = [:]
 
@@ -151,21 +167,107 @@ final class TestMediaLibraryScanner: MediaLibraryScanning, @unchecked Sendable {
         }
     }
 
+    var didBeginBlockedScan: Bool {
+        lock.withLock {
+            blockedScanDidBegin
+        }
+    }
+
     init(snapshot: MediaLibrarySnapshot) {
         self.snapshot = snapshot
     }
 
     func scan(rootURLs: [URL]) async throws -> MediaLibrarySnapshot {
-        lock.withLock {
+        let shouldBlock = lock.withLock {
             storedScannedRootURLs.append(rootURLs)
+            guard shouldBlockNextScan else {
+                return false
+            }
+            shouldBlockNextScan = false
+            blockedScanDidBegin = true
+            return true
+        }
+        if shouldBlock {
+            await withCheckedContinuation { continuation in
+                lock.withLock {
+                    blockedScanContinuation = continuation
+                }
+            }
+            try Task.checkCancellation()
         }
         return snapshot
+    }
+
+    func blockNextScan() {
+        lock.withLock {
+            shouldBlockNextScan = true
+            blockedScanDidBegin = false
+        }
+    }
+
+    func finishBlockedScan() {
+        let continuation = lock.withLock {
+            let continuation = blockedScanContinuation
+            blockedScanContinuation = nil
+            return continuation
+        }
+        continuation?.resume()
     }
 
     func availability(
         of item: LibraryMediaItem
     ) async -> MediaLibraryItemAvailability {
         availabilityByItemID[item.id] ?? .temporarilyUnavailable
+    }
+}
+
+@MainActor
+final class TestMediaThumbnailProvider: MediaThumbnailProviding {
+    private(set) var allowedRootIDSets: [Set<MediaLibraryRoot.ID>] = []
+    private(set) var invalidatedRootIDs: [MediaLibraryRoot.ID] = []
+    private(set) var purgeMemoryCacheCount = 0
+    private(set) var shutdownCount = 0
+    var shouldBlockInvalidation = false
+    private var invalidationContinuations:
+        [MediaLibraryRoot.ID: CheckedContinuation<Void, Never>] = [:]
+
+    func thumbnail(
+        for item: LibraryMediaItem,
+        size: CGSize,
+        scale: CGFloat
+    ) async -> CGImage? {
+        nil
+    }
+
+    func purgeMemoryCache() {
+        purgeMemoryCacheCount += 1
+    }
+
+    func allowThumbnails(forRootIDs rootIDs: Set<MediaLibraryRoot.ID>) {
+        allowedRootIDSets.append(rootIDs)
+    }
+
+    func invalidateThumbnails(
+        forRootID rootID: MediaLibraryRoot.ID
+    ) async {
+        invalidatedRootIDs.append(rootID)
+        guard shouldBlockInvalidation else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            invalidationContinuations[rootID] = continuation
+        }
+    }
+
+    func finishInvalidation(for rootID: MediaLibraryRoot.ID) {
+        invalidationContinuations.removeValue(forKey: rootID)?.resume()
+    }
+
+    func shutdown() async {
+        shutdownCount += 1
+        let continuations = invalidationContinuations.values
+        invalidationContinuations.removeAll()
+        continuations.forEach { $0.resume() }
     }
 }
 

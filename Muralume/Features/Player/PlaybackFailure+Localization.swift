@@ -10,3 +10,14 @@ extension PlaybackFailure {
         }
     }
 }
+
+extension DesktopSessionFailure {
+    var localizedKey: String {
+        switch self {
+        case let .playback(failure):
+            failure.localizedKey
+        case .statusMenuUnavailable:
+            "desktop.error.statusMenu"
+        }
+    }
+}

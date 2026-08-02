@@ -146,6 +146,36 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         )
     }
 
+    func testFolderRemovalPersistsBeforeReleasingActiveScope() throws {
+        let fixture = makeSessionFixture()
+        defer { fixture.clearDefaults() }
+
+        let rootURL = URL(
+            fileURLWithPath: "/tmp/Muralume Removal \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let bookmark = fixture.recorder.bookmark(for: rootURL)
+        fixture.recorder.resolvedURLByBookmark[bookmark] = rootURL
+        XCTAssertEqual(fixture.session.addFolders([rootURL]), [rootURL])
+
+        fixture.session.prepareToRemoveFolder(rootURL)
+
+        XCTAssertTrue(
+            fixture.defaults.array(
+                forKey: "media-library.root-bookmarks"
+            )?.isEmpty == true
+        )
+        XCTAssertEqual(fixture.recorder.stoppedURLs, [rootURL])
+
+        let remainingURLs = fixture.session.removeFolder(rootURL)
+
+        XCTAssertTrue(remainingURLs.isEmpty)
+        XCTAssertEqual(
+            fixture.recorder.stoppedURLs,
+            [rootURL, rootURL]
+        )
+    }
+
     private func makeSessionFixture() -> MediaSessionFixture {
         let suiteName = TestStorage.suiteName
         let defaults = UserDefaults(suiteName: suiteName)!

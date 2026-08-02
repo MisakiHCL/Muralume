@@ -13,6 +13,7 @@
 "media.error.unsupported" = "当前版本的 Muralume 无法播放这个视频。";
 "media.error.open" = "Muralume 无法打开这个视频。";
 "media.error.surface" = "视频播放没有及时准备好，已返回播放器。";
+"desktop.error.statusMenu" = "无法创建菜单栏控制项，已返回播放器";
 "media.error.choose.from.playlist" = "请从播放列表中选择其他视频。";
 "player.play" = "播放";
 "player.pause" = "暂停";
