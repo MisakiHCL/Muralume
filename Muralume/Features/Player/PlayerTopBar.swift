@@ -28,7 +28,7 @@ struct PlayerTopBar: View {
 
     var body: some View {
         ZStack {
-            HStack(spacing: MuralumeTheme.Spacing.medium) {
+            HStack(spacing: 0) {
                 MuralumeWindowControls(
                     actions: actions,
                     labels: windowControlLabels,
@@ -39,15 +39,21 @@ struct PlayerTopBar: View {
                     height: MuralumeTheme.Size.playerTopBarHeight
                 )
 
-                brand
+                ZStack(alignment: .leading) {
+                    MuralumeTitleBarInteractionRegion()
 
-                Spacer(minLength: MuralumeTheme.Spacing.medium)
+                    brand
+                        .padding(.leading, MuralumeTheme.Spacing.medium)
+                        .allowsHitTesting(false)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 settings
             }
 
             if let sourceDisplayName {
                 currentSource(sourceDisplayName)
+                    .allowsHitTesting(false)
             }
         }
         .padding(.horizontal, MuralumeTheme.Spacing.medium)
@@ -141,6 +147,47 @@ struct PlayerTopBar: View {
                 maxWidth: MuralumeTheme.Size.playerTopBarSourceMaximumWidth
             )
         .accessibilityElement(children: .combine)
+    }
+}
+
+private struct MuralumeTitleBarInteractionRegion: NSViewRepresentable {
+    func makeNSView(context: Context) -> MuralumeTitleBarInteractionNSView {
+        MuralumeTitleBarInteractionNSView()
+    }
+
+    func updateNSView(
+        _ nsView: MuralumeTitleBarInteractionNSView,
+        context: Context
+    ) {}
+}
+
+@MainActor
+final class MuralumeTitleBarInteractionNSView: NSView {
+    private static let zoomClickCount = 2
+
+    override var mouseDownCanMoveWindow: Bool {
+        false
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window,
+              !window.styleMask.contains(.fullScreen) else {
+            return
+        }
+
+        guard event.clickCount == Self.zoomClickCount else {
+            window.performDrag(with: event)
+            return
+        }
+
+        guard window.styleMask.contains(.resizable) else {
+            return
+        }
+        window.performZoom(self)
     }
 }
 

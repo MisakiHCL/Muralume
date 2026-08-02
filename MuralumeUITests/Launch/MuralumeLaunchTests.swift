@@ -19,6 +19,7 @@ final class MuralumeLaunchTests: XCTestCase {
         static let maximumSidePanelInsetOffset: CGFloat = 2
         static let maximumWindowEdgeOffset: CGFloat = 2
         static let fullScreenTransitionTimeout: TimeInterval = 5
+        static let windowZoomFrameTolerance: CGFloat = 2
     }
 
     private enum LifecycleExpectation {
@@ -282,6 +283,68 @@ final class MuralumeLaunchTests: XCTestCase {
             accuracy: LayoutExpectation
                 .maximumTopBarLeadingInsetDifference
         )
+    }
+
+    @MainActor
+    func testDoubleClickingPlayerTopBarZoomsAndRestoresWindow() {
+        let application = launchEmptyLibrary()
+        let window = application.windows.firstMatch
+        let playerTopBar = application
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.player-top-bar")
+            .firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 5))
+        XCTAssertTrue(playerTopBar.waitForExistence(timeout: 5))
+        let initialFrame = window.frame
+
+        playerTopBar.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        ).doubleClick()
+
+        let zoomExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(
+                format: "frame != %@",
+                NSValue(rect: initialFrame)
+            ),
+            object: window
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(
+                for: [zoomExpectation],
+                timeout: LayoutExpectation.fullScreenTransitionTimeout
+            ),
+            .completed
+        )
+        XCTAssertEqual(application.windows.count, 1)
+        XCTAssertTrue(
+            application.buttons["muralume.window-minimize"].isEnabled
+        )
+
+        playerTopBar.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        ).doubleClick()
+
+        let restoreExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let window = object as? XCUIElement else {
+                    return false
+                }
+                return Self.framesAreEqual(
+                    window.frame,
+                    initialFrame,
+                    tolerance: LayoutExpectation.windowZoomFrameTolerance
+                )
+            },
+            object: window
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(
+                for: [restoreExpectation],
+                timeout: LayoutExpectation.fullScreenTransitionTimeout
+            ),
+            .completed
+        )
+        XCTAssertEqual(application.windows.count, 1)
     }
 
     @MainActor
@@ -906,5 +969,16 @@ final class MuralumeLaunchTests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    private static func framesAreEqual(
+        _ lhs: CGRect,
+        _ rhs: CGRect,
+        tolerance: CGFloat
+    ) -> Bool {
+        abs(lhs.minX - rhs.minX) <= tolerance
+            && abs(lhs.minY - rhs.minY) <= tolerance
+            && abs(lhs.width - rhs.width) <= tolerance
+            && abs(lhs.height - rhs.height) <= tolerance
     }
 }

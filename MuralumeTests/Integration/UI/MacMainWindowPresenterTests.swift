@@ -226,6 +226,103 @@ final class MacMainWindowPresenterTests: XCTestCase {
         }
     }
 
+    func testTitleBarInteractionDragsAndZoomsThroughAppKit() throws {
+        let window = RecordingWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_120, height: 720),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let interactionView = MuralumeTitleBarInteractionNSView()
+        window.contentView = interactionView
+        XCTAssertTrue(interactionView.acceptsFirstMouse(for: nil))
+        XCTAssertFalse(interactionView.mouseDownCanMoveWindow)
+
+        interactionView.mouseDown(
+            with: try makeMouseDownEvent(
+                for: window,
+                clickCount: 1
+            )
+        )
+        interactionView.mouseDown(
+            with: try makeMouseDownEvent(
+                for: window,
+                clickCount: 2
+            )
+        )
+
+        XCTAssertEqual(window.performDragCount, 1)
+        XCTAssertEqual(window.performZoomCount, 1)
+    }
+
+    func testTitleBarInteractionDoesNotZoomFixedSizeWindow() throws {
+        let window = RecordingWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_120, height: 720),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let interactionView = MuralumeTitleBarInteractionNSView()
+        window.contentView = interactionView
+
+        interactionView.mouseDown(
+            with: try makeMouseDownEvent(
+                for: window,
+                clickCount: 2
+            )
+        )
+
+        XCTAssertEqual(window.performDragCount, 0)
+        XCTAssertEqual(window.performZoomCount, 0)
+    }
+
+    func testTitleBarInteractionDoesNothingInFullScreen() throws {
+        let window = RecordingWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_120, height: 720),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.styleMaskOverride = [.titled, .resizable, .fullScreen]
+        let interactionView = MuralumeTitleBarInteractionNSView()
+        window.contentView = interactionView
+
+        interactionView.mouseDown(
+            with: try makeMouseDownEvent(
+                for: window,
+                clickCount: 1
+            )
+        )
+        interactionView.mouseDown(
+            with: try makeMouseDownEvent(
+                for: window,
+                clickCount: 2
+            )
+        )
+
+        XCTAssertEqual(window.performDragCount, 0)
+        XCTAssertEqual(window.performZoomCount, 0)
+    }
+
+    private func makeMouseDownEvent(
+        for window: NSWindow,
+        clickCount: Int
+    ) throws -> NSEvent {
+        try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: NSPoint(x: 160, y: 20),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: clickCount,
+                pressure: 1
+            )
+        )
+    }
+
     private func makeWindow() -> NSWindow {
         NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1_120, height: 720),
@@ -239,5 +336,29 @@ final class MacMainWindowPresenterTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+    }
+}
+
+@MainActor
+private final class RecordingWindow: NSWindow {
+    private(set) var performDragCount = 0
+    private(set) var performZoomCount = 0
+    var styleMaskOverride: NSWindow.StyleMask?
+
+    override var styleMask: NSWindow.StyleMask {
+        get {
+            styleMaskOverride ?? super.styleMask
+        }
+        set {
+            super.styleMask = newValue
+        }
+    }
+
+    override func performDrag(with event: NSEvent) {
+        performDragCount += 1
+    }
+
+    override func performZoom(_ sender: Any?) {
+        performZoomCount += 1
     }
 }
