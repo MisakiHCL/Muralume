@@ -36,6 +36,7 @@
 "desktop.playNext" = "Play Next";
 "desktop.return" = "Return to Player";
 "desktop.contentMode" = "Desktop Fit";
+"desktop.contentMode.blurredBackground" = "Blurred Background";
 "desktop.contentMode.cover" = "Fill Screen";
 "desktop.contentMode.contain" = "Fit to Screen";
 "desktop.quit" = "Quit Muralume";

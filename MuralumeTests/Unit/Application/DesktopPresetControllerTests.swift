@@ -113,7 +113,7 @@ final class DesktopPresetControllerTests: XCTestCase {
             currentTime: 12,
             isPlaybackRequested: true,
             playbackRate: PlaybackRate(rawValue: 0.5),
-            videoContentMode: .cover
+            videoContentMode: .blurredBackground
         )
         let store = FileDesktopPresetStore(fileURL: fileURL)
 
@@ -124,6 +124,56 @@ final class DesktopPresetControllerTests: XCTestCase {
         try await store.clear()
         let clearedPreset = try await store.load()
         XCTAssertNil(clearedPreset)
+    }
+
+    func testFileStoreDecodesVersionOneCoverPresetFromV102() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directoryURL.appendingPathComponent("preset.json")
+        defer {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        let versionOneJSON = #"""
+        {
+          "schemaVersion": 1,
+          "queue": {
+            "items": [
+              { "rootPath": "/tmp/Library", "relativePath": "clip.mp4" }
+            ],
+            "order": "ordered",
+            "currentItem": {
+              "rootPath": "/tmp/Library",
+              "relativePath": "clip.mp4"
+            },
+            "roundNumber": 1,
+            "currentRoundPosition": 1,
+            "remainingItems": [
+              { "rootPath": "/tmp/Library", "relativePath": "clip.mp4" }
+            ],
+            "remainingIndex": 1,
+            "history": [],
+            "forwardHistory": []
+          },
+          "currentTime": 12,
+          "isPlaybackRequested": true,
+          "playbackRateValue": 1,
+          "videoContentMode": "cover"
+        }
+        """#
+        try Data(versionOneJSON.utf8).write(to: fileURL)
+
+        let restoredPreset = try await FileDesktopPresetStore(
+            fileURL: fileURL
+        ).load()
+
+        XCTAssertEqual(restoredPreset?.schemaVersion, 1)
+        XCTAssertEqual(restoredPreset?.videoContentMode, .cover)
+        XCTAssertEqual(restoredPreset?.queue.currentItem.relativePath, "clip.mp4")
+        XCTAssertTrue(restoredPreset?.isValid == true)
     }
 
     func testPreparingAutomaticRestorePersistsCurrentPlayerQueue() async throws {

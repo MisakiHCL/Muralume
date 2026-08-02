@@ -1,5 +1,4 @@
 import AppKit
-import AVFoundation
 import CoreGraphics
 
 private enum DesktopScreenKey {
@@ -31,17 +30,6 @@ final class UserDefaultsDesktopVideoContentModeStore:
     }
 }
 
-extension DesktopVideoContentMode {
-    var videoGravity: AVLayerVideoGravity {
-        switch self {
-        case .cover:
-            .resizeAspectFill
-        case .contain:
-            .resizeAspect
-        }
-    }
-}
-
 @MainActor
 final class DesktopWindow: NSWindow {
     override var canBecomeKey: Bool {
@@ -55,7 +43,7 @@ final class DesktopWindow: NSWindow {
 
 @MainActor
 final class MacDesktopHost: DesktopHosting {
-    private(set) var surface: PlayerLayerSurfaceView?
+    private(set) var surface: DesktopPlayerLayerSurfaceView?
 
     private var window: DesktopWindow?
     private var screenObserver: NSObjectProtocol?
@@ -67,9 +55,9 @@ final class MacDesktopHost: DesktopHosting {
 
         let targetScreen = Self.primaryScreen
         let frame = targetScreen?.frame ?? .zero
-        let surface = PlayerLayerSurfaceView(
+        let surface = DesktopPlayerLayerSurfaceView(
             id: .desktop,
-            videoGravity: contentMode.videoGravity
+            contentMode: contentMode
         )
         surface.frame = NSRect(origin: .zero, size: frame.size)
         surface.autoresizingMask = [.width, .height]
@@ -102,7 +90,7 @@ final class MacDesktopHost: DesktopHosting {
     }
 
     func setVideoContentMode(_ contentMode: DesktopVideoContentMode) {
-        surface?.setVideoGravity(contentMode.videoGravity)
+        surface?.setContentMode(contentMode)
     }
 
     func reveal() {

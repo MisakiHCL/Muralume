@@ -18,6 +18,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
 
     private enum TestStorage {
         static let suiteName = "com.muralume.tests.desktop-content-mode"
+        static let contentModeKey = "desktop.video-content-mode"
     }
 
     func testDesktopRoundTripDelegatesWindowAndStatusPresentation() async {
@@ -615,7 +616,9 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         )
     }
 
-    func testUserDefaultsVideoContentModeStorePersistsSelection() throws {
+    func testUserDefaultsVideoContentModeStorePersistsSelectionAndUsesNewDefault()
+        throws
+    {
         let suiteName = TestStorage.suiteName
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer {
@@ -626,14 +629,29 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         let initialStore = UserDefaultsDesktopVideoContentModeStore(
             defaults: defaults
         )
+        XCTAssertEqual(initialStore.load(), .blurredBackground)
+
+        defaults.set("unknown-mode", forKey: TestStorage.contentModeKey)
+        XCTAssertEqual(initialStore.load(), .blurredBackground)
+
+        defaults.set(
+            DesktopVideoContentMode.cover.rawValue,
+            forKey: TestStorage.contentModeKey
+        )
         XCTAssertEqual(initialStore.load(), .cover)
 
-        initialStore.save(.contain)
+        defaults.set(
+            DesktopVideoContentMode.contain.rawValue,
+            forKey: TestStorage.contentModeKey
+        )
+        XCTAssertEqual(initialStore.load(), .contain)
+
+        initialStore.save(.blurredBackground)
 
         let restoredStore = UserDefaultsDesktopVideoContentModeStore(
             defaults: defaults
         )
-        XCTAssertEqual(restoredStore.load(), .contain)
+        XCTAssertEqual(restoredStore.load(), .blurredBackground)
     }
 
     func testStatusMenuUsesBrandTemplateAndExpectedDesktopActions() throws {
@@ -736,9 +754,28 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         let contentModeItems = try XCTUnwrap(menu.items[4].submenu?.items)
         XCTAssertEqual(
             contentModeItems.compactMap { $0.representedObject as? String },
-            DesktopVideoContentMode.allCases.map(\.rawValue)
+            [
+                DesktopVideoContentMode.blurredBackground.rawValue,
+                DesktopVideoContentMode.cover.rawValue,
+                DesktopVideoContentMode.contain.rawValue
+            ]
         )
-        XCTAssertEqual(contentModeItems.map(\.state), [.off, .on])
+        XCTAssertEqual(
+            contentModeItems.map(\.title),
+            ["Blurred Background", "Fill Screen", "Fit to Screen"]
+        )
+        XCTAssertEqual(contentModeItems.map(\.state), [.off, .off, .on])
+
+        statusState = DesktopStatusState(
+            sourceName: "Example",
+            isPlaying: true,
+            isTransitioning: false,
+            canPlayNext: true,
+            playbackRate: PlaybackRate(rawValue: 1.5),
+            videoContentMode: .blurredBackground
+        )
+        controller.menuNeedsUpdate(menu)
+        XCTAssertEqual(contentModeItems.map(\.state), [.on, .off, .off])
 
         localization.selectLanguage(.simplifiedChinese)
 
@@ -750,14 +787,14 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(menu.items[7].title, "退出 Muralume")
         XCTAssertEqual(
             menu.items[4].submenu?.items.map(\.title),
-            ["填满屏幕", "完整显示"]
+            ["模糊背景", "填满屏幕", "完整显示"]
         )
 
         menu.items[3].submenu?.performActionForItem(at: 5)
         XCTAssertEqual(selectedPlaybackRate, PlaybackRate(rawValue: 2))
 
         menu.items[4].submenu?.performActionForItem(at: 0)
-        XCTAssertEqual(selectedContentMode, .cover)
+        XCTAssertEqual(selectedContentMode, .blurredBackground)
     }
 
     func testStatusMenuShowCreatesUsableIdempotentEntry() {

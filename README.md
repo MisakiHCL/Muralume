@@ -42,6 +42,8 @@ Your source videos stay exactly where you put them. Muralume receives read-only 
 
 Place the current queue behind desktop files and widgets while keeping the desktop fully interactive. Muralume uses macOS-native playback, stays muted in desktop mode, does not prevent display sleep, and pauses automatically when the screen locks, the display sleeps, or the system enters a constrained state.
 
+By default, Muralume keeps the full video sharp and fills any remaining space with a softly blurred version of the same frame.
+
 ### Folders become playlists
 
 Add folders from your Mac or an external drive. Muralume recursively discovers MP4, MOV, and M4V videos, generates local thumbnails, and sorts them by name, creation date, or file size—without reorganizing anything on disk.

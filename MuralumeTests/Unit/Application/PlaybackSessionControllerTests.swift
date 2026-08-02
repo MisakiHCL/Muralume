@@ -16,7 +16,8 @@ final class PlaybackSessionControllerTests: XCTestCase {
             currentItem: items[1],
             currentTime: 42,
             isPlaying: true,
-            presentation: .desktop
+            presentation: .desktop,
+            videoContentMode: .blurredBackground
         )
         let store = FilePlaybackSessionStore(fileURL: fileURL)
 
@@ -27,6 +28,60 @@ final class PlaybackSessionControllerTests: XCTestCase {
         try await store.clear()
         let clearedSnapshot = try await store.load()
         XCTAssertNil(clearedSnapshot)
+    }
+
+    func testFileStoreDecodesVersionOneContainSessionFromV102() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directoryURL.appendingPathComponent("session.json")
+        defer {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        let versionOneJSON = #"""
+        {
+          "schemaVersion": 1,
+          "state": {
+            "schemaVersion": 1,
+            "queue": {
+              "items": [
+                { "rootPath": "/tmp/Library", "relativePath": "clip.mp4" }
+              ],
+              "order": "ordered",
+              "currentItem": {
+                "rootPath": "/tmp/Library",
+                "relativePath": "clip.mp4"
+              },
+              "roundNumber": 1,
+              "currentRoundPosition": 1,
+              "remainingItems": [
+                { "rootPath": "/tmp/Library", "relativePath": "clip.mp4" }
+              ],
+              "remainingIndex": 1,
+              "history": [],
+              "forwardHistory": []
+            },
+            "currentTime": 24,
+            "isPlaybackRequested": false,
+            "playbackRateValue": 1,
+            "videoContentMode": "contain"
+          },
+          "presentation": "desktop"
+        }
+        """#
+        try Data(versionOneJSON.utf8).write(to: fileURL)
+
+        let restoredSnapshot = try await FilePlaybackSessionStore(
+            fileURL: fileURL
+        ).load()
+
+        XCTAssertEqual(restoredSnapshot?.schemaVersion, 1)
+        XCTAssertEqual(restoredSnapshot?.state.videoContentMode, .contain)
+        XCTAssertEqual(restoredSnapshot?.presentation, .desktop)
+        XCTAssertTrue(restoredSnapshot?.isValid == true)
     }
 
     func testPlayerRestoreResumesCurrentItemTimeAndPlayback() async throws {
@@ -414,7 +469,8 @@ final class PlaybackSessionControllerTests: XCTestCase {
         currentItem: LibraryMediaItem,
         currentTime: TimeInterval,
         isPlaying: Bool,
-        presentation: PlaybackSessionPresentation
+        presentation: PlaybackSessionPresentation,
+        videoContentMode: DesktopVideoContentMode = .cover
     ) throws -> PlaybackSessionSnapshot {
         let queue = PlaybackQueue(
             items: items.map(\.id),
@@ -427,7 +483,7 @@ final class PlaybackSessionControllerTests: XCTestCase {
                 currentTime: currentTime,
                 isPlaybackRequested: isPlaying,
                 playbackRate: PlaybackPolicy.defaultRate,
-                videoContentMode: .cover
+                videoContentMode: videoContentMode
             ),
             presentation: presentation
         )

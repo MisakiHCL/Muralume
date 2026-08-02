@@ -36,6 +36,7 @@
 "desktop.playNext" = "播放下一个";
 "desktop.return" = "返回播放器";
 "desktop.contentMode" = "桌面适配";
+"desktop.contentMode.blurredBackground" = "模糊背景";
 "desktop.contentMode.cover" = "填满屏幕";
 "desktop.contentMode.contain" = "完整显示";
 "desktop.quit" = "退出 Muralume";

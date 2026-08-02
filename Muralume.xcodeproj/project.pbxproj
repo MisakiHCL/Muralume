@@ -95,6 +95,7 @@
 		CEB28A8BFD66AAC33B3CF6A1 /* FileDesktopPresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2E5FCCB7B72B4DD3AFAF836 /* FileDesktopPresetStore.swift */; };
 		D0A0FBE24BAF468290B1E7D1 /* SystemNotificationName.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC6DCFAE93B6413084C9C561 /* SystemNotificationName.swift */; };
 		D0E3643141099DD2E8F3DF6D /* PlayerScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED645770F764AF0E6A40DE45 /* PlayerScreen.swift */; };
+		D60000000000000000000011 /* DesktopPlayerLayerSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */; };
 		D411CD1097024403912B986C /* PlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82C43CDEEC83437E807E0533 /* PlaybackEngine.swift */; };
 		DE6157F7308D1EE1AE13B15F /* DesktopPresetController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8074E4CA3AA4FB1321DFE13C /* DesktopPresetController.swift */; };
 		E442427008084A208AE9D81D /* LaunchAtLoginControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848B492C1513ACCE6930D647 /* LaunchAtLoginControllerTests.swift */; };
@@ -226,6 +227,7 @@
 		D2E5FCCB7B72B4DD3AFAF836 /* FileDesktopPresetStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileDesktopPresetStore.swift; sourceTree = "<group>"; };
 		D382901D037C4949AA2E1090 /* VideoViewport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoViewport.swift; sourceTree = "<group>"; };
 		D3F2E5966FB709EA70C9D0D3 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopPlayerLayerSurfaceView.swift; sourceTree = "<group>"; };
 		D9C9A8AA279227FF1FED1E7E /* Localizable.strings */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		DC6DCFAE93B6413084C9C561 /* SystemNotificationName.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemNotificationName.swift; sourceTree = "<group>"; };
 		E4C1719B3EBF498C8A5CCF6E /* PlayerControls.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerControls.swift; sourceTree = "<group>"; };
@@ -306,6 +308,7 @@
 			isa = PBXGroup;
 			children = (
 				C7D4159ECB84CD3F4C1A1703 /* AVFoundationPlaybackEngine.swift */,
+				D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */,
 				C30000000000000000000004 /* FilePlaybackSessionStore.swift */,
 				C6DA3CA7D3E688ED8F03C2D4 /* PlayerLayerSurfaceView.swift */,
 			);
@@ -972,6 +975,7 @@
 				AF1000000000000000000012 /* QuickLookMediaThumbnailProvider.swift in Sources */,
 				AC0000000000000000000013 /* UserDefaultsAppPreferencesStore.swift in Sources */,
 				4B9EC4249AD1406990161515 /* AVFoundationPlaybackEngine.swift in Sources */,
+				D60000000000000000000011 /* DesktopPlayerLayerSurfaceView.swift in Sources */,
 				C30000000000000000000014 /* FilePlaybackSessionStore.swift in Sources */,
 				A68650D9162A708D93F5F453 /* PlayerLayerSurfaceView.swift in Sources */,
 				D0A0FBE24BAF468290B1E7D1 /* SystemNotificationName.swift in Sources */,
