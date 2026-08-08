@@ -2,6 +2,19 @@ import AppKit
 import CoreGraphics
 import Foundation
 
+private enum SystemDisplayKey {
+    static let screenNumber = NSDeviceDescriptionKey("NSScreenNumber")
+}
+
+enum DisplaySleepPolicy {
+    static func shouldSuspend(
+        displayIDs: [CGDirectDisplayID],
+        isAsleep: (CGDirectDisplayID) -> Bool
+    ) -> Bool {
+        displayIDs.allSatisfy(isAsleep)
+    }
+}
+
 @MainActor
 final class SystemLifecycleMonitor: SystemLifecycleMonitoring {
     var suspensionHandler: ((PlaybackSuspensionReason, Bool) -> Void)?
@@ -80,6 +93,17 @@ final class SystemLifecycleMonitor: SystemLifecycleMonitoring {
         }
         defaultObservers.append(thermalObserver)
 
+        let screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.publishInitialDisplayState()
+            }
+        }
+        defaultObservers.append(screenParametersObserver)
+
         publishInitialSessionState()
         publishInitialDisplayState()
         publishCurrentThermalState()
@@ -155,7 +179,20 @@ final class SystemLifecycleMonitor: SystemLifecycleMonitoring {
     }
 
     private func publishInitialDisplayState() {
-        let isDisplaySleeping = CGDisplayIsAsleep(CGMainDisplayID()) != 0
+        let displayIDs: [CGDirectDisplayID] = NSScreen.screens.compactMap {
+            screen -> CGDirectDisplayID? in
+            guard let displayID = (screen.deviceDescription[
+                SystemDisplayKey.screenNumber
+            ] as? NSNumber)?.uint32Value,
+                  CGDisplayMirrorsDisplay(displayID) == kCGNullDirectDisplay else {
+                return nil
+            }
+            return displayID
+        }
+        let isDisplaySleeping = DisplaySleepPolicy.shouldSuspend(
+            displayIDs: displayIDs,
+            isAsleep: { CGDisplayIsAsleep($0) != 0 }
+        )
         suspensionHandler?(.displaySleeping, isDisplaySleeping)
     }
 }

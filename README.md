@@ -53,7 +53,7 @@ Your source videos stay exactly where you put them. Muralume receives read-only 
 
 ### An energy-aware Dynamic Desktop
 
-Place the current queue behind desktop files and widgets while keeping the desktop fully interactive. Muralume uses macOS-native playback, stays muted in desktop mode, does not prevent display sleep, and pauses automatically when the screen locks, the display sleeps, or the system enters a constrained state.
+Place the current queue behind desktop files and widgets on every connected display while keeping each desktop fully interactive. Displays can be connected, removed, rearranged, or resized without restarting the queue. Muralume uses macOS-native playback, stays muted in desktop mode, does not prevent display sleep, and pauses automatically when the screen locks, every display sleeps, or the system enters a constrained state.
 
 By default, Muralume keeps the full video sharp and fills any remaining space with a softly blurred version of the same frame.
 
@@ -105,7 +105,7 @@ The menu bar item lets you pause, skip, choose ordered playback or shuffle, chan
 - Apple silicon Mac
 - macOS 14 or later
 - MP4, MOV, or M4V video
-- Dynamic Desktop currently uses the primary display
+- All connected displays share the same video, playback clock, and display mode; per-display media is not supported
 
 Playback compatibility depends on the codecs available through macOS AVFoundation. H.264 and HEVC are common compatible choices.
 

@@ -74,6 +74,7 @@ enum MuralumeTheme {
         static let settingsPanelWidth: CGFloat = 400
         static let settingsRowMinimumHeight: CGFloat = 60
         static let playlistHeaderActionWidth: CGFloat = 68
+        static let playlistStatusBarHeight: CGFloat = 40
         static let playlistRefreshActionWidth: CGFloat = 112
         static let mediaDropOverlayMaximumWidth: CGFloat = 360
         static let mediaDropOverlayIcon: CGFloat = 32

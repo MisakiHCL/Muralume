@@ -12,7 +12,11 @@ final class RealAVPlayerLayerRoundTripTests: XCTestCase {
         static let windowOriginY: CGFloat = 120
         static let playerWindowOriginX: CGFloat = 80
         static let desktopWindowOriginX: CGFloat = 440
+        static let secondDesktopWindowOriginX: CGFloat = 800
+        static let thirdDesktopWindowOriginX: CGFloat = 1_160
         static let renderingSettleNanoseconds: UInt64 = 300_000_000
+        static let hotPlugReadyTimeoutNanoseconds: UInt64 = 5_000_000_000
+        static let hotPlugPollIntervalNanoseconds: UInt64 = 50_000_000
         static let geometryAccuracy: CGFloat = 2
         static let landscapeFixtureName = "landscape-20s-h264"
         static let portraitFixtureName = "portrait-20s-h264"
@@ -265,6 +269,121 @@ final class RealAVPlayerLayerRoundTripTests: XCTestCase {
         XCTAssertEqual(desktopSurface.backgroundVideoGravity, .resizeAspectFill)
     }
 
+    func testCompositeDesktopSurfaceKeepsOnePlayerAcrossHotPlugAndRemoval()
+        async throws {
+        let engine = AVFoundationPlaybackEngine()
+        let desktopSurface = DesktopPlayerLayerSurfaceGroup(id: .desktop)
+        let firstDisplaySurface = DesktopPlayerLayerSurfaceView(
+            id: .desktop,
+            contentMode: .blurredBackground
+        )
+        let secondDisplaySurface = DesktopPlayerLayerSurfaceView(
+            id: .desktop,
+            contentMode: .blurredBackground
+        )
+        var windows = [
+            makeWindow(
+                for: firstDisplaySurface,
+                originX: TestConfiguration.desktopWindowOriginX
+            ),
+            makeWindow(
+                for: secondDisplaySurface,
+                originX: TestConfiguration.secondDesktopWindowOriginX
+            )
+        ]
+        defer {
+            engine.stop()
+            close(windows)
+        }
+
+        desktopSurface.replaceDisplaySurfaces([
+            firstDisplaySurface,
+            secondDisplaySurface
+        ])
+        _ = try await engine.load(
+            ResolvedMediaSource(
+                url: try TestMediaFixture.h264URL(for: Self.self),
+                displayName: "Sample"
+            )
+        )
+        try await engine.attach(to: desktopSurface)
+        engine.pause()
+
+        let playerIdentity = try XCTUnwrap(
+            firstDisplaySurface.connectedPlayerIdentity
+        )
+        XCTAssertTrue(desktopSurface.isReadyForDisplay)
+        XCTAssertTrue(firstDisplaySurface.isReadyForDisplay)
+        XCTAssertTrue(secondDisplaySurface.isReadyForDisplay)
+        XCTAssertEqual(
+            firstDisplaySurface.backgroundConnectedPlayerIdentity,
+            playerIdentity
+        )
+        XCTAssertEqual(
+            secondDisplaySurface.connectedPlayerIdentity,
+            playerIdentity
+        )
+        XCTAssertEqual(
+            secondDisplaySurface.backgroundConnectedPlayerIdentity,
+            playerIdentity
+        )
+
+        let thirdDisplaySurface = DesktopPlayerLayerSurfaceView(
+            id: .desktop,
+            contentMode: .blurredBackground
+        )
+        windows.append(
+            makeWindow(
+                for: thirdDisplaySurface,
+                originX: TestConfiguration.thirdDesktopWindowOriginX
+            )
+        )
+        desktopSurface.replaceDisplaySurfaces([
+            firstDisplaySurface,
+            secondDisplaySurface,
+            thirdDisplaySurface
+        ])
+
+        try await waitUntilReady(
+            thirdDisplaySurface,
+            timeoutNanoseconds: TestConfiguration.hotPlugReadyTimeoutNanoseconds
+        )
+        XCTAssertTrue(desktopSurface.isReadyForDisplay)
+        XCTAssertEqual(
+            thirdDisplaySurface.connectedPlayerIdentity,
+            playerIdentity
+        )
+        XCTAssertEqual(
+            thirdDisplaySurface.backgroundConnectedPlayerIdentity,
+            playerIdentity
+        )
+
+        desktopSurface.replaceDisplaySurfaces([
+            secondDisplaySurface,
+            thirdDisplaySurface
+        ])
+
+        XCTAssertNil(firstDisplaySurface.connectedPlayerIdentity)
+        XCTAssertNil(firstDisplaySurface.backgroundConnectedPlayerIdentity)
+        XCTAssertEqual(
+            secondDisplaySurface.connectedPlayerIdentity,
+            playerIdentity
+        )
+        XCTAssertEqual(
+            secondDisplaySurface.backgroundConnectedPlayerIdentity,
+            playerIdentity
+        )
+        XCTAssertEqual(
+            thirdDisplaySurface.connectedPlayerIdentity,
+            playerIdentity
+        )
+        XCTAssertEqual(
+            thirdDisplaySurface.backgroundConnectedPlayerIdentity,
+            playerIdentity
+        )
+        XCTAssertTrue(desktopSurface.isReadyForDisplay)
+    }
+
     func testBlurredBackgroundRevealsExpectedBarsForLandscapeAndPortraitVideo()
         async throws {
         let landscape = try await renderedGeometry(
@@ -386,6 +505,24 @@ final class RealAVPlayerLayerRoundTripTests: XCTestCase {
         window.orderFrontRegardless()
         surface.layoutSubtreeIfNeeded()
         return window
+    }
+
+    private func waitUntilReady(
+        _ surface: any PlaybackRenderSurface,
+        timeoutNanoseconds: UInt64
+    ) async throws {
+        var elapsedNanoseconds: UInt64 = 0
+
+        while !surface.isReadyForDisplay {
+            guard elapsedNanoseconds < timeoutNanoseconds else {
+                XCTFail("Timed out waiting for the hot-plugged display surface")
+                return
+            }
+            try await Task.sleep(
+                nanoseconds: TestConfiguration.hotPlugPollIntervalNanoseconds
+            )
+            elapsedNanoseconds += TestConfiguration.hotPlugPollIntervalNanoseconds
+        }
     }
 
     private func close(_ windows: [NSWindow]) {

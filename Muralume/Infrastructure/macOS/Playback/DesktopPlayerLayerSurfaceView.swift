@@ -237,3 +237,48 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
         ]
     }
 }
+
+@MainActor
+final class DesktopPlayerLayerSurfaceGroup: AVPlayerRenderSurface {
+    let id: PlaybackSurfaceID
+
+    var isReadyForDisplay: Bool {
+        !displaySurfaces.isEmpty
+            && displaySurfaces.allSatisfy(\.isReadyForDisplay)
+    }
+
+    private(set) var displaySurfaces: [DesktopPlayerLayerSurfaceView] = []
+    private weak var connectedPlayer: AVPlayer?
+
+    init(id: PlaybackSurfaceID) {
+        self.id = id
+    }
+
+    func connect(to player: AVPlayer?) {
+        connectedPlayer = player
+        displaySurfaces.forEach { $0.connect(to: player) }
+    }
+
+    func replaceDisplaySurfaces(
+        _ displaySurfaces: [DesktopPlayerLayerSurfaceView]
+    ) {
+        let previousIdentities = Set(
+            self.displaySurfaces.map(ObjectIdentifier.init)
+        )
+        let replacementIdentities = Set(
+            displaySurfaces.map(ObjectIdentifier.init)
+        )
+        self.displaySurfaces
+            .filter { !replacementIdentities.contains(ObjectIdentifier($0)) }
+            .forEach { $0.connect(to: nil) }
+
+        self.displaySurfaces = displaySurfaces
+        self.displaySurfaces
+            .filter { !previousIdentities.contains(ObjectIdentifier($0)) }
+            .forEach { $0.connect(to: connectedPlayer) }
+    }
+
+    func setContentMode(_ contentMode: DesktopVideoContentMode) {
+        displaySurfaces.forEach { $0.setContentMode(contentMode) }
+    }
+}

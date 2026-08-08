@@ -5,6 +5,41 @@ private enum DesktopScreenKey {
     static let screenNumber = NSDeviceDescriptionKey("NSScreenNumber")
 }
 
+private enum DesktopDisplayTopologyPolicy {
+    static let emptyTopologyGracePeriodNanoseconds: UInt64 = 500_000_000
+    static let initialDeferredRevealPollIntervalNanoseconds: UInt64 =
+        250_000_000
+    static let maximumDeferredRevealPollIntervalNanoseconds: UInt64 =
+        4_000_000_000
+}
+
+struct MacDesktopDisplayID: Hashable, Comparable {
+    let rawValue: CGDirectDisplayID
+
+    static func < (
+        lhs: MacDesktopDisplayID,
+        rhs: MacDesktopDisplayID
+    ) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
+struct MacDesktopDisplay {
+    let id: MacDesktopDisplayID
+    let frame: NSRect
+    let screen: NSScreen?
+
+    init(
+        id: CGDirectDisplayID,
+        frame: NSRect,
+        screen: NSScreen? = nil
+    ) {
+        self.id = MacDesktopDisplayID(rawValue: id)
+        self.frame = frame
+        self.screen = screen
+    }
+}
+
 final class UserDefaultsDesktopVideoContentModeStore:
     DesktopVideoContentModeStoring {
     private enum Storage {
@@ -43,34 +78,210 @@ final class DesktopWindow: NSWindow {
 
 @MainActor
 final class MacDesktopHost: DesktopHosting {
-    private(set) var surface: DesktopPlayerLayerSurfaceView?
+    private struct HostedDisplay {
+        let window: DesktopWindow
+        let surface: DesktopPlayerLayerSurfaceView
+        var frame: NSRect
+    }
 
-    private var window: DesktopWindow?
+    private(set) var surface: DesktopPlayerLayerSurfaceGroup?
+
+    var hostedDisplayIDs: Set<MacDesktopDisplayID> {
+        Set(hostedDisplays.keys)
+    }
+
+    var hostedWindowCount: Int {
+        hostedDisplays.count
+    }
+
+    var hostedWindowFrames: [MacDesktopDisplayID: NSRect] {
+        hostedDisplays.mapValues(\.window.frame)
+    }
+
+    var hostedWindowAlphaValues: [MacDesktopDisplayID: CGFloat] {
+        hostedDisplays.mapValues(\.window.alphaValue)
+    }
+
+    private let notificationCenter: NotificationCenter
+    private let displaysProvider: () -> [MacDesktopDisplay]
+    private let isSurfaceReady: (DesktopPlayerLayerSurfaceView) -> Bool
+    private let emptyTopologyGracePeriodNanoseconds: UInt64
+    private var hostedDisplays: [MacDesktopDisplayID: HostedDisplay] = [:]
+    private var displayRevealTasks: [
+        MacDesktopDisplayID: Task<Void, Never>
+    ] = [:]
+    private var emptyTopologyTask: Task<Void, Never>?
     private var screenObserver: NSObjectProtocol?
+    private var contentMode = DesktopVideoContentMode.defaultValue
+    private var isRevealed = false
+
+    init(
+        notificationCenter: NotificationCenter = .default,
+        displaysProvider: @escaping () -> [MacDesktopDisplay] = {
+            MacDesktopHost.currentDisplays
+        },
+        isSurfaceReady: @escaping (
+            DesktopPlayerLayerSurfaceView
+        ) -> Bool = { $0.isReadyForDisplay },
+        emptyTopologyGracePeriodNanoseconds: UInt64 =
+            DesktopDisplayTopologyPolicy.emptyTopologyGracePeriodNanoseconds
+    ) {
+        self.notificationCenter = notificationCenter
+        self.displaysProvider = displaysProvider
+        self.isSurfaceReady = isSurfaceReady
+        self.emptyTopologyGracePeriodNanoseconds =
+            emptyTopologyGracePeriodNanoseconds
+    }
 
     func prepare(
         contentMode: DesktopVideoContentMode
     ) -> any PlaybackRenderSurface {
         close()
+        self.contentMode = contentMode
+        isRevealed = false
+        let surface = DesktopPlayerLayerSurfaceGroup(id: .desktop)
+        self.surface = surface
+        reconcileDisplays()
+        installScreenObserver()
+        return surface
+    }
 
-        let targetScreen = Self.primaryScreen
-        let frame = targetScreen?.frame ?? .zero
+    func setVideoContentMode(_ contentMode: DesktopVideoContentMode) {
+        self.contentMode = contentMode
+        surface?.setContentMode(contentMode)
+    }
+
+    func reveal() {
+        guard surface != nil else {
+            return
+        }
+        isRevealed = true
+        reassertDesktopPlacement()
+    }
+
+    func reassertDesktopPlacement() {
+        guard surface != nil else {
+            return
+        }
+        reconcileDisplays()
+        if isRevealed {
+            for (displayID, hostedDisplay) in hostedDisplays
+                where hostedDisplay.window.alphaValue < 1 {
+                revealWhenReady(displayID, surface: hostedDisplay.surface)
+            }
+        }
+        hostedDisplays.values.forEach(Self.reassertPlacement)
+    }
+
+    func close() {
+        if let screenObserver {
+            notificationCenter.removeObserver(screenObserver)
+            self.screenObserver = nil
+        }
+        cancelPendingTopologyWork()
+        isRevealed = false
+        surface?.replaceDisplaySurfaces([])
+        surface?.connect(to: nil)
+        surface = nil
+        hostedDisplays.values.forEach(Self.tearDown)
+        hostedDisplays.removeAll()
+    }
+
+    private func installScreenObserver() {
+        screenObserver = notificationCenter.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.reassertDesktopPlacement()
+            }
+        }
+    }
+
+    private func reconcileDisplays(
+        allowStableEmptyTopology: Bool = false
+    ) {
+        let displays = displaysProvider().reduce(
+            into: [MacDesktopDisplayID: MacDesktopDisplay]()
+        ) { result, display in
+            guard display.frame.width > 0, display.frame.height > 0 else {
+                return
+            }
+            result[display.id] = display
+        }
+        if displays.isEmpty,
+           !hostedDisplays.isEmpty,
+           !allowStableEmptyTopology {
+            scheduleEmptyTopologyRecheck()
+            return
+        }
+        cancelEmptyTopologyRecheck()
+        let removedDisplayIDs = Set(hostedDisplays.keys)
+            .subtracting(displays.keys)
+        var removedDisplays: [HostedDisplay] = []
+        var addedDisplayIDs: Set<MacDesktopDisplayID> = []
+
+        for displayID in removedDisplayIDs {
+            cancelReveal(for: displayID)
+            if let removedDisplay = hostedDisplays.removeValue(
+                forKey: displayID
+            ) {
+                removedDisplays.append(removedDisplay)
+            }
+        }
+
+        for (displayID, display) in displays {
+            if var hostedDisplay = hostedDisplays[displayID] {
+                hostedDisplay.frame = display.frame
+                hostedDisplay.window.setFrame(display.frame, display: true)
+                hostedDisplays[displayID] = hostedDisplay
+            } else {
+                hostedDisplays[displayID] = makeHostedDisplay(for: display)
+                addedDisplayIDs.insert(displayID)
+            }
+        }
+
+        let orderedSurfaces = hostedDisplays.keys.sorted().compactMap {
+            hostedDisplays[$0]?.surface
+        }
+        surface?.replaceDisplaySurfaces(orderedSurfaces)
+
+        if isRevealed {
+            for displayID in addedDisplayIDs {
+                guard let hostedDisplay = hostedDisplays[displayID] else {
+                    continue
+                }
+                revealWhenReady(displayID, surface: hostedDisplay.surface)
+            }
+        }
+
+        removedDisplays.forEach(Self.tearDown)
+    }
+
+    private func makeHostedDisplay(
+        for display: MacDesktopDisplay
+    ) -> HostedDisplay {
         let surface = DesktopPlayerLayerSurfaceView(
             id: .desktop,
             contentMode: contentMode
         )
-        surface.frame = NSRect(origin: .zero, size: frame.size)
+        surface.frame = NSRect(origin: .zero, size: display.frame.size)
         surface.autoresizingMask = [.width, .height]
 
         let window = DesktopWindow(
-            contentRect: frame,
+            contentRect: display.frame,
             styleMask: [.borderless],
             backing: .buffered,
             defer: false,
-            screen: targetScreen
+            screen: display.screen
         )
         window.backgroundColor = .black
-        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        window.collectionBehavior = [
+            .canJoinAllSpaces,
+            .stationary,
+            .ignoresCycle
+        ]
         window.contentView = surface
         window.hasShadow = false
         window.hidesOnDeactivate = false
@@ -83,63 +294,115 @@ final class MacDesktopHost: DesktopHosting {
         window.alphaValue = 0.01
         window.orderFrontRegardless()
 
-        self.surface = surface
-        self.window = window
-        installScreenObserver()
-        return surface
+        return HostedDisplay(
+            window: window,
+            surface: surface,
+            frame: display.frame
+        )
     }
 
-    func setVideoContentMode(_ contentMode: DesktopVideoContentMode) {
-        surface?.setContentMode(contentMode)
-    }
-
-    func reveal() {
-        guard let window else {
+    private func revealWhenReady(
+        _ displayID: MacDesktopDisplayID,
+        surface: DesktopPlayerLayerSurfaceView
+    ) {
+        guard isRevealed, displayRevealTasks[displayID] == nil else {
             return
         }
-        window.alphaValue = 1
-        reassertDesktopPlacement()
-    }
-
-    func reassertDesktopPlacement() {
-        guard let window else {
+        if isSurfaceReady(surface) {
+            hostedDisplays[displayID]?.window.alphaValue = 1
             return
         }
-        let screen = resolvedScreen()
-        if let screen {
-            window.setFrame(screen.frame, display: true)
-        }
-        window.level = Self.desktopVideoLevel
-        window.ignoresMouseEvents = true
-        window.orderFrontRegardless()
-    }
 
-    func close() {
-        if let screenObserver {
-            NotificationCenter.default.removeObserver(screenObserver)
-            self.screenObserver = nil
-        }
-        surface?.connect(to: nil)
-        surface = nil
-        window?.orderOut(nil)
-        window?.close()
-        window = nil
-    }
-
-    private func installScreenObserver() {
-        screenObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.reassertDesktopPlacement()
+        displayRevealTasks[displayID] = Task { @MainActor [weak self, weak surface] in
+            var fastPollingElapsedNanoseconds: UInt64 = 0
+            var pollIntervalNanoseconds =
+                PlaybackPolicy.surfacePollIntervalNanoseconds
+            while !Task.isCancelled {
+                let shouldKeepWaiting = { [weak self, weak surface] in
+                    guard let self,
+                          let surface,
+                          self.isRevealed,
+                          self.hostedDisplays[displayID]?.surface === surface else {
+                        return false
+                    }
+                    if self.isSurfaceReady(surface) {
+                        self.hostedDisplays[displayID]?.window.alphaValue = 1
+                        self.displayRevealTasks[displayID] = nil
+                        return false
+                    }
+                    return true
+                }()
+                guard shouldKeepWaiting else {
+                    return
+                }
+                try? await Task.sleep(
+                    nanoseconds: pollIntervalNanoseconds
+                )
+                if fastPollingElapsedNanoseconds
+                    < PlaybackPolicy.surfaceReadyTimeoutNanoseconds {
+                    fastPollingElapsedNanoseconds += pollIntervalNanoseconds
+                    if fastPollingElapsedNanoseconds
+                        >= PlaybackPolicy.surfaceReadyTimeoutNanoseconds {
+                        pollIntervalNanoseconds = DesktopDisplayTopologyPolicy
+                            .initialDeferredRevealPollIntervalNanoseconds
+                    }
+                } else {
+                    pollIntervalNanoseconds = min(
+                        pollIntervalNanoseconds * 2,
+                        DesktopDisplayTopologyPolicy
+                            .maximumDeferredRevealPollIntervalNanoseconds
+                    )
+                }
             }
         }
     }
 
-    private func resolvedScreen() -> NSScreen? {
-        Self.primaryScreen
+    private func scheduleEmptyTopologyRecheck() {
+        guard emptyTopologyTask == nil else {
+            return
+        }
+        let gracePeriodNanoseconds = emptyTopologyGracePeriodNanoseconds
+        emptyTopologyTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(
+                nanoseconds: gracePeriodNanoseconds
+            )
+            guard !Task.isCancelled, let self else {
+                return
+            }
+            emptyTopologyTask = nil
+            reconcileDisplays(allowStableEmptyTopology: true)
+        }
+    }
+
+    private func cancelReveal(for displayID: MacDesktopDisplayID) {
+        displayRevealTasks.removeValue(forKey: displayID)?.cancel()
+    }
+
+    private func cancelEmptyTopologyRecheck() {
+        emptyTopologyTask?.cancel()
+        emptyTopologyTask = nil
+    }
+
+    private func cancelPendingTopologyWork() {
+        displayRevealTasks.values.forEach { $0.cancel() }
+        displayRevealTasks.removeAll()
+        cancelEmptyTopologyRecheck()
+    }
+
+    private static func reassertPlacement(
+        _ hostedDisplay: HostedDisplay
+    ) {
+        hostedDisplay.window.setFrame(hostedDisplay.frame, display: true)
+        hostedDisplay.window.level = desktopVideoLevel
+        hostedDisplay.window.ignoresMouseEvents = true
+        hostedDisplay.window.orderFrontRegardless()
+    }
+
+    private static func tearDown(_ hostedDisplay: HostedDisplay) {
+        hostedDisplay.surface.connect(to: nil)
+        hostedDisplay.window.orderOut(nil)
+        hostedDisplay.window.contentView = nil
+        hostedDisplay.window.close()
     }
 
     private static var desktopVideoLevel: NSWindow.Level {
@@ -150,14 +413,23 @@ final class MacDesktopHost: DesktopHosting {
         return NSWindow.Level(rawValue: min(levelAboveWallpaper, levelBelowIcons))
     }
 
-    private static var primaryScreen: NSScreen? {
-        let mainDisplayID = CGMainDisplayID()
-        return NSScreen.screens.first { screen in
+    private static var currentDisplays: [MacDesktopDisplay] {
+        NSScreen.screens.compactMap { screen in
             guard let screenNumber = screen.deviceDescription[DesktopScreenKey.screenNumber]
                 as? NSNumber else {
-                return false
+                return nil
             }
-            return screenNumber.uint32Value == mainDisplayID
-        } ?? NSScreen.screens.first
+            let displayID = screenNumber.uint32Value
+            // The mirror primary already supplies the drawable desktop for
+            // the whole mirror set; a second window would duplicate work.
+            guard CGDisplayMirrorsDisplay(displayID) == kCGNullDirectDisplay else {
+                return nil
+            }
+            return MacDesktopDisplay(
+                id: displayID,
+                frame: screen.frame,
+                screen: screen
+            )
+        }
     }
 }

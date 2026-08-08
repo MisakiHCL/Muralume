@@ -41,14 +41,15 @@ struct LibraryQueueSidebar: View {
         VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.medium) {
             header
 
+            sidebarStatusBar
+                .frame(height: MuralumeTheme.Size.playlistStatusBarHeight)
+
+            Divider()
+                .overlay(MuralumeTheme.Colors.border)
+
             if isEditing {
                 rootEditor
             } else {
-                libraryStatusBar
-
-                Divider()
-                    .overlay(MuralumeTheme.Colors.border)
-
                 playlistContent
             }
         }
@@ -182,7 +183,7 @@ struct LibraryQueueSidebar: View {
             .accessibilityLabel(Text("library.playlist.hide"))
         }
         .frame(
-            minHeight: MuralumeTheme.Size.control,
+            height: MuralumeTheme.Size.control,
             alignment: .center
         )
     }
@@ -233,34 +234,41 @@ struct LibraryQueueSidebar: View {
         }
     }
 
-    private var rootEditor: some View {
-        VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.small) {
-            HStack(spacing: MuralumeTheme.Spacing.small) {
-                editorRefreshStatus
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    @ViewBuilder
+    private var sidebarStatusBar: some View {
+        if isEditing {
+            editorStatusBar
+        } else {
+            libraryStatusBar
+        }
+    }
 
-                Button {
-                    library.refresh()
-                } label: {
-                    refreshActionLabel
-                }
-                .buttonStyle(
-                    MuralumeToolbarButtonStyle(
-                        width: MuralumeTheme.Size
-                            .playlistRefreshActionWidth
-                    )
-                )
-                .disabled(!library.canRefresh)
-                .help(Text("library.refresh"))
-                .accessibilityLabel(Text("library.refresh"))
-                .accessibilityIdentifier(
-                    MuralumeAccessibilityIdentifier.refreshLibraryButton
-                )
+    private var editorStatusBar: some View {
+        HStack(spacing: MuralumeTheme.Spacing.small) {
+            editorRefreshStatus
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                library.refresh()
+            } label: {
+                refreshActionLabel
             }
+            .buttonStyle(
+                MuralumeToolbarButtonStyle(
+                    width: MuralumeTheme.Size.playlistRefreshActionWidth
+                )
+            )
+            .disabled(!library.canRefresh)
+            .help(Text("library.refresh"))
+            .accessibilityLabel(Text("library.refresh"))
+            .accessibilityIdentifier(
+                MuralumeAccessibilityIdentifier.refreshLibraryButton
+            )
+        }
+    }
 
-            Divider()
-                .overlay(MuralumeTheme.Colors.border)
-
+    private var rootEditor: some View {
+        VStack(alignment: .leading) {
             ScrollView {
                 LazyVStack(spacing: MuralumeTheme.Spacing.small) {
                     ForEach(library.roots) { root in
