@@ -375,6 +375,70 @@ final class AppCoordinatorTests: XCTestCase {
         XCTAssertEqual(snapshot?.state.isPlaybackRequested, true)
     }
 
+    func testMenuLibraryEditOpensPlaylistEditorAndRevalidatesSources() async {
+        let fixture = makeFixture(launchStatus: .disabled)
+
+        fixture.coordinator.playerChrome.setPlaylistPresented(false)
+        fixture.coordinator.editLibraryFromMenu()
+
+        XCTAssertFalse(fixture.coordinator.playerChrome.isPlaylistPresented)
+        XCTAssertFalse(fixture.coordinator.playerChrome.isLibraryEditing)
+        XCTAssertFalse(
+            fixture.coordinator.mainMenuCommandState.canEditLibrary
+        )
+
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            !fixture.library.roots.isEmpty && fixture.window.isVisible
+        }
+
+        XCTAssertTrue(fixture.coordinator.mainMenuCommandState.canEditLibrary)
+
+        fixture.coordinator.editLibraryFromMenu()
+
+        XCTAssertTrue(fixture.coordinator.playerChrome.isPlaylistPresented)
+        XCTAssertTrue(fixture.coordinator.playerChrome.isLibraryEditing)
+        XCTAssertFalse(
+            fixture.coordinator.mainMenuCommandState.canEditLibrary
+        )
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testDesktopStatusPlaybackOrderUsesLibraryQueueTruth() async {
+        let fixture = makeFixture(launchStatus: .disabled)
+        fixture.coordinator.start(source: .interactive)
+        await prepareActiveQueue(in: fixture)
+
+        fixture.statusMenu.setPlaybackOrderHandler?(.shuffled)
+        XCTAssertEqual(fixture.library.playbackOrder, .ordered)
+
+        fixture.coordinator.enterDesktop()
+        await waitUntil {
+            fixture.desktopSession.isActive
+                && fixture.playback.presentation == .desktop
+        }
+
+        XCTAssertEqual(
+            fixture.statusMenu.stateProvider?().playbackOrder,
+            .ordered
+        )
+        XCTAssertTrue(
+            fixture.statusMenu.stateProvider?().canSetPlaybackOrder == true
+        )
+
+        fixture.statusMenu.setPlaybackOrderHandler?(.shuffled)
+
+        XCTAssertEqual(fixture.library.playbackOrder, .shuffled)
+        XCTAssertEqual(fixture.library.makeQueueSnapshot()?.order, .shuffled)
+        XCTAssertEqual(
+            fixture.statusMenu.stateProvider?().playbackOrder,
+            .shuffled
+        )
+
+        await fixture.coordinator.shutdown()
+    }
+
     func testMenuDesktopActionRestoresSoftClosedPlayerBeforeTransition() async {
         let fixture = makeFixture(launchStatus: .disabled)
         fixture.coordinator.start(source: .interactive)
@@ -525,10 +589,11 @@ final class AppCoordinatorTests: XCTestCase {
         let windowPresenter = MacMainWindowPresenter()
         let applicationPresence = TestApplicationPresenceController()
         let desktopHost = TestDesktopHost()
+        let statusMenu = TestDesktopStatusPresenter()
         let desktopSession = DesktopSessionCoordinator(
             playback: playback,
             desktopHost: desktopHost,
-            statusMenu: TestDesktopStatusPresenter(),
+            statusMenu: statusMenu,
             videoContentModeStore: TestDesktopVideoContentModeStore(),
             lifecycleMonitor: TestSystemLifecycleMonitor(),
             mainWindow: windowPresenter,
@@ -589,6 +654,7 @@ final class AppCoordinatorTests: XCTestCase {
             coordinator: coordinator,
             playback: playback,
             desktopSession: desktopSession,
+            statusMenu: statusMenu,
             desktopPreset: desktopPreset,
             playbackSession: playbackSession,
             library: library,
@@ -624,6 +690,7 @@ private struct AppCoordinatorFixture {
     let coordinator: AppCoordinator
     let playback: PlaybackCoordinator
     let desktopSession: DesktopSessionCoordinator
+    let statusMenu: TestDesktopStatusPresenter
     let desktopPreset: DesktopPresetController
     let playbackSession: PlaybackSessionController
     let library: MediaLibraryCoordinator

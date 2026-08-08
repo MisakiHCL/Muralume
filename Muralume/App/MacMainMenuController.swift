@@ -11,6 +11,7 @@ struct MacMainMenuCommandState: Equatable {
     let canDecreaseVolume: Bool
     let canEnterDesktop: Bool
     let canUseWindowActions: Bool
+    let canEditLibrary: Bool
 }
 
 @MainActor
@@ -21,6 +22,7 @@ protocol MacMainMenuCommandHandling: AnyObject {
     func openSettings()
     func addVideos()
     func addFolders()
+    func editLibraryFromMenu()
     func togglePlaybackFromMenu()
     func seekBackwardFromMenu()
     func seekForwardFromMenu()
@@ -67,6 +69,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private enum PlayerCommand {
         case addVideos
         case addFolders
+        case editLibrary
         case togglePlayback
         case seekBackward
         case seekForward
@@ -110,6 +113,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
 
     private let addVideoItem = NSMenuItem()
     private let addFolderItem = NSMenuItem()
+    private let editLibraryItem = NSMenuItem()
     private let togglePlaybackItem = NSMenuItem()
     private let seekBackwardItem = NSMenuItem()
     private let seekForwardItem = NSMenuItem()
@@ -205,6 +209,8 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             hasPlayerFocus && isEnabled(.addVideos, in: state)
         addFolderItem.isEnabled =
             hasPlayerFocus && isEnabled(.addFolders, in: state)
+        editLibraryItem.isEnabled =
+            hasPlayerFocus && isEnabled(.editLibrary, in: state)
         togglePlaybackItem.isEnabled =
             hasPlayerFocus && isEnabled(.togglePlayback, in: state)
         seekBackwardItem.isEnabled =
@@ -330,6 +336,10 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             modifiers: [.command, .shift]
         )
         configure(
+            editLibraryItem,
+            action: #selector(editLibrary(_:))
+        )
+        configure(
             togglePlaybackItem,
             action: #selector(togglePlayback(_:)),
             keyEquivalent: Shortcut.togglePlayback
@@ -383,9 +393,11 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             keyEquivalent: Shortcut.toggleFullScreen
         )
 
+        actionsMenu.addItem(enterDesktopItem)
+        actionsMenu.addItem(.separator())
         actionsMenu.addItem(addVideoItem)
         actionsMenu.addItem(addFolderItem)
-        actionsMenu.addItem(enterDesktopItem)
+        actionsMenu.addItem(editLibraryItem)
         actionsMenu.addItem(.separator())
         actionsMenu.addItem(togglePlaybackItem)
         actionsMenu.addItem(seekBackwardItem)
@@ -526,6 +538,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
 
         addVideoItem.title = localization.localized("library.add.video")
         addFolderItem.title = localization.localized("library.add.folder")
+        editLibraryItem.title = localization.localized("library.edit")
         seekBackwardItem.title = localization.localized("player.back")
         seekForwardItem.title = localization.localized("player.forward")
         previousItem.title = localization.localized("player.previousItem")
@@ -554,6 +567,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         [
             addVideoItem,
             addFolderItem,
+            editLibraryItem,
             togglePlaybackItem,
             seekBackwardItem,
             seekForwardItem,
@@ -589,6 +603,8 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         switch command {
         case .addVideos, .addFolders, .toggleFullScreen:
             state.canUseWindowActions
+        case .editLibrary:
+            state.canEditLibrary
         case .enterDesktop:
             state.canEnterDesktop
         case .togglePlayback, .seekBackward, .seekForward:
@@ -688,6 +704,13 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private func addFolders(_ sender: Any?) {
         performPlayerCommand(.addFolders) {
             $0.addFolders()
+        }
+    }
+
+    @objc
+    private func editLibrary(_ sender: Any?) {
+        performPlayerCommand(.editLibrary) {
+            $0.editLibraryFromMenu()
         }
     }
 

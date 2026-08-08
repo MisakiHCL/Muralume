@@ -5,10 +5,11 @@ struct LibraryQueueSidebar: View {
     @ObservedObject var library: MediaLibraryCoordinator
     let playback: PlaybackCoordinator
     @EnvironmentObject private var localization: AppLocalizationController
-    @State private var isEditing = false
     @State private var pendingRootRemoval: MediaLibraryRoot?
     @State private var playbackStatus: LibraryPlaybackStatus
     let mediaThumbnailProvider: any MediaThumbnailProviding
+    let isEditing: Bool
+    let setEditing: (Bool) -> Void
     let addVideos: () -> Void
     let addFolders: () -> Void
     let dismiss: () -> Void
@@ -17,6 +18,8 @@ struct LibraryQueueSidebar: View {
         library: MediaLibraryCoordinator,
         playback: PlaybackCoordinator,
         mediaThumbnailProvider: any MediaThumbnailProviding,
+        isEditing: Bool,
+        setEditing: @escaping (Bool) -> Void,
         addVideos: @escaping () -> Void,
         addFolders: @escaping () -> Void,
         dismiss: @escaping () -> Void
@@ -24,6 +27,8 @@ struct LibraryQueueSidebar: View {
         self.library = library
         self.playback = playback
         self.mediaThumbnailProvider = mediaThumbnailProvider
+        self.isEditing = isEditing
+        self.setEditing = setEditing
         self.addVideos = addVideos
         self.addFolders = addFolders
         self.dismiss = dismiss
@@ -64,7 +69,7 @@ struct LibraryQueueSidebar: View {
                 let removesLastRoot = library.roots.count == 1
                 pendingRootRemoval = nil
                 if removesLastRoot {
-                    isEditing = false
+                    setEditing(false)
                 }
                 Task {
                     await library.removeRoot(root)
@@ -127,7 +132,7 @@ struct LibraryQueueSidebar: View {
 
             if !library.roots.isEmpty {
                 Button {
-                    isEditing.toggle()
+                    setEditing(!isEditing)
                 } label: {
                     headerActionLabel(
                         titleKey: isEditing
@@ -202,6 +207,23 @@ struct LibraryQueueSidebar: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
+    private var refreshActionLabel: some View {
+        HStack(spacing: MuralumeTheme.Spacing.xSmall) {
+            Image(systemName: "arrow.clockwise")
+                .font(
+                    .system(
+                        size: MuralumeTheme.Size.icon,
+                        weight: .semibold
+                    )
+                )
+
+            Text("library.refresh")
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
     private var libraryStatusBar: some View {
         HStack(spacing: MuralumeTheme.Spacing.small) {
             librarySummary
@@ -212,93 +234,155 @@ struct LibraryQueueSidebar: View {
     }
 
     private var rootEditor: some View {
-        ScrollView {
-            LazyVStack(spacing: MuralumeTheme.Spacing.small) {
-                ForEach(library.roots) { root in
-                    HStack(spacing: MuralumeTheme.Spacing.medium) {
-                        Image(systemName: sourceIcon(for: root))
-                            .font(.system(size: MuralumeTheme.Size.icon))
-                            .foregroundStyle(MuralumeTheme.Colors.controlAccent)
+        VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.small) {
+            HStack(spacing: MuralumeTheme.Spacing.small) {
+                editorRefreshStatus
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                        VStack(
-                            alignment: .leading,
-                            spacing: MuralumeTheme.Spacing.xSmall
-                        ) {
-                            Text(verbatim: root.displayName)
-                                .font(.body.weight(.medium))
+                Button {
+                    library.refresh()
+                } label: {
+                    refreshActionLabel
+                }
+                .buttonStyle(
+                    MuralumeToolbarButtonStyle(
+                        width: MuralumeTheme.Size
+                            .playlistRefreshActionWidth
+                    )
+                )
+                .disabled(!library.canRefresh)
+                .help(Text("library.refresh"))
+                .accessibilityLabel(Text("library.refresh"))
+                .accessibilityIdentifier(
+                    MuralumeAccessibilityIdentifier.refreshLibraryButton
+                )
+            }
+
+            Divider()
+                .overlay(MuralumeTheme.Colors.border)
+
+            ScrollView {
+                LazyVStack(spacing: MuralumeTheme.Spacing.small) {
+                    ForEach(library.roots) { root in
+                        HStack(spacing: MuralumeTheme.Spacing.medium) {
+                            Image(systemName: sourceIcon(for: root))
+                                .font(.system(size: MuralumeTheme.Size.icon))
                                 .foregroundStyle(
-                                    MuralumeTheme.Colors.textPrimary
+                                    MuralumeTheme.Colors.controlAccent
                                 )
-                                .lineLimit(1)
 
-                            Text(verbatim: root.url.path)
-                                .font(.caption)
-                                .foregroundStyle(
-                                    MuralumeTheme.Colors.textTertiary
-                                )
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
+                            VStack(
+                                alignment: .leading,
+                                spacing: MuralumeTheme.Spacing.xSmall
+                            ) {
+                                Text(verbatim: root.displayName)
+                                    .font(.body.weight(.medium))
+                                    .foregroundStyle(
+                                        MuralumeTheme.Colors.textPrimary
+                                    )
+                                    .lineLimit(1)
 
-                        Spacer(minLength: MuralumeTheme.Spacing.small)
+                                Text(verbatim: root.url.path)
+                                    .font(.caption)
+                                    .foregroundStyle(
+                                        MuralumeTheme.Colors.textTertiary
+                                    )
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
 
-                        Button {
-                            pendingRootRemoval = root
-                        } label: {
-                            Image(systemName: "minus.circle.fill")
-                                .font(
-                                    .system(
-                                        size: MuralumeTheme.Size.iconLarge,
-                                        weight: .semibold
+                            Spacer(minLength: MuralumeTheme.Spacing.small)
+
+                            Button {
+                                pendingRootRemoval = root
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .font(
+                                        .system(
+                                            size: MuralumeTheme.Size.iconLarge,
+                                            weight: .semibold
+                                        )
+                                    )
+                                    .foregroundStyle(
+                                        MuralumeTheme.Colors.error
+                                    )
+                                    .frame(
+                                        width: MuralumeTheme.Size.control,
+                                        height: MuralumeTheme.Size.control
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .contentShape(Rectangle())
+                            .help(
+                                Text(
+                                    LocalizedStringKey(
+                                        rootRemovalLabelKey(for: root)
                                     )
                                 )
-                                .foregroundStyle(MuralumeTheme.Colors.error)
-                                .frame(
-                                    width: MuralumeTheme.Size.control,
-                                    height: MuralumeTheme.Size.control
+                            )
+                            .accessibilityLabel(
+                                Text(
+                                    LocalizedStringKey(
+                                        rootRemovalLabelKey(for: root)
+                                    )
                                 )
+                            )
                         }
-                        .buttonStyle(.plain)
-                        .contentShape(Rectangle())
-                        .help(
-                            Text(
-                                LocalizedStringKey(
-                                    rootRemovalLabelKey(for: root)
-                                )
-                            )
-                        )
-                        .accessibilityLabel(
-                            Text(
-                                LocalizedStringKey(
-                                    rootRemovalLabelKey(for: root)
-                                )
-                            )
-                        )
-                    }
-                    .padding(MuralumeTheme.Spacing.small)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background {
-                        RoundedRectangle(
-                            cornerRadius: MuralumeTheme.Radius.medium,
-                            style: .continuous
-                        )
-                        .fill(MuralumeTheme.Colors.controlFill.opacity(0.52))
-                        .overlay {
+                        .padding(MuralumeTheme.Spacing.small)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background {
                             RoundedRectangle(
                                 cornerRadius: MuralumeTheme.Radius.medium,
                                 style: .continuous
                             )
-                            .stroke(
-                                MuralumeTheme.Colors.border,
-                                lineWidth: 1
+                            .fill(
+                                MuralumeTheme.Colors.controlFill.opacity(0.52)
                             )
+                            .overlay {
+                                RoundedRectangle(
+                                    cornerRadius: MuralumeTheme.Radius.medium,
+                                    style: .continuous
+                                )
+                                .stroke(
+                                    MuralumeTheme.Colors.border,
+                                    lineWidth: 1
+                                )
+                            }
                         }
                     }
                 }
+                .padding(.vertical, MuralumeTheme.Spacing.xSmall)
             }
-            .padding(.vertical, MuralumeTheme.Spacing.xSmall)
+            .scrollIndicators(.visible)
         }
-        .scrollIndicators(.visible)
+    }
+
+    @ViewBuilder
+    private var editorRefreshStatus: some View {
+        switch library.scanState {
+        case .idle:
+            Text("library.summary.empty")
+                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+        case .scanning:
+            HStack(spacing: MuralumeTheme.Spacing.small) {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(MuralumeTheme.Colors.controlAccent)
+                    .accessibilityHidden(true)
+                Text("library.scanning")
+            }
+            .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+        case .ready:
+            Text(videoCountText)
+                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+        case .failed:
+            HStack(spacing: MuralumeTheme.Spacing.small) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(MuralumeTheme.Colors.warning)
+                Text("library.scan.failed")
+                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+            }
+        }
     }
 
     private var rootRemovalAlertIsPresented: Binding<Bool> {

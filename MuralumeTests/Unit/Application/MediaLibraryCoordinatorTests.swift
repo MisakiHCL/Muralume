@@ -107,6 +107,85 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.coordinator.scanState, .ready)
     }
 
+    func testManualRefreshDiscoversNewFolderItemsWithoutRebuildingQueue()
+        async {
+        let rootURL = URL(fileURLWithPath: "/tmp/Refresh Library")
+        let existingItem = makeItem(
+            rootURL: rootURL,
+            name: "Existing",
+            path: "Existing.mov"
+        )
+        let addedItem = makeItem(
+            rootURL: rootURL,
+            name: "Added",
+            path: "Added.mp4"
+        )
+        let root = MediaLibraryRoot(
+            url: rootURL,
+            displayName: "Refresh Library"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [root],
+                items: [existingItem]
+            )
+        )
+
+        fixture.coordinator.addFolders()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.play(existingItem)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+        fixture.engine.progressHandler?(27)
+
+        let queueSnapshot = fixture.coordinator.makeQueueSnapshot()
+        let queueRevision = fixture.coordinator.queueRevision
+        let playbackSource = fixture.playback.source
+        let playbackTime = fixture.playback.currentTime
+        let isPlaybackRequested = fixture.playback.isPlaybackRequested
+
+        fixture.scanner.blockNextScan()
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [root],
+                items: [existingItem, addedItem]
+            )
+        )
+        fixture.coordinator.refresh()
+        while !fixture.scanner.didBeginBlockedScan {
+            await Task.yield()
+        }
+
+        XCTAssertFalse(fixture.coordinator.canRefresh)
+        fixture.coordinator.refresh()
+        XCTAssertEqual(fixture.scanner.scannedSources.count, 2)
+
+        fixture.scanner.finishBlockedScan()
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertTrue(fixture.coordinator.canRefresh)
+        XCTAssertEqual(
+            fixture.coordinator.items.map(\.id),
+            [addedItem.id, existingItem.id]
+        )
+        XCTAssertEqual(
+            fixture.coordinator.makeQueueSnapshot(),
+            queueSnapshot
+        )
+        XCTAssertEqual(fixture.coordinator.queueRevision, queueRevision)
+        XCTAssertEqual(fixture.coordinator.currentItemID, existingItem.id)
+        XCTAssertEqual(fixture.coordinator.queueCount, 1)
+        XCTAssertEqual(fixture.playback.source, playbackSource)
+        XCTAssertEqual(fixture.playback.currentTime, playbackTime)
+        XCTAssertEqual(
+            fixture.playback.isPlaybackRequested,
+            isPlaybackRequested
+        )
+        XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+        XCTAssertEqual(fixture.scanner.scannedSources.count, 2)
+    }
+
     func testAddingVideosImportsAllAndPlaysFirstExplicitFile() async {
         let firstURL = URL(fileURLWithPath: "/tmp/First.mov")
         let secondURL = URL(fileURLWithPath: "/tmp/Second.mp4")

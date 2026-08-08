@@ -3,6 +3,8 @@ struct DesktopStatusState {
     let isPlaying: Bool
     let isTransitioning: Bool
     let canPlayNext: Bool
+    let playbackOrder: PlaybackOrder
+    let canSetPlaybackOrder: Bool
     let playbackRate: PlaybackRate
     let videoContentMode: DesktopVideoContentMode
 }
@@ -12,6 +14,7 @@ protocol DesktopStatusPresenting: AnyObject {
     var stateProvider: (() -> DesktopStatusState)? { get set }
     var togglePlaybackHandler: (() -> Void)? { get set }
     var playNextHandler: (() -> Void)? { get set }
+    var setPlaybackOrderHandler: ((PlaybackOrder) -> Void)? { get set }
     var setPlaybackRateHandler: ((PlaybackRate) -> Void)? { get set }
     var returnToPlayerHandler: (() -> Void)? { get set }
     var setVideoContentModeHandler: ((DesktopVideoContentMode) -> Void)? {

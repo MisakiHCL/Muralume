@@ -430,6 +430,7 @@ final class MuralumeLaunchTests: XCTestCase {
         XCTAssertFalse(
             application.menuItems["Add Folder…"].isEnabled
         )
+        XCTAssertFalse(application.menuItems["Edit"].isEnabled)
         XCTAssertFalse(
             application.menuItems["Set as Dynamic Desktop"].isEnabled
         )
@@ -643,6 +644,7 @@ final class MuralumeLaunchTests: XCTestCase {
         for itemTitle in [
             "Add Video…",
             "Add Folder…",
+            "Edit",
             "Play",
             "Back 10 seconds",
             "Forward 10 seconds",
@@ -884,6 +886,10 @@ final class MuralumeLaunchTests: XCTestCase {
             XCTAssertTrue(addMediaItem.exists, file: file, line: line)
             XCTAssertTrue(addMediaItem.isEnabled, file: file, line: line)
         }
+
+        let editItem = application.menuItems["Edit"]
+        XCTAssertTrue(editItem.exists, file: file, line: line)
+        XCTAssertFalse(editItem.isEnabled, file: file, line: line)
 
         let fullScreenItem = application.menuItems["Toggle Full Screen"]
         XCTAssertTrue(fullScreenItem.exists, file: file, line: line)

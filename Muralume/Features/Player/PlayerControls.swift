@@ -4,6 +4,7 @@ struct PlayerControls: View {
     let playback: PlaybackCoordinator
     let library: MediaLibraryCoordinator
     let actions: PlayerActions
+    let isFullScreen: Bool
     let isPlaylistPresented: Bool
     let togglePlaylist: () -> Void
 
@@ -18,6 +19,7 @@ struct PlayerControls: View {
                 playback: playback,
                 library: library,
                 actions: actions,
+                isFullScreen: isFullScreen,
                 isPlaylistPresented: isPlaylistPresented,
                 togglePlaylist: togglePlaylist
             )

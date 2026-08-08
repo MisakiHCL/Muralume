@@ -57,6 +57,16 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         desktopSession.playNextHandler = { [weak self] in
             self?.library.playNext()
         }
+        desktopSession.playbackOrderProvider = { [weak self] in
+            self?.library.playbackOrder
+                ?? AppPreferences.defaultValue.playbackOrder
+        }
+        desktopSession.canSetPlaybackOrderProvider = { [weak self] in
+            self?.library.hasActiveQueue == true
+        }
+        desktopSession.playbackOrderChangeHandler = { [weak self] order in
+            self?.library.setPlaybackOrder(order)
+        }
         desktopSession.didEnterDesktopHandler = { [weak self] in
             self?.desktopPreset.markDesktopActive()
             self?.mediaThumbnailProvider.purgeMemoryCache()
@@ -454,7 +464,11 @@ extension AppCoordinator: MacMainMenuCommandHandling {
                 canUseWindowActions
                 && playback.settings.volume != .muted,
             canEnterDesktop: canEnterDesktop,
-            canUseWindowActions: canUseWindowActions
+            canUseWindowActions: canUseWindowActions,
+            canEditLibrary:
+                canUseWindowActions
+                && !library.roots.isEmpty
+                && !playerChrome.isLibraryEditing
         )
     }
 
@@ -482,6 +496,9 @@ extension AppCoordinator: MacMainMenuCommandHandling {
                 desktopSession.objectWillChange.eraseToAnyPublisher(),
                 library.objectWillChange.eraseToAnyPublisher(),
                 playerChrome.$presentedPanel
+                    .map { _ in () }
+                    .eraseToAnyPublisher(),
+                playerChrome.$libraryQueueMode
                     .map { _ in () }
                     .eraseToAnyPublisher()
             ]
@@ -515,6 +532,13 @@ extension AppCoordinator: MacMainMenuCommandHandling {
             playback.restorePlayerWindow()
         }
         mainWindowPresenter.show()
+    }
+
+    func editLibraryFromMenu() {
+        guard mainMenuCommandState.canEditLibrary else {
+            return
+        }
+        playerChrome.presentLibraryEditor()
     }
 
     func togglePlaybackFromMenu() {

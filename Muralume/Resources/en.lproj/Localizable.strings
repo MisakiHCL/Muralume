@@ -60,6 +60,7 @@
 "library.scanning.detail" = "Muralume is looking for supported videos in your media sources.";
 "library.scan.failed" = "Media scan failed";
 "library.retry" = "Retry";
+"library.refresh" = "Refresh Data";
 "library.empty.title" = "Your playlist is empty";
 "library.empty.detail" = "Add MP4, MOV, or M4V videos directly, or add a folder containing them.";
 "library.video.count" = "%d videos";

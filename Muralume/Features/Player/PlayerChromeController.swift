@@ -22,12 +22,18 @@ enum PlayerSidePanel: Equatable {
     case settings
 }
 
+enum LibraryQueueMode: Equatable {
+    case browsing
+    case editing
+}
+
 @MainActor
 final class PlayerChromeController: ObservableObject {
     typealias Sleep = @Sendable (UInt64) async throws -> Void
 
     @Published private(set) var isVisible = true
     @Published private(set) var presentedPanel: PlayerSidePanel? = .playlist
+    @Published private(set) var libraryQueueMode: LibraryQueueMode = .browsing
 
     var isPlaylistPresented: Bool {
         presentedPanel == .playlist
@@ -35,6 +41,10 @@ final class PlayerChromeController: ObservableObject {
 
     var isSettingsPresented: Bool {
         presentedPanel == .settings
+    }
+
+    var isLibraryEditing: Bool {
+        libraryQueueMode == .editing
     }
 
     private let autoHideDelayNanoseconds: UInt64
@@ -71,15 +81,41 @@ final class PlayerChromeController: ObservableObject {
             return
         }
 
+        let wasPlaylistPresented = isPlaylistPresented
         restoresPlaylistAfterFullScreen = false
         restoresPlaylistAfterSettings = false
         setVisible(true)
         presentedPanel = isPresented ? .playlist : nil
+        if !isPresented || !wasPlaylistPresented {
+            libraryQueueMode = .browsing
+        }
         refreshAutoHideTask()
     }
 
     func togglePlaylist() {
         setPlaylistPresented(!isPlaylistPresented)
+    }
+
+    func presentLibraryEditor() {
+        restoresPlaylistAfterFullScreen = false
+        restoresPlaylistAfterSettings = false
+        setVisible(true)
+        presentedPanel = .playlist
+        libraryQueueMode = .editing
+        refreshAutoHideTask()
+    }
+
+    func setLibraryEditing(_ isEditing: Bool) {
+        guard isPlaylistPresented else {
+            return
+        }
+        let mode: LibraryQueueMode = isEditing ? .editing : .browsing
+        guard libraryQueueMode != mode else {
+            return
+        }
+        libraryQueueMode = mode
+        setVisible(true)
+        refreshAutoHideTask()
     }
 
     func setSettingsPresented(_ isPresented: Bool) {
@@ -89,6 +125,7 @@ final class PlayerChromeController: ObservableObject {
             }
             restoresPlaylistAfterSettings = isPlaylistPresented
             setVisible(true)
+            libraryQueueMode = .browsing
             presentedPanel = .settings
             refreshAutoHideTask()
             return
@@ -162,6 +199,7 @@ final class PlayerChromeController: ObservableObject {
         }
 
         restoresPlaylistAfterFullScreen = true
+        libraryQueueMode = .browsing
         presentedPanel = nil
     }
 

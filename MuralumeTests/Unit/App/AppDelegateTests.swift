@@ -360,10 +360,21 @@ final class AppDelegateTests: XCTestCase {
             [.command]
         )
         XCTAssertEqual(
-            actionsMenu.items
-                .prefix { !$0.isSeparatorItem }
-                .map(\.title),
-            ["Add Video…", "Add Folder…", "Set as Dynamic Desktop"]
+            actionsMenu.items.prefix(6).map {
+                $0.isSeparatorItem ? "separator" : $0.title
+            },
+            [
+                "Set as Dynamic Desktop",
+                "separator",
+                "Add Video…",
+                "Add Folder…",
+                "Edit",
+                "separator"
+            ]
+        )
+        XCTAssertEqual(
+            actionsMenu.items.first { $0.title == "Edit" }?.keyEquivalent,
+            ""
         )
 
         let activeState = MacMainMenuCommandState(
@@ -375,7 +386,8 @@ final class AppDelegateTests: XCTestCase {
             canIncreaseVolume: true,
             canDecreaseVolume: true,
             canEnterDesktop: true,
-            canUseWindowActions: true
+            canUseWindowActions: true,
+            canEditLibrary: true
         )
         controller.refreshPlayerCommands(
             state: activeState,
@@ -425,7 +437,8 @@ final class AppDelegateTests: XCTestCase {
             canIncreaseVolume: true,
             canDecreaseVolume: true,
             canEnterDesktop: false,
-            canUseWindowActions: true
+            canUseWindowActions: true,
+            canEditLibrary: false
         )
 
         controller.refreshPlayerCommands(
@@ -453,7 +466,8 @@ final class AppDelegateTests: XCTestCase {
             "Forward 10 seconds",
             "Previous Video",
             "Next Video",
-            "Set as Dynamic Desktop"
+            "Set as Dynamic Desktop",
+            "Edit"
         ] {
             XCTAssertEqual(
                 actionsMenu.items.first { $0.title == title }?.isEnabled,
@@ -483,7 +497,8 @@ final class AppDelegateTests: XCTestCase {
             canIncreaseVolume: true,
             canDecreaseVolume: true,
             canEnterDesktop: true,
-            canUseWindowActions: true
+            canUseWindowActions: true,
+            canEditLibrary: true
         )
         controller.refreshPlayerCommands(
             state: staleEnabledState,
@@ -517,7 +532,8 @@ final class AppDelegateTests: XCTestCase {
             canIncreaseVolume: false,
             canDecreaseVolume: false,
             canEnterDesktop: true,
-            canUseWindowActions: false
+            canUseWindowActions: false,
+            canEditLibrary: false
         )
         let controller = makeMainMenuController(
             commandHandler: commandHandler,
@@ -549,7 +565,8 @@ final class AppDelegateTests: XCTestCase {
             canIncreaseVolume: true,
             canDecreaseVolume: true,
             canEnterDesktop: true,
-            canUseWindowActions: true
+            canUseWindowActions: true,
+            canEditLibrary: true
         )
         commandHandler.mainMenuCommandState = availableState
         let controller = makeMainMenuController(
@@ -571,7 +588,8 @@ final class AppDelegateTests: XCTestCase {
             canIncreaseVolume: availableState.canIncreaseVolume,
             canDecreaseVolume: availableState.canDecreaseVolume,
             canEnterDesktop: false,
-            canUseWindowActions: availableState.canUseWindowActions
+            canUseWindowActions: availableState.canUseWindowActions,
+            canEditLibrary: availableState.canEditLibrary
         )
 
         XCTAssertTrue(
@@ -635,7 +653,8 @@ private final class TestMainMenuCommandHandler:
         canIncreaseVolume: false,
         canDecreaseVolume: false,
         canEnterDesktop: false,
-        canUseWindowActions: true
+        canUseWindowActions: true,
+        canEditLibrary: false
     )
 
     var mainMenuCommandStateDidChange: AnyPublisher<Void, Never> {
@@ -645,6 +664,7 @@ private final class TestMainMenuCommandHandler:
     func openSettings() {}
     func addVideos() {}
     func addFolders() {}
+    func editLibraryFromMenu() {}
     func togglePlaybackFromMenu() {
         togglePlaybackCommandCount += 1
     }

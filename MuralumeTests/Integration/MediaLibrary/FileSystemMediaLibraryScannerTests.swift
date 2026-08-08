@@ -86,6 +86,38 @@ final class FileSystemMediaLibraryScannerTests: XCTestCase {
         XCTAssertEqual(snapshot, repeatedSnapshot)
     }
 
+    func testSubsequentScanDiscoversVideoAddedToExistingFolder() async throws {
+        let sandboxURL = try makeSandbox()
+        defer { removeSandbox(sandboxURL) }
+        let rootURL = sandboxURL.appendingPathComponent(
+            "Library",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: rootURL,
+            withIntermediateDirectories: true
+        )
+        let existingURL = rootURL.appendingPathComponent("Existing.mov")
+        let addedURL = rootURL.appendingPathComponent("Added.mp4")
+        try writeFile(at: existingURL, byteCount: 1)
+        let scanner = FileSystemMediaLibraryScanner()
+
+        let initialSnapshot = try await scanner.scan(rootURLs: [rootURL])
+        try writeFile(at: addedURL, byteCount: 2)
+        let refreshedSnapshot = try await scanner.scan(rootURLs: [rootURL])
+
+        XCTAssertEqual(
+            initialSnapshot.items.map(\.url),
+            [existingURL.standardizedFileURL]
+        )
+        XCTAssertEqual(
+            refreshedSnapshot.items.map(\.url),
+            [addedURL, existingURL]
+                .map(\.standardizedFileURL)
+                .sorted { $0.path < $1.path }
+        )
+    }
+
     func testScansSingleFileAndMixedSourcesWithPartialUnsupportedInput() async throws {
         let sandboxURL = try makeSandbox()
         defer { removeSandbox(sandboxURL) }

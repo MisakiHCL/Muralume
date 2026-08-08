@@ -1,8 +1,75 @@
+import AppKit
 import XCTest
 @testable import Muralume
 
 @MainActor
 final class PlayerChromeControllerTests: XCTestCase {
+    func testFullScreenIconDifferentiatesEnterAndExitStates() {
+        XCTAssertEqual(
+            PlayerFullScreenIcon.systemName(isFullScreen: false),
+            PlayerFullScreenIcon.enterSystemName
+        )
+        XCTAssertEqual(
+            PlayerFullScreenIcon.systemName(isFullScreen: true),
+            PlayerFullScreenIcon.exitSystemName
+        )
+        XCTAssertNotEqual(
+            PlayerFullScreenIcon.enterSystemName,
+            PlayerFullScreenIcon.exitSystemName
+        )
+        XCTAssertNotNil(
+            NSImage(
+                systemSymbolName: PlayerFullScreenIcon.enterSystemName,
+                accessibilityDescription: nil
+            )
+        )
+        XCTAssertNotNil(
+            NSImage(
+                systemSymbolName: PlayerFullScreenIcon.exitSystemName,
+                accessibilityDescription: nil
+            )
+        )
+    }
+
+    func testLibraryEditorPresentsPlaylistAndDoneReturnsToBrowsing() {
+        let controller = PlayerChromeController()
+        controller.setPlaylistPresented(false)
+
+        controller.presentLibraryEditor()
+
+        XCTAssertTrue(controller.isVisible)
+        XCTAssertTrue(controller.isPlaylistPresented)
+        XCTAssertTrue(controller.isLibraryEditing)
+        XCTAssertEqual(controller.libraryQueueMode, .editing)
+
+        controller.setLibraryEditing(false)
+
+        XCTAssertTrue(controller.isPlaylistPresented)
+        XCTAssertFalse(controller.isLibraryEditing)
+        XCTAssertEqual(controller.libraryQueueMode, .browsing)
+    }
+
+    func testLibraryEditingResetsWhenPanelIsClosedOrReplaced() {
+        let controller = PlayerChromeController()
+
+        controller.presentLibraryEditor()
+        controller.setPlaylistPresented(false)
+
+        XCTAssertNil(controller.presentedPanel)
+        XCTAssertFalse(controller.isLibraryEditing)
+
+        controller.presentLibraryEditor()
+        controller.setSettingsPresented(true)
+
+        XCTAssertTrue(controller.isSettingsPresented)
+        XCTAssertFalse(controller.isLibraryEditing)
+
+        controller.setSettingsPresented(false)
+
+        XCTAssertTrue(controller.isPlaylistPresented)
+        XCTAssertFalse(controller.isLibraryEditing)
+    }
+
     func testTransientMediaSwitchDoesNotRevealHiddenChrome() async {
         let sleeper = ControlledPlayerChromeSleeper()
         let controller = makeController(sleeper: sleeper)
@@ -253,11 +320,13 @@ final class PlayerChromeControllerTests: XCTestCase {
         let sleeper = ControlledPlayerChromeSleeper()
         let controller = makeController(sleeper: sleeper)
         controller.updatePlaybackState(.playing)
+        controller.presentLibraryEditor()
 
         controller.updateFullScreen(true)
 
         XCTAssertTrue(controller.isVisible)
         XCTAssertFalse(controller.isPlaylistPresented)
+        XCTAssertFalse(controller.isLibraryEditing)
         await waitForPendingSleep(in: sleeper)
 
         controller.updateFullScreen(false)
@@ -266,6 +335,7 @@ final class PlayerChromeControllerTests: XCTestCase {
 
         XCTAssertTrue(controller.isVisible)
         XCTAssertTrue(controller.isPlaylistPresented)
+        XCTAssertFalse(controller.isLibraryEditing)
     }
 
     func testFullScreenPlaylistOverrideIsNotRestoredOnExit() async {

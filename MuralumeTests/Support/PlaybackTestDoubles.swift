@@ -230,6 +230,7 @@ final class TestDesktopStatusPresenter: DesktopStatusPresenting {
     var stateProvider: (() -> DesktopStatusState)?
     var togglePlaybackHandler: (() -> Void)?
     var playNextHandler: (() -> Void)?
+    var setPlaybackOrderHandler: ((PlaybackOrder) -> Void)?
     var setPlaybackRateHandler: ((PlaybackRate) -> Void)?
     var returnToPlayerHandler: (() -> Void)?
     var setVideoContentModeHandler: ((DesktopVideoContentMode) -> Void)?

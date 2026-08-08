@@ -1,10 +1,20 @@
 import Combine
 import SwiftUI
 
+enum PlayerFullScreenIcon {
+    static let enterSystemName = "arrow.up.left.and.arrow.down.right"
+    static let exitSystemName = "arrow.down.right.and.arrow.up.left"
+
+    static func systemName(isFullScreen: Bool) -> String {
+        isFullScreen ? exitSystemName : enterSystemName
+    }
+}
+
 struct PlayerControlBar: View {
     let playback: PlaybackCoordinator
     let library: MediaLibraryCoordinator
     let actions: PlayerActions
+    let isFullScreen: Bool
     let isPlaylistPresented: Bool
     let togglePlaylist: () -> Void
 
@@ -14,12 +24,14 @@ struct PlayerControlBar: View {
         playback: PlaybackCoordinator,
         library: MediaLibraryCoordinator,
         actions: PlayerActions,
+        isFullScreen: Bool,
         isPlaylistPresented: Bool,
         togglePlaylist: @escaping () -> Void
     ) {
         self.playback = playback
         self.library = library
         self.actions = actions
+        self.isFullScreen = isFullScreen
         self.isPlaylistPresented = isPlaylistPresented
         self.togglePlaylist = togglePlaylist
         _controlState = State(
@@ -262,7 +274,11 @@ struct PlayerControlBar: View {
             Button {
                 actions.toggleFullScreen()
             } label: {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                Image(
+                    systemName: PlayerFullScreenIcon.systemName(
+                        isFullScreen: isFullScreen
+                    )
+                )
             }
             .buttonStyle(MuralumeControlButtonStyle())
             .help(Text("player.fullscreen"))

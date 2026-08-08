@@ -143,6 +143,13 @@ final class MediaLibraryCoordinator: ObservableObject {
         queue != nil
     }
 
+    var canRefresh: Bool {
+        !isShutDown
+            && !activeSources.isEmpty
+            && rootIDsPendingRemoval.isEmpty
+            && scanState != .scanning
+    }
+
     var canMoveToPrevious: Bool {
         queue?.canMoveToPrevious == true
     }
@@ -566,7 +573,7 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     func refresh() {
-        guard !activeSources.isEmpty, rootIDsPendingRemoval.isEmpty else {
+        guard canRefresh else {
             return
         }
         refresh(

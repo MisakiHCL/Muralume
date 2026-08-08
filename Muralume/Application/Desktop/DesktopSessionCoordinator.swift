@@ -21,6 +21,9 @@ final class DesktopSessionCoordinator: ObservableObject {
     var didReturnToPlayerHandler: (() -> Void)?
     var canPlayNextProvider: (() -> Bool)?
     var playNextHandler: (() -> Void)?
+    var playbackOrderProvider: (() -> PlaybackOrder)?
+    var canSetPlaybackOrderProvider: (() -> Bool)?
+    var playbackOrderChangeHandler: ((PlaybackOrder) -> Void)?
     var quitHandler: (() -> Void)?
 
     var isTransitioning: Bool {
@@ -288,6 +291,8 @@ final class DesktopSessionCoordinator: ObservableObject {
                     isPlaying: false,
                     isTransitioning: false,
                     canPlayNext: false,
+                    playbackOrder: AppPreferences.defaultValue.playbackOrder,
+                    canSetPlaybackOrder: false,
                     playbackRate: PlaybackPolicy.defaultRate,
                     videoContentMode: .defaultValue
                 )
@@ -297,6 +302,9 @@ final class DesktopSessionCoordinator: ObservableObject {
                 isPlaying: playback.isPlaybackRequested,
                 isTransitioning: isTransitioning,
                 canPlayNext: canPlayNextProvider?() == true,
+                playbackOrder: playbackOrderProvider?()
+                    ?? AppPreferences.defaultValue.playbackOrder,
+                canSetPlaybackOrder: canSetPlaybackOrderProvider?() == true,
                 playbackRate: playback.settings.rate,
                 videoContentMode: videoContentMode
             )
@@ -306,6 +314,9 @@ final class DesktopSessionCoordinator: ObservableObject {
         }
         statusMenu.playNextHandler = { [weak self] in
             self?.playNext()
+        }
+        statusMenu.setPlaybackOrderHandler = { [weak self] order in
+            self?.setPlaybackOrder(order)
         }
         statusMenu.setPlaybackRateHandler = { [weak self] rate in
             self?.setPlaybackRate(rate)
@@ -351,6 +362,16 @@ final class DesktopSessionCoordinator: ObservableObject {
             return
         }
         playNextHandler?()
+    }
+
+    private func setPlaybackOrder(_ order: PlaybackOrder) {
+        guard isActive,
+              !isTransitioning,
+              !isShutDown,
+              canSetPlaybackOrderProvider?() == true else {
+            return
+        }
+        playbackOrderChangeHandler?(order)
     }
 
     private func setPlaybackRate(_ rate: PlaybackRate) {

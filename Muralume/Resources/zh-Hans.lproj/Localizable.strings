@@ -60,6 +60,7 @@
 "library.scanning.detail" = "Muralume 正在媒体来源中查找支持的视频。";
 "library.scan.failed" = "媒体扫描失败";
 "library.retry" = "重试";
+"library.refresh" = "刷新数据";
 "library.empty.title" = "播放列表还是空的";
 "library.empty.detail" = "请直接添加 MP4、MOV 或 M4V 视频，或添加包含这些视频的文件夹。";
 "library.video.count" = "%d 个视频";

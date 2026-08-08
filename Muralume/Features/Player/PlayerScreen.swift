@@ -172,6 +172,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
             playback: playback,
             library: library,
             actions: actions,
+            isFullScreen: isFullScreen,
             isPlaylistPresented: chromeController.isPlaylistPresented,
             togglePlaylist: {
                 chromeController.togglePlaylist()
@@ -243,6 +244,10 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 library: library,
                 playback: playback,
                 mediaThumbnailProvider: mediaThumbnailProvider,
+                isEditing: chromeController.isLibraryEditing,
+                setEditing: { isEditing in
+                    chromeController.setLibraryEditing(isEditing)
+                },
                 addVideos: actions.addVideos,
                 addFolders: actions.addFolders,
                 dismiss: {

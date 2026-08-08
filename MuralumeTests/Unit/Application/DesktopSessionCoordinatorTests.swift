@@ -43,11 +43,21 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             applicationPresence: applicationPresence
         )
         var playNextCount = 0
+        var selectedPlaybackOrders: [PlaybackOrder] = []
         session.canPlayNextProvider = {
             true
         }
         session.playNextHandler = {
             playNextCount += 1
+        }
+        session.playbackOrderProvider = {
+            .ordered
+        }
+        session.canSetPlaybackOrderProvider = {
+            true
+        }
+        session.playbackOrderChangeHandler = {
+            selectedPlaybackOrders.append($0)
         }
         defer {
             session.shutdown()
@@ -73,9 +83,15 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(statusMenu.showCount, 1)
         XCTAssertEqual(applicationPresence.appliedModes, [.menuBarOnly])
         XCTAssertTrue(statusMenu.stateProvider?().canPlayNext == true)
+        XCTAssertEqual(statusMenu.stateProvider?().playbackOrder, .ordered)
+        XCTAssertTrue(
+            statusMenu.stateProvider?().canSetPlaybackOrder == true
+        )
 
         statusMenu.playNextHandler?()
         XCTAssertEqual(playNextCount, 1)
+        statusMenu.setPlaybackOrderHandler?(.shuffled)
+        XCTAssertEqual(selectedPlaybackOrders, [.shuffled])
 
         session.returnToPlayer()
         await waitUntil { !session.isActive && playback.presentation == .player }
@@ -91,6 +107,8 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
 
         statusMenu.playNextHandler?()
         XCTAssertEqual(playNextCount, 1)
+        statusMenu.setPlaybackOrderHandler?(.ordered)
+        XCTAssertEqual(selectedPlaybackOrders, [.shuffled])
     }
 
     func testStatusMenuFailureRestoresPlayerBeforeHidingApplication() async {
@@ -663,12 +681,15 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         )
         var selectedContentMode: DesktopVideoContentMode?
         var selectedPlaybackRate: PlaybackRate?
+        var selectedPlaybackOrder: PlaybackOrder?
         var playNextCount = 0
         var statusState = DesktopStatusState(
             sourceName: "Example",
             isPlaying: true,
             isTransitioning: false,
             canPlayNext: true,
+            playbackOrder: .ordered,
+            canSetPlaybackOrder: true,
             playbackRate: PlaybackRate(rawValue: 1.5),
             videoContentMode: .contain
         )
@@ -677,6 +698,9 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         }
         controller.playNextHandler = {
             playNextCount += 1
+        }
+        controller.setPlaybackOrderHandler = {
+            selectedPlaybackOrder = $0
         }
         controller.setPlaybackRateHandler = {
             selectedPlaybackRate = $0
@@ -692,12 +716,12 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         let menu = controller.makeMenu()
         controller.menuNeedsUpdate(menu)
 
-        XCTAssertEqual(menu.items.count, 8)
+        XCTAssertEqual(menu.items.count, 9)
         XCTAssertEqual(actionName(menu.items[1]), "togglePlayback")
         XCTAssertEqual(actionName(menu.items[2]), "playNext")
-        XCTAssertEqual(actionName(menu.items[5]), "returnToPlayer")
-        XCTAssertTrue(menu.items[6].isSeparatorItem)
-        XCTAssertEqual(actionName(menu.items[7]), "quitApplication")
+        XCTAssertEqual(actionName(menu.items[6]), "returnToPlayer")
+        XCTAssertTrue(menu.items[7].isSeparatorItem)
+        XCTAssertEqual(actionName(menu.items[8]), "quitApplication")
         XCTAssertFalse(
             menu.items.compactMap(\.action).map(NSStringFromSelector).contains {
                 $0.localizedCaseInsensitiveContains("stop")
@@ -712,17 +736,8 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             isPlaying: true,
             isTransitioning: false,
             canPlayNext: false,
-            playbackRate: PlaybackRate(rawValue: 1.5),
-            videoContentMode: .contain
-        )
-        controller.menuNeedsUpdate(menu)
-        XCTAssertFalse(menu.items[2].isEnabled)
-
-        statusState = DesktopStatusState(
-            sourceName: "Example",
-            isPlaying: true,
-            isTransitioning: true,
-            canPlayNext: true,
+            playbackOrder: .ordered,
+            canSetPlaybackOrder: false,
             playbackRate: PlaybackRate(rawValue: 1.5),
             videoContentMode: .contain
         )
@@ -733,13 +748,38 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         statusState = DesktopStatusState(
             sourceName: "Example",
             isPlaying: true,
-            isTransitioning: false,
+            isTransitioning: true,
             canPlayNext: true,
+            playbackOrder: .ordered,
+            canSetPlaybackOrder: true,
             playbackRate: PlaybackRate(rawValue: 1.5),
             videoContentMode: .contain
         )
         controller.menuNeedsUpdate(menu)
-        let playbackRateItems = try XCTUnwrap(menu.items[3].submenu?.items)
+        XCTAssertFalse(menu.items[2].isEnabled)
+        XCTAssertFalse(menu.items[3].isEnabled)
+        XCTAssertFalse(menu.items[4].isEnabled)
+
+        statusState = DesktopStatusState(
+            sourceName: "Example",
+            isPlaying: true,
+            isTransitioning: false,
+            canPlayNext: true,
+            playbackOrder: .ordered,
+            canSetPlaybackOrder: true,
+            playbackRate: PlaybackRate(rawValue: 1.5),
+            videoContentMode: .contain
+        )
+        controller.menuNeedsUpdate(menu)
+        let playbackOrderItems = try XCTUnwrap(menu.items[3].submenu?.items)
+        XCTAssertEqual(
+            playbackOrderItems.compactMap { $0.representedObject as? String },
+            [PlaybackOrder.shuffled.rawValue, PlaybackOrder.ordered.rawValue]
+        )
+        XCTAssertEqual(playbackOrderItems.map(\.title), ["Shuffle", "In Order"])
+        XCTAssertEqual(playbackOrderItems.map(\.state), [.off, .on])
+
+        let playbackRateItems = try XCTUnwrap(menu.items[4].submenu?.items)
         XCTAssertEqual(
             playbackRateItems.compactMap {
                 ($0.representedObject as? NSNumber)?.floatValue
@@ -751,7 +791,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             [.off, .off, .off, .off, .on, .off]
         )
 
-        let contentModeItems = try XCTUnwrap(menu.items[4].submenu?.items)
+        let contentModeItems = try XCTUnwrap(menu.items[5].submenu?.items)
         XCTAssertEqual(
             contentModeItems.compactMap { $0.representedObject as? String },
             [
@@ -771,29 +811,40 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             isPlaying: true,
             isTransitioning: false,
             canPlayNext: true,
+            playbackOrder: .shuffled,
+            canSetPlaybackOrder: true,
             playbackRate: PlaybackRate(rawValue: 1.5),
             videoContentMode: .blurredBackground
         )
         controller.menuNeedsUpdate(menu)
+        XCTAssertEqual(playbackOrderItems.map(\.state), [.on, .off])
         XCTAssertEqual(contentModeItems.map(\.state), [.on, .off, .off])
 
         localization.selectLanguage(.simplifiedChinese)
 
         XCTAssertEqual(menu.items[1].title, "暂停")
         XCTAssertEqual(menu.items[2].title, "播放下一个")
-        XCTAssertEqual(menu.items[3].title, "播放速度")
-        XCTAssertEqual(menu.items[4].title, "桌面适配")
-        XCTAssertEqual(menu.items[5].title, "返回播放器")
-        XCTAssertEqual(menu.items[7].title, "退出 Muralume")
+        XCTAssertEqual(menu.items[3].title, "播放顺序")
+        XCTAssertEqual(menu.items[4].title, "播放速度")
+        XCTAssertEqual(menu.items[5].title, "桌面适配")
+        XCTAssertEqual(menu.items[6].title, "返回播放器")
+        XCTAssertEqual(menu.items[8].title, "退出 Muralume")
         XCTAssertEqual(
-            menu.items[4].submenu?.items.map(\.title),
+            menu.items[3].submenu?.items.map(\.title),
+            ["随机播放", "顺序播放"]
+        )
+        XCTAssertEqual(
+            menu.items[5].submenu?.items.map(\.title),
             ["模糊背景", "填满屏幕", "完整显示"]
         )
 
-        menu.items[3].submenu?.performActionForItem(at: 5)
+        menu.items[3].submenu?.performActionForItem(at: 0)
+        XCTAssertEqual(selectedPlaybackOrder, .shuffled)
+
+        menu.items[4].submenu?.performActionForItem(at: 5)
         XCTAssertEqual(selectedPlaybackRate, PlaybackRate(rawValue: 2))
 
-        menu.items[4].submenu?.performActionForItem(at: 0)
+        menu.items[5].submenu?.performActionForItem(at: 0)
         XCTAssertEqual(selectedContentMode, .blurredBackground)
     }
 
@@ -840,6 +891,8 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
                 isPlaying: true,
                 isTransitioning: false,
                 canPlayNext: false,
+                playbackOrder: .ordered,
+                canSetPlaybackOrder: false,
                 playbackRate: PlaybackRate(rawValue: 1),
                 videoContentMode: .cover
             )
