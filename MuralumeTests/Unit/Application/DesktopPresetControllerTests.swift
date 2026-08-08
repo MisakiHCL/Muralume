@@ -126,6 +126,138 @@ final class DesktopPresetControllerTests: XCTestCase {
         XCTAssertNil(clearedPreset)
     }
 
+    func testFileStoreRejectsOversizedPresetWithoutChangingFile()
+        async throws
+    {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directoryURL.appendingPathComponent("preset.json")
+        defer {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        let oversizedData = Data(repeating: 0x41, count: 65)
+        try oversizedData.write(to: fileURL)
+        let store = FileDesktopPresetStore(
+            fileURL: fileURL,
+            maximumFileByteCount: 64
+        )
+
+        do {
+            _ = try await store.load()
+            XCTFail("Expected the oversized preset to be rejected.")
+        } catch let error as DesktopPresetStoreError {
+            XCTAssertEqual(
+                error,
+                .fileTooLarge(maximumByteCount: 64, observedByteCount: 65)
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: fileURL), oversizedData)
+    }
+
+    func testFileStoreRejectsOversizedSaveWithoutReplacingLastKnownGood()
+        async throws
+    {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directoryURL.appendingPathComponent("preset.json")
+        defer {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        let lastKnownGood = Data("last-known-good".utf8)
+        try lastKnownGood.write(to: fileURL)
+        let itemID = LibraryMediaItem.ID(
+            rootPath: "/tmp/Library",
+            relativePath: "clip.mp4"
+        )
+        let queue = PlaybackQueue(items: [itemID])
+        let preset = DesktopPreset(
+            queue: try XCTUnwrap(queue.makeSnapshot()),
+            currentTime: 0,
+            isPlaybackRequested: false,
+            playbackRate: PlaybackPolicy.defaultRate,
+            videoContentMode: .defaultValue
+        )
+        let store = FileDesktopPresetStore(
+            fileURL: fileURL,
+            maximumFileByteCount: 64
+        )
+
+        do {
+            try await store.save(preset)
+            XCTFail("Expected the oversized encoded preset to be rejected.")
+        } catch let error as DesktopPresetStoreError {
+            guard case let .fileTooLarge(maximum, observed) = error else {
+                return XCTFail("Expected fileTooLarge, received \(error).")
+            }
+            XCTAssertEqual(maximum, 64)
+            XCTAssertGreaterThan(observed, maximum)
+        }
+        XCTAssertEqual(try Data(contentsOf: fileURL), lastKnownGood)
+    }
+
+    func testFileStoreReportsQueueLimitWithoutChangingPreset() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directoryURL.appendingPathComponent("preset.json")
+        defer {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        let itemCount = PlaybackQueuePolicy.maximumPersistedItemCount + 1
+        let itemIDs = (0..<itemCount).map {
+            LibraryMediaItem.ID(
+                rootPath: "/tmp/Library",
+                relativePath: "\($0).mp4"
+            )
+        }
+        let queue = PlaybackQueueSnapshot(
+            items: itemIDs,
+            order: .ordered,
+            currentItem: itemIDs[0],
+            roundNumber: 1,
+            currentRoundPosition: 1,
+            remainingItems: [],
+            remainingIndex: 0,
+            history: [],
+            forwardHistory: []
+        )
+        let preset = DesktopPreset(
+            queue: queue,
+            currentTime: 0,
+            isPlaybackRequested: false,
+            playbackRate: PlaybackPolicy.defaultRate,
+            videoContentMode: .defaultValue
+        )
+        let persistedData = try JSONEncoder().encode(preset)
+        try persistedData.write(to: fileURL)
+        let store = FileDesktopPresetStore(fileURL: fileURL)
+
+        do {
+            _ = try await store.load()
+            XCTFail("Expected the oversized queue to be rejected.")
+        } catch let error as DesktopPresetStoreError {
+            XCTAssertEqual(
+                error,
+                .queueLimitExceeded(
+                    itemCount: itemCount,
+                    historyEntryCount: 0
+                )
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: fileURL), persistedData)
+    }
+
     func testFileStoreDecodesVersionOneCoverPresetFromV102() async throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -870,6 +1002,51 @@ final class DesktopPresetControllerTests: XCTestCase {
         )
     }
 
+    func testContentLimitErrorsAutomaticallyDisableRequestedStartup() async {
+        let errors: [DesktopPresetStoreError] = [
+            .fileTooLarge(maximumByteCount: 64, observedByteCount: 65),
+            .queueLimitExceeded(itemCount: 50_001, historyEntryCount: 0)
+        ]
+
+        for (index, error) in errors.enumerated() {
+            let rootURL = URL(
+                fileURLWithPath: "/tmp/PresetContentLimit-\(index)"
+            )
+            let store = MemoryDesktopPresetStore(preset: nil)
+            await store.setContentLoadError(error)
+            let fixture = makeFixture(
+                rootURL: rootURL,
+                items: [],
+                preset: nil,
+                store: store
+            )
+            let service = PresetTestLaunchAtLoginService(status: .enabled)
+            service.statusAfterUnregister = .disabled
+            let startup = DynamicDesktopStartupController(
+                launchAtLogin: LaunchAtLoginController(service: service),
+                desktopPreset: fixture.controller
+            )
+
+            let didRestore = await fixture.controller.restoreAtLogin(
+                after: fixture.library.start()
+            )
+            let clearCount = await store.clearCount
+
+            XCTAssertFalse(didRestore)
+            XCTAssertEqual(clearCount, 1)
+            XCTAssertEqual(service.unregisterCount, 1)
+            XCTAssertEqual(startup.status, .disabled)
+            XCTAssertEqual(startup.failure, .automaticallyDisabled)
+            XCTAssertEqual(
+                fixture.controller.automaticRestoreInvalidation,
+                .invalidPreset
+            )
+
+            fixture.desktopSession.shutdown()
+            await fixture.library.shutdown()
+        }
+    }
+
     func testPermanentRestoreFailureDisablesButTemporaryFailurePreservesRequest() async throws {
         let rootURL = URL(fileURLWithPath: "/tmp/PresetAvailability")
         let item = makeItem(rootURL: rootURL, name: "Missing", path: "clip.mp4")
@@ -1196,6 +1373,7 @@ private actor MemoryDesktopPresetStore: DesktopPresetStoring {
     private var shouldFailSave = false
     private var shouldFailClear = false
     private var shouldReportInvalidPreset = false
+    private var contentLoadError: DesktopPresetStoreError?
     private var shouldBlockSave = false
     private var blockedSaveContinuation: CheckedContinuation<Void, Never>?
     private(set) var didBeginBlockedSave = false
@@ -1222,6 +1400,10 @@ private actor MemoryDesktopPresetStore: DesktopPresetStoring {
         shouldReportInvalidPreset = shouldReport
     }
 
+    func setContentLoadError(_ error: DesktopPresetStoreError?) {
+        contentLoadError = error
+    }
+
     func finishBlockedSave() {
         shouldBlockSave = false
         blockedSaveContinuation?.resume()
@@ -1229,6 +1411,9 @@ private actor MemoryDesktopPresetStore: DesktopPresetStoring {
     }
 
     func load() throws -> DesktopPreset? {
+        if let contentLoadError {
+            throw contentLoadError
+        }
         if shouldReportInvalidPreset {
             throw DesktopPresetStoreError.invalidPreset
         }

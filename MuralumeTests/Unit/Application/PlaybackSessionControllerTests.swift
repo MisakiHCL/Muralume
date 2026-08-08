@@ -30,6 +30,193 @@ final class PlaybackSessionControllerTests: XCTestCase {
         XCTAssertNil(clearedSnapshot)
     }
 
+    func testFileStoreRejectsOversizedSnapshotWithoutChangingFile()
+        async throws
+    {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directoryURL.appendingPathComponent("session.json")
+        defer {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        let oversizedData = Data(repeating: 0x41, count: 65)
+        try oversizedData.write(to: fileURL)
+        let store = FilePlaybackSessionStore(
+            fileURL: fileURL,
+            maximumFileByteCount: 64
+        )
+
+        do {
+            _ = try await store.load()
+            XCTFail("Expected the oversized session to be rejected.")
+        } catch let error as PlaybackSessionStoreError {
+            XCTAssertEqual(
+                error,
+                .fileTooLarge(maximumByteCount: 64, observedByteCount: 65)
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: fileURL), oversizedData)
+    }
+
+    func testFileStoreRejectsOversizedSaveWithoutReplacingLastKnownGood()
+        async throws
+    {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directoryURL.appendingPathComponent("session.json")
+        defer {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        let lastKnownGood = Data("last-known-good".utf8)
+        try lastKnownGood.write(to: fileURL)
+        let items = makeItems()
+        let snapshot = try makeSnapshot(
+            items: items,
+            currentItem: items[0],
+            currentTime: 0,
+            isPlaying: false,
+            presentation: .player
+        )
+        let store = FilePlaybackSessionStore(
+            fileURL: fileURL,
+            maximumFileByteCount: 64
+        )
+
+        do {
+            try await store.save(snapshot)
+            XCTFail("Expected the oversized encoded session to be rejected.")
+        } catch let error as PlaybackSessionStoreError {
+            guard case let .fileTooLarge(maximum, observed) = error else {
+                return XCTFail("Expected fileTooLarge, received \(error).")
+            }
+            XCTAssertEqual(maximum, 64)
+            XCTAssertGreaterThan(observed, maximum)
+        }
+        XCTAssertEqual(try Data(contentsOf: fileURL), lastKnownGood)
+    }
+
+    func testFileStoreRejectsCorruptSnapshotWithoutChangingFile()
+        async throws
+    {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directoryURL.appendingPathComponent("session.json")
+        defer {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        let corruptData = Data("{".utf8)
+        try corruptData.write(to: fileURL)
+        let store = FilePlaybackSessionStore(
+            fileURL: fileURL,
+            maximumFileByteCount: 64
+        )
+
+        do {
+            _ = try await store.load()
+            XCTFail("Expected the corrupt session to be rejected.")
+        } catch is DecodingError {
+            // Expected: the store leaves recovery data untouched for diagnosis.
+        }
+        XCTAssertEqual(try Data(contentsOf: fileURL), corruptData)
+    }
+
+    func testFileStoreReportsQueueLimitWithoutChangingSnapshot()
+        async throws
+    {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directoryURL.appendingPathComponent("session.json")
+        defer {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        let itemCount = PlaybackQueuePolicy.maximumPersistedItemCount + 1
+        let itemIDs = (0..<itemCount).map {
+            LibraryMediaItem.ID(
+                rootPath: "/tmp/Library",
+                relativePath: "\($0).mp4"
+            )
+        }
+        let queue = PlaybackQueueSnapshot(
+            items: itemIDs,
+            order: .ordered,
+            currentItem: itemIDs[0],
+            roundNumber: 1,
+            currentRoundPosition: 1,
+            remainingItems: [],
+            remainingIndex: 0,
+            history: [],
+            forwardHistory: []
+        )
+        let snapshot = PlaybackSessionSnapshot(
+            state: DesktopPreset(
+                queue: queue,
+                currentTime: 0,
+                isPlaybackRequested: false,
+                playbackRate: PlaybackPolicy.defaultRate,
+                videoContentMode: .defaultValue
+            ),
+            presentation: .player
+        )
+        let persistedData = try JSONEncoder().encode(snapshot)
+        try persistedData.write(to: fileURL)
+        let store = FilePlaybackSessionStore(fileURL: fileURL)
+
+        do {
+            _ = try await store.load()
+            XCTFail("Expected the oversized queue to be rejected.")
+        } catch let error as PlaybackSessionStoreError {
+            XCTAssertEqual(
+                error,
+                .queueLimitExceeded(
+                    itemCount: itemCount,
+                    historyEntryCount: 0
+                )
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: fileURL), persistedData)
+    }
+
+    func testTypedStoreContentErrorsInvalidateStoredSnapshot() async {
+        let errors: [PlaybackSessionStoreError] = [
+            .invalidSnapshot,
+            .fileTooLarge(maximumByteCount: 64, observedByteCount: 65),
+            .queueLimitExceeded(itemCount: 50_001, historyEntryCount: 0)
+        ]
+
+        for error in errors {
+            let store = MemoryPlaybackSessionStore(snapshot: nil)
+            await store.setLoadError(error)
+            let fixture = makeFixture(items: [], store: store)
+
+            let result = await fixture.controller.makeRestorePlan()
+            let storedSnapshot = await store.value()
+            let clearCount = await store.clearCount
+
+            XCTAssertEqual(result, .invalidSnapshot)
+            XCTAssertNil(storedSnapshot)
+            XCTAssertEqual(clearCount, 1)
+
+            fixture.desktopSession.shutdown()
+            await fixture.library.shutdown()
+        }
+    }
+
     func testFileStoreDecodesVersionOneContainSessionFromV102() async throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -620,6 +807,7 @@ private enum MemoryPlaybackSessionStoreError: Error {
 
 private actor MemoryPlaybackSessionStore: PlaybackSessionStoring {
     private var snapshot: PlaybackSessionSnapshot?
+    private var loadError: PlaybackSessionStoreError?
     private var shouldFailSave = false
     private(set) var clearCount = 0
 
@@ -631,12 +819,19 @@ private actor MemoryPlaybackSessionStore: PlaybackSessionStoring {
         shouldFailSave = shouldFail
     }
 
+    func setLoadError(_ error: PlaybackSessionStoreError?) {
+        loadError = error
+    }
+
     func value() -> PlaybackSessionSnapshot? {
         snapshot
     }
 
     func load() throws -> PlaybackSessionSnapshot? {
-        snapshot
+        if let loadError {
+            throw loadError
+        }
+        return snapshot
     }
 
     func save(_ snapshot: PlaybackSessionSnapshot) throws {

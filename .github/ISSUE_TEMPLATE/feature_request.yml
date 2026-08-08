@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose an outcome that fits Muralume's product direction
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Explain the user problem before proposing an implementation. Muralume prioritizes a private, native Dynamic Desktop and keeps media access local and least-privilege.
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: What is difficult or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the smallest useful result without prescribing architecture.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Product area
+      options:
+        - Dynamic Desktop
+        - Playback or queue
+        - Media sources or playlist
+        - Session or login restore
+        - Accessibility or localization
+        - Packaging or documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Privacy, performance, or lifecycle considerations
+      description: Note media access, energy, cancellation, multi-display, or recovery implications you can foresee.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

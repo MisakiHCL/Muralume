@@ -28,9 +28,22 @@
   >
 </p>
 
-Muralume is a private, native video player that turns local videos and folders into playlists—and any playlist into a Dynamic Desktop. It works directly with local files, without an account, cloud upload, or tracking.
+Muralume is a private, native macOS Dynamic Desktop app that turns the videos and folders you choose into a living desktop. A focused local player and playlist keep everything organized—without an account, cloud upload, or tracking.
 
-> This page documents the current `main` branch. See the [latest release](https://github.com/MisakiHCL/Muralume/releases/latest) for the signed download and exact shipped scope.
+## Why Muralume
+
+| | |
+|---|---|
+| **Your videos, not a catalog** | Use pet moments, travel memories, timelapses, or generated clips you already own. |
+| **Folders become playlists** | Add individual videos, entire folders, or drop either directly from Finder. |
+| **A desktop that stays usable** | Motion sits behind desktop files and widgets without taking over clicks or focus. |
+| **Private and native** | Read-only local access, macOS-native playback, no account, uploads, ads, or telemetry. |
+
+## How it works
+
+1. Add your videos or folders, or drop them into Muralume from Finder.
+2. Choose ordered playback or shuffle and preview the queue in the built-in player.
+3. Press `⌘D` to place the same queue behind your files and widgets as a Dynamic Desktop.
 
 ## Highlights
 
@@ -46,7 +59,7 @@ By default, Muralume keeps the full video sharp and fills any remaining space wi
 
 ### Videos and folders become playlists
 
-Add individual videos, add folders from your Mac or an external drive, or drop either from Finder. Muralume recursively discovers MP4, MOV, and M4V videos in folders, generates local thumbnails, and sorts everything by name, creation date, or file size—without reorganizing anything on disk.
+Add individual videos, add folders from your Mac or an external drive, or drop either from Finder. Muralume recursively discovers MP4, MOV, and M4V videos in folders, generates local thumbnails, and sorts everything by name, creation date, or file size—without reorganizing anything on disk. If a folder changes in Finder, use **Edit → Refresh Data** in the playlist to rescan the access you already granted.
 
 ### Focused native playback
 
@@ -64,14 +77,13 @@ Optionally start Muralume with macOS and restore the current queue directly as a
 
 The latest release includes a Developer ID–signed and Apple-notarized DMG plus its [SHA-256 checksum](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg.sha256).
 
-## Quick start
+> This page documents the current `main` branch. See the [latest release](https://github.com/MisakiHCL/Muralume/releases/latest) for the exact shipped scope.
 
-1. Add individual videos or folders, or drop them into the player from Finder. The first dropped video starts playing.
-2. Select a video from the playlist and choose ordered playback or shuffle.
-3. Select the display button, use **Actions → Set as Dynamic Desktop**, or choose the same action from Muralume’s Dock menu.
-4. To restore it automatically after login, open Settings and enable **Start Dynamic Desktop at Login** while a video queue is active. macOS may ask you to approve Muralume in Login Items.
+## Restore after login
 
-The menu bar item lets you pause, skip, change playback speed or desktop fit, return to the player, and quit Muralume.
+To restore the current queue automatically after login, open Settings and enable **Start Dynamic Desktop at Login** while a video queue is active. macOS may ask you to approve Muralume in Login Items.
+
+The menu bar item lets you pause, skip, choose ordered playback or shuffle, change playback speed or desktop fit, return to the player, and quit Muralume.
 
 ## Keyboard shortcuts
 
@@ -112,4 +124,4 @@ make package-macos
 
 ## Open source
 
-Source code is available under the [MIT License](LICENSE). Vendored build-tool components retain their licenses in [Third-Party Notices](THIRD_PARTY_NOTICES.md). The Muralume name, logo, app icon, and menu bar icon are excluded from the MIT grant; see the [Brand Assets Notice](BRAND_ASSETS.md).
+Source code is available under the [MIT License](LICENSE). See [Contributing](CONTRIBUTING.md), the [Security Policy](SECURITY.md), and the [Community Code of Conduct](CODE_OF_CONDUCT.md) before participating. Vendored build-tool components retain their licenses in [Third-Party Notices](THIRD_PARTY_NOTICES.md). The Muralume name, logo, app icon, and menu bar icon are excluded from the MIT grant; see the [Brand Assets Notice](BRAND_ASSETS.md).

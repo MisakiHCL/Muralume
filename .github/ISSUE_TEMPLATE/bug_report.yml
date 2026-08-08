@@ -1,0 +1,75 @@
+name: Bug report
+description: Report a reproducible Muralume problem
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Muralume. Do not include personal videos, real folder paths, security-scoped bookmarks, credentials, signing material, or private logs. For vulnerabilities, follow SECURITY.md instead of filing a public issue.
+  - type: input
+    id: version
+    attributes:
+      label: Muralume version
+      description: Use the version shown in Finder or the Git commit for a source build.
+      placeholder: "1.0.3 or commit SHA"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS and Mac
+      placeholder: "macOS 14.7, M1, 8 GB"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Dynamic Desktop
+        - Playback or queue
+        - Video or folder import
+        - Playlist or source editing
+        - Session or login restore
+        - Window, menu, or fullscreen
+        - Packaging or installation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use synthetic media and sanitized paths whenever possible.
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional sanitized context
+      description: Mention file/folder source, external volume, display arrangement, or playback format when relevant.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed personal media, private paths, bookmark data, credentials, and signing material.
+          required: true

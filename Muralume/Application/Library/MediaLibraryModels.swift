@@ -162,4 +162,19 @@ enum MediaLibraryFilePolicy {
 enum MediaImportPolicy {
     /// Bounds one picker/drop transaction before any bookmark work begins.
     static let maximumTopLevelSourceCount = 256
+
+    /// Bounds simultaneously active security-scoped grants for one process.
+    static let maximumActiveSourceCount = 256
+
+    /// Bounds bookmark resolution work during one process restoration.
+    static let maximumRestoredSourceRecordCount = 256
+
+    /// Prevents legacy migration from being permanently starved by an
+    /// unavailable typed-record prefix while an active-source slot remains.
+    static let reservedLegacyRestoreCandidateCount = 1
+
+    /// Apple does not publish a maximum security-scoped bookmark size. This
+    /// deliberately generous bound rejects damaged opaque payloads before URL
+    /// resolution while remaining far above bookmarks produced in practice.
+    static let maximumBookmarkByteCount = 1 * 1_024 * 1_024
 }

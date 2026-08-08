@@ -106,7 +106,10 @@ final class PlaybackSessionController: ObservableObject {
                         presentationOverride ?? snapshot.presentation
                 )
             )
-        } catch PlaybackSessionStoreError.invalidSnapshot {
+        } catch is PlaybackSessionStoreError {
+            // Typed store errors describe permanently invalid persisted
+            // content, including byte/count limits. I/O errors remain on the
+            // generic temporary path below so last-known-good data is kept.
             await invalidateStoredSnapshot()
             restoreInProgress = false
             return .invalidSnapshot

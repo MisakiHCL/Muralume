@@ -123,6 +123,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
     private var activeResourceIdentifiersByKey: [String: NSObject] = [:]
     private var unavailableStoredRecordValues: [Any] = []
     private var unavailableLegacyBookmarks: [Data] = []
+    private var deferredStoredRecordValues: ArraySlice<Any> = []
+    private var deferredLegacyBookmarks: ArraySlice<Data> = []
     private var didAttemptRestore = false
     private(set) var hasUnavailablePersistedSources = false
 
@@ -144,14 +146,40 @@ final class UserSelectedMediaSession: MediaAccessSession {
         }
         didAttemptRestore = true
 
+        // UserDefaults' array API necessarily materializes the existing
+        // property-list arrays before record-level validation. The restore
+        // budget below bounds bookmark resolution and active scopes; slices
+        // avoid another full overflow-tail copy, but the current persisted
+        // format cannot impose a total byte bound without a migration.
         let storedRecordValues = storedSourceRecordValues
         let legacyBookmarks = storedLegacyBookmarks
         unavailableStoredRecordValues = []
         unavailableLegacyBookmarks = []
+        deferredStoredRecordValues = []
+        deferredLegacyBookmarks = []
         hasUnavailablePersistedSources = false
         var pendingLinkedCandidates: [PendingLinkedCandidate] = []
+        var remainingRestoreCandidateCount =
+            MediaImportPolicy.maximumRestoredSourceRecordCount
 
-        for storedValue in storedRecordValues {
+        for (index, storedValue) in storedRecordValues.enumerated() {
+            let shouldReserveLegacyCandidate =
+                !legacyBookmarks.isEmpty
+                && activeSourcesByKey.count
+                    < MediaImportPolicy.maximumActiveSourceCount
+                && remainingRestoreCandidateCount
+                    == MediaImportPolicy.reservedLegacyRestoreCandidateCount
+            guard !shouldReserveLegacyCandidate else {
+                deferredStoredRecordValues = storedRecordValues[index...]
+                hasUnavailablePersistedSources = true
+                break
+            }
+            guard remainingRestoreCandidateCount > 0 else {
+                deferredStoredRecordValues = storedRecordValues[index...]
+                hasUnavailablePersistedSources = true
+                break
+            }
+            remainingRestoreCandidateCount -= 1
             guard let record = PersistedSourceRecord(
                 storedValue: storedValue
             ) else {
@@ -167,7 +195,13 @@ final class UserSelectedMediaSession: MediaAccessSession {
             )
         }
 
-        for bookmark in legacyBookmarks {
+        for (index, bookmark) in legacyBookmarks.enumerated() {
+            guard remainingRestoreCandidateCount > 0 else {
+                deferredLegacyBookmarks = legacyBookmarks[index...]
+                hasUnavailablePersistedSources = true
+                break
+            }
+            remainingRestoreCandidateCount -= 1
             restore(
                 RestoreCandidate(
                     record: PersistedSourceRecord(
@@ -189,7 +223,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
         }
 
         storeSourceRecords(currentStoredRecordValues)
-        storeLegacyBookmarks(unavailableLegacyBookmarks)
+        storeLegacyBookmarks(currentLegacyBookmarks)
         return activeSources
     }
 
@@ -250,8 +284,11 @@ final class UserSelectedMediaSession: MediaAccessSession {
             case .rejected:
                 rejectedRequestCount += 1
                 continue
-            case .insert:
-                break
+            case let .insert(replacingKeys):
+                guard canInstallSource(replacingKeys: replacingKeys) else {
+                    rejectedRequestCount += 1
+                    continue
+                }
             }
             guard !selectedLinkResolution.didResolveLink else {
                 rejectedRequestCount += 1
@@ -259,6 +296,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
             }
 
             guard let bookmark = securityAccess.makeBookmark(selectedURL),
+                  Self.bookmarkIsWithinPersistenceLimit(bookmark),
                   let resolvedBookmark = securityAccess.resolveBookmark(bookmark),
                   securityAccess.startAccess(resolvedBookmark.url) else {
                 rejectedRequestCount += 1
@@ -305,6 +343,27 @@ final class UserSelectedMediaSession: MediaAccessSession {
                 rejectedRequestCount += 1
                 continue
             }
+            if case let .insert(replacingKeys) = resolvedDisposition,
+               !canInstallSource(replacingKeys: replacingKeys) {
+                securityAccess.stopAccess(resolvedURL)
+                rejectedRequestCount += 1
+                continue
+            }
+            let activeBookmark: Data
+            if case .insert = resolvedDisposition,
+               resolvedBookmark.isStale,
+               let refreshedBookmark = securityAccess.makeBookmark(resolvedURL) {
+                guard Self.bookmarkIsWithinPersistenceLimit(
+                    refreshedBookmark
+                ) else {
+                    securityAccess.stopAccess(resolvedURL)
+                    rejectedRequestCount += 1
+                    continue
+                }
+                activeBookmark = refreshedBookmark
+            } else {
+                activeBookmark = bookmark
+            }
             acceptedRequestCount += 1
             if resolvedKind == .file {
                 let playbackURL = if case .covered = resolvedDisposition {
@@ -318,12 +377,6 @@ final class UserSelectedMediaSession: MediaAccessSession {
                     seenIDs: &requestedFileIDs
                 )
             }
-
-            let activeBookmark = (
-                resolvedBookmark.isStale
-                    ? securityAccess.makeBookmark(resolvedURL) ?? bookmark
-                    : bookmark
-            )
 
             switch resolvedDisposition {
             case .covered:
@@ -402,6 +455,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
         activeResourceIdentifiersByKey.removeAll()
         unavailableStoredRecordValues.removeAll()
         unavailableLegacyBookmarks.removeAll()
+        deferredStoredRecordValues.removeAll()
+        deferredLegacyBookmarks.removeAll()
         hasUnavailablePersistedSources = false
         didAttemptRestore = false
     }
@@ -423,10 +478,33 @@ final class UserSelectedMediaSession: MediaAccessSession {
     }
 
     private var currentStoredRecordValues: [Any] {
-        unavailableStoredRecordValues
-            + activeSourcesByKey.keys.sorted().compactMap {
-                activeRecordsByKey[$0]?.storedValue
+        var storedValues: [Any] = []
+        storedValues.reserveCapacity(
+            activeRecordsByKey.count
+                + deferredStoredRecordValues.count
+                + unavailableStoredRecordValues.count
+        )
+        for key in activeSourcesByKey.keys.sorted() {
+            if let storedValue = activeRecordsByKey[key]?.storedValue {
+                storedValues.append(storedValue)
             }
+        }
+        // Unattempted records must precede records already confirmed
+        // unavailable so a bad/offline prefix cannot consume every future
+        // restore budget. No value is discarded or rewritten.
+        storedValues.append(contentsOf: deferredStoredRecordValues)
+        storedValues.append(contentsOf: unavailableStoredRecordValues)
+        return storedValues
+    }
+
+    private var currentLegacyBookmarks: [Data] {
+        var bookmarks: [Data] = []
+        bookmarks.reserveCapacity(
+            deferredLegacyBookmarks.count + unavailableLegacyBookmarks.count
+        )
+        bookmarks.append(contentsOf: deferredLegacyBookmarks)
+        bookmarks.append(contentsOf: unavailableLegacyBookmarks)
+        return bookmarks
     }
 
     private func sourceKey(for url: URL) -> String {
@@ -449,6 +527,20 @@ final class UserSelectedMediaSession: MediaAccessSession {
         case covered
         case rejected
         case insert(replacingKeys: [String])
+    }
+
+    private func canInstallSource(replacingKeys: [String]) -> Bool {
+        let replacedActiveSourceCount = replacingKeys.reduce(into: 0) {
+            count, key in
+            if activeSourcesByKey[key] != nil {
+                count += 1
+            }
+        }
+        let resultingSourceCount = activeSourcesByKey.count
+            - replacedActiveSourceCount
+            + 1
+        return resultingSourceCount
+            <= MediaImportPolicy.maximumActiveSourceCount
     }
 
     private func disposition(for candidate: MediaSource) -> SourceDisposition {
@@ -547,6 +639,10 @@ final class UserSelectedMediaSession: MediaAccessSession {
         pendingLinkedCandidates: inout [PendingLinkedCandidate]
     ) {
         let record = candidate.record
+        guard Self.bookmarkIsWithinPersistenceLimit(record.bookmark) else {
+            preserveUnavailable(candidate)
+            return
+        }
         guard let resolvedBookmark = securityAccess.resolveBookmark(
             record.bookmark
         ), securityAccess.startAccess(resolvedBookmark.url) else {
@@ -581,16 +677,24 @@ final class UserSelectedMediaSession: MediaAccessSession {
         }
 
         let source = MediaSource(url: resolvedURL, kind: record.kind)
-        let activeBookmark = if resolvedBookmark.isStale {
-            securityAccess.makeBookmark(resolvedURL) ?? record.bookmark
-        } else {
-            record.bookmark
-        }
-
         switch disposition(for: source) {
         case .covered, .rejected:
             securityAccess.stopAccess(resolvedURL)
         case let .insert(replacingKeys):
+            let activeBookmark: Data
+            if resolvedBookmark.isStale,
+               let refreshedBookmark = securityAccess.makeBookmark(resolvedURL) {
+                guard Self.bookmarkIsWithinPersistenceLimit(
+                    refreshedBookmark
+                ) else {
+                    securityAccess.stopAccess(resolvedURL)
+                    preserveUnavailable(candidate)
+                    return
+                }
+                activeBookmark = refreshedBookmark
+            } else {
+                activeBookmark = record.bookmark
+            }
             let replacedURLs = install(
                 source,
                 bookmark: activeBookmark,
@@ -668,6 +772,12 @@ final class UserSelectedMediaSession: MediaAccessSession {
             || MediaLibraryFilePolicy.supportedVideoExtensions.contains(
                 url.pathExtension.lowercased()
             )
+    }
+
+    private static func bookmarkIsWithinPersistenceLimit(
+        _ bookmark: Data
+    ) -> Bool {
+        bookmark.count <= MediaImportPolicy.maximumBookmarkByteCount
     }
 
     private static func folder(

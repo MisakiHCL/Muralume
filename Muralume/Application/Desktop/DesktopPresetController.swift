@@ -116,7 +116,11 @@ final class DesktopPresetController: ObservableObject {
             }
             preset = storedPreset
             lastCommittedPreset = storedPreset
-        } catch DesktopPresetStoreError.invalidPreset {
+        } catch is DesktopPresetStoreError {
+            // Typed store errors describe permanently invalid persisted
+            // content, including byte/count limits, and must use the existing
+            // fail-closed invalidation path. Transport failures remain
+            // temporary on the generic path below.
             guard !Task.isCancelled else {
                 bootstrapState = .cancelled
                 return false

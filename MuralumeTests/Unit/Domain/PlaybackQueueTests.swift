@@ -330,6 +330,84 @@ final class PlaybackQueueTests: XCTestCase {
         XCTAssertNil(PlaybackQueue(snapshot: snapshot))
     }
 
+    func testSnapshotRejectsPersistedItemCountAboveLimit() throws {
+        let items = Array(
+            0...PlaybackQueuePolicy.maximumPersistedItemCount
+        )
+        let snapshot = PlaybackQueueSnapshot(
+            items: items,
+            order: .ordered,
+            currentItem: items[0],
+            roundNumber: 1,
+            currentRoundPosition: 1,
+            remainingItems: [],
+            remainingIndex: 0,
+            history: [],
+            forwardHistory: []
+        )
+
+        XCTAssertFalse(snapshot.isWithinPersistenceLimits)
+        XCTAssertNil(PlaybackQueue(snapshot: snapshot))
+        let data = try JSONEncoder().encode(snapshot)
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(
+                PlaybackQueueSnapshot<Int>.self,
+                from: data
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? PlaybackQueueSnapshotCodingError,
+                .limitExceeded(
+                    itemCount:
+                        PlaybackQueuePolicy.maximumPersistedItemCount + 1,
+                    historyEntryCount: 0
+                )
+            )
+        }
+    }
+
+    func testSnapshotRejectsCombinedNavigationHistoryAboveLimit() throws {
+        let location = PlaybackQueueSnapshotLocation(
+            item: "a",
+            roundNumber: 1,
+            position: 1
+        )
+        let snapshot = PlaybackQueueSnapshot(
+            items: ["a"],
+            order: .ordered,
+            currentItem: "a",
+            roundNumber: 1,
+            currentRoundPosition: 1,
+            remainingItems: ["a"],
+            remainingIndex: 1,
+            history: Array(
+                repeating: location,
+                count: PlaybackQueuePolicy.maximumPersistedHistoryEntryCount
+            ),
+            forwardHistory: [location]
+        )
+
+        XCTAssertFalse(snapshot.isWithinPersistenceLimits)
+        XCTAssertNil(PlaybackQueue(snapshot: snapshot))
+        let data = try JSONEncoder().encode(snapshot)
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(
+                PlaybackQueueSnapshot<String>.self,
+                from: data
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? PlaybackQueueSnapshotCodingError,
+                .limitExceeded(
+                    itemCount: 1,
+                    historyEntryCount:
+                        PlaybackQueuePolicy
+                            .maximumPersistedHistoryEntryCount + 1
+                )
+            )
+        }
+    }
+
     private func sequence<Item: Hashable & Sendable>(
         from queue: inout PlaybackQueue<Item>,
         count: Int,

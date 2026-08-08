@@ -1,0 +1,15 @@
+name: Security contact request
+description: Ask the maintainer to establish a private channel without disclosing vulnerability details
+title: "[Security contact requested]"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form only when GitHub's private vulnerability reporting option is unavailable. Do not include vulnerability details, exploit code, logs, paths, media, credentials, bookmarks, or device identifiers here. The maintainer will establish a private channel before requesting technical information.
+  - type: checkboxes
+    id: disclosure
+    attributes:
+      label: Public disclosure check
+      options:
+        - label: I have not included vulnerability details or sensitive data in this public request.
+          required: true

@@ -41,11 +41,17 @@ struct DesktopPreset: Codable, Equatable, Sendable {
             && currentTime.isFinite
             && currentTime >= 0
             && playbackRate != nil
+            && queue.isWithinPersistenceLimits
     }
 }
 
-enum DesktopPresetStoreError: Error {
+enum DesktopPresetStoreError: Error, Equatable, Sendable {
     case invalidPreset
+    case fileTooLarge(maximumByteCount: Int, observedByteCount: Int)
+    case queueLimitExceeded(
+        itemCount: Int,
+        historyEntryCount: Int
+    )
 }
 
 protocol DesktopPresetStoring: Sendable {
