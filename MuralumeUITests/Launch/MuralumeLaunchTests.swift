@@ -46,7 +46,7 @@ final class MuralumeLaunchTests: XCTestCase {
         XCTAssertTrue(
             addMediaButton.waitForExistence(timeout: 5)
         )
-        XCTAssertEqual(addMediaButton.label, "Add")
+        XCTAssertEqual(addMediaButton.label, "Add Media…")
         XCTAssertGreaterThanOrEqual(
             addMediaButton.frame.width,
             LayoutExpectation.minimumLabeledHeaderActionWidth
@@ -76,9 +76,10 @@ final class MuralumeLaunchTests: XCTestCase {
         )
         addMediaButton.click()
         XCTAssertTrue(
-            application.menuItems["Add Video…"].waitForExistence(timeout: 2)
+            application.dialogs.firstMatch.waitForExistence(timeout: 2)
         )
-        XCTAssertTrue(application.menuItems["Add Folder…"].exists)
+        XCTAssertFalse(application.menuItems["Add Video…"].exists)
+        XCTAssertFalse(application.menuItems["Add Folder…"].exists)
         application.typeKey(.escape, modifierFlags: [])
 
         let settingsButton = application.buttons[
@@ -425,10 +426,7 @@ final class MuralumeLaunchTests: XCTestCase {
             application.menuBars.menuBarItems["Actions"]
         hiddenWindowActionsMenu.click()
         XCTAssertFalse(
-            application.menuItems["Add Video…"].isEnabled
-        )
-        XCTAssertFalse(
-            application.menuItems["Add Folder…"].isEnabled
+            application.menuItems["Add Media…"].isEnabled
         )
         XCTAssertFalse(application.menuItems["Edit"].isEnabled)
         XCTAssertFalse(
@@ -642,8 +640,7 @@ final class MuralumeLaunchTests: XCTestCase {
         XCTAssertTrue(actionsMenu.waitForExistence(timeout: 5))
         actionsMenu.click()
         for itemTitle in [
-            "Add Video…",
-            "Add Folder…",
+            "Add Media…",
             "Edit",
             "Play",
             "Back 10 seconds",
@@ -881,11 +878,19 @@ final class MuralumeLaunchTests: XCTestCase {
             XCTAssertTrue(item.isEnabled, file: file, line: line)
         }
 
-        for itemTitle in ["Add Video…", "Add Folder…"] {
-            let addMediaItem = application.menuItems[itemTitle]
-            XCTAssertTrue(addMediaItem.exists, file: file, line: line)
-            XCTAssertTrue(addMediaItem.isEnabled, file: file, line: line)
-        }
+        let addMediaItem = application.menuItems["Add Media…"]
+        XCTAssertTrue(addMediaItem.exists, file: file, line: line)
+        XCTAssertTrue(addMediaItem.isEnabled, file: file, line: line)
+        XCTAssertFalse(
+            application.menuItems["Add Video…"].exists,
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(
+            application.menuItems["Add Folder…"].exists,
+            file: file,
+            line: line
+        )
 
         let editItem = application.menuItems["Edit"]
         XCTAssertTrue(editItem.exists, file: file, line: line)

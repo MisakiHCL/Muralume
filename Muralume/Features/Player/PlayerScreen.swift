@@ -248,8 +248,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 setEditing: { isEditing in
                     chromeController.setLibraryEditing(isEditing)
                 },
-                addVideos: actions.addVideos,
-                addFolders: actions.addFolders,
+                addMedia: actions.addMedia,
                 dismiss: {
                     chromeController.setPlaylistPresented(false)
                 }

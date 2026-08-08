@@ -26,7 +26,7 @@ enum AppCompositionRoot {
         )
         let library = MediaLibraryCoordinator(
             playback: playback,
-            sourceSelector: MacMediaFolderPicker(
+            sourceSelector: MacMediaSourcePicker(
                 localization: localization
             ),
             mediaSession: UserSelectedMediaSession(),

@@ -580,7 +580,7 @@ final class AppCoordinatorTests: XCTestCase {
         )
         let library = MediaLibraryCoordinator(
             playback: playback,
-            sourceSelector: AppCoordinatorFolderSelector(),
+            sourceSelector: AppCoordinatorSourceSelector(),
             mediaSession: mediaSession,
             scanner: scanner,
             mediaThumbnailProvider: thumbnailProvider,
@@ -798,8 +798,8 @@ private final class AppCoordinatorPlaybackEngine: PlaybackEngine {
 }
 
 @MainActor
-private final class AppCoordinatorFolderSelector: MediaFolderSelecting {
-    func selectFolders() -> [URL] {
+private final class AppCoordinatorSourceSelector: MediaSourceSelecting {
+    func selectSources() -> [URL] {
         []
     }
 }

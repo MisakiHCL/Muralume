@@ -10,8 +10,7 @@ struct LibraryQueueSidebar: View {
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let isEditing: Bool
     let setEditing: (Bool) -> Void
-    let addVideos: () -> Void
-    let addFolders: () -> Void
+    let addMedia: () -> Void
     let dismiss: () -> Void
 
     init(
@@ -20,8 +19,7 @@ struct LibraryQueueSidebar: View {
         mediaThumbnailProvider: any MediaThumbnailProviding,
         isEditing: Bool,
         setEditing: @escaping (Bool) -> Void,
-        addVideos: @escaping () -> Void,
-        addFolders: @escaping () -> Void,
+        addMedia: @escaping () -> Void,
         dismiss: @escaping () -> Void
     ) {
         self.library = library
@@ -29,8 +27,7 @@ struct LibraryQueueSidebar: View {
         self.mediaThumbnailProvider = mediaThumbnailProvider
         self.isEditing = isEditing
         self.setEditing = setEditing
-        self.addVideos = addVideos
-        self.addFolders = addFolders
+        self.addMedia = addMedia
         self.dismiss = dismiss
         _playbackStatus = State(
             initialValue: LibraryPlaybackStatus(playback: playback)
@@ -104,28 +101,19 @@ struct LibraryQueueSidebar: View {
             Spacer(minLength: MuralumeTheme.Spacing.small)
 
             if !isEditing {
-                Menu {
-                    Button(action: addVideos) {
-                        Label("library.add.video", systemImage: "film")
-                    }
-                    Button(action: addFolders) {
-                        Label("library.add.folder", systemImage: "folder")
-                    }
-                } label: {
+                Button(action: addMedia) {
                     headerActionLabel(
                         titleKey: "library.add",
                         systemImage: "plus"
                     )
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
                 .buttonStyle(
                     MuralumeToolbarButtonStyle(
                         width: MuralumeTheme.Size.playlistHeaderActionWidth
                     )
                 )
-                .help(Text("library.add"))
-                .accessibilityLabel(Text("library.add"))
+                .help(Text("library.add.media"))
+                .accessibilityLabel(Text("library.add.media"))
                 .accessibilityIdentifier(
                     MuralumeAccessibilityIdentifier.addMediaButton
                 )

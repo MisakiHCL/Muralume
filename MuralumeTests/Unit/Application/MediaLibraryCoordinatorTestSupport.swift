@@ -5,7 +5,7 @@ import Foundation
 @MainActor
 func makeFixture(
     selectedURLs: [URL],
-    selectedVideoURLs: [URL] = [],
+    subsequentSelectedURLs: [[URL]] = [],
     snapshot: MediaLibrarySnapshot,
     playbackOrder: PlaybackOrder = .ordered,
     sort: MediaLibrarySort = MediaLibrarySort(),
@@ -19,8 +19,7 @@ func makeFixture(
     let engine = TestPlaybackEngine()
     let playback = PlaybackCoordinator(engine: engine)
     let selector = TestMediaSourceSelector(
-        selectedFolderURLs: selectedURLs,
-        selectedVideoURLs: selectedVideoURLs
+        selections: [selectedURLs] + subsequentSelectedURLs
     )
     let session = TestMediaAccessSession()
     let scanner = TestMediaLibraryScanner(snapshot: snapshot)
@@ -124,20 +123,17 @@ struct Fixture {
 
 @MainActor
 final class TestMediaSourceSelector: MediaSourceSelecting {
-    let selectedFolderURLs: [URL]
-    let selectedVideoURLs: [URL]
+    private var selections: [[URL]]
 
-    init(selectedFolderURLs: [URL], selectedVideoURLs: [URL]) {
-        self.selectedFolderURLs = selectedFolderURLs
-        self.selectedVideoURLs = selectedVideoURLs
+    init(selections: [[URL]]) {
+        self.selections = selections
     }
 
-    func selectFolders() -> [URL] {
-        selectedFolderURLs
-    }
-
-    func selectVideos() -> [URL] {
-        selectedVideoURLs
+    func selectSources() -> [URL] {
+        guard !selections.isEmpty else {
+            return []
+        }
+        return selections.removeFirst()
     }
 }
 

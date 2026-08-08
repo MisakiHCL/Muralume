@@ -579,7 +579,7 @@ final class PlaybackSessionControllerTests: XCTestCase {
         playback.registerPlayerSurface(playerSurface)
         let library = MediaLibraryCoordinator(
             playback: playback,
-            sourceSelector: SessionFolderSelector(),
+            sourceSelector: SessionSourceSelector(),
             mediaSession: SessionMediaAccessSession(rootURLs: [rootURL]),
             scanner: SessionMediaScanner(
                 snapshot: MediaLibrarySnapshot(
@@ -690,8 +690,8 @@ private struct PlaybackSessionFixture {
 }
 
 @MainActor
-private final class SessionFolderSelector: MediaFolderSelecting {
-    func selectFolders() -> [URL] {
+private final class SessionSourceSelector: MediaSourceSelecting {
+    func selectSources() -> [URL] {
         []
     }
 }

@@ -175,7 +175,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         mainWindowPresenter.attach(window)
     }
 
-    func addVideos() {
+    func addMedia() {
         guard canImportMedia else {
             return
         }
@@ -183,19 +183,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             guard let self, canImportMedia else {
                 return
             }
-            library.addVideos()
-        }
-    }
-
-    func addFolders() {
-        guard canImportMedia else {
-            return
-        }
-        performAfterCancellingInitialRestore { [weak self] in
-            guard let self, canImportMedia else {
-                return
-            }
-            library.addFolders()
+            library.addMedia()
         }
     }
 
@@ -204,10 +192,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         guard canImportMedia, !urls.isEmpty else {
             return false
         }
-        let preparation = library.prepareImport(
-            urls,
-            autoplayFirstExplicitFile: true
-        )
+        let preparation = library.prepareImport(urls)
         guard let preparation else {
             return true
         }

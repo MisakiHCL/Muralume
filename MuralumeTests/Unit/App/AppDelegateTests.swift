@@ -313,27 +313,21 @@ final class AppDelegateTests: XCTestCase {
 
         XCTAssertEqual(
             actionsMenu.items.first {
-                $0.title == "Add Video…"
+                $0.title == "Add Media…"
             }?.keyEquivalent,
             "o"
         )
         XCTAssertEqual(
             actionsMenu.items.first {
-                $0.title == "Add Video…"
+                $0.title == "Add Media…"
             }?.keyEquivalentModifierMask,
             [.command]
         )
-        XCTAssertEqual(
-            actionsMenu.items.first {
-                $0.title == "Add Folder…"
-            }?.keyEquivalent,
-            "o"
+        XCTAssertNil(
+            actionsMenu.items.first { $0.title == "Add Video…" }
         )
-        XCTAssertEqual(
-            actionsMenu.items.first {
-                $0.title == "Add Folder…"
-            }?.keyEquivalentModifierMask,
-            [.command, .shift]
+        XCTAssertNil(
+            actionsMenu.items.first { $0.title == "Add Folder…" }
         )
         XCTAssertEqual(
             actionsMenu.items.first {
@@ -360,14 +354,13 @@ final class AppDelegateTests: XCTestCase {
             [.command]
         )
         XCTAssertEqual(
-            actionsMenu.items.prefix(6).map {
+            actionsMenu.items.prefix(5).map {
                 $0.isSeparatorItem ? "separator" : $0.title
             },
             [
                 "Set as Dynamic Desktop",
                 "separator",
-                "Add Video…",
-                "Add Folder…",
+                "Add Media…",
                 "Edit",
                 "separator"
             ]
@@ -447,8 +440,7 @@ final class AppDelegateTests: XCTestCase {
         )
 
         for title in [
-            "Add Video…",
-            "Add Folder…",
+            "Add Media…",
             "Volume Up",
             "Volume Down",
             "Mute",
@@ -662,8 +654,7 @@ private final class TestMainMenuCommandHandler:
     }
 
     func openSettings() {}
-    func addVideos() {}
-    func addFolders() {}
+    func addMedia() {}
     func editLibraryFromMenu() {}
     func togglePlaybackFromMenu() {
         togglePlaybackCommandCount += 1

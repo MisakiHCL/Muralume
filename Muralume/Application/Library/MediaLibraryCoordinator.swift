@@ -261,38 +261,19 @@ final class MediaLibraryCoordinator: ObservableObject {
         return scanState
     }
 
-    func addVideos() {
+    func addMedia() {
         guard !isShutDown, rootIDsPendingRemoval.isEmpty else {
             return
         }
-        let selectedURLs = sourceSelector.selectVideos()
-        guard let preparation = prepareImport(
-            selectedURLs,
-            autoplayFirstExplicitFile: true
-        ) else {
+        let selectedURLs = sourceSelector.selectSources()
+        guard let preparation = prepareImport(selectedURLs) else {
             return
         }
-        commitImport(preparation)
-    }
-
-    func addFolders() {
-        guard !isShutDown, rootIDsPendingRemoval.isEmpty else {
-            return
-        }
-        let selectedURLs = sourceSelector.selectFolders()
-        guard let preparation = prepareImport(
-            selectedURLs,
-            autoplayFirstExplicitFile: false
-        ) else {
-            return
-        }
-
         commitImport(preparation)
     }
 
     func prepareImport(
-        _ selectedURLs: [URL],
-        autoplayFirstExplicitFile: Bool
+        _ selectedURLs: [URL]
     ) -> MediaLibraryImportPreparation? {
         guard !isShutDown,
               rootIDsPendingRemoval.isEmpty,
@@ -312,9 +293,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             ? .partialFailure
             : nil
 
-        let requestedFileURLs = autoplayFirstExplicitFile
-            ? update.requestedFileURLs
-            : []
+        let requestedFileURLs = update.requestedFileURLs
         recordSupersededThumbnailRoots(
             previousSources: previouslyPreparedSources,
             activeSources: update.activeSources

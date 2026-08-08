@@ -20,8 +20,7 @@ protocol MacMainMenuCommandHandling: AnyObject {
     var mainMenuCommandStateDidChange: AnyPublisher<Void, Never> { get }
 
     func openSettings()
-    func addVideos()
-    func addFolders()
+    func addMedia()
     func editLibraryFromMenu()
     func togglePlaybackFromMenu()
     func seekBackwardFromMenu()
@@ -39,8 +38,7 @@ protocol MacMainMenuCommandHandling: AnyObject {
 @MainActor
 final class MacMainMenuController: NSObject, NSMenuDelegate {
     private enum Shortcut {
-        static let addVideo = "o"
-        static let addFolder = "o"
+        static let addMedia = "o"
         static let togglePlayback = " "
         static let seekBackward = functionKey(NSLeftArrowFunctionKey)
         static let seekForward = functionKey(NSRightArrowFunctionKey)
@@ -67,8 +65,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     }
 
     private enum PlayerCommand {
-        case addVideos
-        case addFolders
+        case addMedia
         case editLibrary
         case togglePlayback
         case seekBackward
@@ -111,8 +108,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private let showAllApplicationsItem = NSMenuItem()
     private let quitApplicationItem = NSMenuItem()
 
-    private let addVideoItem = NSMenuItem()
-    private let addFolderItem = NSMenuItem()
+    private let addMediaItem = NSMenuItem()
     private let editLibraryItem = NSMenuItem()
     private let togglePlaybackItem = NSMenuItem()
     private let seekBackwardItem = NSMenuItem()
@@ -205,10 +201,8 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         state: MacMainMenuCommandState,
         hasPlayerFocus: Bool
     ) {
-        addVideoItem.isEnabled =
-            hasPlayerFocus && isEnabled(.addVideos, in: state)
-        addFolderItem.isEnabled =
-            hasPlayerFocus && isEnabled(.addFolders, in: state)
+        addMediaItem.isEnabled =
+            hasPlayerFocus && isEnabled(.addMedia, in: state)
         editLibraryItem.isEnabled =
             hasPlayerFocus && isEnabled(.editLibrary, in: state)
         togglePlaybackItem.isEnabled =
@@ -324,16 +318,10 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
 
     private func configureActionsMenu() {
         configure(
-            addVideoItem,
-            action: #selector(addVideos(_:)),
-            keyEquivalent: Shortcut.addVideo,
+            addMediaItem,
+            action: #selector(addMedia(_:)),
+            keyEquivalent: Shortcut.addMedia,
             modifiers: [.command]
-        )
-        configure(
-            addFolderItem,
-            action: #selector(addFolders(_:)),
-            keyEquivalent: Shortcut.addFolder,
-            modifiers: [.command, .shift]
         )
         configure(
             editLibraryItem,
@@ -395,8 +383,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
 
         actionsMenu.addItem(enterDesktopItem)
         actionsMenu.addItem(.separator())
-        actionsMenu.addItem(addVideoItem)
-        actionsMenu.addItem(addFolderItem)
+        actionsMenu.addItem(addMediaItem)
         actionsMenu.addItem(editLibraryItem)
         actionsMenu.addItem(.separator())
         actionsMenu.addItem(togglePlaybackItem)
@@ -536,8 +523,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             "menu.quitApplication"
         )
 
-        addVideoItem.title = localization.localized("library.add.video")
-        addFolderItem.title = localization.localized("library.add.folder")
+        addMediaItem.title = localization.localized("library.add.media")
         editLibraryItem.title = localization.localized("library.edit")
         seekBackwardItem.title = localization.localized("player.back")
         seekForwardItem.title = localization.localized("player.forward")
@@ -565,8 +551,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
 
     private func disablePlayerCommands() {
         [
-            addVideoItem,
-            addFolderItem,
+            addMediaItem,
             editLibraryItem,
             togglePlaybackItem,
             seekBackwardItem,
@@ -601,7 +586,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         in state: MacMainMenuCommandState
     ) -> Bool {
         switch command {
-        case .addVideos, .addFolders, .toggleFullScreen:
+        case .addMedia, .toggleFullScreen:
             state.canUseWindowActions
         case .editLibrary:
             state.canEditLibrary
@@ -694,16 +679,9 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     }
 
     @objc
-    private func addVideos(_ sender: Any?) {
-        performPlayerCommand(.addVideos) {
-            $0.addVideos()
-        }
-    }
-
-    @objc
-    private func addFolders(_ sender: Any?) {
-        performPlayerCommand(.addFolders) {
-            $0.addFolders()
+    private func addMedia(_ sender: Any?) {
+        performPlayerCommand(.addMedia) {
+            $0.addMedia()
         }
     }
 

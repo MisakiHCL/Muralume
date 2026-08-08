@@ -30,7 +30,7 @@
 		5238BB82977C4E3E95EEDE9C /* MacMainWindowPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB91AD47A5964E75A6BE6AC6 /* MacMainWindowPresenter.swift */; };
 		59A747D39B0D485767C9F57B /* MuralumeLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E822D51DC4B3787E4B76B0B /* MuralumeLaunchTests.swift */; };
 		60083F2F8C964BFC9443A988 /* PlaybackRenderSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 024CA620068D40FBB0ADBA3B /* PlaybackRenderSurface.swift */; };
-		61F9D4963CFD4D2B81DF24E5 /* MacMediaFolderPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73D7A7472A543B7BDA43C33 /* MacMediaFolderPicker.swift */; };
+		61F9D4963CFD4D2B81DF24E5 /* MacMediaSourcePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73D7A7472A543B7BDA43C33 /* MacMediaSourcePicker.swift */; };
 		628DEF8A0A9BCE74862C63C4 /* PlaybackGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 889EFC2BF9A60D84ADA53D6E /* PlaybackGateTests.swift */; };
 		6BAFFA0BA75F4B36B605F189 /* SystemLifecycleMonitoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF3B5F8401B401A9D228F6E /* SystemLifecycleMonitoring.swift */; };
 		7307CB8B7E79E97D580FF729 /* WindowReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC57C2D5C1B19433C063C606 /* WindowReader.swift */; };
@@ -85,7 +85,7 @@
 		B40000000000000000000011 /* PlayerChromeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000001 /* PlayerChromeController.swift */; };
 		B40000000000000000000012 /* PlayerChromeControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000002 /* PlayerChromeControllerTests.swift */; };
 		B50000000000000000000012 /* MuralumeSliderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000002 /* MuralumeSliderTests.swift */; };
-		B9EC7ACAFF914BACAE9DAD42 /* MediaFolderSelecting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C938D35DD4C4CF79373B48D /* MediaFolderSelecting.swift */; };
+		B9EC7ACAFF914BACAE9DAD42 /* MediaSourceSelecting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C938D35DD4C4CF79373B48D /* MediaSourceSelecting.swift */; };
 		C6DBF6DE819EA069738D38D6 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D3F2E5966FB709EA70C9D0D3 /* Cocoa.framework */; };
 		CBAE2D90CBAF4D3B841E29CB /* PlaybackGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90DC35EE1FBC46039A7DEAB4 /* PlaybackGate.swift */; };
 		CC34534632EF4E559B7A26E0 /* PlaybackState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B45D5363784459EA36A0566 /* PlaybackState.swift */; };
@@ -145,7 +145,7 @@
 		2F8A5E9E12614B138608DC0E /* MuralumeTheme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MuralumeTheme.swift; sourceTree = "<group>"; };
 		31A7E6B1E1B0450EA9D35735 /* ResolvedMediaSource.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ResolvedMediaSource.swift; sourceTree = "<group>"; };
 		3E98BC00EC9360641F76960D /* MacLaunchAtLoginService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacLaunchAtLoginService.swift; sourceTree = "<group>"; };
-		4C938D35DD4C4CF79373B48D /* MediaFolderSelecting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaFolderSelecting.swift; sourceTree = "<group>"; };
+		4C938D35DD4C4CF79373B48D /* MediaSourceSelecting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaSourceSelecting.swift; sourceTree = "<group>"; };
 		4CB15C81943B4BFA922B551A /* PlaybackFailure+Localization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "PlaybackFailure+Localization.swift"; sourceTree = "<group>"; };
 		5053B5F0E3334478B49B2E6A /* PlayerFormatting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerFormatting.swift; sourceTree = "<group>"; };
 		531DB9F7981DA319BAC09428 /* MuralumeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MuralumeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -219,7 +219,7 @@
 		C36D0D2427B94B699973E4B1 /* MuralumeSlider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MuralumeSlider.swift; sourceTree = "<group>"; };
 		C68D1172DDA349E29EDAE7B2 /* PlayerActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerActions.swift; sourceTree = "<group>"; };
 		C6DA3CA7D3E688ED8F03C2D4 /* PlayerLayerSurfaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerLayerSurfaceView.swift; sourceTree = "<group>"; };
-		C73D7A7472A543B7BDA43C33 /* MacMediaFolderPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacMediaFolderPicker.swift; sourceTree = "<group>"; };
+		C73D7A7472A543B7BDA43C33 /* MacMediaSourcePicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacMediaSourcePicker.swift; sourceTree = "<group>"; };
 		C7D4159ECB84CD3F4C1A1703 /* AVFoundationPlaybackEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AVFoundationPlaybackEngine.swift; sourceTree = "<group>"; };
 		CAD7D228FCC544D595B5400F /* PlayerSurfaceRepresentable.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerSurfaceRepresentable.swift; sourceTree = "<group>"; };
 		CB91AD47A5964E75A6BE6AC6 /* MacMainWindowPresenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacMainWindowPresenter.swift; sourceTree = "<group>"; };
@@ -447,7 +447,7 @@
 		56E67EE286BA4901AB03DC24 /* MediaAccess */ = {
 			isa = PBXGroup;
 			children = (
-				C73D7A7472A543B7BDA43C33 /* MacMediaFolderPicker.swift */,
+				C73D7A7472A543B7BDA43C33 /* MacMediaSourcePicker.swift */,
 				BBDE8DA0223CDA8FF84002AF /* UserSelectedMediaSession.swift */,
 			);
 			name = MediaAccess;
@@ -559,7 +559,7 @@
 			isa = PBXGroup;
 			children = (
 				BB72BF1D775C4A099B2A2552 /* MediaAccessSession.swift */,
-				4C938D35DD4C4CF79373B48D /* MediaFolderSelecting.swift */,
+				4C938D35DD4C4CF79373B48D /* MediaSourceSelecting.swift */,
 			);
 			name = MediaAccess;
 			path = MediaAccess;
@@ -935,7 +935,7 @@
 				AC0000000000000000000012 /* AppLocalizationController.swift in Sources */,
 				B30000000000000000000011 /* AppPreferences.swift in Sources */,
 				FB5A108E387E4C458059F7EC /* MediaAccessSession.swift in Sources */,
-				B9EC7ACAFF914BACAE9DAD42 /* MediaFolderSelecting.swift in Sources */,
+				B9EC7ACAFF914BACAE9DAD42 /* MediaSourceSelecting.swift in Sources */,
 				AA0000000000000000000015 /* MediaLibraryCoordinator.swift in Sources */,
 				AA0000000000000000000012 /* MediaLibraryModels.swift in Sources */,
 				AA0000000000000000000013 /* MediaLibraryScanning.swift in Sources */,
@@ -969,7 +969,7 @@
 				A4D6BA374089486495FAEF0B /* PlaybackTimeline.swift in Sources */,
 				91DA9116CF36487AAF9244F6 /* VideoViewport.swift in Sources */,
 				38DAF1886E669E9AD8629B01 /* MacDesktopHost.swift in Sources */,
-				61F9D4963CFD4D2B81DF24E5 /* MacMediaFolderPicker.swift in Sources */,
+				61F9D4963CFD4D2B81DF24E5 /* MacMediaSourcePicker.swift in Sources */,
 				19C57C0C558AA0B34670E630 /* UserSelectedMediaSession.swift in Sources */,
 				AA0000000000000000000016 /* FileSystemMediaLibraryScanner.swift in Sources */,
 				AF1000000000000000000012 /* QuickLookMediaThumbnailProvider.swift in Sources */,

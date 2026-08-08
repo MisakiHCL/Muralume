@@ -170,11 +170,8 @@ private struct MuralumePlayerRootView: View {
             isFullScreen: coordinator.isMainWindowFullScreen,
             chromeController: coordinator.playerChrome,
             actions: PlayerActions(
-                addVideos: {
-                    coordinator.addVideos()
-                },
-                addFolders: {
-                    coordinator.addFolders()
+                addMedia: {
+                    coordinator.addMedia()
                 },
                 importDroppedURLs: { urls in
                     coordinator.importDroppedURLs(urls)

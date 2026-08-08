@@ -213,13 +213,13 @@ check_architecture() {
     reject_references \
         "Application" \
         "${project_root}/Muralume/Application" \
-        '\b(AVFoundationPlaybackEngine|MacDesktopHost|MacMainWindowPresenter|MacMediaFolderPicker|PlayerLayerSurfaceView|SystemLifecycleMonitor|UserSelectedMediaSession)\b' \
+        '\b(AVFoundationPlaybackEngine|MacDesktopHost|MacMainWindowPresenter|MacMediaSourcePicker|PlayerLayerSurfaceView|SystemLifecycleMonitor|UserSelectedMediaSession)\b' \
         "application code references a concrete infrastructure type."
 
     reject_references \
         "Features" \
         "${project_root}/Muralume/Features" \
-        '\b(AppCoordinator|AVFoundationPlaybackEngine|MacDesktopHost|MacMainWindowPresenter|MacMediaFolderPicker|PlayerLayerSurfaceView|UserSelectedMediaSession)\b' \
+        '\b(AppCoordinator|AVFoundationPlaybackEngine|MacDesktopHost|MacMainWindowPresenter|MacMediaSourcePicker|PlayerLayerSurfaceView|UserSelectedMediaSession)\b' \
         "feature code references App or a concrete infrastructure type."
 
     reject_references \

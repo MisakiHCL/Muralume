@@ -1223,7 +1223,7 @@ final class DesktopPresetControllerTests: XCTestCase {
         let playback = PlaybackCoordinator(engine: engine)
         let library = MediaLibraryCoordinator(
             playback: playback,
-            sourceSelector: EmptyFolderSelector(),
+            sourceSelector: EmptySourceSelector(),
             mediaSession: RestoredMediaSession(
                 urls: restoredRootURLs ?? [rootURL],
                 hasUnavailablePersistedFolders:
@@ -1312,8 +1312,8 @@ private struct DesktopPresetFixture {
 }
 
 @MainActor
-private final class EmptyFolderSelector: MediaFolderSelecting {
-    func selectFolders() -> [URL] {
+private final class EmptySourceSelector: MediaSourceSelecting {
+    func selectSources() -> [URL] {
         []
     }
 }

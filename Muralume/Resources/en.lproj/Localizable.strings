@@ -45,13 +45,9 @@
 "status.paused.system" = "Dynamic desktop paused because of the current system state";
 "action.dismiss" = "Dismiss";
 "library.add" = "Add";
-"library.add.video" = "Add Video…";
-"library.add.folder" = "Add Folder…";
-"library.add.another.folder" = "Add Another Folder";
-"library.video.picker.message" = "Choose one or more MP4, MOV, or M4V videos. The first video will play after it is added.";
-"library.video.picker.prompt" = "Add";
-"library.folder.picker.message" = "Choose one or more folders. Muralume will find supported videos in every nested folder.";
-"library.folder.picker.prompt" = "Add";
+"library.add.media" = "Add Media…";
+"library.media.picker.message" = "Choose one or more MP4, MOV, or M4V videos or folders. The first selected video will play, and folders will be scanned recursively.";
+"library.media.picker.prompt" = "Add";
 "library.playlist" = "Playlist";
 "library.playlist.show" = "Show Playlist";
 "library.playlist.hide" = "Hide Playlist";

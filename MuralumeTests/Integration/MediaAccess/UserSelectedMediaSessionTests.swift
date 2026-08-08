@@ -198,6 +198,87 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         fixture.session.stop()
     }
 
+    func testSameBatchParentFolderAndExplicitFileKeepsPlaybackIntentForEitherOrder()
+        throws {
+        for selectsFileFirst in [false, true] {
+            let fixture = makeSessionFixture()
+            defer { fixture.clearDefaults() }
+            let sandboxURL = try makeSandbox()
+            defer { try? FileManager.default.removeItem(at: sandboxURL) }
+            let parentURL = sandboxURL.appendingPathComponent(
+                "Library",
+                isDirectory: true
+            )
+            let nestedURL = parentURL.appendingPathComponent(
+                "Nested",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(
+                at: nestedURL,
+                withIntermediateDirectories: true
+            )
+            let canonicalFileURL = parentURL.appendingPathComponent(
+                "Selected.mp4"
+            )
+            try Data([0xA5]).write(to: canonicalFileURL)
+            let selectedFileURL = nestedURL.appendingPathComponent(
+                "../Selected.mp4"
+            )
+            let parentBookmark = fixture.recorder.bookmark(for: parentURL)
+            let fileBookmark = fixture.recorder.bookmark(for: selectedFileURL)
+            fixture.recorder.resolvedURLByBookmark[parentBookmark] = parentURL
+            fixture.recorder.resolvedURLByBookmark[fileBookmark] =
+                canonicalFileURL
+            let selectedURLs = selectsFileFirst
+                ? [selectedFileURL, parentURL]
+                : [parentURL, selectedFileURL]
+
+            let update = fixture.session.addSources(selectedURLs)
+
+            XCTAssertEqual(
+                update.activeSources,
+                [MediaSource(url: parentURL, kind: .folder)]
+            )
+            XCTAssertEqual(update.requestedFileURLs, [canonicalFileURL])
+            XCTAssertEqual(update.acceptedRequestCount, 2)
+            XCTAssertEqual(update.rejectedRequestCount, 0)
+            XCTAssertTrue(update.didChangeSources)
+            XCTAssertEqual(
+                storedSourceRecords(in: fixture.defaults),
+                [
+                    StoredSourceRecord(
+                        kind: .folder,
+                        bookmark: parentBookmark
+                    )
+                ]
+            )
+            XCTAssertEqual(
+                fixture.recorder.bookmarkedURLs,
+                selectsFileFirst
+                    ? [selectedFileURL, parentURL]
+                    : [parentURL]
+            )
+            XCTAssertEqual(
+                fixture.recorder.startedURLs,
+                selectsFileFirst
+                    ? [canonicalFileURL, parentURL]
+                    : [parentURL]
+            )
+            if selectsFileFirst {
+                XCTAssertTrue(
+                    fixture.recorder.stoppedURLs.contains(canonicalFileURL)
+                )
+            }
+
+            fixture.session.stop()
+            let stopCount = fixture.recorder.stoppedURLs.count
+            XCTAssertEqual(fixture.recorder.stoppedURLs.last, parentURL)
+
+            fixture.session.stop()
+            XCTAssertEqual(fixture.recorder.stoppedURLs.count, stopCount)
+        }
+    }
+
     func testCoveredSymbolicLinkReturnsCanonicalFilePlaybackIntent() throws {
         let fixture = makeSessionFixture()
         defer { fixture.clearDefaults() }

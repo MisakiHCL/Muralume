@@ -32,7 +32,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             preferencesStore: preferencesStore
         )
 
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
 
         XCTAssertEqual(fixture.coordinator.playbackOrder, .shuffled)
@@ -79,7 +79,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         )
     }
 
-    func testAddingFoldersScansAndPublishesSortedPlaylist() async {
+    func testAddingFolderSourceScansAndPublishesSortedPlaylist() async {
         let rootURL = URL(fileURLWithPath: "/tmp/Library")
         let itemB = makeItem(rootURL: rootURL, name: "Clip 10", path: "B.mov")
         let itemA = makeItem(rootURL: rootURL, name: "Clip 2", path: "A.mov")
@@ -91,7 +91,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             )
         )
 
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
 
         XCTAssertEqual(fixture.session.addedURLs, [rootURL])
@@ -132,7 +132,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             )
         )
 
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         fixture.coordinator.play(existingItem)
         await waitForLoads(fixture.engine, count: 1)
@@ -186,14 +186,13 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.scanner.scannedSources.count, 2)
     }
 
-    func testAddingVideosImportsAllAndPlaysFirstExplicitFile() async {
+    func testAddingVideoSourcesImportsAllAndPlaysFirstExplicitFile() async {
         let firstURL = URL(fileURLWithPath: "/tmp/First.mov")
         let secondURL = URL(fileURLWithPath: "/tmp/Second.mp4")
         let first = makeFileItem(url: firstURL, name: "First")
         let second = makeFileItem(url: secondURL, name: "Second")
         let fixture = makeFixture(
-            selectedURLs: [],
-            selectedVideoURLs: [secondURL, firstURL],
+            selectedURLs: [secondURL, firstURL],
             snapshot: MediaLibrarySnapshot(
                 roots: [
                     MediaLibraryRoot(
@@ -211,7 +210,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             )
         )
 
-        fixture.coordinator.addVideos()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         await waitForLoads(fixture.engine, count: 1)
 
@@ -231,12 +230,71 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.playback.source?.url, firstURL)
     }
 
-    func testImportingCurrentVideoAgainIsIdempotent() async {
+    func testAddingMixedSourcesPlaysFirstExplicitVideoAndScansFolder() async {
+        let folderURL = URL(fileURLWithPath: "/tmp/Mixed Library")
+        let firstExplicitURL = URL(fileURLWithPath: "/tmp/Chosen First.mov")
+        let laterExplicitURL = URL(fileURLWithPath: "/tmp/Chosen Later.mp4")
+        let folderVideo = makeItem(
+            rootURL: folderURL,
+            name: "Ambient",
+            path: "Ambient.mp4"
+        )
+        let firstExplicit = makeFileItem(
+            url: firstExplicitURL,
+            name: "Chosen First"
+        )
+        let laterExplicit = makeFileItem(
+            url: laterExplicitURL,
+            name: "Chosen Later"
+        )
+        let selectedURLs = [folderURL, firstExplicitURL, laterExplicitURL]
+        let fixture = makeFixture(
+            selectedURLs: selectedURLs,
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: folderURL,
+                        displayName: folderURL.lastPathComponent
+                    ),
+                    MediaLibraryRoot(
+                        url: firstExplicitURL,
+                        displayName: firstExplicitURL.lastPathComponent,
+                        kind: .file
+                    ),
+                    MediaLibraryRoot(
+                        url: laterExplicitURL,
+                        displayName: laterExplicitURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [folderVideo, firstExplicit, laterExplicit]
+            )
+        )
+
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        await waitForLoads(fixture.engine, count: 1)
+
+        XCTAssertEqual(fixture.session.addedURLs, selectedURLs)
+        XCTAssertEqual(fixture.coordinator.items.count, 3)
+        XCTAssertEqual(fixture.coordinator.currentItemID, firstExplicit.id)
+        XCTAssertEqual(fixture.playback.source?.url, firstExplicitURL)
+        XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+        XCTAssertEqual(
+            fixture.scanner.scannedSources.map { $0.map(\.kind) },
+            [
+                [.file, .file],
+                [.folder, .file, .file]
+            ]
+        )
+    }
+
+    func testAddingCurrentVideoSourceAgainIsIdempotent() async {
         let fileURL = URL(fileURLWithPath: "/tmp/Current.mov")
         let item = makeFileItem(url: fileURL, name: "Current")
         let fixture = makeFixture(
-            selectedURLs: [],
-            selectedVideoURLs: [fileURL],
+            selectedURLs: [fileURL],
+            subsequentSelectedURLs: [[fileURL]],
             snapshot: MediaLibrarySnapshot(
                 roots: [
                     MediaLibraryRoot(
@@ -249,13 +307,13 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             )
         )
 
-        fixture.coordinator.addVideos()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         await waitForLoads(fixture.engine, count: 1)
         await waitForReady(fixture.playback)
         let queueRevision = fixture.coordinator.queueRevision
 
-        fixture.coordinator.addVideos()
+        fixture.coordinator.addMedia()
         await Task.yield()
 
         XCTAssertEqual(fixture.engine.loadedSources.count, 1)
@@ -278,6 +336,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         )
         let fixture = makeFixture(
             selectedURLs: [firstRootURL],
+            subsequentSelectedURLs: [[secondRootURL]],
             snapshot: MediaLibrarySnapshot(
                 roots: [
                     MediaLibraryRoot(
@@ -292,21 +351,19 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
                 items: [first, second]
             )
         )
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         fixture.coordinator.play(first)
         await waitForLoads(fixture.engine, count: 1)
         let queueSnapshot = fixture.coordinator.makeQueueSnapshot()
 
-        let preparation = try XCTUnwrap(
-            fixture.coordinator.prepareImport(
-                [secondRootURL],
-                autoplayFirstExplicitFile: false
-            )
-        )
-        fixture.coordinator.commitImport(preparation)
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
 
+        XCTAssertEqual(
+            fixture.session.addedURLs,
+            [firstRootURL, secondRootURL]
+        )
         XCTAssertEqual(fixture.coordinator.items.count, 2)
         XCTAssertEqual(fixture.coordinator.currentItemID, first.id)
         XCTAssertEqual(fixture.coordinator.makeQueueSnapshot(), queueSnapshot)
@@ -324,8 +381,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             path: "Clip.mov"
         )
         let fixture = makeFixture(
-            selectedURLs: [],
-            selectedVideoURLs: [fileURL],
+            selectedURLs: [fileURL],
             snapshot: MediaLibrarySnapshot(
                 roots: [
                     MediaLibraryRoot(
@@ -338,7 +394,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             )
         )
         fixture.session.replacesFilesCoveredByAddedFolder = true
-        fixture.coordinator.addVideos()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         await waitForLoads(fixture.engine, count: 1)
         fixture.scanner.enqueueSnapshot(
@@ -355,8 +411,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
 
         let preparation = try XCTUnwrap(
             fixture.coordinator.prepareImport(
-                [folderURL],
-                autoplayFirstExplicitFile: false
+                [folderURL]
             )
         )
         fixture.coordinator.commitImport(preparation)
@@ -411,8 +466,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
 
         let videoPreparation = try XCTUnwrap(
             fixture.coordinator.prepareImport(
-                [fileURL],
-                autoplayFirstExplicitFile: true
+                [fileURL]
             )
         )
         fixture.coordinator.commitImport(videoPreparation)
@@ -422,8 +476,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
 
         let folderPreparation = try XCTUnwrap(
             fixture.coordinator.prepareImport(
-                [folderURL],
-                autoplayFirstExplicitFile: false
+                [folderURL]
             )
         )
         fixture.coordinator.commitImport(folderPreparation)
@@ -458,8 +511,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
 
         let firstPreparation = try XCTUnwrap(
             fixture.coordinator.prepareImport(
-                [firstURL],
-                autoplayFirstExplicitFile: true
+                [firstURL]
             )
         )
         fixture.coordinator.commitImport(firstPreparation)
@@ -469,8 +521,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
 
         let latestPreparation = try XCTUnwrap(
             fixture.coordinator.prepareImport(
-                [latestURL],
-                autoplayFirstExplicitFile: true
+                [latestURL]
             )
         )
         fixture.coordinator.commitImport(latestPreparation)
@@ -503,14 +554,12 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
 
         let stalePreparation = try XCTUnwrap(
             fixture.coordinator.prepareImport(
-                [firstURL],
-                autoplayFirstExplicitFile: true
+                [firstURL]
             )
         )
         let latestPreparation = try XCTUnwrap(
             fixture.coordinator.prepareImport(
-                [latestURL],
-                autoplayFirstExplicitFile: true
+                [latestURL]
             )
         )
 
@@ -585,7 +634,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
                 items: [item]
             )
         )
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         fixture.coordinator.play(item)
         await waitForLoads(fixture.engine, count: 1)
@@ -626,7 +675,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             ),
             mediaThumbnailProvider: thumbnailProvider
         )
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
 
         fixture.scanner.blockNextScan()
@@ -688,8 +737,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         let thumbnailProvider = TestMediaThumbnailProvider()
         thumbnailProvider.shouldBlockInvalidation = true
         let fixture = makeFixture(
-            selectedURLs: [],
-            selectedVideoURLs: [fileURL],
+            selectedURLs: [fileURL],
             snapshot: MediaLibrarySnapshot(
                 roots: [
                     MediaLibraryRoot(
@@ -703,7 +751,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             mediaThumbnailProvider: thumbnailProvider
         )
         fixture.session.replacesFilesCoveredByAddedFolder = true
-        fixture.coordinator.addVideos()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         fixture.scanner.enqueueSnapshot(
             MediaLibrarySnapshot(
@@ -718,8 +766,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         )
         let preparation = try XCTUnwrap(
             fixture.coordinator.prepareImport(
-                [folderURL],
-                autoplayFirstExplicitFile: false
+                [folderURL]
             )
         )
         fixture.coordinator.commitImport(preparation)
@@ -779,7 +826,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             snapshot: initialSnapshot,
             mediaThumbnailProvider: thumbnailProvider
         )
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
 
         fixture.session.treatsFilesInsideActiveFoldersAsCovered = true
@@ -808,8 +855,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
 
         let preparation = try XCTUnwrap(
             fixture.coordinator.prepareImport(
-                [candidateURL],
-                autoplayFirstExplicitFile: true
+                [candidateURL]
             )
         )
         fixture.coordinator.commitImport(preparation)
@@ -914,7 +960,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             selectedURLs: [folderURL],
             snapshot: MediaLibrarySnapshot(roots: [root], items: [])
         )
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
 
         fixture.session.treatsFilesInsideActiveFoldersAsCovered = true
@@ -937,8 +983,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
 
         let preparation = try XCTUnwrap(
             fixture.coordinator.prepareImport(
-                [candidateURL],
-                autoplayFirstExplicitFile: true
+                [candidateURL]
             )
         )
         fixture.coordinator.commitImport(preparation)
@@ -1013,14 +1058,14 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         thumbnailProvider.shouldBlockInvalidation = true
         let fixture = makeFixture(
             selectedURLs: [folderURL],
-            selectedVideoURLs: [linkedFileURL],
+            subsequentSelectedURLs: [[linkedFileURL]],
             snapshot: MediaLibrarySnapshot(
                 roots: [folderRoot],
                 items: []
             ),
             mediaThumbnailProvider: thumbnailProvider
         )
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
 
         fixture.scanner.enqueueSnapshot(
@@ -1032,7 +1077,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
                 items: [fileItem]
             )
         )
-        fixture.coordinator.addVideos()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         await waitForLoads(fixture.engine, count: 1)
         await waitForReady(fixture.playback)
@@ -1092,7 +1137,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
                 items: [first, second]
             )
         )
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         fixture.coordinator.play(first)
         await waitForReady(fixture.playback)
@@ -1127,7 +1172,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
                 items: [first, second]
             )
         )
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
 
         fixture.coordinator.play(first)
@@ -1176,7 +1221,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             ),
             playbackOrder: .ordered
         )
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         fixture.coordinator.play(first)
         await waitForLoads(fixture.engine, count: 1)
@@ -1232,7 +1277,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
                 items: [first, second, third]
             )
         )
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         fixture.coordinator.play(first)
         await waitForLoads(fixture.engine, count: 1)
@@ -1272,7 +1317,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
                 items: [first, second]
             )
         )
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         fixture.coordinator.play(first)
         await waitForLoads(fixture.engine, count: 1)
@@ -1295,7 +1340,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
                 items: [first, second]
             )
         )
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         fixture.coordinator.play(first)
         await waitForLoads(fixture.engine, count: 1)
@@ -1327,7 +1372,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             )
         )
         fixture.engine.loadErrorsByURL[broken.url] = .cannotOpen
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
 
         fixture.coordinator.play(broken)
@@ -1352,7 +1397,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
                 items: [broken, valid]
             )
         )
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         fixture.coordinator.play(broken)
         await waitForLoads(fixture.engine, count: 1)
@@ -1383,7 +1428,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             )
         )
         fixture.engine.loadErrorsByURL[broken.url] = .cannotOpen
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         fixture.coordinator.play(broken)
         await waitForLoads(fixture.engine, count: 2)
@@ -1416,7 +1461,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         fixture.playback.playbackFailureHandler = {
             reportedFailure = $0
         }
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
 
         fixture.coordinator.play(first)
@@ -1449,7 +1494,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         fixture.playback.playbackFailureHandler = {
             reportedFailure = $0
         }
-        fixture.coordinator.addFolders()
+        fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
 
         fixture.coordinator.play(first)

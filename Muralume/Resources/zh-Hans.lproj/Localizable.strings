@@ -45,13 +45,9 @@
 "status.paused.system" = "因当前系统状态，动态桌面已暂停";
 "action.dismiss" = "关闭";
 "library.add" = "添加";
-"library.add.video" = "添加视频…";
-"library.add.folder" = "添加文件夹…";
-"library.add.another.folder" = "继续添加文件夹";
-"library.video.picker.message" = "选择一个或多个 MP4、MOV 或 M4V 视频，添加后会优先播放第一个视频";
-"library.video.picker.prompt" = "添加";
-"library.folder.picker.message" = "选择一个或多个文件夹，Muralume 会递归查找所有子文件夹中的支持视频。";
-"library.folder.picker.prompt" = "添加";
+"library.add.media" = "添加媒体…";
+"library.media.picker.message" = "选择一个或多个 MP4、MOV、M4V 视频或文件夹；首个选中的视频会优先播放，文件夹会递归扫描";
+"library.media.picker.prompt" = "添加";
 "library.playlist" = "播放列表";
 "library.playlist.show" = "显示播放列表";
 "library.playlist.hide" = "隐藏播放列表";
