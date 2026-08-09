@@ -10,7 +10,9 @@ validate_app_store_entitlements() {
     fi
 
     local python_path="$1"
-    local entitlements_path="$2"
+    # Avoid colliding with the release script's readonly path under Bash's
+    # dynamic scoping rules.
+    local signed_entitlements_path="$2"
     local expected_team="$3"
     local expected_bundle_identifier="$4"
 
@@ -44,7 +46,7 @@ if actual.get("com.apple.security.get-task-allow", False) is not False:
     raise SystemExit(1)
 if "beta-reports-active" in actual and actual["beta-reports-active"] is not True:
     raise SystemExit(1)
-' "${entitlements_path}" "${expected_team}" "${expected_bundle_identifier}"
+' "${signed_entitlements_path}" "${expected_team}" "${expected_bundle_identifier}"
 }
 
 validate_app_store_provisioning_profile() {
@@ -97,6 +99,35 @@ now = datetime.datetime.now(expiration.tzinfo) if expiration.tzinfo else datetim
 if expiration <= now:
     raise SystemExit(1)
 ' "${profile_path}" "${expected_team}" "${expected_bundle_identifier}"
+}
+
+validate_app_store_bom_permissions() {
+    if [[ "$#" -ne 2 ]]; then
+        echo "App Store package permissions need lsbom and a Bom path." >&2
+        return 64
+    fi
+
+    local bom_lsbom_path="$1"
+    local bom_manifest_path="$2"
+
+    "${bom_lsbom_path}" -p m "${bom_manifest_path}" | awk '
+        $1 ~ /^100[0-7][0-7][0-7]$/ {
+            regular_file_count += 1
+            other_permissions = substr($1, 6, 1) + 0
+            if (other_permissions < 4) invalid_permissions = 1
+        }
+        $1 ~ /^40[0-7][0-7][0-7]$/ {
+            directory_count += 1
+            other_permissions = substr($1, 5, 1) + 0
+            if (other_permissions != 5 && other_permissions != 7) {
+                invalid_permissions = 1
+            }
+        }
+        END {
+            if (regular_file_count == 0 || directory_count == 0) exit 1
+            exit invalid_permissions ? 1 : 0
+        }
+    '
 }
 
 validate_app_store_info_plist() {

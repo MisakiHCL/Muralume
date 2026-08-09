@@ -18,10 +18,13 @@ readonly project_path="${project_root}/Muralume.xcodeproj"
 readonly private_config_path="${project_root}/Config/AppStore.local.xcconfig"
 readonly public_config_relative_path="Config/AppStore.xcconfig"
 readonly base_config_relative_path="Config/Base.xcconfig"
+readonly packaging_helper_path="${script_directory}/lib/app_store_packaging.sh"
 readonly validation_helper_path="${script_directory}/lib/app_store_validation.sh"
 readonly release_signature_helper_path="${script_directory}/lib/release_signature_validation.sh"
 readonly release_source_helper_path="${script_directory}/lib/release_source_snapshot.sh"
 
+# shellcheck source=lib/app_store_packaging.sh
+source "${packaging_helper_path}"
 # shellcheck source=lib/app_store_validation.sh
 source "${validation_helper_path}"
 # shellcheck source=lib/release_signature_validation.sh
@@ -325,6 +328,7 @@ require_command codesign
 require_command cp
 require_command git
 require_command lipo
+require_command lsbom
 require_command plutil
 require_command pkgutil
 require_command rg
@@ -465,7 +469,7 @@ verify_release_source_snapshot \
     "${source_checkout_path}" "${source_commit}" "${source_tree}" \
     || fail "The tested App Store source changed before archive."
 
-run_private_command \
+run_app_store_packaging_command \
     "Archiving the signed App Store app" \
     "${archive_log_path}" \
     xcodebuild archive \
@@ -523,7 +527,7 @@ signature_has_hardened_runtime \
 
 create_export_options inspect "${inspection_options_path}"
 mkdir -p "${inspection_export_path}"
-run_private_command \
+run_app_store_packaging_command \
     "Exporting a local App Store inspection package" \
     "${inspection_log_path}" \
     xcodebuild -exportArchive \
@@ -564,6 +568,19 @@ run_private_command \
     pkgutil --expand-full \
         "${inspection_package_path}" \
         "${inspection_expanded_path}"
+
+inspection_bom_path=""
+inspection_bom_count=0
+while IFS= read -r -d '' candidate_bom_path; do
+    inspection_bom_count=$((inspection_bom_count + 1))
+    inspection_bom_path="${candidate_bom_path}"
+done < <(
+    find "${inspection_expanded_path}" -type f -name Bom -print0
+)
+[[ "${inspection_bom_count}" -eq 1 ]] \
+    || fail "The inspection package must contain exactly one component Bom."
+validate_app_store_bom_permissions /usr/bin/lsbom "${inspection_bom_path}" \
+    || fail "The App Store package contains files that non-root users cannot read."
 
 inspection_app_path=""
 inspection_app_count=0
@@ -657,7 +674,7 @@ done
 
 create_export_options validate "${validation_options_path}"
 mkdir -p "${validation_export_path}"
-run_private_command \
+run_app_store_packaging_command \
     "Validating the archive with App Store Connect" \
     "${validation_log_path}" \
     xcodebuild -exportArchive \
@@ -688,7 +705,7 @@ fi
 
 create_export_options upload "${upload_options_path}"
 mkdir -p "${upload_export_path}"
-run_private_command \
+run_app_store_packaging_command \
     "Uploading the validated archive to App Store Connect" \
     "${upload_log_path}" \
     xcodebuild -exportArchive \

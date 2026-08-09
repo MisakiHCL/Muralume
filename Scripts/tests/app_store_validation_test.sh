@@ -101,6 +101,10 @@ readonly valid_package_signature="${test_root}/valid-package-signature.log"
 readonly development_status_package_signature="${test_root}/development-status-package-signature.log"
 readonly unsigned_package_signature="${test_root}/unsigned-package-signature.log"
 readonly developer_id_package_signature="${test_root}/developer-id-package-signature.log"
+readonly readable_package_tree="${test_root}/readable-package"
+readonly unreadable_package_tree="${test_root}/unreadable-package"
+readonly readable_bom="${test_root}/readable.bom"
+readonly unreadable_bom="${test_root}/unreadable.bom"
 
 write_fixture entitlements "${valid_entitlements}"
 write_fixture entitlements "${beta_entitlements}" beta
@@ -111,6 +115,13 @@ write_fixture profile "${expired_profile}" expired
 write_fixture profile "${device_profile}" devices
 write_fixture info "${valid_info}"
 write_fixture info "${encrypted_info}" encrypted
+mkdir -p "${readable_package_tree}" "${unreadable_package_tree}"
+chmod 755 "${readable_package_tree}" "${unreadable_package_tree}"
+touch "${readable_package_tree}/resource" "${unreadable_package_tree}/resource"
+chmod 644 "${readable_package_tree}/resource"
+chmod 600 "${unreadable_package_tree}/resource"
+/usr/bin/mkbom "${readable_package_tree}" "${readable_bom}"
+/usr/bin/mkbom "${unreadable_package_tree}" "${unreadable_bom}"
 printf '%s\n' \
     'Package "Muralume.pkg":' \
     '   Status: signed by a certificate trusted by macOS' \
@@ -145,6 +156,14 @@ validate_app_store_entitlements \
     "${valid_entitlements}" \
     "${test_team}" \
     "${test_bundle_identifier}"
+(
+    readonly entitlements_path="${test_root}/not-the-signed-entitlements.plist"
+    validate_app_store_entitlements \
+        /usr/bin/python3 \
+        "${valid_entitlements}" \
+        "${test_team}" \
+        "${test_bundle_identifier}"
+)
 validate_app_store_entitlements \
     /usr/bin/python3 \
     "${beta_entitlements}" \
@@ -199,6 +218,13 @@ expect_failure \
     "${test_bundle_identifier}" \
     1.2.3 \
     9
+
+validate_app_store_bom_permissions /usr/bin/lsbom "${readable_bom}"
+expect_failure \
+    "root-only App Store package file" \
+    validate_app_store_bom_permissions \
+    /usr/bin/lsbom \
+    "${unreadable_bom}"
 
 validate_app_store_package_signature_log \
     /usr/bin/python3 \

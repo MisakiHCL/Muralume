@@ -380,6 +380,7 @@ check_architecture() {
     "${script_directory}/tests/release_signature_validation_test.sh"
     "${script_directory}/tests/release_source_snapshot_test.sh"
     "${script_directory}/tests/release_macos_fault_injection_test.sh"
+    "${script_directory}/tests/app_store_packaging_test.sh"
     "${script_directory}/tests/app_store_validation_test.sh"
     "${script_directory}/tests/run_quiet_workflow_test.sh"
     "${script_directory}/tests/verify_test_results_test.sh"
