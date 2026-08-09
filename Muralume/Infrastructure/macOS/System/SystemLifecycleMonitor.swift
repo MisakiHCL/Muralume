@@ -19,10 +19,20 @@ enum DisplaySleepPolicy {
 final class SystemLifecycleMonitor: SystemLifecycleMonitoring {
     var suspensionHandler: ((PlaybackSuspensionReason, Bool) -> Void)?
 
+    private let workspaceCenter: NotificationCenter
+    private let defaultCenter: NotificationCenter
     private var workspaceObservers: [NSObjectProtocol] = []
-    private var distributedObservers: [NSObjectProtocol] = []
     private var defaultObservers: [NSObjectProtocol] = []
     private var isRunning = false
+
+    init(
+        workspaceCenter: NotificationCenter = NSWorkspace.shared
+            .notificationCenter,
+        defaultCenter: NotificationCenter = .default
+    ) {
+        self.workspaceCenter = workspaceCenter
+        self.defaultCenter = defaultCenter
+    }
 
     func start() {
         guard !isRunning else {
@@ -30,7 +40,6 @@ final class SystemLifecycleMonitor: SystemLifecycleMonitoring {
         }
         isRunning = true
 
-        let workspaceCenter = NSWorkspace.shared.notificationCenter
         observe(
             workspaceCenter,
             name: NSWorkspace.screensDidSleepNotification,
@@ -68,21 +77,7 @@ final class SystemLifecycleMonitor: SystemLifecycleMonitoring {
             suspended: false
         )
 
-        let distributedCenter = DistributedNotificationCenter.default()
-        observe(
-            distributedCenter,
-            name: SystemNotificationName.screenLocked,
-            reason: .screenLocked,
-            suspended: true
-        )
-        observe(
-            distributedCenter,
-            name: SystemNotificationName.screenUnlocked,
-            reason: .screenLocked,
-            suspended: false
-        )
-
-        let thermalObserver = NotificationCenter.default.addObserver(
+        let thermalObserver = defaultCenter.addObserver(
             forName: ProcessInfo.thermalStateDidChangeNotification,
             object: ProcessInfo.processInfo,
             queue: .main
@@ -93,7 +88,7 @@ final class SystemLifecycleMonitor: SystemLifecycleMonitoring {
         }
         defaultObservers.append(thermalObserver)
 
-        let screenParametersObserver = NotificationCenter.default.addObserver(
+        let screenParametersObserver = defaultCenter.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
             queue: .main
@@ -115,15 +110,10 @@ final class SystemLifecycleMonitor: SystemLifecycleMonitoring {
         }
         isRunning = false
 
-        let workspaceCenter = NSWorkspace.shared.notificationCenter
         workspaceObservers.forEach(workspaceCenter.removeObserver)
         workspaceObservers.removeAll()
 
-        let distributedCenter = DistributedNotificationCenter.default()
-        distributedObservers.forEach(distributedCenter.removeObserver)
-        distributedObservers.removeAll()
-
-        defaultObservers.forEach(NotificationCenter.default.removeObserver)
+        defaultObservers.forEach(defaultCenter.removeObserver)
         defaultObservers.removeAll()
     }
 
@@ -143,24 +133,6 @@ final class SystemLifecycleMonitor: SystemLifecycleMonitoring {
             }
         }
         workspaceObservers.append(observer)
-    }
-
-    private func observe(
-        _ center: DistributedNotificationCenter,
-        name: Notification.Name,
-        reason: PlaybackSuspensionReason,
-        suspended: Bool
-    ) {
-        let observer = center.addObserver(
-            forName: name,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.suspensionHandler?(reason, suspended)
-            }
-        }
-        distributedObservers.append(observer)
     }
 
     private func publishCurrentThermalState() {

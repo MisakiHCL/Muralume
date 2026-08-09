@@ -6,7 +6,8 @@ DEAD_CODE_STRIPPING = YES
 
 // A direct Xcode Release build is local-only. The formal distribution script
 // overrides the bundle ID, disables Xcode signing, and applies Developer ID
-// signing itself. A future Mac App Store workflow must use a separate config.
+// signing itself. Mac App Store archives use the separate AppStore config and
+// Muralume-AppStore scheme; never repurpose this local configuration.
 MURALUME_APP_BUNDLE_IDENTIFIER = com.muralume.Muralume.local
 CODE_SIGN_STYLE = Manual
 CODE_SIGN_IDENTITY = -

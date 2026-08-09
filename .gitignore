@@ -22,6 +22,7 @@ xcuserdata/
 
 # Local signing and release credentials
 /Config/Local.xcconfig
+/Config/AppStore.local.xcconfig
 /Config/Release.local.mk
 /Config/Distribution.requirements
 *.developerprofile

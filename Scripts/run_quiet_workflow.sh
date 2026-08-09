@@ -14,6 +14,13 @@ shift
 readonly log_file="$(mktemp "${TMPDIR:-/tmp}/Muralume-${workflow_name}.log.XXXXXX")"
 readonly start_seconds="${SECONDS}"
 keep_log=0
+private_workflow=0
+
+case "${workflow_name}" in
+    release-macos|validate-testflight|upload-testflight)
+        private_workflow=1
+        ;;
+esac
 
 cleanup() {
     if [[ "${keep_log}" -eq 0 ]]; then
@@ -30,7 +37,7 @@ else
     keep_log=1
     printf '[FAIL] %s failed after %ss\n' \
         "${workflow_name}" "$((SECONDS - start_seconds))" >&2
-    if [[ "${workflow_name}" == "release-macos" ]]; then
+    if [[ "${private_workflow}" -eq 1 ]]; then
         printf '%s\n' \
             'Release output is not echoed because signing metadata may be private.' \
             >&2
@@ -40,7 +47,7 @@ else
         printf '%s\n' '--- end of log ---' >&2
     fi
     printf 'Full log: %s\n' "${log_file}" >&2
-    if [[ "${workflow_name}" != "release-macos" ]]; then
+    if [[ "${private_workflow}" -eq 0 ]]; then
         printf 'Run again with full output: make %s VERBOSE=1\n' \
             "${workflow_name}" >&2
     fi

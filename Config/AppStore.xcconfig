@@ -1,0 +1,23 @@
+#include "Base.xcconfig"
+
+SWIFT_COMPILATION_MODE = wholemodule
+SWIFT_OPTIMIZATION_LEVEL = -O
+DEAD_CODE_STRIPPING = YES
+
+// The Mac App Store archive is deliberately isolated from Debug, local Release,
+// and Developer ID distribution. Keep concrete account values in the ignored
+// AppStore.local.xcconfig; the public defaults use automatic Xcode signing.
+MURALUME_APP_STORE_CODE_SIGN_STYLE = Automatic
+MURALUME_APP_STORE_DEVELOPMENT_TEAM =
+MURALUME_APP_STORE_PROVISIONING_PROFILE_SPECIFIER =
+
+#include? "AppStore.local.xcconfig"
+
+MURALUME_APP_BUNDLE_IDENTIFIER = com.muralume.Muralume
+MARKETING_VERSION = 1.0.4
+CURRENT_PROJECT_VERSION = 7
+CODE_SIGN_STYLE = $(MURALUME_APP_STORE_CODE_SIGN_STYLE)
+DEVELOPMENT_TEAM = $(MURALUME_APP_STORE_DEVELOPMENT_TEAM)
+PROVISIONING_PROFILE_SPECIFIER = $(MURALUME_APP_STORE_PROVISIONING_PROFILE_SPECIFIER)
+CODE_SIGNING_ALLOWED = YES
+CODE_SIGNING_REQUIRED = YES

@@ -15,10 +15,13 @@ export MURALUME_EXPECTED_TEAM_IDENTIFIER
 LOCAL_DMG := $(abspath dist/macos-local/Muralume.dmg)
 RELEASE_DMG := $(abspath dist/macos-release/Muralume.dmg)
 
-.PHONY: help test test-steps package-macos package-macos-steps prepare-distribution-requirements release-macos release-macos-steps
+.PHONY: help test test-steps package-macos package-macos-steps prepare-distribution-requirements release-macos release-macos-steps mas-preflight validate-testflight validate-testflight-steps upload-testflight upload-testflight-steps
 
 define run-quiet-workflow
-	@if [[ "$(VERBOSE)" == "1" ]]; then \
+	@if [[ "$(VERBOSE)" == "1" \
+		&& "$(2)" != "release-macos" \
+		&& "$(2)" != "validate-testflight" \
+		&& "$(2)" != "upload-testflight" ]]; then \
 		$(MAKE) --no-print-directory $(1); \
 	else \
 		./Scripts/run_quiet_workflow.sh "$(2)" \
@@ -35,8 +38,11 @@ help:
 		'  make prepare-distribution-requirements' \
 		'                              Export and record the private bridge requirement' \
 		'  make release-macos          Build, sign, notarize, and verify the release DMG' \
+		'  make mas-preflight          Check the private Mac App Store configuration' \
+		'  make validate-testflight    Archive and validate with App Store Connect' \
+		'  make upload-testflight      Validate and upload a TestFlight/App Store build' \
 		'' \
-		'Set VERBOSE=1 to stream complete build output.'
+		'Set VERBOSE=1 to stream complete non-signing build output.'
 
 test:
 	+$(call run-quiet-workflow,test-steps,test)
@@ -73,3 +79,20 @@ release-macos-steps:
 	@./Scripts/release_macos.sh \
 		--mode distribution \
 		--output "$(RELEASE_DMG)"
+
+mas-preflight:
+	@./Scripts/release_app_store.sh --mode check
+
+validate-testflight:
+	@printf 'Validating a private Muralume App Store archive...\n'
+	+$(call run-quiet-workflow,validate-testflight-steps,validate-testflight)
+
+validate-testflight-steps:
+	@./Scripts/release_app_store.sh --mode validate
+
+upload-testflight:
+	@printf 'Uploading a validated Muralume build to App Store Connect...\n'
+	+$(call run-quiet-workflow,upload-testflight-steps,upload-testflight)
+
+upload-testflight-steps:
+	@./Scripts/release_app_store.sh --mode upload

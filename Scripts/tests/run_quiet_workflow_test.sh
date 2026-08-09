@@ -54,6 +54,31 @@ grep -F "${private_marker}" "${release_log_path}" >/dev/null \
     || fail_test 'private release log lost the diagnostic output'
 rm -f "${release_log_path}"
 
+for private_workflow in validate-testflight upload-testflight; do
+    private_error_path="${test_root}/${private_workflow}-error"
+    set +e
+    "${quiet_workflow_script}" "${private_workflow}" \
+        "${failing_command}" >/dev/null 2>"${private_error_path}"
+    private_status="$?"
+    set -e
+    [[ "${private_status}" -eq 17 ]] \
+        || fail_test "${private_workflow} returned ${private_status}, expected 17"
+    if grep -F "${private_marker}" "${private_error_path}" >/dev/null; then
+        fail_test "${private_workflow} echoed private signing metadata"
+    fi
+    if grep -F 'VERBOSE=1' "${private_error_path}" >/dev/null; then
+        fail_test "${private_workflow} suggested a privacy-unsafe verbose rerun"
+    fi
+    private_log_path="$(sed -n 's/^Full log: //p' "${private_error_path}")"
+    [[ -f "${private_log_path}" && ! -L "${private_log_path}" ]] \
+        || fail_test "${private_workflow} did not retain its private log"
+    [[ "$(stat -f '%Lp' "${private_log_path}")" == '600' ]] \
+        || fail_test "${private_workflow} log permissions were not 0600"
+    grep -F "${private_marker}" "${private_log_path}" >/dev/null \
+        || fail_test "${private_workflow} private log lost diagnostics"
+    rm -f "${private_log_path}"
+done
+
 normal_error_path="${test_root}/normal-error"
 set +e
 "${quiet_workflow_script}" test \

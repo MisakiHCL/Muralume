@@ -96,7 +96,7 @@
 		CD3E5428B18F4A41A00C9FD2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B7A3F1C8282945F09D215A01 /* Assets.xcassets */; };
 		CD94D20452E0790A183D3EC0 /* PlaybackCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2D6934434FD592F47EA3C97 /* PlaybackCoordinatorTests.swift */; };
 		CEB28A8BFD66AAC33B3CF6A1 /* FileDesktopPresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2E5FCCB7B72B4DD3AFAF836 /* FileDesktopPresetStore.swift */; };
-		D0A0FBE24BAF468290B1E7D1 /* SystemNotificationName.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC6DCFAE93B6413084C9C561 /* SystemNotificationName.swift */; };
+		E80000000000000000000002 /* SystemLifecycleMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E80000000000000000000001 /* SystemLifecycleMonitorTests.swift */; };
 		D0E3643141099DD2E8F3DF6D /* PlayerScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED645770F764AF0E6A40DE45 /* PlayerScreen.swift */; };
 		D70000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D70000000000000000000001 /* PrivacyInfo.xcprivacy */; };
 		D60000000000000000000011 /* DesktopPlayerLayerSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */; };
@@ -139,6 +139,7 @@
 		122FC8442E8C165BB5468F59 /* LaunchAtLoginController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginController.swift; sourceTree = "<group>"; };
 		1884EE50DA182069D3763D42 /* Localizable.strings */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		18B0B6A2537BEFCB5E82EEDA /* Release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		F8259E73FD5C42EABCB8C6C5 /* AppStore.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = AppStore.xcconfig; sourceTree = "<group>"; };
 		1938F4614147B77072AD7F91 /* MuralumeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MuralumeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1B99EA2BF7FCEAB71E376F38 /* Debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		1D3E98E0E1DCE91699F8422D /* Muralume.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = Muralume.entitlements; sourceTree = "<group>"; };
@@ -237,7 +238,7 @@
 		D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopPlayerLayerSurfaceView.swift; sourceTree = "<group>"; };
 		D70000000000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		D9C9A8AA279227FF1FED1E7E /* Localizable.strings */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
-		DC6DCFAE93B6413084C9C561 /* SystemNotificationName.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemNotificationName.swift; sourceTree = "<group>"; };
+		E80000000000000000000001 /* SystemLifecycleMonitorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemLifecycleMonitorTests.swift; sourceTree = "<group>"; };
 		E4C1719B3EBF498C8A5CCF6E /* PlayerControls.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerControls.swift; sourceTree = "<group>"; };
 		E4FE718E54F942A296B9CED2 /* PlaybackTimeline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackTimeline.swift; sourceTree = "<group>"; };
 		E9EDF0C412B646C199C77E26 /* AppCompositionRoot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppCompositionRoot.swift; sourceTree = "<group>"; };
@@ -580,6 +581,7 @@
 				AB0000000000000000000003 /* MediaAccess */,
 				AA0000000000000000000010 /* MediaLibrary */,
 				B0B09C86EA694B31887FA823 /* Playback */,
+				E80000000000000000000003 /* System */,
 				AC000000000000000000000A /* UI */,
 			);
 			name = Integration;
@@ -700,8 +702,16 @@
 		B02937D8F24848FC940DC3D2 /* System */ = {
 			isa = PBXGroup;
 			children = (
-				DC6DCFAE93B6413084C9C561 /* SystemNotificationName.swift */,
 				99BCF9A2B1F6168D3933C8FE /* SystemLifecycleMonitor.swift */,
+			);
+			name = System;
+			path = System;
+			sourceTree = "<group>";
+		};
+		E80000000000000000000003 /* System */ = {
+			isa = PBXGroup;
+			children = (
+				E80000000000000000000001 /* SystemLifecycleMonitorTests.swift */,
 			);
 			name = System;
 			path = System;
@@ -765,6 +775,7 @@
 				9619B89AF96F4475340BEA4B /* Base.xcconfig */,
 				1B99EA2BF7FCEAB71E376F38 /* Debug.xcconfig */,
 				18B0B6A2537BEFCB5E82EEDA /* Release.xcconfig */,
+				F8259E73FD5C42EABCB8C6C5 /* AppStore.xcconfig */,
 			);
 			name = Config;
 			path = Config;
@@ -993,7 +1004,6 @@
 				D60000000000000000000011 /* DesktopPlayerLayerSurfaceView.swift in Sources */,
 				C30000000000000000000014 /* FilePlaybackSessionStore.swift in Sources */,
 				A68650D9162A708D93F5F453 /* PlayerLayerSurfaceView.swift in Sources */,
-				D0A0FBE24BAF468290B1E7D1 /* SystemNotificationName.swift in Sources */,
 				E717858177BC0998AEFA7C6D /* SystemLifecycleMonitor.swift in Sources */,
 				AD0000000000000000000012 /* MacApplicationPresenceController.swift in Sources */,
 				5238BB82977C4E3E95EEDE9C /* MacMainWindowPresenter.swift in Sources */,
@@ -1041,6 +1051,7 @@
 				004C99C5AE9B45B3AE32AB2A /* AVFoundationPlaybackEngineTests.swift in Sources */,
 				9DDE2F09B8C64CF4AB689811 /* RealAVPlayerLayerRoundTripTests.swift in Sources */,
 				AC0000000000000000000016 /* MacMainWindowPresenterTests.swift in Sources */,
+				E80000000000000000000002 /* SystemLifecycleMonitorTests.swift in Sources */,
 				830486FEDB044884B2D283C5 /* PlaybackTestDoubles.swift in Sources */,
 				E442427008084A208AE9D81D /* LaunchAtLoginControllerTests.swift in Sources */,
 				1741F81FE0ADC4A806D7CDF8 /* DesktopPresetControllerTests.swift in Sources */,
@@ -1077,6 +1088,27 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		7212F2394EBC4870865CD200 /* AppStore */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = F8259E73FD5C42EABCB8C6C5 /* AppStore.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Muralume/Resources/Muralume.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Muralume/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(MURALUME_APP_BUNDLE_IDENTIFIER)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+			};
+			name = AppStore;
+		};
 		2D574304AA6769F3C3A6B055 /* Release */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 18B0B6A2537BEFCB5E82EEDA /* Release.xcconfig */;
@@ -1173,6 +1205,60 @@
 			};
 			name = Release;
 		};
+		2894494F31F6409DB78A1572 /* AppStore */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = F8259E73FD5C42EABCB8C6C5 /* AppStore.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = AppStore;
+		};
 		91A39A4F7C43846D0F62FF49 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 1B99EA2BF7FCEAB71E376F38 /* Debug.xcconfig */;
@@ -1248,6 +1334,20 @@
 			};
 			name = Release;
 		};
+		BD99E617AD54451CB0A67F1B /* AppStore */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = F8259E73FD5C42EABCB8C6C5 /* AppStore.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.muralume.MuralumeTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Muralume.app/Contents/MacOS/Muralume";
+			};
+			name = AppStore;
+		};
 		C4C80BA6E729522EDF6C8136 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 1B99EA2BF7FCEAB71E376F38 /* Debug.xcconfig */;
@@ -1274,6 +1374,19 @@
 			};
 			name = Release;
 		};
+		F9B93F04759D40378128292E /* AppStore */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = F8259E73FD5C42EABCB8C6C5 /* AppStore.xcconfig */;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.muralume.MuralumeUITests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = Muralume;
+			};
+			name = AppStore;
+		};
 		FBFF718A81BABA153A155A52 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 1B99EA2BF7FCEAB71E376F38 /* Debug.xcconfig */;
@@ -1294,6 +1407,7 @@
 		3AFD43E79CC0741F85D0F167 /* Build configuration list for PBXNativeTarget "Muralume" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
+				7212F2394EBC4870865CD200 /* AppStore */,
 				2D574304AA6769F3C3A6B055 /* Release */,
 				50566B12C8E4EC4C4DF838B2 /* Debug */,
 			);
@@ -1303,6 +1417,7 @@
 		62E8897A7E52B4BC60539425 /* Build configuration list for PBXProject "Muralume" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
+				2894494F31F6409DB78A1572 /* AppStore */,
 				91A39A4F7C43846D0F62FF49 /* Debug */,
 				8438019359A61F453FC9626E /* Release */,
 			);
@@ -1312,6 +1427,7 @@
 		C2D6F5D31B94602A95B26F99 /* Build configuration list for PBXNativeTarget "MuralumeTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
+				BD99E617AD54451CB0A67F1B /* AppStore */,
 				A1539D4423D04780FC4DFEAC /* Release */,
 				FBFF718A81BABA153A155A52 /* Debug */,
 			);
@@ -1321,6 +1437,7 @@
 		F18FFE593F9C9CB559C57F95 /* Build configuration list for PBXNativeTarget "MuralumeUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
+				F9B93F04759D40378128292E /* AppStore */,
 				D2280D0073202952F849F991 /* Release */,
 				C4C80BA6E729522EDF6C8136 /* Debug */,
 			);

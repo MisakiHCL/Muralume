@@ -98,6 +98,52 @@ attestation after the temporary export has been deleted. Before Mac App Store
 migration, validate the real Developer ID → bridge release → TestFlight/App
 Store bookmark path on hardware.
 
+## Mac App Store and TestFlight
+
+Mac App Store distribution uses the dedicated `AppStore` build configuration
+and `Muralume-AppStore` shared scheme. It keeps the complete Dynamic Desktop
+feature set and does not reuse Debug, local Release, Developer ID signing,
+notarization, or `Config/Distribution.requirements`.
+
+Maintainers must copy `Config/AppStore.local.xcconfig.example` to the
+Git-ignored `Config/AppStore.local.xcconfig`, restrict it to mode `0600`, and
+set only the Apple development Team used by the existing App Store Connect app.
+Keep automatic signing enabled and leave the profile selector empty. Sign in to
+the same Team in Xcode Settings before running the workflow; Xcode may create or
+download managed distribution signing assets. Never add Apple IDs, passwords,
+API keys, certificate files, profile files, Team values, or App Store Connect
+numeric identifiers to tracked files or logs.
+
+Use the explicit stages below:
+
+```bash
+make mas-preflight
+make validate-testflight
+make upload-testflight
+```
+
+The upload workflow requires a clean committed source tree, tests a detached
+checkout, archives that same tree, exports a local App Store inspection package,
+and verifies its production signature, provisioning profile, Sandbox
+entitlements, architecture, version, privacy manifest, and export-compliance
+metadata. It then performs App Store Connect validation before uploading the
+same archive as a normal TestFlight and App Store build. It deliberately does
+not mark builds as TestFlight Internal Only, so a validated build can later be
+used for external testing or App Review.
+
+Each successful App Store Connect upload must use a new integer build number.
+Do not allow Xcode to rewrite it during export. `ITSAppUsesNonExemptEncryption`
+is currently false because Muralume and its linked code do not implement
+non-exempt encryption; reassess that declaration before adding networking,
+cryptography, or third-party binary dependencies.
+
+After processing completes, add the build to an internal TestFlight group and
+test installation through the TestFlight app. Before customer submission,
+validate the installed Developer ID release → TestFlight bookmark, media-source,
+playlist, playback-session, launch-at-login, and multi-display paths on real
+hardware. Internal TestFlight readiness does not replace App Privacy answers,
+store metadata, screenshots, review notes, or final App Review.
+
 ## Implementation expectations
 
 - Preserve the existing Domain → Application → Infrastructure / Features

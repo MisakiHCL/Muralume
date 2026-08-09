@@ -1,0 +1,10 @@
+// Copy this file to AppStore.local.xcconfig and restrict it to the current user:
+//   chmod 600 Config/AppStore.local.xcconfig
+// The destination is ignored by Git. Never put passwords, private keys, API
+// keys, certificate files, or provisioning profile files in this repository.
+
+// Automatic signing is the public default. Supply only the Team ID here and
+// leave the identity and profile empty so Xcode can select managed assets.
+MURALUME_APP_STORE_DEVELOPMENT_TEAM =
+MURALUME_APP_STORE_CODE_SIGN_STYLE = Automatic
+MURALUME_APP_STORE_PROVISIONING_PROFILE_SPECIFIER =
