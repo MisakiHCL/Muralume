@@ -116,6 +116,7 @@ final class MediaLibraryCoordinator: ObservableObject {
     @Published private(set) var scanState: MediaLibraryScanState = .idle
     @Published private(set) var roots: [MediaLibraryRoot] = []
     @Published private(set) var items: [LibraryMediaItem] = []
+    private(set) var itemsRevision: UInt64 = 0
     @Published private(set) var playbackOrder: PlaybackOrder
     @Published private(set) var sort: MediaLibrarySort
     @Published private(set) var currentItemID: LibraryMediaItem.ID?
@@ -540,9 +541,9 @@ final class MediaLibraryCoordinator: ObservableObject {
         roots.removeAll {
             $0.id == root.id
         }
-        items.removeAll {
-            removedItemIDs.contains($0.id)
-        }
+        replaceItems(
+            with: items.filter { !removedItemIDs.contains($0.id) }
+        )
         unavailableItemIDs.subtract(removedItemIDs)
         for itemID in removedItemIDs {
             queueItemsByID[itemID] = nil
@@ -728,13 +729,13 @@ final class MediaLibraryCoordinator: ObservableObject {
             return
         }
         sort.field = field
-        items = sort.sorted(items)
+        replaceItems(with: sort.sorted(items))
         preferencesStore?.saveLibrarySort(sort)
     }
 
     func toggleSortDirection() {
         sort.direction.toggle()
-        items = sort.sorted(items)
+        replaceItems(with: sort.sorted(items))
         preferencesStore?.saveLibrarySort(sort)
     }
 
@@ -743,7 +744,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             return
         }
         sort.direction = direction
-        items = sort.sorted(items)
+        replaceItems(with: sort.sorted(items))
         preferencesStore?.saveLibrarySort(sort)
     }
 
@@ -1023,7 +1024,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             forRootIDs: Set(scannedRoots.map(\.id))
         )
         roots = scannedRoots
-        items = sort.sorted(scannedItems)
+        replaceItems(with: sort.sorted(scannedItems))
         incompleteRootPaths = snapshot.incompleteRootPaths
             .intersection(requestedSourcePaths)
         unavailableItemIDs.formIntersection(Set(items.map(\.id)))
@@ -1045,7 +1046,12 @@ final class MediaLibraryCoordinator: ObservableObject {
             mergedItemsByID[candidate.id] = candidate
             unavailableItemIDs.remove(candidate.id)
         }
-        items = sort.sorted(Array(mergedItemsByID.values))
+        replaceItems(with: sort.sorted(Array(mergedItemsByID.values)))
+    }
+
+    private func replaceItems(with items: [LibraryMediaItem]) {
+        itemsRevision &+= 1
+        self.items = items
     }
 
     private func representImportedCandidates(

@@ -64,6 +64,7 @@
 		C30000000000000000000013 /* PlaybackSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30000000000000000000003 /* PlaybackSessionController.swift */; };
 		C30000000000000000000014 /* FilePlaybackSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30000000000000000000004 /* FilePlaybackSessionStore.swift */; };
 		C30000000000000000000015 /* PlaybackSessionControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30000000000000000000005 /* PlaybackSessionControllerTests.swift */; };
+		C40000000000000000000011 /* FixedHeightVirtualizedTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000001 /* FixedHeightVirtualizedTable.swift */; };
 		AA000000000000000000001B /* FileSystemMediaLibraryScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000000B /* FileSystemMediaLibraryScannerTests.swift */; };
 		AB0000000000000000000002 /* UserSelectedMediaSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000001 /* UserSelectedMediaSessionTests.swift */; };
 		AC0000000000000000000011 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000001 /* AppLanguage.swift */; };
@@ -188,6 +189,7 @@
 		C30000000000000000000003 /* PlaybackSessionController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackSessionController.swift; sourceTree = "<group>"; };
 		C30000000000000000000004 /* FilePlaybackSessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FilePlaybackSessionStore.swift; sourceTree = "<group>"; };
 		C30000000000000000000005 /* PlaybackSessionControllerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackSessionControllerTests.swift; sourceTree = "<group>"; };
+		C40000000000000000000001 /* FixedHeightVirtualizedTable.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FixedHeightVirtualizedTable.swift; sourceTree = "<group>"; };
 		AA000000000000000000000B /* FileSystemMediaLibraryScannerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSystemMediaLibraryScannerTests.swift; sourceTree = "<group>"; };
 		AB0000000000000000000001 /* UserSelectedMediaSessionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserSelectedMediaSessionTests.swift; sourceTree = "<group>"; };
 		AC0000000000000000000001 /* AppLanguage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
@@ -602,6 +604,7 @@
 		AA000000000000000000000E /* Library */ = {
 			isa = PBXGroup;
 			children = (
+				C40000000000000000000001 /* FixedHeightVirtualizedTable.swift */,
 				AF1000000000000000000003 /* LibraryMediaThumbnail.swift */,
 				AA0000000000000000000007 /* LibraryQueueSidebar.swift */,
 			);
@@ -954,6 +957,7 @@
 				5213CB1B3B66BACA9F1B129F /* PlaybackSettings.swift in Sources */,
 				AA0000000000000000000011 /* PlaybackQueue.swift in Sources */,
 				F52129EF7CDA0DFCABB9582F /* DesktopStatusMenuController.swift in Sources */,
+				C40000000000000000000011 /* FixedHeightVirtualizedTable.swift in Sources */,
 				AF1000000000000000000013 /* LibraryMediaThumbnail.swift in Sources */,
 				AA0000000000000000000017 /* LibraryQueueSidebar.swift in Sources */,
 				AC0000000000000000000014 /* SettingsView.swift in Sources */,

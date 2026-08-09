@@ -5,6 +5,7 @@ struct LibraryQueueSidebar: View {
     @ObservedObject var library: MediaLibraryCoordinator
     let playback: PlaybackCoordinator
     @EnvironmentObject private var localization: AppLocalizationController
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var pendingRootRemoval: MediaLibraryRoot?
     @State private var playbackStatus: LibraryPlaybackStatus
     let mediaThumbnailProvider: any MediaThumbnailProviding
@@ -630,52 +631,34 @@ struct LibraryQueueSidebar: View {
                 reauthorizeMediaSources: reauthorizeMediaSources
             )
         } else {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: MuralumeTheme.Spacing.xSmall) {
-                        ForEach(library.items) { item in
-                            LibraryMediaRow(
-                                item: item,
-                                isCurrent: library.currentItemID == item.id,
-                                playbackState: playbackState(for: item),
-                                mediaThumbnailProvider: mediaThumbnailProvider,
-                                play: {
-                                    library.play(item)
-                                    dismiss()
-                                },
-                                revealInFinder: {
-                                    revealMediaInFinder(item.url)
-                                }
-                            )
-                            .id(item.id)
-                        }
+            FixedHeightVirtualizedTable(
+                items: library.items,
+                snapshotRevision: library.itemsRevision,
+                scrollTargetID: library.currentItemID,
+                rowHeight: playlistRowHeight,
+                rowSpacing: MuralumeTheme.Spacing.xSmall,
+                verticalContentInset: MuralumeTheme.Spacing.xSmall
+            ) { item in
+                LibraryMediaRow(
+                    item: item,
+                    isCurrent: library.currentItemID == item.id,
+                    playbackState: playbackState(for: item),
+                    rowHeight: playlistRowHeight,
+                    mediaThumbnailProvider: mediaThumbnailProvider,
+                    play: {
+                        library.play(item)
+                        dismiss()
+                    },
+                    revealInFinder: {
+                        revealMediaInFinder(item.url)
                     }
-                    .padding(.vertical, MuralumeTheme.Spacing.xSmall)
-                }
-                .scrollIndicators(.visible)
-                .accessibilityLabel(Text("library.playlist"))
-                .task(id: library.currentItemID) {
-                    guard let targetID = library.currentItemID else {
-                        return
-                    }
-                    await positionCurrentItem(targetID, using: proxy)
-                }
+                )
+                // NSHostingView is a separate SwiftUI root.
+                .environmentObject(localization)
             }
+            .scrollIndicators(.visible)
+            .accessibilityLabel(Text("library.playlist"))
         }
-    }
-
-    @MainActor
-    private func positionCurrentItem(
-        _ targetID: LibraryMediaItem.ID,
-        using proxy: ScrollViewProxy
-    ) async {
-        await Task.yield()
-
-        guard !Task.isCancelled,
-              library.currentItemID == targetID else {
-            return
-        }
-        proxy.scrollTo(targetID, anchor: .center)
     }
 
     private func playbackState(
@@ -689,6 +672,10 @@ struct LibraryQueueSidebar: View {
         }
 
         return playbackStatus.rowState
+    }
+
+    private var playlistRowHeight: CGFloat {
+        MuralumeTheme.Size.playlistRowHeight(for: dynamicTypeSize)
     }
 
     private var playbackStatusPublisher:
@@ -850,6 +837,7 @@ private struct LibraryMediaRow: View {
     let item: LibraryMediaItem
     let isCurrent: Bool
     let playbackState: LibraryMediaRowPlaybackState
+    let rowHeight: CGFloat
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let play: () -> Void
     let revealInFinder: () -> Void
@@ -934,11 +922,8 @@ private struct LibraryMediaRow: View {
             }
             .padding(.vertical, MuralumeTheme.Spacing.small)
             .padding(.trailing, MuralumeTheme.Spacing.small)
-            .frame(
-                maxWidth: .infinity,
-                minHeight: MuralumeTheme.Size.playlistRowHeight,
-                alignment: .leading
-            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: rowHeight)
             .background {
                 RoundedRectangle(
                     cornerRadius: MuralumeTheme.Radius.medium,

@@ -83,6 +83,33 @@ enum MuralumeTheme {
         static let playlistRowHeight: CGFloat = 72
         static let playlistArtworkWidth: CGFloat = 84
         static let playlistArtworkHeight: CGFloat = 48
+
+        static func playlistRowHeight(
+            for dynamicTypeSize: DynamicTypeSize
+        ) -> CGFloat {
+            switch dynamicTypeSize {
+            case .xSmall, .small, .medium, .large:
+                playlistRowHeight
+            case .xLarge:
+                80
+            case .xxLarge:
+                88
+            case .xxxLarge:
+                96
+            case .accessibility1:
+                112
+            case .accessibility2:
+                128
+            case .accessibility3:
+                144
+            case .accessibility4:
+                160
+            case .accessibility5:
+                176
+            @unknown default:
+                playlistRowHeight
+            }
+        }
     }
 
     enum Motion {
