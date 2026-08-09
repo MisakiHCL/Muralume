@@ -208,6 +208,16 @@ validate_app_store_package_signature_log \
     /usr/bin/python3 \
     "${development_status_package_signature}" \
     "${test_team}"
+# The release script owns a readonly variable with this name. Exercise the
+# helper under the same Bash dynamic-scope conditions so a local-name
+# collision cannot silently redirect validation to another log.
+(
+    readonly signature_log_path="${test_root}/not-the-package-signature.log"
+    validate_app_store_package_signature_log \
+        /usr/bin/python3 \
+        "${development_status_package_signature}" \
+        "${test_team}"
+)
 expect_failure \
     "unsigned App Store package" \
     validate_app_store_package_signature_log \

@@ -140,7 +140,11 @@ validate_app_store_package_signature_log() {
     fi
 
     local python_path="$1"
-    local signature_log_path="$2"
+    # Keep this name distinct from the release script's readonly
+    # signature_log_path. Bash uses dynamic scope, so reusing that name would
+    # leave this function reading the later App signature log instead of the
+    # package signature log.
+    local package_signature_log_path="$2"
     local expected_team="$3"
 
     "${python_path}" -c '
@@ -180,5 +184,5 @@ valid = (
     and not has_developer_id
 )
 raise SystemExit(0 if valid else 1)
-' "${signature_log_path}" "${expected_team}"
+' "${package_signature_log_path}" "${expected_team}"
 }
