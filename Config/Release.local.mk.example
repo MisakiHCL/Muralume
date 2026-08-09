@@ -1,0 +1,13 @@
+# Copy this file to Release.local.mk and restrict it to the current user:
+#   chmod 600 Config/Release.local.mk
+# The destination is ignored by Git. Store notarization credentials only in
+# the macOS Keychain; never put passwords, private keys, or API keys here.
+# Prepare the private designated requirement only through the controlled
+# Developer ID archive/export workflow after filling this file:
+#   make prepare-distribution-requirements
+# The command writes ignored Config/Distribution.requirements with mode 0600.
+# It never accepts an existing App or archive as an extraction source.
+
+MURALUME_DEVELOPER_ID_APPLICATION :=
+MURALUME_NOTARY_KEYCHAIN_PROFILE :=
+MURALUME_EXPECTED_TEAM_IDENTIFIER :=

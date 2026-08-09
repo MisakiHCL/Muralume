@@ -6,11 +6,16 @@ VERBOSE ?= 0
 
 MURALUME_DEVELOPER_ID_APPLICATION ?=
 MURALUME_NOTARY_KEYCHAIN_PROFILE ?=
+MURALUME_EXPECTED_TEAM_IDENTIFIER ?=
+MURALUME_REPLACE_DISTRIBUTION_REQUIREMENTS ?= 0
+export MURALUME_DEVELOPER_ID_APPLICATION
+export MURALUME_NOTARY_KEYCHAIN_PROFILE
+export MURALUME_EXPECTED_TEAM_IDENTIFIER
 
 LOCAL_DMG := $(abspath dist/macos-local/Muralume.dmg)
 RELEASE_DMG := $(abspath dist/macos-release/Muralume.dmg)
 
-.PHONY: help test test-steps package-macos package-macos-steps release-macos release-macos-steps
+.PHONY: help test test-steps package-macos package-macos-steps prepare-distribution-requirements release-macos release-macos-steps
 
 define run-quiet-workflow
 	@if [[ "$(VERBOSE)" == "1" ]]; then \
@@ -27,6 +32,8 @@ help:
 		'' \
 		'  make test                   Run the complete automated test suite' \
 		'  make package-macos          Build a local-only, ad-hoc signed DMG' \
+		'  make prepare-distribution-requirements' \
+		'                              Export and record the private bridge requirement' \
 		'  make release-macos          Build, sign, notarize, and verify the release DMG' \
 		'' \
 		'Set VERBOSE=1 to stream complete build output.'
@@ -47,6 +54,14 @@ package-macos-steps:
 		--mode local \
 		--output "$(LOCAL_DMG)"
 
+prepare-distribution-requirements:
+	@printf 'Preparing the private Xcode-exported distribution requirement...\n'
+	@if [[ "$(MURALUME_REPLACE_DISTRIBUTION_REQUIREMENTS)" == "1" ]]; then \
+		./Scripts/prepare_distribution_requirements.sh --replace; \
+	else \
+		./Scripts/prepare_distribution_requirements.sh; \
+	fi
+
 release-macos:
 	@printf 'Building, signing, and notarizing the Muralume DMG...\n'
 	+$(call run-quiet-workflow,release-macos-steps,release-macos)
@@ -54,9 +69,8 @@ release-macos:
 	@printf 'Checksum:\n  %s.sha256\n' "$(RELEASE_DMG)"
 
 release-macos-steps:
+	@./Scripts/prepare_distribution_requirements.sh --check
 	./Scripts/verify.sh release-gate
-	./Scripts/release_macos.sh \
+	@./Scripts/release_macos.sh \
 		--mode distribution \
-		--output "$(RELEASE_DMG)" \
-		--signing-identity "$(MURALUME_DEVELOPER_ID_APPLICATION)" \
-		--notary-profile "$(MURALUME_NOTARY_KEYCHAIN_PROFILE)"
+		--output "$(RELEASE_DMG)"

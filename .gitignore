@@ -23,11 +23,15 @@ xcuserdata/
 # Local signing and release credentials
 /Config/Local.xcconfig
 /Config/Release.local.mk
+/Config/Distribution.requirements
+*.developerprofile
 *.cer
 *.p12
+*.pfx
 *.p8
 *.key
 *.pem
+*.requirements
 *.mobileprovision
 *.provisionprofile
 .env

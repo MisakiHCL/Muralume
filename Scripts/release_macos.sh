@@ -5,7 +5,8 @@ set -euo pipefail
 readonly local_mode="local"
 readonly distribution_mode="distribution"
 readonly expected_product_name="Muralume"
-readonly expected_bundle_identifier="com.muralume.Muralume"
+readonly production_bundle_identifier="com.muralume.Muralume"
+readonly local_bundle_identifier="com.muralume.Muralume.local"
 readonly expected_architecture="arm64"
 readonly expected_marketing_version="1.0.3"
 readonly expected_build_number="5"
@@ -20,17 +21,24 @@ readonly project_root="$(cd "${script_directory}/.." && pwd)"
 readonly project_path="${project_root}/Muralume.xcodeproj"
 readonly entitlements_path="${project_root}/Muralume/Resources/Muralume.entitlements"
 readonly release_config_path="${project_root}/Config/Release.local.mk"
+readonly distribution_requirements_path="${project_root}/Config/Distribution.requirements"
 readonly dmg_background_renderer_path="${script_directory}/render_dmg_background.swift"
 readonly dmg_layout_tool_path="${script_directory}/configure_dmg.py"
+readonly distribution_requirements_helper_path="${script_directory}/lib/distribution_requirements.sh"
 readonly secure_timestamp_helper_path="${script_directory}/lib/secure_timestamp.sh"
 
+# shellcheck source=lib/distribution_requirements.sh
+source "${distribution_requirements_helper_path}"
 # shellcheck source=lib/secure_timestamp.sh
 source "${secure_timestamp_helper_path}"
 
 selected_mode=""
 requested_output_path=""
-signing_identity=""
-notary_profile=""
+signing_identity="${MURALUME_DEVELOPER_ID_APPLICATION:-}"
+notary_profile="${MURALUME_NOTARY_KEYCHAIN_PROFILE:-}"
+expected_team_identifier="${MURALUME_EXPECTED_TEAM_IDENTIFIER:-}"
+resolved_signing_identity=""
+selected_bundle_identifier=""
 mounted_dmg=0
 mounted_device=""
 work_directory=""
@@ -41,13 +49,14 @@ print_usage() {
     cat <<'EOF'
 Usage:
   ./Scripts/release_macos.sh --mode local --output <path>
-  ./Scripts/release_macos.sh --mode distribution --output <path> \
-      --signing-identity <identity-or-sha1> \
-      --notary-profile <keychain-profile>
+  ./Scripts/release_macos.sh --mode distribution --output <path>
 
 Modes:
-  local         Produce an ad-hoc signed DMG for this Mac only.
-  distribution  Produce a Developer ID signed and notarized DMG.
+  local         Produce an ad-hoc signed DMG using an isolated local bundle ID.
+  distribution  Produce a Developer ID signed and notarized DMG. Make supplies
+                signing values through private environment variables, and a
+                provenance-checked Config/Distribution.requirements prepared
+                from an Xcode Developer ID export is mandatory.
 EOF
 }
 
@@ -149,16 +158,6 @@ while [[ "$#" -gt 0 ]]; do
             requested_output_path="$2"
             shift 2
             ;;
-        --signing-identity)
-            [[ "$#" -ge 2 ]] || fail "--signing-identity requires a value."
-            signing_identity="$2"
-            shift 2
-            ;;
-        --notary-profile)
-            [[ "$#" -ge 2 ]] || fail "--notary-profile requires a value."
-            notary_profile="$2"
-            shift 2
-            ;;
         -h|--help)
             print_usage
             exit 0
@@ -170,7 +169,11 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 case "${selected_mode}" in
-    "${local_mode}"|"${distribution_mode}")
+    "${local_mode}")
+        selected_bundle_identifier="${local_bundle_identifier}"
+        ;;
+    "${distribution_mode}")
+        selected_bundle_identifier="${production_bundle_identifier}"
         ;;
     *)
         fail "--mode must be either local or distribution."
@@ -202,6 +205,9 @@ xcode_python_path="$(xcrun --find python3 2>/dev/null || true)"
     || fail "The DMG metadata generator requires Python 3.7 or newer."
 
 if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
+    require_command cmp
+    require_command csreq
+    require_command git
     require_command rg
     require_command security
     require_command spctl
@@ -210,31 +216,38 @@ if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
         || fail "A Developer ID Application identity is required."
     [[ -n "${notary_profile}" ]] \
         || fail "A notarytool Keychain profile is required."
+    [[ "${expected_team_identifier}" =~ ^[A-Z0-9]{10}$ ]] \
+        || fail "A 10-character expected Apple Team ID is required."
 
-    available_identities="$(security find-identity -v -p codesigning)"
-    matching_identity_lines="$(
-        printf '%s\n' "${available_identities}" \
-            | rg -F -- "${signing_identity}" || true
-    )"
-    if [[ -z "${matching_identity_lines}" ]]; then
-        fail "The configured Developer ID Application identity is unavailable."
-    fi
-    matching_identity_count="$(
-        printf '%s\n' "${matching_identity_lines}" \
-            | wc -l \
-            | tr -d '[:space:]'
-    )"
-    [[ "${matching_identity_count}" == "1" ]] \
-        || fail "The configured signing identity must match exactly one certificate."
-    printf '%s\n' "${matching_identity_lines}" \
-        | rg '"Developer ID Application:' >/dev/null \
-        || fail "The configured identity is not Developer ID Application."
+    [[ -f "${release_config_path}" ]] \
+        || fail "Config/Release.local.mk is required for a formal release."
+    config_permissions="$(stat -f '%Lp' "${release_config_path}")"
+    [[ "${config_permissions}" == "600" ]] \
+        || fail "Config/Release.local.mk must have permissions 0600."
 
-    if [[ -f "${release_config_path}" ]]; then
-        config_permissions="$(stat -f '%Lp' "${release_config_path}")"
-        [[ "${config_permissions}" == "600" ]] \
-            || fail "Config/Release.local.mk must have permissions 0600."
-    fi
+    [[ -f "${distribution_requirements_path}" ]] \
+        || fail "Config/Distribution.requirements is required for a formal release."
+    requirements_permissions="$(
+        stat -f '%Lp' "${distribution_requirements_path}"
+    )"
+    [[ "${requirements_permissions}" == "600" ]] \
+        || fail "Config/Distribution.requirements must have permissions 0600."
+    v1_0_3_source_commit="$(
+        git -C "${project_root}" rev-parse 'v1.0.3^{commit}' 2>/dev/null
+    )" || fail "The immutable v1.0.3 source tag is required for provenance validation."
+    validate_distribution_requirement_provenance \
+        "${distribution_requirements_path}" \
+        "${production_bundle_identifier}" \
+        "${expected_team_identifier}" \
+        "${project_root}" \
+        "${v1_0_3_source_commit}" \
+        || fail "The Xcode-exported distribution requirement failed provenance validation."
+
+    resolved_signing_identity="$(
+        resolve_developer_id_identity_hash \
+            "${signing_identity}" \
+            "${expected_team_identifier}"
+    )" || fail "The configured Developer ID Application identity is unavailable or ambiguous."
 
     xcrun notarytool history \
         --keychain-profile "${notary_profile}" >/dev/null
@@ -273,6 +286,7 @@ xcodebuild archive \
     -derivedDataPath "${derived_data_path}" \
     ARCHS="${expected_architecture}" \
     ONLY_ACTIVE_ARCH=NO \
+    PRODUCT_BUNDLE_IDENTIFIER="${selected_bundle_identifier}" \
     CODE_SIGNING_ALLOWED=NO
 
 [[ -d "${archive_app_path}" ]] \
@@ -310,7 +324,8 @@ if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
         --force \
         --options runtime \
         --entitlements "${entitlements_path}" \
-        --sign "${signing_identity}"
+        --requirements "${distribution_requirements_path}" \
+        --sign "${resolved_signing_identity}"
 else
     printf 'Applying an ad-hoc signature for local installation...\n'
     codesign \
@@ -322,6 +337,14 @@ else
 fi
 
 codesign --verify --deep --strict --verbose=2 "${staged_app_path}"
+
+if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
+    verify_embedded_distribution_requirement \
+        "${staged_app_path}" \
+        "${distribution_requirements_path}" \
+        "${work_directory}" \
+        || fail "The signed app's designated requirement failed verification."
+fi
 
 readonly executable_path="${staged_app_path}/Contents/MacOS/${expected_product_name}"
 [[ -f "${executable_path}" ]] \
@@ -335,7 +358,7 @@ actual_bundle_identifier="$(
     plutil -extract CFBundleIdentifier raw \
         "${staged_app_path}/Contents/Info.plist"
 )"
-[[ "${actual_bundle_identifier}" == "${expected_bundle_identifier}" ]] \
+[[ "${actual_bundle_identifier}" == "${selected_bundle_identifier}" ]] \
     || fail "Unexpected bundle identifier: ${actual_bundle_identifier}"
 
 marketing_version="$(
@@ -392,8 +415,14 @@ if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
         | rg '^Timestamp=' >/dev/null \
         || fail "The app signature has no secure timestamp."
     printf '%s\n' "${signature_details}" \
-        | rg '^TeamIdentifier=[A-Z0-9]+$' >/dev/null \
+        | rg '^TeamIdentifier=[A-Z0-9]{10}$' >/dev/null \
         || fail "The app signature has no valid TeamIdentifier."
+    actual_app_team_identifier="$(
+        printf '%s\n' "${signature_details}" \
+            | sed -n 's/^TeamIdentifier=//p'
+    )"
+    [[ "${actual_app_team_identifier}" == "${expected_team_identifier}" ]] \
+        || fail "The app signature does not match the configured Apple Team."
 fi
 
 ln -s /Applications "${dmg_staging_directory}/Applications"
@@ -477,7 +506,7 @@ if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
         "${expected_product_name}.dmg" \
         "${temporary_dmg_path}" \
         --force \
-        --sign "${signing_identity}"
+        --sign "${resolved_signing_identity}"
     codesign --verify --verbose=2 "${temporary_dmg_path}"
 
     dmg_signature_details="$(codesign --display --verbose=4 \
@@ -489,8 +518,14 @@ if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
         | rg '^Timestamp=' >/dev/null \
         || fail "The DMG signature has no secure timestamp."
     printf '%s\n' "${dmg_signature_details}" \
-        | rg '^TeamIdentifier=[A-Z0-9]+$' >/dev/null \
+        | rg '^TeamIdentifier=[A-Z0-9]{10}$' >/dev/null \
         || fail "The DMG signature has no valid TeamIdentifier."
+    actual_dmg_team_identifier="$(
+        printf '%s\n' "${dmg_signature_details}" \
+            | sed -n 's/^TeamIdentifier=//p'
+    )"
+    [[ "${actual_dmg_team_identifier}" == "${expected_team_identifier}" ]] \
+        || fail "The DMG signature does not match the configured Apple Team."
 
     xcrun notarytool submit "${temporary_dmg_path}" \
         --keychain-profile "${notary_profile}" \
@@ -570,11 +605,13 @@ if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
         --type open \
         --context context:primary-signature \
         --verbose=4 \
-        "${temporary_dmg_path}"
+        "${temporary_dmg_path}" >/dev/null 2>&1 \
+        || fail "Gatekeeper rejected the notarized DMG."
     spctl --assess \
         --type execute \
         --verbose=4 \
-        "${mounted_app_path}"
+        "${mounted_app_path}" >/dev/null 2>&1 \
+        || fail "Gatekeeper rejected the mounted application."
 fi
 
 detach_mounted_image

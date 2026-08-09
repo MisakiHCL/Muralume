@@ -9,6 +9,9 @@ readonly scheme_name="Muralume"
 readonly debug_destination="platform=macOS,arch=arm64"
 readonly selected_suite="${1:-all}"
 
+# shellcheck source=lib/signing_privacy.sh
+source "${script_directory}/lib/signing_privacy.sh"
+
 readonly artifacts_root="${MURALUME_TEST_ARTIFACTS_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/MuralumeVerify.XXXXXX")}"
 readonly derived_data_path="${artifacts_root}/DerivedData"
 
@@ -192,7 +195,11 @@ check_architecture() {
 
     echo "Checking architecture boundaries..."
     plutil -lint "${project_path}/project.pbxproj"
+    check_tracked_signing_privacy "${project_root}"
     check_localization_key_parity
+    "${script_directory}/tests/distribution_requirements_test.sh"
+    "${script_directory}/tests/prepare_distribution_requirements_test.sh"
+    "${script_directory}/tests/signing_privacy_test.sh"
     "${script_directory}/tests/secure_timestamp_test.sh"
 
     reject_imports \

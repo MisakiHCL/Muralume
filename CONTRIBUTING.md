@@ -29,6 +29,13 @@ make test
 tests, XCUITest, fixture validation, and an unsigned Release build. Integration
 and UI tests require an active macOS graphical session.
 
+Debug builds use `com.muralume.Muralume.debug`, so their sandbox and media
+bookmarks stay separate from the production app. The public defaults build
+without an Apple account. To use a personal development team, copy
+`Config/Local.xcconfig.example` to the Git-ignored `Config/Local.xcconfig` and
+fill only the local copy. Do not choose a personal Team directly in tracked
+project settings.
+
 To build a local-only, ad-hoc signed installer:
 
 ```bash
@@ -36,6 +43,48 @@ make package-macos
 ```
 
 Never publish that local package as an official release.
+It uses `com.muralume.Muralume.local`, so replacing it cannot consume or mutate
+the production app's sandbox container.
+
+A direct Xcode Release build is also local-only and uses the same isolated
+bundle identifier. Formal distribution is intentionally available only through
+`make release-macos`, which overrides the production bundle identifier and
+fails closed unless its private signing inputs are present.
+
+Maintainers preparing a formal Developer ID release must copy
+`Config/Release.local.mk.example` to the Git-ignored
+`Config/Release.local.mk`, restrict it to mode `0600`, and fill the signing
+identity, Keychain notary profile alias, and expected Team ID there. Passwords,
+private keys, and App Store Connect credentials belong in Keychain or another
+private credential store, never in either file.
+
+The release also requires a mode-`0600`, Git-ignored
+`Config/Distribution.requirements`. Create it only with:
+
+```bash
+make prepare-distribution-requirements
+```
+
+This controlled preparation is the only non-release workflow allowed to use
+the production bundle identifier. It builds from a fresh detached checkout of
+the clean source commit, creates a private Xcode archive, exports it with
+`xcodebuild -exportArchive` using the `developer-id` method, and extracts only
+from that export's `Muralume.app`. The temporary App uses the non-release
+version `0.0.0 (1)` and is deleted afterward. The command accepts no App or
+archive path, so an archive product, v1.0.3 source or identical source tree,
+Debug build, local package, or existing installed App cannot become the
+source. Do not hand-write or copy the requirement. If an invalid existing
+private file must be replaced, review the failure first, then rerun with
+`MURALUME_REPLACE_DISTRIBUTION_REQUIREMENTS=1`.
+
+The release gate checks that the recorded source commit and tree exist in the
+repository, rejects the v1.0.3 source tree, validates the requirement digest
+and exact compatible Developer ID and Mac App Store branches, then embeds the
+requirement and verifies that the signed App satisfies it. The recorded Xcode
+version and exported-App CDHash are audit metadata, not a cryptographic
+attestation after the temporary export has been deleted. Before Mac App Store
+migration, validate the real Developer ID → bridge release → TestFlight/App
+Store bookmark path on hardware.
 
 ## Implementation expectations
 

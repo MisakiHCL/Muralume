@@ -3,4 +3,12 @@
 SWIFT_COMPILATION_MODE = wholemodule
 SWIFT_OPTIMIZATION_LEVEL = -O
 DEAD_CODE_STRIPPING = YES
-CODE_SIGN_STYLE = Automatic
+
+// A direct Xcode Release build is local-only. The formal distribution script
+// overrides the bundle ID, disables Xcode signing, and applies Developer ID
+// signing itself. A future Mac App Store workflow must use a separate config.
+MURALUME_APP_BUNDLE_IDENTIFIER = com.muralume.Muralume.local
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = -
+DEVELOPMENT_TEAM =
+PROVISIONING_PROFILE_SPECIFIER =

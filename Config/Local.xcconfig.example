@@ -1,0 +1,9 @@
+// Copy this file to Local.xcconfig. The destination is ignored by Git.
+// Leave these values empty to keep the public ad-hoc Debug defaults.
+
+// To use your signed-in Xcode team for Debug builds, set the Team ID and use
+// automatic Apple Development signing. Never commit the populated local file.
+MURALUME_DEBUG_DEVELOPMENT_TEAM =
+MURALUME_DEBUG_CODE_SIGN_STYLE = Automatic
+MURALUME_DEBUG_CODE_SIGN_IDENTITY = Apple Development
+MURALUME_DEBUG_PROVISIONING_PROFILE_SPECIFIER =
