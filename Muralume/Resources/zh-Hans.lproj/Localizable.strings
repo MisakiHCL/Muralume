@@ -6,8 +6,8 @@
 "prototype.description" = "让本地视频在播放器和桌面上流动。";
 "media.choose" = "选择视频";
 "media.choose.another" = "选择其他视频";
-"media.none.title" = "添加视频或文件夹开始使用";
-"media.none.detail" = "可以添加单个视频，也可以让 Muralume 从文件夹中查找支持的视频。";
+"media.none.title" = "添加视频，开始播放";
+"media.none.detail" = "拖入视频或文件夹，或点按播放列表中的“添加”。";
 "media.select.title" = "从播放列表中选择视频";
 "media.select.detail" = "选择播放列表中的任意视频，即可从该视频开始建立稳定播放队列。";
 "media.error.unsupported" = "当前版本的 Muralume 无法播放这个视频。";
@@ -53,7 +53,7 @@
 "library.playlist" = "播放列表";
 "library.playlist.show" = "显示播放列表";
 "library.playlist.hide" = "隐藏播放列表";
-"library.summary.empty" = "尚未添加媒体来源";
+"library.summary.empty" = "0 个视频";
 "library.sourceAccess.unavailable.short" = "媒体来源暂时不可用";
 "library.sourceAccess.unavailable.title" = "媒体来源暂时不可用";
 "library.sourceAccess.partial" = "部分媒体来源暂时不可用";
@@ -66,8 +66,9 @@
 "library.scan.failed" = "媒体扫描失败";
 "library.retry" = "重试";
 "library.refresh" = "刷新数据";
-"library.empty.title" = "播放列表还是空的";
-"library.empty.detail" = "请直接添加 MP4、MOV 或 M4V 视频，或添加包含这些视频的文件夹。";
+"library.empty.title" = "未找到可播放的视频";
+"library.empty.detail" = "请尝试其他视频或文件夹。";
+"library.playlist.empty" = "视频将显示在这里";
 "library.video.count" = "%d 个视频";
 "library.folder.count" = "%d 个文件夹";
 "library.source.count" = "%d 个媒体来源";
@@ -94,10 +95,11 @@
 "library.video.remove.title" = "移除这个视频？";
 "library.video.remove.message" = "“%@”将从 Muralume 移除，但不会删除原文件。";
 "library.video.remove.confirm" = "移除视频";
-"library.drop.title" = "松开以添加视频或文件夹";
-"library.drop.detail" = "视频会优先播放，文件夹会加入媒体库";
+"library.drop.title" = "松开添加视频";
 "library.import.partial" = "部分项目无法添加";
 "library.import.failed" = "无法添加这些项目";
+"library.import.folderContainsActiveFolder" = "所选文件夹包含一个或多个已单独添加的子文件夹。请先从媒体库移除这些子文件夹，然后重试。";
+"library.import.folderCoveredByActiveFolder" = "所选文件夹已位于媒体库的现有文件夹内，无需重复添加。";
 "action.cancel" = "取消";
 "queue.order" = "播放顺序";
 "queue.order.ordered" = "顺序播放";

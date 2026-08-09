@@ -59,6 +59,7 @@ enum MuralumeTheme {
         static let windowControlClusterWidth: CGFloat = 60
         static let compactControl: CGFloat = 28
         static let emptyBrandMark: CGFloat = 88
+        static let emptyMessageMinimumHeight: CGFloat = 64
         static let icon: CGFloat = 16
         static let iconLarge: CGFloat = 20
         static let menuIndicator: CGFloat = 12
@@ -76,8 +77,6 @@ enum MuralumeTheme {
         static let playlistHeaderActionWidth: CGFloat = 68
         static let playlistStatusBarHeight: CGFloat = 40
         static let playlistRefreshActionWidth: CGFloat = 112
-        static let mediaDropOverlayMaximumWidth: CGFloat = 360
-        static let mediaDropOverlayIcon: CGFloat = 32
         static let playerControlsMaximumWidth: CGFloat = 1_040
         static let widePlayerControlsMinimumWidth: CGFloat = 1_000
         static let playlistRowHeight: CGFloat = 72

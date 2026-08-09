@@ -624,7 +624,6 @@ struct LibraryQueueSidebar: View {
         if library.items.isEmpty {
             LibrarySidebarEmptyState(
                 scanState: library.scanState,
-                hasSources: !library.roots.isEmpty,
                 sourceAccessState: library.sourceAccessState,
                 canRetrySourceAccess: library.canRetrySourceAccess,
                 retrySourceAccess: retryUnavailableSourceAccess,
@@ -1049,7 +1048,6 @@ private struct LibraryMediaRow: View {
 
 private struct LibrarySidebarEmptyState: View {
     let scanState: MediaLibraryScanState
-    let hasSources: Bool
     let sourceAccessState: MediaLibrarySourceAccessState
     let canRetrySourceAccess: Bool
     let retrySourceAccess: () -> Void
@@ -1082,28 +1080,22 @@ private struct LibrarySidebarEmptyState: View {
 
             Text(
                 LocalizedStringKey(
-                    scanState == .scanning
-                        ? "library.scanning"
-                        : sourceAccessIsUnavailable
-                            ? sourceAccessUnavailableTitleKey
-                            : hasSources
-                            ? "library.empty.title"
-                            : "media.none.title"
+                    sourceAccessIsUnavailable
+                        && scanState != .scanning
+                        ? sourceAccessUnavailableTitleKey
+                        : "library.playlist.empty"
                 )
             )
             .font(.body.weight(.semibold))
             .multilineTextAlignment(.center)
 
-            if scanState != .scanning {
+            if sourceAccessIsUnavailable,
+               scanState != .scanning {
                 Text(
                     LocalizedStringKey(
-                        sourceAccessIsUnavailable
-                            ? sourceAccessState == .partiallyUnavailable
-                                ? "library.sourceAccess.partial.detail"
-                                : "library.sourceAccess.unavailable.detail"
-                            : hasSources
-                                ? "library.empty.detail"
-                                : "media.none.detail"
+                        sourceAccessState == .partiallyUnavailable
+                            ? "library.sourceAccess.partial.detail"
+                            : "library.sourceAccess.unavailable.detail"
                     )
                 )
                 .font(.caption)

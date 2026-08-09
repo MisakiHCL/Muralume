@@ -285,8 +285,18 @@ final class UserSelectedMediaSession: MediaAccessSession {
         var requestedFileIDs: Set<LibraryMediaItem.ID> = []
         var acceptedRequestCount = 0
         var rejectedRequestCount = 0
+        var actionableRejectionCounts: [MediaAccessRejectionReason: Int] = [:]
         var didChangeSources = false
         var hasUnpersistedSourceChanges = false
+
+        func recordRejection(
+            _ reason: MediaAccessRejectionReason? = nil
+        ) {
+            rejectedRequestCount += 1
+            if let reason {
+                actionableRejectionCounts[reason, default: 0] += 1
+            }
+        }
 
         for (requestIndex, selectedURL) in urls.enumerated() {
             // URLs returned by NSOpenPanel already hold an implicit Powerbox
@@ -297,7 +307,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
             }
 
             guard requestIndex < MediaImportPolicy.maximumTopLevelSourceCount else {
-                rejectedRequestCount += 1
+                recordRejection()
                 continue
             }
 
@@ -308,7 +318,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
                 kind: selectedKind,
                 url: selectedLinkResolution.targetURL
             ) else {
-                rejectedRequestCount += 1
+                recordRejection()
                 continue
             }
             let selectedSource = MediaSource(
@@ -319,13 +329,29 @@ final class UserSelectedMediaSession: MediaAccessSession {
             )
             let selectedComparisonURL = selectedLinkResolution.targetURL
                 .standardizedFileURL
-            switch disposition(
+            let selectedDisposition = disposition(
                 for: selectedSource,
                 comparisonURL: selectedComparisonURL,
                 resourceIdentifier: Self.resourceIdentifier(
                     for: selectedComparisonURL
                 )
-            ) {
+            )
+            if selectedLinkResolution.didResolveLink {
+                if case .covered = selectedDisposition {
+                    acceptedRequestCount += 1
+                    if selectedKind == .file {
+                        appendRequestedFileURL(
+                            playbackURL(for: selectedSource),
+                            to: &requestedFileURLs,
+                            seenIDs: &requestedFileIDs
+                        )
+                    }
+                } else {
+                    recordRejection()
+                }
+                continue
+            }
+            switch selectedDisposition {
             case .covered:
                 acceptedRequestCount += 1
                 if selectedKind == .file {
@@ -336,25 +362,21 @@ final class UserSelectedMediaSession: MediaAccessSession {
                     )
                 }
                 continue
-            case .rejected:
-                rejectedRequestCount += 1
+            case let .rejected(reason):
+                recordRejection(reason)
                 continue
             case let .insert(replacingKeys):
                 guard canInstallSource(replacingKeys: replacingKeys) else {
-                    rejectedRequestCount += 1
+                    recordRejection()
                     continue
                 }
-            }
-            guard !selectedLinkResolution.didResolveLink else {
-                rejectedRequestCount += 1
-                continue
             }
 
             guard let bookmark = securityAccess.makeBookmark(selectedURL),
                   Self.bookmarkIsWithinPersistenceLimit(bookmark),
                   let resolvedBookmark = securityAccess.resolveBookmark(bookmark),
                   securityAccess.startAccess(resolvedBookmark.url) else {
-                rejectedRequestCount += 1
+                recordRejection()
                 continue
             }
 
@@ -367,7 +389,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
                 url: resolvedLinkResolution.targetURL
             ) else {
                 securityAccess.stopAccess(resolvedURL)
-                rejectedRequestCount += 1
+                recordRejection()
                 continue
             }
             let resolvedSource = MediaSource(
@@ -383,11 +405,12 @@ final class UserSelectedMediaSession: MediaAccessSession {
             )
             if resolvedLinkResolution.didResolveLink {
                 securityAccess.stopAccess(resolvedURL)
-                if case .covered = disposition(
+                let linkedDisposition = disposition(
                     for: resolvedSource,
                     comparisonURL: resolvedComparisonURL,
                     resourceIdentifier: resolvedResourceIdentifier
-                ) {
+                )
+                if case .covered = linkedDisposition {
                     acceptedRequestCount += 1
                     if resolvedKind == .file {
                         appendRequestedFileURL(
@@ -397,7 +420,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
                         )
                     }
                 } else {
-                    rejectedRequestCount += 1
+                    recordRejection()
                 }
                 continue
             }
@@ -406,15 +429,15 @@ final class UserSelectedMediaSession: MediaAccessSession {
                 comparisonURL: resolvedComparisonURL,
                 resourceIdentifier: resolvedResourceIdentifier
             )
-            if case .rejected = resolvedDisposition {
+            if case let .rejected(reason) = resolvedDisposition {
                 securityAccess.stopAccess(resolvedURL)
-                rejectedRequestCount += 1
+                recordRejection(reason)
                 continue
             }
             if case let .insert(replacingKeys) = resolvedDisposition,
                !canInstallSource(replacingKeys: replacingKeys) {
                 securityAccess.stopAccess(resolvedURL)
-                rejectedRequestCount += 1
+                recordRejection()
                 continue
             }
             let activeBookmark: Data
@@ -425,7 +448,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
                     refreshedBookmark
                 ) else {
                     securityAccess.stopAccess(resolvedURL)
-                    rejectedRequestCount += 1
+                    recordRejection()
                     continue
                 }
                 activeBookmark = refreshedBookmark
@@ -482,6 +505,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
             requestedFileURLs: requestedFileURLs,
             acceptedRequestCount: acceptedRequestCount,
             rejectedRequestCount: rejectedRequestCount,
+            actionableRejectionCounts: actionableRejectionCounts,
             didChangeSources: didChangeSources
         )
     }
@@ -605,7 +629,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
 
     private enum SourceDisposition {
         case covered
-        case rejected
+        case rejected(MediaAccessRejectionReason)
         case insert(replacingKeys: [String])
     }
 
@@ -660,16 +684,17 @@ final class UserSelectedMediaSession: MediaAccessSession {
             return .insert(replacingKeys: [])
         }
 
-        let overlapsActiveFolder = activeFolderKeys.contains { key in
+        for key in activeFolderKeys {
             let activeFolderURL = URL(
                 fileURLWithPath: key,
                 isDirectory: true
             )
-            return Self.folder(activeFolderURL, covers: candidateComparisonURL)
-                || Self.folder(candidateComparisonURL, covers: activeFolderURL)
-        }
-        guard !overlapsActiveFolder else {
-            return .rejected
+            if Self.folder(activeFolderURL, covers: candidateComparisonURL) {
+                return .rejected(.activeFolderContainsSelectedFolder)
+            }
+            if Self.folder(candidateComparisonURL, covers: activeFolderURL) {
+                return .rejected(.selectedFolderContainsActiveFolder)
+            }
         }
 
         let replacingKeys: [String] = activeSourcesByKey.compactMap { key, source in

@@ -24,6 +24,8 @@ enum MediaLibraryQueueRestoreResult: Equatable, Sendable {
 enum MediaImportNotice: Hashable, Sendable {
     case partialFailure
     case failure
+    case selectedFolderContainsActiveFolder
+    case activeFolderContainsSelectedFolder
 
     var localizedKey: String {
         switch self {
@@ -31,6 +33,10 @@ enum MediaImportNotice: Hashable, Sendable {
             "library.import.partial"
         case .failure:
             "library.import.failed"
+        case .selectedFolderContainsActiveFolder:
+            "library.import.folderContainsActiveFolder"
+        case .activeFolderContainsSelectedFolder:
+            "library.import.folderCoveredByActiveFolder"
         }
     }
 }
@@ -378,7 +384,14 @@ final class MediaLibraryCoordinator: ObservableObject {
             : latestPreparedSources
         let update = mediaSession.addSources(selectedURLs)
         if update.acceptedRequestCount == 0 {
-            importNotice = .failure
+            importNotice = switch update.exclusiveRejectionReason {
+            case .selectedFolderContainsActiveFolder:
+                .selectedFolderContainsActiveFolder
+            case .activeFolderContainsSelectedFolder:
+                .activeFolderContainsSelectedFolder
+            case nil:
+                .failure
+            }
             return nil
         }
         importNotice = update.rejectedRequestCount > 0

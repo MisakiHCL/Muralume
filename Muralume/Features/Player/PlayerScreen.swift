@@ -26,45 +26,6 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 library: library,
                 playerSurface: playerSurface
             )
-            .dropDestination(for: URL.self) { urls, _ in
-                actions.importDroppedURLs(urls)
-            } isTargeted: { isTargeted in
-                isMediaDropTargeted = isTargeted
-            }
-            .overlay {
-                if isMediaDropTargeted {
-                    ZStack {
-                        RoundedRectangle(
-                            cornerRadius: MuralumeTheme.Radius.large
-                        )
-                        .fill(MuralumeTheme.Colors.controlFill)
-                        .overlay {
-                            RoundedRectangle(
-                                cornerRadius: MuralumeTheme.Radius.large
-                            )
-                            .stroke(
-                                MuralumeTheme.Colors.borderStrong,
-                                lineWidth: 1
-                            )
-                        }
-                        .padding(MuralumeTheme.Spacing.small)
-
-                        MediaDropOverlay()
-                            .padding(
-                                .horizontal,
-                                MuralumeTheme.Spacing.xLarge
-                            )
-                            .padding(.top, playerTopContentInset)
-                            .padding(
-                                .bottom,
-                                MuralumeTheme.Size.primaryControl
-                                    + MuralumeTheme.Spacing.hero
-                            )
-                    }
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
-                }
-            }
 
             PointerActivityReader {
                 chromeController.recordPointerActivity()
@@ -72,7 +33,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
-            .zIndex(1)
+            .zIndex(PlayerLayer.pointerActivity)
 
             if library.importNotice != nil
                 || desktopSession.transientFailure != nil {
@@ -103,11 +64,11 @@ struct PlayerScreen<PlayerSurface: View>: View {
                     maxHeight: .infinity,
                     alignment: .top
                 )
-                .zIndex(5)
+                .zIndex(PlayerLayer.statusBanner)
             }
 
             playerChrome
-                .zIndex(4)
+                .zIndex(PlayerLayer.chrome)
 
             playerTopBar
                 .frame(
@@ -115,11 +76,26 @@ struct PlayerScreen<PlayerSurface: View>: View {
                     maxHeight: .infinity,
                     alignment: .top
                 )
-                .zIndex(6)
+                .zIndex(PlayerLayer.topBar)
+
+            if isMediaDropTargeted {
+                MediaDropOverlay()
+                    .zIndex(PlayerLayer.mediaDrop)
+                    .transition(.opacity)
+            }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            actions.importDroppedURLs(urls)
+        } isTargeted: { isTargeted in
+            isMediaDropTargeted = isTargeted
         }
         .animation(
             playerChromeAnimation,
             value: chromeController.presentedPanel
+        )
+        .animation(
+            playerChromeAnimation,
+            value: isMediaDropTargeted
         )
         .frame(
             minWidth: AppConfiguration.minimumWindowWidth,
@@ -220,7 +196,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
     }
 
     private var isPlayerChromeVisible: Bool {
-        chromeController.isVisible || isMediaDropTargeted
+        chromeController.isVisible
     }
 
     @ViewBuilder
@@ -313,39 +289,39 @@ struct PlayerScreen<PlayerSurface: View>: View {
     }
 }
 
+private enum PlayerLayer {
+    static let pointerActivity = 1.0
+    static let chrome = 4.0
+    static let statusBanner = 5.0
+    static let topBar = 6.0
+    static let mediaDrop = 7.0
+}
+
 private struct MediaDropOverlay: View {
     var body: some View {
-        VStack(spacing: MuralumeTheme.Spacing.medium) {
-            HStack(spacing: MuralumeTheme.Spacing.medium) {
-                ForEach(["film", "folder"], id: \.self) { systemImage in
-                    Image(systemName: systemImage)
-                        .font(
-                            .system(
-                                size: MuralumeTheme.Size.mediaDropOverlayIcon,
-                                weight: .medium
-                            )
-                        )
-                        .foregroundStyle(
-                            MuralumeTheme.Colors.controlAccent
-                        )
-                }
+        ZStack {
+            RoundedRectangle(
+                cornerRadius: MuralumeTheme.Radius.large
+            )
+            .fill(MuralumeTheme.Colors.controlFill)
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: MuralumeTheme.Radius.large
+                )
+                .stroke(
+                    MuralumeTheme.Colors.borderStrong,
+                    lineWidth: 1
+                )
             }
-            .accessibilityHidden(true)
+            .padding(MuralumeTheme.Spacing.small)
 
             Text("library.drop.title")
-                .font(.headline)
+                .font(.title3.weight(.semibold))
                 .foregroundStyle(MuralumeTheme.Colors.textPrimary)
-
-            Text("library.drop.detail")
-                .font(.caption)
-                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-                .multilineTextAlignment(.center)
+                .padding(.horizontal, MuralumeTheme.Spacing.xLarge)
+                .padding(.vertical, MuralumeTheme.Spacing.large)
+                .muralumePanel(cornerRadius: MuralumeTheme.Radius.large)
         }
-        .padding(MuralumeTheme.Spacing.xLarge)
-        .frame(
-            maxWidth: MuralumeTheme.Size.mediaDropOverlayMaximumWidth
-        )
-        .muralumePanel(cornerRadius: MuralumeTheme.Radius.large)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)

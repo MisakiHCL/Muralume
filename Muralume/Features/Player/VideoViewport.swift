@@ -99,6 +99,8 @@ private struct PlayerViewportState: Equatable {
 
 private struct PlayerEmptyState: View {
     @ObservedObject var library: MediaLibraryCoordinator
+    @ScaledMetric(relativeTo: .body) private var messageMinimumHeight =
+        MuralumeTheme.Size.emptyMessageMinimumHeight
 
     var body: some View {
         VStack(spacing: MuralumeTheme.Spacing.large) {
@@ -119,12 +121,15 @@ private struct PlayerEmptyState: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 480)
             }
-
+            .frame(minHeight: messageMinimumHeight)
+        }
+        .overlay(alignment: .bottom) {
             if library.scanState == .scanning {
                 ProgressView()
                     .controlSize(.small)
                     .tint(MuralumeTheme.Colors.controlAccent)
                     .accessibilityLabel(Text("library.scanning"))
+                    .offset(y: MuralumeTheme.Spacing.xLarge)
             }
         }
         .padding(MuralumeTheme.Spacing.xxLarge)

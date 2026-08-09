@@ -1,5 +1,12 @@
 import Foundation
 
+enum MediaAccessRejectionReason: Hashable, Sendable {
+    /// The selected folder is broader than a folder already granted access.
+    case selectedFolderContainsActiveFolder
+    /// The selected folder is already covered by a broader active folder.
+    case activeFolderContainsSelectedFolder
+}
+
 struct MediaAccessUpdate: Equatable, Sendable {
     let activeSources: [MediaSource]
     /// Explicit file requests remain visible even when an existing folder
@@ -7,7 +14,37 @@ struct MediaAccessUpdate: Equatable, Sendable {
     let requestedFileURLs: [URL]
     let acceptedRequestCount: Int
     let rejectedRequestCount: Int
+    /// Counts only recognized, actionable failures. Their sum may be lower
+    /// than rejectedRequestCount when generic failures are also present.
+    let actionableRejectionCounts: [MediaAccessRejectionReason: Int]
     let didChangeSources: Bool
+
+    init(
+        activeSources: [MediaSource],
+        requestedFileURLs: [URL],
+        acceptedRequestCount: Int,
+        rejectedRequestCount: Int,
+        actionableRejectionCounts: [MediaAccessRejectionReason: Int] = [:],
+        didChangeSources: Bool
+    ) {
+        self.activeSources = activeSources
+        self.requestedFileURLs = requestedFileURLs
+        self.acceptedRequestCount = acceptedRequestCount
+        self.rejectedRequestCount = rejectedRequestCount
+        self.actionableRejectionCounts = actionableRejectionCounts
+        self.didChangeSources = didChangeSources
+    }
+
+    var exclusiveRejectionReason: MediaAccessRejectionReason? {
+        guard acceptedRequestCount == 0,
+              rejectedRequestCount > 0,
+              actionableRejectionCounts.count == 1,
+              let (reason, count) = actionableRejectionCounts.first,
+              count == rejectedRequestCount else {
+            return nil
+        }
+        return reason
+    }
 }
 
 @MainActor

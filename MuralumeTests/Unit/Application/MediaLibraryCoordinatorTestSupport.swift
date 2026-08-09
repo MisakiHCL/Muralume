@@ -322,6 +322,7 @@ final class TestMediaAccessSession: MediaAccessSession {
     var hasUnavailablePersistedSources = false
     var treatsFilesInsideActiveFoldersAsCovered = false
     var replacesFilesCoveredByAddedFolder = false
+    var nextAddSourcesUpdate: MediaAccessUpdate?
 
     func retryUnavailableSources() -> [MediaSource] {
         activeURLs.map(makeSource)
@@ -332,6 +333,10 @@ final class TestMediaAccessSession: MediaAccessSession {
     }
 
     func addSources(_ urls: [URL]) -> MediaAccessUpdate {
+        if let nextAddSourcesUpdate {
+            self.nextAddSourcesUpdate = nil
+            return nextAddSourcesUpdate
+        }
         var didChangeSources = false
         for url in urls {
             if replacesFilesCoveredByAddedFolder,

@@ -6,8 +6,8 @@
 "prototype.description" = "Bring local video to your player and desktop.";
 "media.choose" = "Choose Video";
 "media.choose.another" = "Choose Another";
-"media.none.title" = "Add videos or folders to begin";
-"media.none.detail" = "Add individual videos, or let Muralume find supported videos inside your folders.";
+"media.none.title" = "Add videos to start playing";
+"media.none.detail" = "Drop videos or folders here, or choose Add in the playlist.";
 "media.select.title" = "Choose a video from the playlist";
 "media.select.detail" = "Choose any item in the playlist to start a stable playback queue.";
 "media.error.unsupported" = "This version of Muralume cannot play this video.";
@@ -53,7 +53,7 @@
 "library.playlist" = "Playlist";
 "library.playlist.show" = "Show Playlist";
 "library.playlist.hide" = "Hide Playlist";
-"library.summary.empty" = "No media sources added";
+"library.summary.empty" = "0 videos";
 "library.sourceAccess.unavailable.short" = "Media sources unavailable";
 "library.sourceAccess.unavailable.title" = "Media sources are temporarily unavailable";
 "library.sourceAccess.partial" = "Some media sources are unavailable";
@@ -66,8 +66,9 @@
 "library.scan.failed" = "Media scan failed";
 "library.retry" = "Retry";
 "library.refresh" = "Refresh Data";
-"library.empty.title" = "Your playlist is empty";
-"library.empty.detail" = "Add MP4, MOV, or M4V videos directly, or add a folder containing them.";
+"library.empty.title" = "No playable videos found";
+"library.empty.detail" = "Try another video or folder.";
+"library.playlist.empty" = "Videos will appear here";
 "library.video.count" = "%d videos";
 "library.folder.count" = "%d folders";
 "library.source.count" = "%d media sources";
@@ -94,10 +95,11 @@
 "library.video.remove.title" = "Remove this video?";
 "library.video.remove.message" = "“%@” will be removed from Muralume. The original file will not be deleted.";
 "library.video.remove.confirm" = "Remove Video";
-"library.drop.title" = "Drop to add videos or folders";
-"library.drop.detail" = "Videos play first; folders join your library.";
+"library.drop.title" = "Drop to add videos";
 "library.import.partial" = "Some items could not be added.";
 "library.import.failed" = "Muralume could not add these items.";
+"library.import.folderContainsActiveFolder" = "A selected folder contains one or more subfolders already added separately. Remove those subfolders from the library, then try again.";
+"library.import.folderCoveredByActiveFolder" = "The selected folder is already included in a folder in the library, so it does not need to be added again.";
 "action.cancel" = "Cancel";
 "queue.order" = "Playback Order";
 "queue.order.ordered" = "In Order";

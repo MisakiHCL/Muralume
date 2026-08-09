@@ -370,6 +370,7 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         XCTAssertTrue(update.requestedFileURLs.isEmpty)
         XCTAssertEqual(update.acceptedRequestCount, 0)
         XCTAssertEqual(update.rejectedRequestCount, 1)
+        XCTAssertTrue(update.actionableRejectionCounts.isEmpty)
         XCTAssertFalse(update.didChangeSources)
         XCTAssertTrue(fixture.recorder.bookmarkedURLs.isEmpty)
         XCTAssertTrue(fixture.recorder.startedURLs.isEmpty)
@@ -378,6 +379,52 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         XCTAssertNil(
             fixture.defaults.array(forKey: TestStorage.legacyBookmarkKey)
         )
+    }
+
+    func testFolderOverlapThroughSymbolicLinkKeepsGenericRejection() throws {
+        let fixture = makeSessionFixture()
+        defer { fixture.clearDefaults() }
+        let sandboxURL = try makeSandbox()
+        defer { try? FileManager.default.removeItem(at: sandboxURL) }
+        let parentURL = sandboxURL.appendingPathComponent(
+            "Library",
+            isDirectory: true
+        )
+        let childURL = parentURL.appendingPathComponent(
+            "Child",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: childURL,
+            withIntermediateDirectories: true
+        )
+        let linkURL = sandboxURL.appendingPathComponent(
+            "Library Link",
+            isDirectory: true
+        )
+        try FileManager.default.createSymbolicLink(
+            at: linkURL,
+            withDestinationURL: parentURL
+        )
+        fixture.recorder.resolvedURLByBookmark[
+            fixture.recorder.bookmark(for: childURL)
+        ] = childURL
+        _ = fixture.session.addSources([childURL])
+
+        let update = fixture.session.addSources([linkURL])
+
+        XCTAssertEqual(
+            update.activeSources,
+            [MediaSource(url: childURL, kind: .folder)]
+        )
+        XCTAssertEqual(update.acceptedRequestCount, 0)
+        XCTAssertEqual(update.rejectedRequestCount, 1)
+        XCTAssertTrue(update.actionableRejectionCounts.isEmpty)
+        XCTAssertFalse(update.didChangeSources)
+        XCTAssertEqual(fixture.recorder.bookmarkedURLs, [childURL])
+        XCTAssertEqual(fixture.recorder.startedURLs, [childURL])
+
+        fixture.session.stop()
     }
 
     func testAddingParentFolderReplacesFileGrantAfterFolderPersists() throws {
@@ -569,6 +616,10 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         )
         XCTAssertEqual(update.acceptedRequestCount, 0)
         XCTAssertEqual(update.rejectedRequestCount, 1)
+        XCTAssertEqual(
+            update.actionableRejectionCounts,
+            [.selectedFolderContainsActiveFolder: 1]
+        )
         XCTAssertFalse(update.didChangeSources)
         XCTAssertTrue(update.requestedFileURLs.isEmpty)
         XCTAssertEqual(fixture.recorder.bookmarkedURLs, [childURL])
@@ -618,6 +669,10 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         )
         XCTAssertEqual(update.acceptedRequestCount, 0)
         XCTAssertEqual(update.rejectedRequestCount, 1)
+        XCTAssertEqual(
+            update.actionableRejectionCounts,
+            [.activeFolderContainsSelectedFolder: 1]
+        )
         XCTAssertFalse(update.didChangeSources)
         XCTAssertTrue(update.requestedFileURLs.isEmpty)
         XCTAssertEqual(fixture.recorder.bookmarkedURLs, [parentURL])

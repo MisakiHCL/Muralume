@@ -3,6 +3,110 @@ import XCTest
 
 @MainActor
 final class MediaLibraryCoordinatorTests: XCTestCase {
+    func testParentFolderConflictShowsActionableImportNotice() {
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(roots: [], items: [])
+        )
+        fixture.session.nextAddSourcesUpdate = MediaAccessUpdate(
+            activeSources: [],
+            requestedFileURLs: [],
+            acceptedRequestCount: 0,
+            rejectedRequestCount: 1,
+            actionableRejectionCounts: [
+                .selectedFolderContainsActiveFolder: 1
+            ],
+            didChangeSources: false
+        )
+
+        let preparation = fixture.coordinator.prepareImport([
+            URL(fileURLWithPath: "/tmp/Library")
+        ])
+
+        XCTAssertNil(preparation)
+        XCTAssertEqual(
+            fixture.coordinator.importNotice,
+            .selectedFolderContainsActiveFolder
+        )
+    }
+
+    func testCoveredChildFolderShowsInformationalImportNotice() {
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(roots: [], items: [])
+        )
+        fixture.session.nextAddSourcesUpdate = MediaAccessUpdate(
+            activeSources: [],
+            requestedFileURLs: [],
+            acceptedRequestCount: 0,
+            rejectedRequestCount: 1,
+            actionableRejectionCounts: [
+                .activeFolderContainsSelectedFolder: 1
+            ],
+            didChangeSources: false
+        )
+
+        let preparation = fixture.coordinator.prepareImport([
+            URL(fileURLWithPath: "/tmp/Library/Child")
+        ])
+
+        XCTAssertNil(preparation)
+        XCTAssertEqual(
+            fixture.coordinator.importNotice,
+            .activeFolderContainsSelectedFolder
+        )
+    }
+
+    func testMixedImportRejectionsKeepGenericNotice() {
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(roots: [], items: [])
+        )
+        fixture.session.nextAddSourcesUpdate = MediaAccessUpdate(
+            activeSources: [],
+            requestedFileURLs: [],
+            acceptedRequestCount: 0,
+            rejectedRequestCount: 2,
+            actionableRejectionCounts: [
+                .selectedFolderContainsActiveFolder: 1
+            ],
+            didChangeSources: false
+        )
+
+        let preparation = fixture.coordinator.prepareImport([
+            URL(fileURLWithPath: "/tmp/Library"),
+            URL(fileURLWithPath: "/tmp/Unsupported.txt")
+        ])
+
+        XCTAssertNil(preparation)
+        XCTAssertEqual(fixture.coordinator.importNotice, .failure)
+    }
+
+    func testPartiallyAcceptedFolderConflictKeepsPartialNotice() {
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(roots: [], items: [])
+        )
+        fixture.session.nextAddSourcesUpdate = MediaAccessUpdate(
+            activeSources: [],
+            requestedFileURLs: [],
+            acceptedRequestCount: 1,
+            rejectedRequestCount: 1,
+            actionableRejectionCounts: [
+                .selectedFolderContainsActiveFolder: 1
+            ],
+            didChangeSources: false
+        )
+
+        let preparation = fixture.coordinator.prepareImport([
+            URL(fileURLWithPath: "/tmp/Accepted.mov"),
+            URL(fileURLWithPath: "/tmp/Library")
+        ])
+
+        XCTAssertNil(preparation)
+        XCTAssertEqual(fixture.coordinator.importNotice, .partialFailure)
+    }
+
     func testInjectedPreferencesDriveInitialOrderAndScanSortWithoutWrites() async {
         let rootURL = URL(fileURLWithPath: "/tmp/Library")
         let small = makeItem(
