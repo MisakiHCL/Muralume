@@ -1,6 +1,20 @@
 import AppKit
 import SwiftUI
 
+private struct VirtualizedTableRowContentRevision: Hashable {
+    let model: AnyHashable
+    let colorScheme: ColorScheme
+    let displayScale: CGFloat
+    let dynamicTypeSize: DynamicTypeSize
+    let layoutDirection: LayoutDirection
+    let localeIdentifier: String
+    let rowHeight: CGFloat
+}
+
+private enum VirtualizedTableMemoryPolicy {
+    static let indexCapacityRetentionDivisor = 4
+}
+
 struct FixedHeightVirtualizedTable<
     Item: Identifiable,
     RowContent: View
@@ -13,6 +27,7 @@ struct FixedHeightVirtualizedTable<
 
     let items: [Item]
     let snapshotRevision: UInt64
+    let rowContentRevision: AnyHashable
     let scrollTargetID: Item.ID?
     let rowHeight: CGFloat
     let rowSpacing: CGFloat
@@ -22,6 +37,7 @@ struct FixedHeightVirtualizedTable<
     init(
         items: [Item],
         snapshotRevision: UInt64,
+        rowContentRevision: some Hashable,
         scrollTargetID: Item.ID?,
         rowHeight: CGFloat,
         rowSpacing: CGFloat,
@@ -30,6 +46,7 @@ struct FixedHeightVirtualizedTable<
     ) {
         self.items = items
         self.snapshotRevision = snapshotRevision
+        self.rowContentRevision = AnyHashable(rowContentRevision)
         self.scrollTargetID = scrollTargetID
         self.rowHeight = rowHeight
         self.rowSpacing = rowSpacing
@@ -112,10 +129,22 @@ struct FixedHeightVirtualizedTable<
         let dynamicTypeSize = self.dynamicTypeSize
         let layoutDirection = self.layoutDirection
         let locale = self.locale
+        let effectiveRowContentRevision = AnyHashable(
+            VirtualizedTableRowContentRevision(
+                model: rowContentRevision,
+                colorScheme: colorScheme,
+                displayScale: displayScale,
+                dynamicTypeSize: dynamicTypeSize,
+                layoutDirection: layoutDirection,
+                localeIdentifier: locale.identifier,
+                rowHeight: rowHeight
+            )
+        )
 
         context.coordinator.update(
             items: items,
             snapshotRevision: snapshotRevision,
+            rowContentRevision: effectiveRowContentRevision,
             scrollTargetID: scrollTargetID,
             tableView: tableView,
             scrollView: scrollView
@@ -152,6 +181,7 @@ extension FixedHeightVirtualizedTable {
         private var items: [Item] = []
         private var itemIndices: [Item.ID: Int] = [:]
         private var appliedSnapshotRevision: UInt64?
+        private var appliedRowContentRevision: AnyHashable?
         private var requestedScrollTarget: ScrollTarget?
         private var centeredScrollTarget: ScrollTarget?
         private var makeRowContent: ((Item) -> AnyView)?
@@ -207,6 +237,7 @@ extension FixedHeightVirtualizedTable {
         func update(
             items: [Item],
             snapshotRevision: UInt64,
+            rowContentRevision: AnyHashable,
             scrollTargetID: Item.ID?,
             tableView: NSTableView,
             scrollView: NSScrollView,
@@ -220,7 +251,9 @@ extension FixedHeightVirtualizedTable {
                     revision: snapshotRevision,
                     to: tableView
                 )
-            } else {
+                appliedRowContentRevision = rowContentRevision
+            } else if appliedRowContentRevision != rowContentRevision {
+                appliedRowContentRevision = rowContentRevision
                 refreshVisibleRows(in: tableView)
             }
 
@@ -245,6 +278,7 @@ extension FixedHeightVirtualizedTable {
             items.removeAll(keepingCapacity: false)
             itemIndices.removeAll(keepingCapacity: false)
             appliedSnapshotRevision = nil
+            appliedRowContentRevision = nil
 
             tableView?.delegate = nil
             tableView?.dataSource = nil
@@ -257,7 +291,13 @@ extension FixedHeightVirtualizedTable {
             to tableView: NSTableView
         ) {
             self.items = items
-            itemIndices.removeAll(keepingCapacity: true)
+            let shouldReleaseIndexCapacity = items.count
+                < itemIndices.count
+                    / VirtualizedTableMemoryPolicy
+                        .indexCapacityRetentionDivisor
+            itemIndices.removeAll(
+                keepingCapacity: !shouldReleaseIndexCapacity
+            )
             itemIndices.reserveCapacity(items.count)
             for (index, item) in items.enumerated() {
                 itemIndices[item.id] = index

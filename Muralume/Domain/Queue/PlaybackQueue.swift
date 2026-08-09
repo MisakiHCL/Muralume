@@ -225,6 +225,24 @@ private struct BoundedHistoryBuffer<Element: Sendable>: Sendable {
         }
     }
 
+    var last: Element? {
+        guard count > 0 else {
+            return nil
+        }
+        return storage[storageIndex(for: count - 1)]
+    }
+
+#if DEBUG
+    var storageIdentityForTesting: UInt {
+        storage.withUnsafeBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else {
+                return 0
+            }
+            return UInt(bitPattern: baseAddress)
+        }
+    }
+#endif
+
     init(capacity: Int) {
         precondition(capacity > 0)
         storage = Array(repeating: nil, count: capacity)
@@ -319,6 +337,29 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
             && forwardHistory.isEmpty
             && remainingIndex >= remainingItems.count
     }
+
+    var nextItemWithoutAdvancing: Item? {
+        if let nextLocation = forwardHistory.last {
+            return nextLocation.item
+        }
+        if remainingIndex < remainingItems.count {
+            return remainingItems[remainingIndex]
+        }
+        guard order == .ordered else {
+            return nil
+        }
+        return items.first
+    }
+
+    var previousItemWithoutAdvancing: Item? {
+        historyBuffer.last?.item
+    }
+
+#if DEBUG
+    var historyStorageIdentityForTesting: UInt {
+        historyBuffer.storageIdentityForTesting
+    }
+#endif
 
     init(
         items: [Item],

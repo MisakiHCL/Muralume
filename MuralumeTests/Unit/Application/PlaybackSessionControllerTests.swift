@@ -560,6 +560,31 @@ final class PlaybackSessionControllerTests: XCTestCase {
         await shutdown(fixture)
     }
 
+#if DEBUG
+    func testQueueRevisionBuildsOneSnapshotForScheduledPersistence() async {
+        let items = makeItems()
+        let store = MemoryPlaybackSessionStore(snapshot: nil)
+        let fixture = makeFixture(items: items, store: store)
+        await prepareActiveQueue(items[0], in: fixture)
+        let settledSaveCount = await waitForPersistenceToSettle(in: store)
+        let initialSnapshotCount =
+            fixture.controller.queueSnapshotConstructionCount
+        let initialRevision = fixture.library.queueRevision
+
+        fixture.library.setPlaybackOrder(.shuffled)
+        await waitForSave(after: settledSaveCount, in: store)
+
+        XCTAssertEqual(fixture.library.queueRevision, initialRevision + 1)
+        XCTAssertEqual(
+            fixture.controller.queueSnapshotConstructionCount
+                - initialSnapshotCount,
+            1
+        )
+
+        await shutdown(fixture)
+    }
+#endif
+
     private func restoreStoredSession(
         in fixture: PlaybackSessionFixture
     ) async -> PlaybackStateRestoreResult {
@@ -603,6 +628,41 @@ final class PlaybackSessionControllerTests: XCTestCase {
             await Task.yield()
         }
         XCTFail("Timed out waiting for playback session state.")
+    }
+
+    private func waitForSave(
+        after saveCount: Int,
+        in store: MemoryPlaybackSessionStore
+    ) async {
+        for _ in 0..<1_000 {
+            if await store.saveCount > saveCount {
+                return
+            }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for playback session persistence.")
+    }
+
+    private func waitForPersistenceToSettle(
+        in store: MemoryPlaybackSessionStore
+    ) async -> Int {
+        var lastSaveCount = await store.saveCount
+        var stableYieldCount = 0
+        for _ in 0..<1_000 {
+            await Task.yield()
+            let saveCount = await store.saveCount
+            if saveCount == lastSaveCount {
+                stableYieldCount += 1
+                if stableYieldCount == 16 {
+                    return saveCount
+                }
+            } else {
+                lastSaveCount = saveCount
+                stableYieldCount = 0
+            }
+        }
+        XCTFail("Timed out waiting for playback session persistence to settle.")
+        return lastSaveCount
     }
 
     private func makeFixture(
@@ -859,6 +919,7 @@ private actor MemoryPlaybackSessionStore: PlaybackSessionStoring {
     private var snapshot: PlaybackSessionSnapshot?
     private var loadError: PlaybackSessionStoreError?
     private var shouldFailSave = false
+    private(set) var saveCount = 0
     private(set) var clearCount = 0
 
     init(snapshot: PlaybackSessionSnapshot?) {
@@ -885,6 +946,7 @@ private actor MemoryPlaybackSessionStore: PlaybackSessionStoring {
     }
 
     func save(_ snapshot: PlaybackSessionSnapshot) throws {
+        saveCount += 1
         if shouldFailSave {
             throw MemoryPlaybackSessionStoreError.saveFailed
         }

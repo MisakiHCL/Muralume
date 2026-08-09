@@ -6,7 +6,7 @@ final class AppLocalizationController: ObservableObject {
     @Published private(set) var language: AppLanguage
 
     var locale: Locale {
-        Locale(identifier: effectiveLanguage.rawValue)
+        resolvedLocale
     }
 
     var localizationDidChange: AnyPublisher<Void, Never> {
@@ -18,6 +18,8 @@ final class AppLocalizationController: ObservableObject {
     private let preferredLanguages: () -> [String]
     private let localizationDidChangeSubject = PassthroughSubject<Void, Never>()
     private var systemLocaleChangeCancellable: AnyCancellable?
+    private var resolvedLocale: Locale
+    private var localizedBundle: Bundle
 
     init(
         initialLanguage: AppLanguage = .system,
@@ -31,6 +33,15 @@ final class AppLocalizationController: ObservableObject {
         self.resourcesBundle = resourcesBundle
         self.preferredLanguages = preferredLanguages
         language = initialLanguage
+        let resolvedLanguage = Self.resolveLanguage(
+            initialLanguage,
+            preferredLanguages: preferredLanguages()
+        )
+        resolvedLocale = Locale(identifier: resolvedLanguage.rawValue)
+        localizedBundle = Self.resolveBundle(
+            for: resolvedLanguage,
+            resourcesBundle: resourcesBundle
+        )
 
         systemLocaleChangeCancellable = NotificationCenter.default.publisher(
             for: NSLocale.currentLocaleDidChangeNotification
@@ -46,6 +57,7 @@ final class AppLocalizationController: ObservableObject {
         guard self.language != language else {
             return
         }
+        resolveLocalization(for: language)
         self.language = language
         preferencesStore?.saveLanguage(language)
         localizationDidChangeSubject.send()
@@ -70,14 +82,17 @@ final class AppLocalizationController: ObservableObject {
         )
     }
 
-    private var effectiveLanguage: AppLanguage {
+    private static func resolveLanguage(
+        _ language: AppLanguage,
+        preferredLanguages: [String]
+    ) -> AppLanguage {
         guard language == .system else {
             return language
         }
 
         let preferredLocalizations = Bundle.preferredLocalizations(
             from: AppLanguage.supportedLocalizationIdentifiers,
-            forPreferences: preferredLanguages()
+            forPreferences: preferredLanguages
         )
         guard let identifier = preferredLocalizations.first,
               let language = AppLanguage(rawValue: identifier) else {
@@ -86,8 +101,11 @@ final class AppLocalizationController: ObservableObject {
         return language
     }
 
-    private var localizedBundle: Bundle {
-        let identifier = effectiveLanguage.rawValue
+    private static func resolveBundle(
+        for language: AppLanguage,
+        resourcesBundle: Bundle
+    ) -> Bundle {
+        let identifier = language.rawValue
         guard let path = resourcesBundle.path(
             forResource: identifier,
             ofType: "lproj"
@@ -98,10 +116,23 @@ final class AppLocalizationController: ObservableObject {
         return bundle
     }
 
+    private func resolveLocalization(for language: AppLanguage) {
+        let resolvedLanguage = Self.resolveLanguage(
+            language,
+            preferredLanguages: preferredLanguages()
+        )
+        resolvedLocale = Locale(identifier: resolvedLanguage.rawValue)
+        localizedBundle = Self.resolveBundle(
+            for: resolvedLanguage,
+            resourcesBundle: resourcesBundle
+        )
+    }
+
     private func refreshSystemLocalization() {
         guard language == .system else {
             return
         }
+        resolveLocalization(for: language)
         objectWillChange.send()
         localizationDidChangeSubject.send()
     }

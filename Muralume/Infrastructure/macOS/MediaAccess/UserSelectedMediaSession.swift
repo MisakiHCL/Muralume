@@ -50,6 +50,8 @@ struct SecurityScopedMediaAccess {
 
 @MainActor
 final class UserSelectedMediaSession: MediaAccessSession {
+    typealias SourceRecordStore = @MainActor ([Any]) -> Void
+
     private enum Storage {
         static let legacyBookmarkKey = "media-library.root-bookmarks"
         static let sourceRecordKey = "media-library.source-records"
@@ -118,9 +120,12 @@ final class UserSelectedMediaSession: MediaAccessSession {
     private let defaults: UserDefaults
     private let securityAccess: SecurityScopedMediaAccess
     private let sourceKindResolver: (URL) -> MediaSourceKind?
+    private let sourceRecordStore: SourceRecordStore
     private var activeSourcesByKey: [String: MediaSource] = [:]
     private var activeRecordsByKey: [String: PersistedSourceRecord] = [:]
     private var activeResourceIdentifiersByKey: [String: NSObject] = [:]
+    private var activeKeyByResourceIdentifier: [NSObject: String] = [:]
+    private var activeFolderKeys: Set<String> = []
     private var unavailableStoredRecordValues: [Any] = []
     private var unavailableLegacyBookmarks: [Data] = []
     private var deferredStoredRecordValues: ArraySlice<Any> = []
@@ -133,11 +138,15 @@ final class UserSelectedMediaSession: MediaAccessSession {
         securityAccess: SecurityScopedMediaAccess = .live,
         sourceKindResolver: @escaping (URL) -> MediaSourceKind? = {
             UserSelectedMediaSession.liveSourceKind(at: $0)
-        }
+        },
+        sourceRecordStore: SourceRecordStore? = nil
     ) {
         self.defaults = defaults
         self.securityAccess = securityAccess
         self.sourceKindResolver = sourceKindResolver
+        self.sourceRecordStore = sourceRecordStore ?? { storedValues in
+            defaults.set(storedValues, forKey: Storage.sourceRecordKey)
+        }
     }
 
     func restoreSources() -> [MediaSource] {
@@ -153,6 +162,12 @@ final class UserSelectedMediaSession: MediaAccessSession {
         // format cannot impose a total byte bound without a migration.
         let storedRecordValues = storedSourceRecordValues
         let legacyBookmarks = storedLegacyBookmarks
+        let hasPersistedSourcePayload =
+            defaults.object(forKey: Storage.sourceRecordKey) != nil
+                || defaults.object(forKey: Storage.legacyBookmarkKey) != nil
+        guard hasPersistedSourcePayload else {
+            return activeSources
+        }
         restoreCandidates(
             storedRecordValues: storedRecordValues,
             legacyBookmarks: legacyBookmarks
@@ -271,6 +286,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
         var acceptedRequestCount = 0
         var rejectedRequestCount = 0
         var didChangeSources = false
+        var hasUnpersistedSourceChanges = false
 
         for (requestIndex, selectedURL) in urls.enumerated() {
             // URLs returned by NSOpenPanel already hold an implicit Powerbox
@@ -301,7 +317,15 @@ final class UserSelectedMediaSession: MediaAccessSession {
                     : selectedURL,
                 kind: selectedKind
             )
-            switch disposition(for: selectedSource) {
+            let selectedComparisonURL = selectedLinkResolution.targetURL
+                .standardizedFileURL
+            switch disposition(
+                for: selectedSource,
+                comparisonURL: selectedComparisonURL,
+                resourceIdentifier: Self.resourceIdentifier(
+                    for: selectedComparisonURL
+                )
+            ) {
             case .covered:
                 acceptedRequestCount += 1
                 if selectedKind == .file {
@@ -352,9 +376,18 @@ final class UserSelectedMediaSession: MediaAccessSession {
                     : resolvedURL,
                 kind: resolvedKind
             )
+            let resolvedComparisonURL = resolvedLinkResolution.targetURL
+                .standardizedFileURL
+            let resolvedResourceIdentifier = Self.resourceIdentifier(
+                for: resolvedComparisonURL
+            )
             if resolvedLinkResolution.didResolveLink {
                 securityAccess.stopAccess(resolvedURL)
-                if case .covered = disposition(for: resolvedSource) {
+                if case .covered = disposition(
+                    for: resolvedSource,
+                    comparisonURL: resolvedComparisonURL,
+                    resourceIdentifier: resolvedResourceIdentifier
+                ) {
                     acceptedRequestCount += 1
                     if resolvedKind == .file {
                         appendRequestedFileURL(
@@ -368,7 +401,11 @@ final class UserSelectedMediaSession: MediaAccessSession {
                 }
                 continue
             }
-            let resolvedDisposition = disposition(for: resolvedSource)
+            let resolvedDisposition = disposition(
+                for: resolvedSource,
+                comparisonURL: resolvedComparisonURL,
+                resourceIdentifier: resolvedResourceIdentifier
+            )
             if case .rejected = resolvedDisposition {
                 securityAccess.stopAccess(resolvedURL)
                 rejectedRequestCount += 1
@@ -418,16 +455,26 @@ final class UserSelectedMediaSession: MediaAccessSession {
                 let replacedURLs = install(
                     resolvedSource,
                     bookmark: activeBookmark,
-                    replacingKeys: replacingKeys
+                    replacingKeys: replacingKeys,
+                    resourceIdentifier: resolvedResourceIdentifier
                 )
-                // Persist the broader grant before relinquishing exact-file
-                // scopes that it replaces.
-                storeSourceRecords(currentStoredRecordValues)
+                hasUnpersistedSourceChanges = true
+                // A replacement is the one mid-batch durability barrier: the
+                // broader grant must be persisted before exact-file scopes are
+                // relinquished. Ordinary additions are stored once below.
+                if !replacedURLs.isEmpty {
+                    storeSourceRecords(currentStoredRecordValues)
+                    hasUnpersistedSourceChanges = false
+                }
                 for replacedURL in replacedURLs {
                     securityAccess.stopAccess(replacedURL)
                 }
                 didChangeSources = true
             }
+        }
+
+        if hasUnpersistedSourceChanges {
+            storeSourceRecords(currentStoredRecordValues)
         }
 
         return MediaAccessUpdate(
@@ -466,7 +513,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
             return activeSources
         }
         activeRecordsByKey.removeValue(forKey: activeKey)
-        activeResourceIdentifiersByKey.removeValue(forKey: activeKey)
+        removeIndexes(forActiveKey: activeKey)
         securityAccess.stopAccess(activeSource.url)
         return activeSources
     }
@@ -484,6 +531,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
         activeSourcesByKey.removeAll()
         activeRecordsByKey.removeAll()
         activeResourceIdentifiersByKey.removeAll()
+        activeKeyByResourceIdentifier.removeAll()
+        activeFolderKeys.removeAll()
         unavailableStoredRecordValues.removeAll()
         unavailableLegacyBookmarks.removeAll()
         deferredStoredRecordValues.removeAll()
@@ -543,7 +592,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
     }
 
     private func storeSourceRecords(_ storedValues: [Any]) {
-        defaults.set(storedValues, forKey: Storage.sourceRecordKey)
+        sourceRecordStore(storedValues)
     }
 
     private func storeLegacyBookmarks(_ bookmarks: [Data]) {
@@ -576,35 +625,42 @@ final class UserSelectedMediaSession: MediaAccessSession {
 
     private func disposition(for candidate: MediaSource) -> SourceDisposition {
         let candidateComparisonURL = Self.comparisonURL(for: candidate.url)
+        return disposition(
+            for: candidate,
+            comparisonURL: candidateComparisonURL,
+            resourceIdentifier: Self.resourceIdentifier(
+                for: candidateComparisonURL
+            )
+        )
+    }
+
+    private func disposition(
+        for candidate: MediaSource,
+        comparisonURL candidateComparisonURL: URL,
+        resourceIdentifier candidateIdentifier: NSObject?
+    ) -> SourceDisposition {
         let candidateKey = candidateComparisonURL.path
         if activeSourcesByKey[candidateKey] != nil {
             return .covered
         }
-        if let candidateIdentifier = Self.resourceIdentifier(
-            for: candidateComparisonURL
-        ), activeResourceIdentifiersByKey.values.contains(where: {
-            $0.isEqual(candidateIdentifier)
-        }) {
+        if let candidateIdentifier,
+           activeKeyByResourceIdentifier[candidateIdentifier] != nil {
             return .covered
         }
 
         guard candidate.kind == .folder else {
-            if activeSourcesByKey.contains(where: { key, source in
-                source.kind == .folder
-                    && Self.folder(
-                        URL(fileURLWithPath: key, isDirectory: true),
-                        covers: candidateComparisonURL
-                    )
+            if activeFolderKeys.contains(where: { key in
+                Self.folder(
+                    URL(fileURLWithPath: key, isDirectory: true),
+                    covers: candidateComparisonURL
+                )
             }) {
                 return .covered
             }
             return .insert(replacingKeys: [])
         }
 
-        let overlapsActiveFolder = activeSourcesByKey.contains { key, source in
-            guard source.kind == .folder else {
-                return false
-            }
+        let overlapsActiveFolder = activeFolderKeys.contains { key in
             let activeFolderURL = URL(
                 fileURLWithPath: key,
                 isDirectory: true
@@ -631,14 +687,15 @@ final class UserSelectedMediaSession: MediaAccessSession {
     private func install(
         _ source: MediaSource,
         bookmark: Data,
-        replacingKeys: [String]
+        replacingKeys: [String],
+        resourceIdentifier: NSObject?
     ) -> [URL] {
         let replacedURLs = replacingKeys.compactMap {
             activeSourcesByKey.removeValue(forKey: $0)?.url
         }
         for key in replacingKeys {
             activeRecordsByKey.removeValue(forKey: key)
-            activeResourceIdentifiersByKey.removeValue(forKey: key)
+            removeIndexes(forActiveKey: key)
         }
         let key = sourceKey(for: source.url)
         activeSourcesByKey[key] = source
@@ -646,10 +703,26 @@ final class UserSelectedMediaSession: MediaAccessSession {
             kind: source.kind,
             bookmark: bookmark
         )
-        activeResourceIdentifiersByKey[key] = Self.resourceIdentifier(
-            for: URL(fileURLWithPath: key)
-        )
+        if source.kind == .folder {
+            activeFolderKeys.insert(key)
+        }
+        if let identifier = resourceIdentifier {
+            activeResourceIdentifiersByKey[key] = identifier
+            activeKeyByResourceIdentifier[identifier] = key
+        }
         return replacedURLs
+    }
+
+    private func removeIndexes(forActiveKey key: String) {
+        activeFolderKeys.remove(key)
+        guard let identifier = activeResourceIdentifiersByKey.removeValue(
+            forKey: key
+        ) else {
+            return
+        }
+        if activeKeyByResourceIdentifier[identifier] == key {
+            activeKeyByResourceIdentifier[identifier] = nil
+        }
     }
 
     private func activeKey(matching source: MediaSource) -> String? {
@@ -660,9 +733,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
         guard let identifier = Self.resourceIdentifier(for: comparisonURL) else {
             return nil
         }
-        return activeResourceIdentifiersByKey.first {
-            $0.value.isEqual(identifier)
-        }?.key
+        return activeKeyByResourceIdentifier[identifier]
     }
 
     private func restore(
@@ -713,7 +784,13 @@ final class UserSelectedMediaSession: MediaAccessSession {
         }
 
         let source = MediaSource(url: resolvedURL, kind: record.kind)
-        switch disposition(for: source) {
+        let comparisonURL = linkResolution.targetURL.standardizedFileURL
+        let resourceIdentifier = Self.resourceIdentifier(for: comparisonURL)
+        switch disposition(
+            for: source,
+            comparisonURL: comparisonURL,
+            resourceIdentifier: resourceIdentifier
+        ) {
         case .covered:
             securityAccess.stopAccess(resolvedURL)
         case .rejected:
@@ -728,7 +805,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
             let replacedURLs = install(
                 source,
                 bookmark: refreshedCandidate.record.bookmark,
-                replacingKeys: replacingKeys
+                replacingKeys: replacingKeys,
+                resourceIdentifier: resourceIdentifier
             )
             for replacedURL in replacedURLs {
                 securityAccess.stopAccess(replacedURL)
@@ -770,9 +848,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
             return exactSource.url
         }
         if let identifier = Self.resourceIdentifier(for: comparisonURL),
-           let matchingKey = activeResourceIdentifiersByKey.first(where: {
-               $0.value.isEqual(identifier)
-           })?.key,
+           let matchingKey = activeKeyByResourceIdentifier[identifier],
            let matchingSource = activeSourcesByKey[matchingKey],
            matchingSource.kind == .file {
             return matchingSource.url

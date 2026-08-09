@@ -247,6 +247,91 @@ final class FileSystemMediaLibraryScannerTests: XCTestCase {
         XCTAssertEqual(Set([snapshot.items[0].id, directID]).count, 1)
     }
 
+    func testSourceIdentityInspectionRunsOncePerInputSource() async throws {
+        let sandboxURL = try makeSandbox()
+        defer { removeSandbox(sandboxURL) }
+        let sourceCount = 24
+        let mediaURLs = try (0..<sourceCount).map { index in
+            let url = sandboxURL.appendingPathComponent(
+                "Video-\(index).mp4"
+            )
+            try writeFile(at: url, byteCount: index + 1)
+            return url
+        }
+        let counter = FileSystemMediaSourceInspectionCounter()
+        let scanner = FileSystemMediaLibraryScanner(
+            sourceInspection: counter.makeInspection()
+        )
+
+        let snapshot = try await scanner.scan(
+            sources: mediaURLs.reversed().map {
+                MediaSource(url: $0, kind: .file)
+            }
+        )
+
+        XCTAssertEqual(snapshot.roots.count, sourceCount)
+        XCTAssertEqual(snapshot.items.count, sourceCount)
+        XCTAssertEqual(counter.canonicalURLCount, sourceCount)
+        XCTAssertEqual(counter.resourceIdentifierCount, sourceCount)
+        XCTAssertEqual(counter.relationshipCount, 0)
+    }
+
+    func testSingleSourceSkipsDeduplicationMetadataInspection() async throws {
+        let sandboxURL = try makeSandbox()
+        defer { removeSandbox(sandboxURL) }
+        let mediaURL = sandboxURL.appendingPathComponent("Only.mp4")
+        try writeFile(at: mediaURL, byteCount: 1)
+        let counter = FileSystemMediaSourceInspectionCounter()
+        let scanner = FileSystemMediaLibraryScanner(
+            sourceInspection: counter.makeInspection()
+        )
+
+        let snapshot = try await scanner.scan(
+            sources: [MediaSource(url: mediaURL, kind: .file)]
+        )
+
+        XCTAssertEqual(snapshot.items.map(\.url), [mediaURL])
+        XCTAssertEqual(counter.canonicalURLCount, 0)
+        XCTAssertEqual(counter.resourceIdentifierCount, 0)
+        XCTAssertEqual(counter.relationshipCount, 0)
+    }
+
+    func testCachedSourceIdentityPreservesHardLinkAndSymlinkDeduplication()
+        async throws {
+        let sandboxURL = try makeSandbox()
+        defer { removeSandbox(sandboxURL) }
+        let originalURL = sandboxURL.appendingPathComponent(
+            "A-Original.mp4"
+        )
+        let hardLinkURL = sandboxURL.appendingPathComponent(
+            "B-Hard-Link.mp4"
+        )
+        let symbolicLinkURL = sandboxURL.appendingPathComponent(
+            "C-Symbolic-Link.mp4"
+        )
+        try writeFile(at: originalURL, byteCount: 1)
+        try FileManager.default.linkItem(at: originalURL, to: hardLinkURL)
+        try FileManager.default.createSymbolicLink(
+            at: symbolicLinkURL,
+            withDestinationURL: originalURL
+        )
+
+        let snapshot = try await FileSystemMediaLibraryScanner().scan(
+            sources: [symbolicLinkURL, hardLinkURL, originalURL].map {
+                MediaSource(url: $0, kind: .file)
+            }
+        )
+
+        XCTAssertEqual(
+            snapshot.roots.map(\.url),
+            [originalURL.standardizedFileURL]
+        )
+        XCTAssertEqual(
+            snapshot.items.map(\.url),
+            [originalURL.standardizedFileURL]
+        )
+    }
+
     func testExcludesUnsupportedHiddenPackageAndSymbolicLinkEntries() async throws {
         let sandboxURL = try makeSandbox()
         defer { removeSandbox(sandboxURL) }
@@ -528,5 +613,48 @@ final class FileSystemMediaLibraryScannerTests: XCTestCase {
 
     private func writeFile(at url: URL, byteCount: Int) throws {
         try Data(repeating: 0xA5, count: byteCount).write(to: url)
+    }
+}
+
+private final class FileSystemMediaSourceInspectionCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedCanonicalURLCount = 0
+    private var storedResourceIdentifierCount = 0
+    private var storedRelationshipCount = 0
+
+    var canonicalURLCount: Int {
+        lock.withLock { storedCanonicalURLCount }
+    }
+
+    var resourceIdentifierCount: Int {
+        lock.withLock { storedResourceIdentifierCount }
+    }
+
+    var relationshipCount: Int {
+        lock.withLock { storedRelationshipCount }
+    }
+
+    func makeInspection() -> FileSystemMediaSourceInspection {
+        let liveInspection = FileSystemMediaSourceInspection.live
+        return FileSystemMediaSourceInspection(
+            canonicalURL: { [self] url in
+                lock.withLock {
+                    storedCanonicalURLCount += 1
+                }
+                return liveInspection.canonicalURL(url)
+            },
+            resourceIdentifier: { [self] url in
+                lock.withLock {
+                    storedResourceIdentifierCount += 1
+                }
+                return liveInspection.resourceIdentifier(url)
+            },
+            relationship: { [self] directoryURL, itemURL in
+                lock.withLock {
+                    storedRelationshipCount += 1
+                }
+                return liveInspection.relationship(directoryURL, itemURL)
+            }
+        )
     }
 }

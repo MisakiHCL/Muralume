@@ -490,6 +490,40 @@ final class DesktopPresetControllerTests: XCTestCase {
         XCTAssertEqual(storedOrder, .ordered)
     }
 
+#if DEBUG
+    func testQueueRevisionBuildsOneSnapshotForScheduledPersistence() async {
+        let rootURL = URL(fileURLWithPath: "/tmp/QueueSnapshotCountingPreset")
+        let first = makeItem(rootURL: rootURL, name: "First", path: "1.mp4")
+        let second = makeItem(rootURL: rootURL, name: "Second", path: "2.mp4")
+        let store = MemoryDesktopPresetStore(preset: nil)
+        let fixture = makeFixture(
+            rootURL: rootURL,
+            items: [first, second],
+            preset: nil,
+            store: store
+        )
+        defer {
+            fixture.desktopSession.shutdown()
+        }
+        await prepareActiveQueue(first, in: fixture)
+        fixture.controller.setAutomaticRestorePrepared(true)
+        let settledSaveCount = await waitForPersistenceToSettle(in: store)
+        let initialSnapshotCount =
+            fixture.controller.queueSnapshotConstructionCount
+        let initialRevision = fixture.library.queueRevision
+
+        fixture.library.setPlaybackOrder(.ordered)
+        await waitForSave(after: settledSaveCount, in: store)
+
+        XCTAssertEqual(fixture.library.queueRevision, initialRevision + 1)
+        XCTAssertEqual(
+            fixture.controller.queueSnapshotConstructionCount
+                - initialSnapshotCount,
+            1
+        )
+    }
+#endif
+
     func testPlaybackTeardownCannotOverwriteFinalShutdownPreset() async throws {
         let rootURL = URL(fileURLWithPath: "/tmp/ShutdownDesktopPreset")
         let item = makeItem(rootURL: rootURL, name: "Playing", path: "clip.mp4")
@@ -1208,6 +1242,41 @@ final class DesktopPresetControllerTests: XCTestCase {
             await Task.yield()
         }
         await Task.yield()
+    }
+
+    private func waitForSave(
+        after saveCount: Int,
+        in store: MemoryDesktopPresetStore
+    ) async {
+        for _ in 0..<1_000 {
+            if await store.saveCount > saveCount {
+                return
+            }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for desktop preset persistence.")
+    }
+
+    private func waitForPersistenceToSettle(
+        in store: MemoryDesktopPresetStore
+    ) async -> Int {
+        var lastSaveCount = await store.saveCount
+        var stableYieldCount = 0
+        for _ in 0..<1_000 {
+            await Task.yield()
+            let saveCount = await store.saveCount
+            if saveCount == lastSaveCount {
+                stableYieldCount += 1
+                if stableYieldCount == 16 {
+                    return saveCount
+                }
+            } else {
+                lastSaveCount = saveCount
+                stableYieldCount = 0
+            }
+        }
+        XCTFail("Timed out waiting for desktop preset persistence to settle.")
+        return lastSaveCount
     }
 
     private func makeFixture(

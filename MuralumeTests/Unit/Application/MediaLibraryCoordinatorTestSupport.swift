@@ -12,6 +12,8 @@ func makeFixture(
     preferencesStore: (any AppPreferencesStoring)? = nil,
     mediaThumbnailProvider: TestMediaThumbnailProvider =
         TestMediaThumbnailProvider(),
+    snapshotPreparer: any MediaLibrarySnapshotPreparing =
+        DefaultMediaLibrarySnapshotPreparer(),
     reshuffleRestoredQueue: @escaping RestoredPlaybackQueueShuffler = {
         $0.reshufflePendingItems()
     }
@@ -29,6 +31,7 @@ func makeFixture(
         mediaSession: session,
         scanner: scanner,
         mediaThumbnailProvider: mediaThumbnailProvider,
+        snapshotPreparer: snapshotPreparer,
         playbackOrder: playbackOrder,
         sort: sort,
         preferencesStore: preferencesStore,
@@ -121,6 +124,175 @@ struct Fixture {
     let session: TestMediaAccessSession
     let scanner: TestMediaLibraryScanner
     let mediaThumbnailProvider: TestMediaThumbnailProvider
+}
+
+actor ControlledMediaLibrarySnapshotPreparer:
+    MediaLibrarySnapshotPreparing {
+    enum Stage: Hashable, Sendable {
+        case prepare
+        case merge
+        case sort
+        case reconcileQueue
+    }
+
+    private struct CallKey: Hashable {
+        let stage: Stage
+        let call: Int
+    }
+
+    private let underlying = DefaultMediaLibrarySnapshotPreparer()
+    private var callCounts: [Stage: Int] = [:]
+    private var completionCounts: [Stage: Int] = [:]
+    private var blockedCalls: Set<CallKey> = []
+    private var blockedContinuations: [
+        CallKey: CheckedContinuation<Void, Never>
+    ] = [:]
+    private var forcedQueueReplacementCalls: Set<Int> = []
+
+    func blockNext(_ stage: Stage, count: Int = 1) {
+        precondition(count > 0)
+        var call = callCounts[stage, default: 0] + 1
+        for _ in 0..<count {
+            while blockedCalls.contains(
+                CallKey(stage: stage, call: call)
+            ) {
+                call += 1
+            }
+            blockedCalls.insert(CallKey(stage: stage, call: call))
+            call += 1
+        }
+    }
+
+    func forceQueueReplacementOnNextReconciliation() {
+        forcedQueueReplacementCalls.insert(
+            callCounts[.reconcileQueue, default: 0] + 1
+        )
+    }
+
+    func callCount(for stage: Stage) -> Int {
+        callCounts[stage, default: 0]
+    }
+
+    func completionCount(for stage: Stage) -> Int {
+        completionCounts[stage, default: 0]
+    }
+
+    @discardableResult
+    func release(_ stage: Stage, call: Int) -> Bool {
+        let key = CallKey(stage: stage, call: call)
+        guard let continuation = blockedContinuations.removeValue(
+            forKey: key
+        ) else {
+            return false
+        }
+        blockedCalls.remove(key)
+        continuation.resume()
+        return true
+    }
+
+    func releaseAll() {
+        let continuations = Array(blockedContinuations.values)
+        blockedContinuations.removeAll()
+        blockedCalls.removeAll()
+        continuations.forEach { $0.resume() }
+    }
+
+    func prepare(
+        _ snapshot: MediaLibrarySnapshot,
+        requestedSourcePaths: Set<String>,
+        sort: MediaLibrarySort
+    ) async throws -> PreparedMediaLibrarySnapshot {
+        defer { recordCompletion(.prepare) }
+        _ = await pauseIfNeeded(.prepare)
+        return try await underlying.prepare(
+            snapshot,
+            requestedSourcePaths: requestedSourcePaths,
+            sort: sort
+        )
+    }
+
+    func merge(
+        _ candidates: [LibraryMediaItem],
+        into items: [LibraryMediaItem],
+        sort: MediaLibrarySort
+    ) async throws -> PreparedMediaLibraryItems {
+        defer { recordCompletion(.merge) }
+        _ = await pauseIfNeeded(.merge)
+        return try await underlying.merge(
+            candidates,
+            into: items,
+            sort: sort
+        )
+    }
+
+    func sort(
+        _ items: [LibraryMediaItem],
+        using sort: MediaLibrarySort
+    ) async throws -> PreparedMediaLibraryItems {
+        defer { recordCompletion(.sort) }
+        _ = await pauseIfNeeded(.sort)
+
+        // Intentionally ignore cancellation after the gate. Coordinator tests
+        // must prove stale results are rejected by revision checks even when a
+        // worker does not cooperate with cancellation.
+        return prepareItems(items, sort: sort)
+    }
+
+    func reconcileQueue(
+        snapshot: PlaybackQueueSnapshot<LibraryMediaItem.ID>,
+        queueItemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
+        availableItemsByID: [LibraryMediaItem.ID: LibraryMediaItem]
+    ) async throws -> PreparedMediaLibraryQueueReconciliation {
+        defer { recordCompletion(.reconcileQueue) }
+        let call = await pauseIfNeeded(.reconcileQueue)
+        let shouldForceReplacement = forcedQueueReplacementCalls.remove(call)
+            != nil
+        let prepared = try await underlying.reconcileQueue(
+            snapshot: snapshot,
+            queueItemsByID: queueItemsByID,
+            availableItemsByID: availableItemsByID
+        )
+        guard shouldForceReplacement else {
+            return prepared
+        }
+        return PreparedMediaLibraryQueueReconciliation(
+            queueItemsByID: prepared.queueItemsByID,
+            requiresQueueReplacement: true,
+            replacementQueue: PlaybackQueue(snapshot: snapshot),
+            currentItemID: snapshot.currentItem
+        )
+    }
+
+    private func pauseIfNeeded(_ stage: Stage) async -> Int {
+        let call = callCounts[stage, default: 0] + 1
+        callCounts[stage] = call
+        let key = CallKey(stage: stage, call: call)
+        guard blockedCalls.contains(key) else {
+            return call
+        }
+        await withCheckedContinuation { continuation in
+            blockedContinuations[key] = continuation
+        }
+        return call
+    }
+
+    private func recordCompletion(_ stage: Stage) {
+        completionCounts[stage, default: 0] += 1
+    }
+
+    private func prepareItems(
+        _ items: [LibraryMediaItem],
+        sort: MediaLibrarySort
+    ) -> PreparedMediaLibraryItems {
+        let itemsByID = Dictionary(
+            uniqueKeysWithValues: items.map { ($0.id, $0) }
+        )
+        return PreparedMediaLibraryItems(
+            items: sort.sorted(Array(itemsByID.values)),
+            itemsByID: itemsByID,
+            itemIDs: Set(itemsByID.keys)
+        )
+    }
 }
 
 @MainActor

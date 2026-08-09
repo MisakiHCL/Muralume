@@ -79,6 +79,10 @@ final class DesktopPresetController: ObservableObject {
     private var isShuttingDown = false
     private var cancellables: Set<AnyCancellable> = []
 
+#if DEBUG
+    private(set) var queueSnapshotConstructionCount = 0
+#endif
+
     init(
         playback: PlaybackCoordinator,
         library: MediaLibraryCoordinator,
@@ -231,14 +235,12 @@ final class DesktopPresetController: ObservableObject {
         }
         automaticRestorePreparationState = nextState
         if isPrepared {
-            guard let preset = makePreset() else {
+            guard library.hasActiveQueue else {
                 shouldPreserveStoredPreset = true
                 return
             }
             shouldPreserveStoredPreset = false
-            if preset != lastCommittedPreset {
-                scheduleSave(delay: nil)
-            }
+            scheduleSave(delay: nil, skipIfUnchanged: true)
         } else {
             shouldPreserveStoredPreset = false
             scheduleClear()
@@ -270,6 +272,9 @@ final class DesktopPresetController: ObservableObject {
 
         guard !isShuttingDown, !Task.isCancelled else {
             return .persistenceFailed
+        }
+        guard library.hasActiveQueue else {
+            return .noActiveQueue
         }
         guard let preset = makePreset() else {
             return .noActiveQueue
@@ -342,6 +347,10 @@ final class DesktopPresetController: ObservableObject {
         guard !shouldPreserveStoredPreset else {
             return
         }
+        guard library.hasActiveQueue else {
+            await clearStoredPreset()
+            return
+        }
         guard let preset = makePreset() else {
             await clearStoredPreset()
             return
@@ -402,12 +411,15 @@ final class DesktopPresetController: ObservableObject {
         scheduleSave(delay: PersistencePolicy.progressSaveDelay)
     }
 
-    private func scheduleSave(delay: Duration?) {
+    private func scheduleSave(
+        delay: Duration?,
+        skipIfUnchanged: Bool = false
+    ) {
         guard !isShuttingDown,
               isAutomaticRestorePrepared,
               !isExternalRestoreInProgress,
               !isBootstrapping,
-              makePreset() != nil else {
+              library.hasActiveQueue else {
             return
         }
 
@@ -431,6 +443,9 @@ final class DesktopPresetController: ObservableObject {
             guard !Task.isCancelled,
                   generation == persistenceGeneration,
                   let preset = makePreset() else {
+                return
+            }
+            if skipIfUnchanged, preset == lastCommittedPreset {
                 return
             }
             do {
@@ -494,7 +509,7 @@ final class DesktopPresetController: ObservableObject {
               !isBootstrapping else {
             return
         }
-        if makePreset() == nil {
+        if !library.hasActiveQueue {
             guard !shouldPreserveStoredPreset else {
                 return
             }
@@ -555,6 +570,9 @@ final class DesktopPresetController: ObservableObject {
     }
 
     private func makePreset() -> DesktopPreset? {
+#if DEBUG
+        queueSnapshotConstructionCount += 1
+#endif
         guard let queue = library.makeQueueSnapshot() else {
             return nil
         }

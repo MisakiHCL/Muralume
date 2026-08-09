@@ -397,6 +397,12 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
         await waitForLoads(fixture.engine, count: 1)
+        let fileQueue = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+        let fileQueueStateRevision = fixture.coordinator.queueStateRevision
+        XCTAssertEqual(fileQueue.currentItem.rootPath, fileURL.path)
+        XCTAssertEqual(fileQueue.currentItem.relativePath, "")
         fixture.scanner.enqueueSnapshot(
             MediaLibrarySnapshot(
                 roots: [
@@ -421,6 +427,10 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.coordinator.currentItemID, folderItem.id)
         XCTAssertEqual(fixture.coordinator.currentItem?.rootURL, folderURL)
         XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+        XCTAssertGreaterThan(
+            fixture.coordinator.queueStateRevision,
+            fileQueueStateRevision
+        )
         let persistedQueue = try XCTUnwrap(
             fixture.coordinator.makeQueueSnapshot()
         )
@@ -1190,6 +1200,177 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.coordinator.currentItem?.id, first.id)
         XCTAssertEqual(fixture.coordinator.currentPosition, 1)
     }
+
+#if DEBUG
+    func testTenThousandItemNavigationKeepsHistoryStorageAndCachesSnapshots()
+        async throws {
+        let itemCount = 10_000
+        let rootURL = URL(fileURLWithPath: "/tmp/Large Library")
+        let items = (0..<itemCount).map { index in
+            let suffix = String(format: "%05d", index)
+            return makeItem(
+                rootURL: rootURL,
+                name: "Clip \(suffix)",
+                path: "Clip \(suffix).mov"
+            )
+        }
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Large Library"
+                    )
+                ],
+                items: items
+            )
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        let firstItem = try XCTUnwrap(fixture.coordinator.items.first)
+        fixture.coordinator.play(firstItem)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+
+        let historyStorage = try XCTUnwrap(
+            fixture.coordinator.queueHistoryStorageIdentityForTesting
+        )
+        let initialStateRevision = fixture.coordinator.queueStateRevision
+
+        XCTAssertTrue(fixture.coordinator.playNext())
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+        XCTAssertEqual(
+            fixture.coordinator.queueHistoryStorageIdentityForTesting,
+            historyStorage
+        )
+        XCTAssertEqual(
+            fixture.coordinator.queueStateRevision,
+            initialStateRevision + 1
+        )
+
+        let firstSnapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+        let cachedSnapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+        XCTAssertEqual(firstSnapshot.history.count, 1)
+        XCTAssertEqual(
+            storageIdentity(of: firstSnapshot.history),
+            storageIdentity(of: cachedSnapshot.history)
+        )
+
+        XCTAssertTrue(fixture.coordinator.playNext())
+        await waitForLoads(fixture.engine, count: 3)
+        await waitForReady(fixture.playback)
+        let advancedSnapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+        XCTAssertEqual(advancedSnapshot.history.count, 2)
+        XCTAssertNotEqual(
+            storageIdentity(of: advancedSnapshot.history),
+            storageIdentity(of: firstSnapshot.history)
+        )
+        XCTAssertEqual(
+            fixture.coordinator.queueHistoryStorageIdentityForTesting,
+            historyStorage
+        )
+        XCTAssertEqual(
+            fixture.coordinator.queueStateRevision,
+            initialStateRevision + 2
+        )
+
+        fixture.coordinator.playPrevious()
+        await waitForLoads(fixture.engine, count: 4)
+        await waitForReady(fixture.playback)
+        XCTAssertEqual(
+            fixture.coordinator.queueHistoryStorageIdentityForTesting,
+            historyStorage
+        )
+        XCTAssertEqual(
+            fixture.coordinator.queueStateRevision,
+            initialStateRevision + 3
+        )
+    }
+
+    func testPreviousUnavailableTraversalRollsBackQueueAndCachedSnapshot()
+        async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/Unavailable History")
+        let first = makeItem(
+            rootURL: rootURL,
+            name: "First",
+            path: "First.mov"
+        )
+        let second = makeItem(
+            rootURL: rootURL,
+            name: "Second",
+            path: "Second.mov"
+        )
+        let third = makeItem(
+            rootURL: rootURL,
+            name: "Third",
+            path: "Third.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Unavailable History"
+                    )
+                ],
+                items: [first, second, third]
+            )
+        )
+        fixture.engine.loadErrorsByURL[first.url] = .cannotOpen
+        fixture.engine.loadErrorsByURL[second.url] = .cannotOpen
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+
+        fixture.coordinator.play(first)
+        await waitForLoads(fixture.engine, count: 3)
+        await waitForReady(fixture.playback)
+        XCTAssertEqual(fixture.coordinator.currentItemID, third.id)
+        XCTAssertEqual(
+            fixture.coordinator.unavailableItemIDs,
+            [first.id, second.id]
+        )
+
+        let snapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+        let snapshotHistoryStorage = storageIdentity(of: snapshot.history)
+        let queueHistoryStorage = fixture.coordinator
+            .queueHistoryStorageIdentityForTesting
+        let queueRevision = fixture.coordinator.queueRevision
+        let queueStateRevision = fixture.coordinator.queueStateRevision
+
+        fixture.coordinator.playPrevious()
+
+        XCTAssertEqual(fixture.engine.loadedSources.count, 3)
+        XCTAssertEqual(fixture.coordinator.currentItemID, third.id)
+        XCTAssertEqual(fixture.coordinator.queueRevision, queueRevision)
+        XCTAssertEqual(
+            fixture.coordinator.queueStateRevision,
+            queueStateRevision
+        )
+        XCTAssertEqual(
+            fixture.coordinator.queueHistoryStorageIdentityForTesting,
+            queueHistoryStorage
+        )
+        let cachedSnapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+        XCTAssertEqual(cachedSnapshot, snapshot)
+        XCTAssertEqual(
+            storageIdentity(of: cachedSnapshot.history),
+            snapshotHistoryStorage
+        )
+    }
+#endif
 
     func testQueueRevisionPublishesOrderAndNoncurrentRootChanges() async throws {
         let firstRootURL = URL(fileURLWithPath: "/tmp/FirstLibrary")
@@ -2374,4 +2555,13 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         )
     }
 
+}
+
+private func storageIdentity<Element>(of values: [Element]) -> UInt {
+    values.withUnsafeBufferPointer { buffer in
+        guard let baseAddress = buffer.baseAddress else {
+            return 0
+        }
+        return UInt(bitPattern: baseAddress)
+    }
 }

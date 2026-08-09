@@ -65,6 +65,8 @@
 		C30000000000000000000014 /* FilePlaybackSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30000000000000000000004 /* FilePlaybackSessionStore.swift */; };
 		C30000000000000000000015 /* PlaybackSessionControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30000000000000000000005 /* PlaybackSessionControllerTests.swift */; };
 		C40000000000000000000011 /* FixedHeightVirtualizedTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000001 /* FixedHeightVirtualizedTable.swift */; };
+		C40000000000000000000012 /* MediaLibrarySnapshotPreparer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000002 /* MediaLibrarySnapshotPreparer.swift */; };
+		C50000000000000000000011 /* MediaLibraryCoordinatorConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C50000000000000000000001 /* MediaLibraryCoordinatorConcurrencyTests.swift */; };
 		AA000000000000000000001B /* FileSystemMediaLibraryScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000000B /* FileSystemMediaLibraryScannerTests.swift */; };
 		AB0000000000000000000002 /* UserSelectedMediaSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000001 /* UserSelectedMediaSessionTests.swift */; };
 		AC0000000000000000000011 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000001 /* AppLanguage.swift */; };
@@ -190,6 +192,8 @@
 		C30000000000000000000004 /* FilePlaybackSessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FilePlaybackSessionStore.swift; sourceTree = "<group>"; };
 		C30000000000000000000005 /* PlaybackSessionControllerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackSessionControllerTests.swift; sourceTree = "<group>"; };
 		C40000000000000000000001 /* FixedHeightVirtualizedTable.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FixedHeightVirtualizedTable.swift; sourceTree = "<group>"; };
+		C40000000000000000000002 /* MediaLibrarySnapshotPreparer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaLibrarySnapshotPreparer.swift; sourceTree = "<group>"; };
+		C50000000000000000000001 /* MediaLibraryCoordinatorConcurrencyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaLibraryCoordinatorConcurrencyTests.swift; sourceTree = "<group>"; };
 		AA000000000000000000000B /* FileSystemMediaLibraryScannerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSystemMediaLibraryScannerTests.swift; sourceTree = "<group>"; };
 		AB0000000000000000000001 /* UserSelectedMediaSessionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserSelectedMediaSessionTests.swift; sourceTree = "<group>"; };
 		AC0000000000000000000001 /* AppLanguage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
@@ -415,6 +419,7 @@
 				B30000000000000000000002 /* AppPreferencesStoreTests.swift */,
 				A25C19E5FB9B403F8E1080FB /* DesktopSessionCoordinatorTests.swift */,
 				AA000000000000000000000A /* MediaLibraryCoordinatorTests.swift */,
+				C50000000000000000000001 /* MediaLibraryCoordinatorConcurrencyTests.swift */,
 				C20000000000000000000001 /* MediaLibraryCoordinatorTestSupport.swift */,
 				AA0000000000000000000009 /* MediaLibrarySortTests.swift */,
 				B50000000000000000000002 /* MuralumeSliderTests.swift */,
@@ -584,6 +589,7 @@
 			children = (
 				AA0000000000000000000005 /* MediaLibraryCoordinator.swift */,
 				AA0000000000000000000002 /* MediaLibraryModels.swift */,
+				C40000000000000000000002 /* MediaLibrarySnapshotPreparer.swift */,
 				AA0000000000000000000003 /* MediaLibraryScanning.swift */,
 				AA0000000000000000000004 /* MediaLibrarySort.swift */,
 				AF1000000000000000000001 /* MediaThumbnailProviding.swift */,
@@ -941,6 +947,7 @@
 				B9EC7ACAFF914BACAE9DAD42 /* MediaSourceSelecting.swift in Sources */,
 				AA0000000000000000000015 /* MediaLibraryCoordinator.swift in Sources */,
 				AA0000000000000000000012 /* MediaLibraryModels.swift in Sources */,
+				C40000000000000000000012 /* MediaLibrarySnapshotPreparer.swift in Sources */,
 				AA0000000000000000000013 /* MediaLibraryScanning.swift in Sources */,
 				AA0000000000000000000014 /* MediaLibrarySort.swift in Sources */,
 				AF1000000000000000000011 /* MediaThumbnailProviding.swift in Sources */,
@@ -1016,6 +1023,7 @@
 				B30000000000000000000012 /* AppPreferencesStoreTests.swift in Sources */,
 				2471A0C9790F4BD3A0BF8A31 /* DesktopSessionCoordinatorTests.swift in Sources */,
 				AA000000000000000000001A /* MediaLibraryCoordinatorTests.swift in Sources */,
+				C50000000000000000000011 /* MediaLibraryCoordinatorConcurrencyTests.swift in Sources */,
 				C20000000000000000000011 /* MediaLibraryCoordinatorTestSupport.swift in Sources */,
 				AA0000000000000000000019 /* MediaLibrarySortTests.swift in Sources */,
 				B50000000000000000000012 /* MuralumeSliderTests.swift in Sources */,

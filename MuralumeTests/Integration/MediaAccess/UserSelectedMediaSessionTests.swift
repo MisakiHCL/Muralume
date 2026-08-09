@@ -419,6 +419,123 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         fixture.session.stop()
     }
 
+    func testBatchAddPersistsOrdinarySourceRecordsOnce() throws {
+        var sourceRecordStoreCount = 0
+        let fixture = makeSessionFixture(
+            sourceRecordStoreObserver: { _ in
+                sourceRecordStoreCount += 1
+            }
+        )
+        defer { fixture.clearDefaults() }
+        let sandboxURL = try makeSandbox()
+        defer { try? FileManager.default.removeItem(at: sandboxURL) }
+        let fileCount = 24
+        let fileURLs = try (0..<fileCount).map { index in
+            let fileURL = sandboxURL.appendingPathComponent(
+                "Selected-\(index).mp4"
+            )
+            try Data([0xA5]).write(to: fileURL)
+            let bookmark = fixture.recorder.bookmark(for: fileURL)
+            fixture.recorder.resolvedURLByBookmark[bookmark] = fileURL
+            return fileURL
+        }
+
+        let update = fixture.session.addSources(fileURLs)
+
+        XCTAssertEqual(update.acceptedRequestCount, fileCount)
+        XCTAssertEqual(update.rejectedRequestCount, 0)
+        XCTAssertEqual(update.activeSources.count, fileCount)
+        XCTAssertEqual(sourceRecordStoreCount, 1)
+        XCTAssertEqual(
+            storedSourceRecords(in: fixture.defaults).count,
+            fileCount
+        )
+        fixture.session.stop()
+    }
+
+    func testEmptyRestoreDoesNotWriteSourceRecords() {
+        var sourceRecordStoreCount = 0
+        let fixture = makeSessionFixture(
+            sourceRecordStoreObserver: { _ in
+                sourceRecordStoreCount += 1
+            }
+        )
+        defer { fixture.clearDefaults() }
+
+        XCTAssertTrue(fixture.session.restoreSources().isEmpty)
+        XCTAssertEqual(sourceRecordStoreCount, 0)
+        XCTAssertNil(
+            fixture.defaults.object(forKey: TestStorage.sourceRecordKey)
+        )
+    }
+
+    func testMalformedTopLevelPersistenceIsSanitizedDuringRestore() {
+        var sourceRecordStoreCount = 0
+        let fixture = makeSessionFixture(
+            sourceRecordStoreObserver: { _ in
+                sourceRecordStoreCount += 1
+            }
+        )
+        defer { fixture.clearDefaults() }
+        fixture.defaults.set(
+            "invalid records",
+            forKey: TestStorage.sourceRecordKey
+        )
+        fixture.defaults.set(
+            "invalid bookmarks",
+            forKey: TestStorage.legacyBookmarkKey
+        )
+
+        XCTAssertTrue(fixture.session.restoreSources().isEmpty)
+        XCTAssertEqual(sourceRecordStoreCount, 1)
+        XCTAssertEqual(
+            fixture.defaults.array(forKey: TestStorage.sourceRecordKey)?.count,
+            0
+        )
+        XCTAssertNil(
+            fixture.defaults.object(forKey: TestStorage.legacyBookmarkKey)
+        )
+    }
+
+    func testReplacementPersistsBeforeReleasingReplacedScope() throws {
+        var events: [MediaSourcePersistenceEvent] = []
+        let fixture = makeSessionFixture(
+            sourceRecordStoreObserver: { _ in
+                events.append(.persist)
+            }
+        )
+        defer { fixture.clearDefaults() }
+        fixture.recorder.stopAccessHandler = { url in
+            events.append(.stopAccess(url))
+        }
+        let sandboxURL = try makeSandbox()
+        defer { try? FileManager.default.removeItem(at: sandboxURL) }
+        let fileURL = sandboxURL.appendingPathComponent("Replaced.mp4")
+        try Data([0xA5]).write(to: fileURL)
+        for url in [fileURL, sandboxURL] {
+            fixture.recorder.resolvedURLByBookmark[
+                fixture.recorder.bookmark(for: url)
+            ] = url
+        }
+        _ = fixture.session.addSources([fileURL])
+        events.removeAll()
+
+        _ = fixture.session.addSources([sandboxURL])
+
+        let persistenceIndex = try XCTUnwrap(
+            events.firstIndex(of: .persist)
+        )
+        let replacedScopeStopIndex = try XCTUnwrap(
+            events.firstIndex(of: .stopAccess(fileURL))
+        )
+        XCTAssertLessThan(persistenceIndex, replacedScopeStopIndex)
+        XCTAssertEqual(
+            events.filter { $0 == .persist }.count,
+            1
+        )
+        fixture.session.stop()
+    }
+
     func testParentFolderIsRejectedWhenChildFolderIsAlreadyActive() throws {
         let fixture = makeSessionFixture()
         defer { fixture.clearDefaults() }
@@ -1309,6 +1426,69 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         fixture.session.stop()
     }
 
+    func testReplacementBarrierFlushesDirtyBatchAndFinalAdditionOnce() throws {
+        var events: [MediaSourcePersistenceEvent] = []
+        var persistedRecordCounts: [Int] = []
+        let fixture = makeSessionFixture(
+            sourceRecordStoreObserver: { storedValues in
+                events.append(.persist)
+                persistedRecordCounts.append(storedValues.count)
+            }
+        )
+        defer { fixture.clearDefaults() }
+        fixture.recorder.stopAccessHandler = { url in
+            events.append(.stopAccess(url))
+        }
+        let sandboxURL = try makeSandbox()
+        defer { try? FileManager.default.removeItem(at: sandboxURL) }
+        let parentURL = sandboxURL.appendingPathComponent(
+            "Library",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: parentURL,
+            withIntermediateDirectories: true
+        )
+        let replacedURL = parentURL.appendingPathComponent("Replaced.mp4")
+        let beforeBarrierURL = sandboxURL.appendingPathComponent("Before.mp4")
+        let afterBarrierURL = sandboxURL.appendingPathComponent("After.mp4")
+        for fileURL in [replacedURL, beforeBarrierURL, afterBarrierURL] {
+            try Data([0xA5]).write(to: fileURL)
+        }
+        for url in [
+            replacedURL,
+            beforeBarrierURL,
+            parentURL,
+            afterBarrierURL
+        ] {
+            fixture.recorder.resolvedURLByBookmark[
+                fixture.recorder.bookmark(for: url)
+            ] = url
+        }
+        _ = fixture.session.addSources([replacedURL])
+        events.removeAll()
+        persistedRecordCounts.removeAll()
+
+        _ = fixture.session.addSources([
+            beforeBarrierURL,
+            parentURL,
+            afterBarrierURL
+        ])
+
+        XCTAssertEqual(persistedRecordCounts, [2, 3])
+        let barrierIndex = try XCTUnwrap(events.firstIndex(of: .persist))
+        let replacedScopeStopIndex = try XCTUnwrap(
+            events.firstIndex(of: .stopAccess(replacedURL))
+        )
+        XCTAssertLessThan(barrierIndex, replacedScopeStopIndex)
+        XCTAssertEqual(
+            events.filter { $0 == .persist }.count,
+            2
+        )
+
+        fixture.session.stop()
+    }
+
     func testOversizedPersistedBookmarkIsPreservedWithoutResolution() {
         let fixture = makeSessionFixture(sourceKindResolver: { _ in .file })
         defer { fixture.clearDefaults() }
@@ -1727,16 +1907,30 @@ final class UserSelectedMediaSessionTests: XCTestCase {
     private func makeSessionFixture(
         sourceKindResolver: @escaping (URL) -> MediaSourceKind? = {
             $0.hasDirectoryPath ? .folder : .file
-        }
+        },
+        sourceRecordStoreObserver: (([Any]) -> Void)? = nil
     ) -> MediaSessionFixture {
         let suiteName = TestStorage.suiteName
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         let recorder = SecurityScopeRecorder()
+        let sourceRecordStore: UserSelectedMediaSession.SourceRecordStore?
+        if let sourceRecordStoreObserver {
+            sourceRecordStore = { storedValues in
+                sourceRecordStoreObserver(storedValues)
+                defaults.set(
+                    storedValues,
+                    forKey: TestStorage.sourceRecordKey
+                )
+            }
+        } else {
+            sourceRecordStore = nil
+        }
         let session = UserSelectedMediaSession(
             defaults: defaults,
             securityAccess: recorder.makeAccess(),
-            sourceKindResolver: sourceKindResolver
+            sourceKindResolver: sourceKindResolver,
+            sourceRecordStore: sourceRecordStore
         )
         return MediaSessionFixture(
             suiteName: suiteName,
@@ -1795,6 +1989,11 @@ final class UserSelectedMediaSessionTests: XCTestCase {
     }
 }
 
+private enum MediaSourcePersistenceEvent: Equatable {
+    case persist
+    case stopAccess(URL)
+}
+
 @MainActor
 private struct MediaSessionFixture {
     let suiteName: String
@@ -1816,6 +2015,7 @@ private final class SecurityScopeRecorder {
     private(set) var stoppedURLs: [URL] = []
     private(set) var bookmarkedURLs: [URL] = []
     private(set) var resolvedBookmarks: [Data] = []
+    var stopAccessHandler: ((URL) -> Void)?
 
     func bookmark(for url: URL) -> Data {
         generatedBookmarkByURL[url] ?? Data(url.absoluteString.utf8)
@@ -1843,6 +2043,7 @@ private final class SecurityScopeRecorder {
             },
             stopAccess: { [weak self] url in
                 self?.stoppedURLs.append(url)
+                self?.stopAccessHandler?(url)
             }
         )
     }

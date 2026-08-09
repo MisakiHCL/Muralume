@@ -634,6 +634,12 @@ struct LibraryQueueSidebar: View {
             FixedHeightVirtualizedTable(
                 items: library.items,
                 snapshotRevision: library.itemsRevision,
+                rowContentRevision: LibraryPlaylistRowContentRevision(
+                    currentItemID: library.currentItemID,
+                    unavailableItemsRevision:
+                        library.unavailableItemsRevision,
+                    playbackState: playbackStatus.rowState
+                ),
                 scrollTargetID: library.currentItemID,
                 rowHeight: playlistRowHeight,
                 rowSpacing: MuralumeTheme.Spacing.xSmall,
@@ -808,7 +814,13 @@ private struct LibraryPlaybackStatus: Equatable {
     }
 }
 
-private enum LibraryMediaRowPlaybackState: Equatable {
+private struct LibraryPlaylistRowContentRevision: Hashable {
+    let currentItemID: LibraryMediaItem.ID?
+    let unavailableItemsRevision: UInt64
+    let playbackState: LibraryMediaRowPlaybackState
+}
+
+private enum LibraryMediaRowPlaybackState: Hashable {
     case available
     case loading
     case playing

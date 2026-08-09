@@ -120,8 +120,11 @@ final class MediaLibraryCoordinator: ObservableObject {
     @Published private(set) var playbackOrder: PlaybackOrder
     @Published private(set) var sort: MediaLibrarySort
     @Published private(set) var currentItemID: LibraryMediaItem.ID?
-    @Published private(set) var unavailableItemIDs: Set<LibraryMediaItem.ID> = []
+    @Published private(set) var unavailableItemIDs:
+        Set<LibraryMediaItem.ID> = []
+    private(set) var unavailableItemsRevision: UInt64 = 0
     @Published private(set) var queueRevision: UInt64 = 0
+    private(set) var queueStateRevision: UInt64 = 0
     @Published private(set) var importNotice: MediaImportNotice?
     @Published private(set) var sourceAccessState:
         MediaLibrarySourceAccessState = .empty
@@ -131,7 +134,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             return nil
         }
         return queueItemsByID[currentItemID]
-            ?? items.first { $0.id == currentItemID }
+            ?? visibleItemsByID[currentItemID]
     }
 
     var currentPosition: Int? {
@@ -145,6 +148,12 @@ final class MediaLibraryCoordinator: ObservableObject {
     var hasActiveQueue: Bool {
         queue != nil
     }
+
+#if DEBUG
+    var queueHistoryStorageIdentityForTesting: UInt? {
+        queue?.historyStorageIdentityForTesting
+    }
+#endif
 
     var canRefresh: Bool {
         !isShutDown
@@ -169,21 +178,36 @@ final class MediaLibraryCoordinator: ObservableObject {
     private let mediaSession: any MediaAccessSession
     private let scanner: any MediaLibraryScanning
     private let mediaThumbnailProvider: any MediaThumbnailProviding
+    private let snapshotPreparer: any MediaLibrarySnapshotPreparing
     private let preferencesStore: (any AppPreferencesStoring)?
     private let reshuffleRestoredQueue: RestoredPlaybackQueueShuffler
 
     private var activeSources: [MediaSource] = []
     private var incompleteRootPaths: Set<String> = []
-    private var queue: PlaybackQueue<LibraryMediaItem.ID>?
+    private var visibleItemsByID: [
+        LibraryMediaItem.ID: LibraryMediaItem
+    ] = [:]
+    private var visibleItemIDs: Set<LibraryMediaItem.ID> = []
+    private var cachedQueueSnapshot:
+        PlaybackQueueSnapshot<LibraryMediaItem.ID>?
+    private var queue: PlaybackQueue<LibraryMediaItem.ID>? {
+        didSet {
+            queueStateRevision &+= 1
+            cachedQueueSnapshot = nil
+        }
+    }
     private var queueItemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
     private var scanTasks: [UUID: Task<Void, Never>] = [:]
     private var currentScanTaskID: UUID?
     private var currentScanSourcePaths: Set<String>?
+    private var sortTasks: [UUID: Task<Void, Never>] = [:]
+    private var currentSortTaskID: UUID?
     private var loadTasks: [UUID: LoadTaskRecord] = [:]
     private var currentLoadTaskID: UUID?
     private var loadedItemID: LibraryMediaItem.ID?
     private var rootIDsPendingRemoval: Set<MediaLibraryRoot.ID> = []
     private var scanGeneration: UInt64 = 0
+    private var sortGeneration: UInt64 = 0
     private var importGeneration: UInt64 = 0
     private var lastCommittedImportGeneration: UInt64 = 0
     private var explicitPlayIntentGeneration: UInt64 = 0
@@ -203,6 +227,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         mediaSession: any MediaAccessSession,
         scanner: any MediaLibraryScanning,
         mediaThumbnailProvider: any MediaThumbnailProviding,
+        snapshotPreparer: any MediaLibrarySnapshotPreparing =
+            DefaultMediaLibrarySnapshotPreparer(),
         playbackOrder: PlaybackOrder,
         sort: MediaLibrarySort = MediaLibrarySort(),
         preferencesStore: (any AppPreferencesStoring)? = nil,
@@ -215,6 +241,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         self.mediaSession = mediaSession
         self.scanner = scanner
         self.mediaThumbnailProvider = mediaThumbnailProvider
+        self.snapshotPreparer = snapshotPreparer
         self.playbackOrder = playbackOrder
         self.sort = sort
         self.preferencesStore = preferencesStore
@@ -368,10 +395,11 @@ final class MediaLibraryCoordinator: ObservableObject {
         preparedSourcesNeedRefresh =
             preparedSourcesNeedRefresh || update.didChangeSources
         if !requestedFileURLs.isEmpty {
+            let requestedFileMatches = items(matching: requestedFileURLs)
             pendingExplicitImportNeedsQueueExpansion =
                 pendingExplicitImportNeedsQueueExpansion
-                    || requestedFileURLs.contains {
-                        firstItem(matching: [$0]) == nil
+                    || requestedFileMatches.contains {
+                        $0 == nil
                     }
             appendPendingExplicitFiles(requestedFileURLs)
             pendingAutoplayFileURLs = requestedFileURLs
@@ -416,10 +444,9 @@ final class MediaLibraryCoordinator: ObservableObject {
             return
         }
 
+        let explicitFileMatches = items(matching: explicitFileURLs)
         let everyExplicitFileIsVisible = !explicitFileURLs.isEmpty
-            && explicitFileURLs.allSatisfy {
-                firstItem(matching: [$0]) != nil
-            }
+            && explicitFileMatches.allSatisfy { $0 != nil }
         if everyExplicitFileIsVisible,
            let existingItem = firstItem(matching: pendingAutoplayFileURLs) {
             activateImportedItem(
@@ -544,7 +571,9 @@ final class MediaLibraryCoordinator: ObservableObject {
         replaceItems(
             with: items.filter { !removedItemIDs.contains($0.id) }
         )
-        unavailableItemIDs.subtract(removedItemIDs)
+        replaceUnavailableItemIDs(
+            with: unavailableItemIDs.subtracting(removedItemIDs)
+        )
         for itemID in removedItemIDs {
             queueItemsByID[itemID] = nil
         }
@@ -642,7 +671,7 @@ final class MediaLibraryCoordinator: ObservableObject {
                     standardizedPath: item.rootURL.standardizedFileURL.path
                 )
               ),
-              items.contains(where: { $0.id == item.id }) else {
+              visibleItemIDs.contains(item.id) else {
             return
         }
 
@@ -651,9 +680,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             return
         }
 
-        queueItemsByID = Dictionary(
-            uniqueKeysWithValues: playbackItems.map { ($0.id, $0) }
-        )
+        queueItemsByID = visibleItemsByID
         let itemIDs = playbackItems.map(\.id)
         queue = PlaybackQueue(
             items: itemIDs,
@@ -662,16 +689,28 @@ final class MediaLibraryCoordinator: ObservableObject {
         )
         currentItemID = queue?.currentItem
         publishQueueChange()
-        unavailableItemIDs.remove(item.id)
+        markItemAvailable(item.id)
         loadCurrentItem(attemptsRemaining: itemIDs.count)
     }
 
     @discardableResult
     func playNext() -> Bool {
+        guard !isShutDown, let queueCount = queue?.count else {
+            return false
+        }
+
+        if let nextID = queue?.nextItemWithoutAdvancing,
+           !unavailableItemIDs.contains(nextID) {
+            _ = queue?.moveToNext()
+            currentItemID = nextID
+            publishQueueChange()
+            loadCurrentItem(attemptsRemaining: queueCount)
+            return true
+        }
+
         guard var queue else {
             return false
         }
-        let queueCount = queue.count
         guard let nextID = nextAvailableItem(
             in: &queue,
             maximumAdvances: queueCount
@@ -686,11 +725,24 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     func playPrevious() {
-        guard var queue else {
+        guard !isShutDown,
+              let queueCount = queue?.count,
+              let previousID = queue?.previousItemWithoutAdvancing else {
             return
         }
 
-        let queueCount = queue.count
+        if previousID != queue?.currentItem,
+           !unavailableItemIDs.contains(previousID) {
+            _ = queue?.moveToPrevious()
+            currentItemID = previousID
+            publishQueueChange()
+            loadCurrentItem(attemptsRemaining: queueCount)
+            return
+        }
+
+        guard var queue else {
+            return
+        }
         var priorID = queue.currentItem
         for _ in 0..<queueCount {
             guard let previousID = queue.moveToPrevious(),
@@ -725,32 +777,118 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     func setSortField(_ field: MediaLibrarySortField) {
-        guard sort.field != field else {
+        guard !isShutDown, sort.field != field else {
             return
         }
         sort.field = field
-        replaceItems(with: sort.sorted(items))
+        resortVisibleItems()
         preferencesStore?.saveLibrarySort(sort)
     }
 
     func toggleSortDirection() {
+        guard !isShutDown else {
+            return
+        }
         sort.direction.toggle()
-        replaceItems(with: sort.sorted(items))
+        resortVisibleItems()
         preferencesStore?.saveLibrarySort(sort)
     }
 
     func setSortDirection(_ direction: MediaLibrarySortDirection) {
-        guard sort.direction != direction else {
+        guard !isShutDown, sort.direction != direction else {
             return
         }
         sort.direction = direction
-        replaceItems(with: sort.sorted(items))
+        resortVisibleItems()
         preferencesStore?.saveLibrarySort(sort)
+    }
+
+    private func resortVisibleItems() {
+        guard !isShutDown else {
+            return
+        }
+        sortGeneration &+= 1
+        let generation = sortGeneration
+        let previousTasks = Array(sortTasks.values)
+        previousTasks.forEach { $0.cancel() }
+        currentSortTaskID = nil
+
+        guard items.count
+                >= MediaLibraryPerformancePolicy
+                    .backgroundSortMinimumItemCount else {
+            replaceItems(with: sort.sorted(items))
+            return
+        }
+
+        let baseItemsRevision = itemsRevision
+        let baseItems = items
+        let requestedSort = sort
+        let taskID = UUID()
+        let task = Task { [weak self, snapshotPreparer] in
+            defer {
+                self?.finishSortTask(
+                    taskID: taskID,
+                    generation: generation
+                )
+            }
+            do {
+                for previousTask in previousTasks {
+                    await previousTask.value
+                }
+                try Task.checkCancellation()
+                guard let self,
+                      !isShutDown,
+                      generation == sortGeneration else {
+                    return
+                }
+                let prepared = try await snapshotPreparer.sort(
+                    baseItems,
+                    using: requestedSort
+                )
+                try Task.checkCancellation()
+                guard !isShutDown,
+                      generation == sortGeneration,
+                      baseItemsRevision == itemsRevision,
+                      requestedSort == sort else {
+                    return
+                }
+                replaceItems(with: prepared)
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+        }
+        sortTasks[taskID] = task
+        currentSortTaskID = taskID
+    }
+
+    private func finishSortTask(taskID: UUID, generation: UInt64) {
+        sortTasks[taskID] = nil
+        if currentSortTaskID == taskID,
+           generation == sortGeneration {
+            currentSortTaskID = nil
+        }
+    }
+
+    private func cancelAllSortTasks() -> [Task<Void, Never>] {
+        sortGeneration &+= 1
+        let tasks = Array(sortTasks.values)
+        tasks.forEach { $0.cancel() }
+        currentSortTaskID = nil
+        return tasks
     }
 
     func makeQueueSnapshot() ->
         PlaybackQueueSnapshot<LibraryMediaItem.ID>? {
-        queue?.makeSnapshot()
+        if let cachedQueueSnapshot {
+            return cachedQueueSnapshot
+        }
+        guard let snapshot = queue?.makeSnapshot() else {
+            return nil
+        }
+        cachedQueueSnapshot = snapshot
+        return snapshot
     }
 
     func restoreQueue(
@@ -765,9 +903,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         guard scanState == .ready else {
             return .temporarilyUnavailable
         }
-        let availableItemsByID = Dictionary(
-            uniqueKeysWithValues: items.map { ($0.id, $0) }
-        )
+        let availableItemsByID = visibleItemsByID
         let canonicalSnapshot = remappedQueueSnapshot(
             snapshot,
             using: availableItemsByID
@@ -778,7 +914,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             return .permanentlyUnavailable
         }
         let missingItemIDs = Set(snapshot.items)
-            .subtracting(availableItemsByID.keys)
+            .subtracting(visibleItemIDs)
         let requestedRootPaths = Set(
             activeSources.map { $0.id.standardizedPath }
         )
@@ -840,7 +976,9 @@ final class MediaLibraryCoordinator: ObservableObject {
         queue = restoredQueue
         currentItemID = restoredItemID
         publishQueueChange()
-        unavailableItemIDs.formIntersection(availableItemsByID.keys)
+        replaceUnavailableItemIDs(
+            with: unavailableItemIDs.intersection(availableItemsByID.keys)
+        )
 
         return await loadRestoredQueueItem(
             attemptsRemaining: restoredQueue.count,
@@ -864,11 +1002,15 @@ final class MediaLibraryCoordinator: ObservableObject {
 
         let pendingScanTasks = cancelAllScanTasks()
         let pendingLoadTasks = cancelAllLoadTasks()
+        let pendingSortTasks = cancelAllSortTasks()
 
         for task in pendingScanTasks {
             await task.value
         }
         for task in pendingLoadTasks {
+            await task.value
+        }
+        for task in pendingSortTasks {
             await task.value
         }
 
@@ -883,6 +1025,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         currentItemID = nil
         loadedItemID = nil
         queueItemsByID.removeAll()
+        visibleItemsByID.removeAll()
+        visibleItemIDs.removeAll()
     }
 
     private func refresh(
@@ -928,7 +1072,10 @@ final class MediaLibraryCoordinator: ObservableObject {
                                 candidateSnapshot.items,
                                 using: sources
                             )
-                        mergeImportedCandidates(representedCandidates)
+                        try await mergeImportedCandidates(
+                            representedCandidates,
+                            scanGeneration: generation
+                        )
                         if isExplicitIntentCurrent(
                             explicitIntentGeneration
                         ), let candidate = firstItem(
@@ -967,7 +1114,11 @@ final class MediaLibraryCoordinator: ObservableObject {
                       !isShutDown else {
                     return
                 }
-                publish(snapshot, for: sources)
+                try await publish(
+                    snapshot,
+                    for: sources,
+                    scanGeneration: generation
+                )
                 if !didFulfillExplicitIntent,
                    isExplicitIntentCurrent(explicitIntentGeneration) {
                     if let candidate = firstItem(
@@ -1005,53 +1156,183 @@ final class MediaLibraryCoordinator: ObservableObject {
 
     private func publish(
         _ snapshot: MediaLibrarySnapshot,
-        for requestedSources: [MediaSource]
-    ) {
+        for requestedSources: [MediaSource],
+        scanGeneration generation: UInt64
+    ) async throws {
         let requestedSourcePaths = sourcePathSet(requestedSources)
-        let scannedRoots = snapshot.roots.filter {
-            requestedSourcePaths.contains($0.id.standardizedPath)
-        }
-        let scannedItems = snapshot.items.filter {
-            requestedSourcePaths.contains(
-                $0.rootURL.standardizedFileURL.path
+        while true {
+            try Task.checkCancellation()
+            guard generation == scanGeneration, !isShutDown else {
+                throw CancellationError()
+            }
+
+            let requestedSort = sort
+            let prepared = try await snapshotPreparer.prepare(
+                snapshot,
+                requestedSourcePaths: requestedSourcePaths,
+                sort: requestedSort
             )
-        }
-        let scannedItemsByID = Dictionary(
-            uniqueKeysWithValues: scannedItems.map { ($0.id, $0) }
-        )
+            try Task.checkCancellation()
+            guard generation == scanGeneration, !isShutDown else {
+                throw CancellationError()
+            }
+            guard sort == requestedSort else {
+                continue
+            }
 
-        mediaThumbnailProvider.allowThumbnails(
-            forRootIDs: Set(scannedRoots.map(\.id))
-        )
-        roots = scannedRoots
-        replaceItems(with: sort.sorted(scannedItems))
-        incompleteRootPaths = snapshot.incompleteRootPaths
-            .intersection(requestedSourcePaths)
-        unavailableItemIDs.formIntersection(Set(items.map(\.id)))
+            var preparedQueue:
+                PreparedMediaLibraryQueueReconciliation?
+            while let queueSnapshot = makeQueueSnapshot() {
+                let capturedQueueStateRevision = queueStateRevision
+                let reconciliation = try await snapshotPreparer
+                    .reconcileQueue(
+                        snapshot: queueSnapshot,
+                        queueItemsByID: queueItemsByID,
+                        availableItemsByID: prepared.library.itemsByID
+                    )
+                try Task.checkCancellation()
+                guard generation == scanGeneration, !isShutDown else {
+                    throw CancellationError()
+                }
+                guard sort == requestedSort else {
+                    break
+                }
+                guard capturedQueueStateRevision == queueStateRevision else {
+                    continue
+                }
+                preparedQueue = reconciliation
+                break
+            }
+            guard sort == requestedSort else {
+                continue
+            }
 
-        reconcileActiveQueue(using: scannedItemsByID)
-        if requestedSourcePaths == sourcePathSet(latestPreparedSources) {
-            preparedSourcesNeedRefresh = false
+            mediaThumbnailProvider.allowThumbnails(
+                forRootIDs: Set(prepared.roots.map(\.id))
+            )
+            if roots != prepared.roots {
+                roots = prepared.roots
+            }
+            replaceItems(with: prepared.library)
+            incompleteRootPaths = prepared.incompleteRootPaths
+
+            var visibleUnavailableItemIDs = Set(
+                unavailableItemIDs.compactMap {
+                    prepared.library.itemsByID[$0]?.id
+                }
+            )
+            if let preparedQueue {
+                queueItemsByID = preparedQueue.queueItemsByID
+                if preparedQueue.requiresQueueReplacement,
+                   let replacementQueue = preparedQueue.replacementQueue {
+                    queue = replacementQueue
+                    currentItemID = preparedQueue.currentItemID
+                    loadedItemID = loadedItemID.map {
+                        prepared.library.itemsByID[$0]?.id ?? $0
+                    }
+                    visibleUnavailableItemIDs = Set(
+                        visibleUnavailableItemIDs.map {
+                            prepared.library.itemsByID[$0]?.id ?? $0
+                        }
+                    )
+                }
+            }
+            replaceUnavailableItemIDs(with: visibleUnavailableItemIDs)
+            if requestedSourcePaths == sourcePathSet(latestPreparedSources) {
+                preparedSourcesNeedRefresh = false
+            }
+            scanState = .ready
+            return
         }
-        scanState = .ready
     }
 
     private func mergeImportedCandidates(
-        _ candidates: [LibraryMediaItem]
-    ) {
-        var mergedItemsByID = Dictionary(
-            uniqueKeysWithValues: items.map { ($0.id, $0) }
-        )
-        for candidate in candidates {
-            mergedItemsByID[candidate.id] = candidate
-            unavailableItemIDs.remove(candidate.id)
+        _ candidates: [LibraryMediaItem],
+        scanGeneration generation: UInt64
+    ) async throws {
+        let candidateIDs = Set(candidates.map(\.id))
+        while true {
+            try Task.checkCancellation()
+            guard generation == scanGeneration, !isShutDown else {
+                throw CancellationError()
+            }
+            let baseItemsRevision = itemsRevision
+            let baseItems = items
+            let requestedSort = sort
+            let prepared = try await snapshotPreparer.merge(
+                candidates,
+                into: baseItems,
+                sort: requestedSort
+            )
+            try Task.checkCancellation()
+            guard generation == scanGeneration, !isShutDown else {
+                throw CancellationError()
+            }
+            guard baseItemsRevision == itemsRevision,
+                  requestedSort == sort else {
+                continue
+            }
+            replaceItems(with: prepared)
+            replaceUnavailableItemIDs(
+                with: unavailableItemIDs.subtracting(candidateIDs)
+            )
+            return
         }
-        replaceItems(with: sort.sorted(Array(mergedItemsByID.values)))
     }
 
-    private func replaceItems(with items: [LibraryMediaItem]) {
+    @discardableResult
+    private func replaceItems(with items: [LibraryMediaItem]) -> Bool {
+        guard self.items != items else {
+            return false
+        }
+        let itemsByID = Dictionary(
+            uniqueKeysWithValues: items.map { ($0.id, $0) }
+        )
+        return replaceItems(
+            with: PreparedMediaLibraryItems(
+                items: items,
+                itemsByID: itemsByID,
+                itemIDs: Set(itemsByID.keys)
+            )
+        )
+    }
+
+    @discardableResult
+    private func replaceItems(
+        with prepared: PreparedMediaLibraryItems
+    ) -> Bool {
+        guard items != prepared.items else {
+            return false
+        }
+        visibleItemsByID = prepared.itemsByID
+        visibleItemIDs = prepared.itemIDs
         itemsRevision &+= 1
-        self.items = items
+        items = prepared.items
+        return true
+    }
+
+    private func replaceUnavailableItemIDs(
+        with itemIDs: Set<LibraryMediaItem.ID>
+    ) {
+        guard unavailableItemIDs != itemIDs else {
+            return
+        }
+        unavailableItemIDs = itemIDs
+        unavailableItemsRevision &+= 1
+    }
+
+    private func markItemAvailable(_ itemID: LibraryMediaItem.ID) {
+        guard unavailableItemIDs.remove(itemID) != nil else {
+            return
+        }
+        unavailableItemsRevision &+= 1
+    }
+
+    private func markItemUnavailable(_ itemID: LibraryMediaItem.ID) {
+        guard unavailableItemIDs.insert(itemID).inserted else {
+            return
+        }
+        unavailableItemsRevision &+= 1
     }
 
     private func representImportedCandidates(
@@ -1132,52 +1413,56 @@ final class MediaLibraryCoordinator: ObservableObject {
         matching fileURLs: [URL],
         in candidates: [LibraryMediaItem]? = nil
     ) -> LibraryMediaItem? {
-        let candidateItems = candidates ?? items
-        let candidatesByID = Dictionary(
-            uniqueKeysWithValues: candidateItems.map { ($0.id, $0) }
-        )
-        var candidatesByCanonicalPath: [String: LibraryMediaItem]?
+        items(matching: fileURLs, in: candidates).compactMap { $0 }.first
+    }
+
+    private func items(
+        matching fileURLs: [URL],
+        in candidates: [LibraryMediaItem]? = nil
+    ) -> [LibraryMediaItem?] {
+        let candidateItems = candidates ?? self.items
+        let candidatesByID = candidates == nil
+            ? visibleItemsByID
+            : Dictionary(
+                uniqueKeysWithValues: candidateItems.map { ($0.id, $0) }
+            )
+        var matches = fileURLs.map {
+            candidatesByID[LibraryMediaItem.ID(mediaURL: $0)]
+        }
+        guard matches.contains(where: { $0 == nil }) else {
+            return matches
+        }
+
+        var candidatesByCanonicalPath: [String: LibraryMediaItem] = [:]
         var canonicalRootURLsByPath: [String: URL] = [:]
-        func canonicalCandidates() -> [String: LibraryMediaItem] {
-            if let candidatesByCanonicalPath {
-                return candidatesByCanonicalPath
+        candidatesByCanonicalPath.reserveCapacity(candidateItems.count)
+        for item in candidateItems {
+            let rootPath = item.rootURL.standardizedFileURL.path
+            let canonicalRootURL: URL
+            if let cachedRootURL = canonicalRootURLsByPath[rootPath] {
+                canonicalRootURL = cachedRootURL
+            } else {
+                canonicalRootURL = canonicalComparisonURL(item.rootURL)
+                canonicalRootURLsByPath[rootPath] = canonicalRootURL
             }
-            var indexedCandidates: [String: LibraryMediaItem] = [:]
-            for item in candidateItems {
-                let rootPath = item.rootURL.standardizedFileURL.path
-                let canonicalRootURL: URL
-                if let cachedRootURL = canonicalRootURLsByPath[rootPath] {
-                    canonicalRootURL = cachedRootURL
-                } else {
-                    canonicalRootURL = canonicalComparisonURL(item.rootURL)
-                    canonicalRootURLsByPath[rootPath] = canonicalRootURL
-                }
-                let canonicalItemURL = if item.relativePath.isEmpty {
-                    canonicalRootURL
-                } else {
-                    canonicalRootURL.appendingPathComponent(
-                        item.relativePath
-                    )
-                }
-                indexedCandidates[
-                    canonicalItemURL.standardizedFileURL.path
-                ] = item
+            let canonicalItemURL = if item.relativePath.isEmpty {
+                canonicalRootURL
+            } else {
+                canonicalRootURL.appendingPathComponent(item.relativePath)
             }
-            candidatesByCanonicalPath = indexedCandidates
-            return indexedCandidates
+            candidatesByCanonicalPath[
+                canonicalItemURL.standardizedFileURL.path
+            ] = item
         }
-        for fileURL in fileURLs {
-            if let item = candidatesByID[
-                LibraryMediaItem.ID(mediaURL: fileURL)
-            ] {
-                return item
-            }
-            let comparisonPath = canonicalComparisonURL(fileURL).path
-            if let item = canonicalCandidates()[comparisonPath] {
-                return item
+        for index in fileURLs.indices where matches[index] == nil {
+            let comparisonPath = canonicalComparisonURL(
+                fileURLs[index]
+            ).path
+            if let item = candidatesByCanonicalPath[comparisonPath] {
+                matches[index] = item
             }
         }
-        return nil
+        return matches
     }
 
     private func activateImportedItem(
@@ -1198,21 +1483,21 @@ final class MediaLibraryCoordinator: ObservableObject {
         guard expandQueue, let queue else {
             return
         }
-        let visibleItemIDs = items.map(\.id)
-        guard Set(queue.items) != Set(visibleItemIDs) else {
+        let orderedVisibleItemIDs = items.map(\.id)
+        guard Set(queue.items) != visibleItemIDs else {
             return
         }
 
-        queueItemsByID = Dictionary(
-            uniqueKeysWithValues: items.map { ($0.id, $0) }
-        )
+        queueItemsByID = visibleItemsByID
         self.queue = PlaybackQueue(
-            items: visibleItemIDs,
+            items: orderedVisibleItemIDs,
             startingAt: item.id,
             order: playbackOrder
         )
         currentItemID = self.queue?.currentItem
-        unavailableItemIDs.formIntersection(Set(visibleItemIDs))
+        replaceUnavailableItemIDs(
+            with: unavailableItemIDs.intersection(visibleItemIDs)
+        )
         publishQueueChange()
     }
 
@@ -1261,9 +1546,6 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     private func reconcileQueuedItemValuesFromVisibleItems() {
-        let visibleItemsByID = Dictionary(
-            uniqueKeysWithValues: items.map { ($0.id, $0) }
-        )
         reconcileActiveQueue(using: visibleItemsByID)
     }
 
@@ -1279,10 +1561,10 @@ final class MediaLibraryCoordinator: ObservableObject {
         }
         queueItemsByID = reconciledItemsByID
 
-        guard let queue else {
+        guard queue != nil else {
             return
         }
-        guard let snapshot = queue.makeSnapshot() else {
+        guard let snapshot = makeQueueSnapshot() else {
             return
         }
         let remappedSnapshot = remappedQueueSnapshot(
@@ -1299,9 +1581,11 @@ final class MediaLibraryCoordinator: ObservableObject {
         loadedItemID = loadedItemID.map {
             availableItemsByID[$0]?.id ?? $0
         }
-        unavailableItemIDs = Set(unavailableItemIDs.map {
-            availableItemsByID[$0]?.id ?? $0
-        })
+        replaceUnavailableItemIDs(
+            with: Set(unavailableItemIDs.map {
+                availableItemsByID[$0]?.id ?? $0
+            })
+        )
     }
 
     private func remappedQueueSnapshot(
@@ -1469,7 +1753,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         currentItemID = nil
         queueItemsByID.removeAll()
         if !preservingUnavailableItems {
-            unavailableItemIDs.removeAll()
+            replaceUnavailableItemIDs(with: [])
         }
         publishQueueChange()
     }
@@ -1547,7 +1831,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         attemptsRemaining: Int,
         autoplay: Bool = true
     ) {
-        guard attemptsRemaining > 0,
+        guard !isShutDown,
+              attemptsRemaining > 0,
               let currentItemID,
               let item = queueItemsByID[currentItemID] else {
             return
@@ -1581,9 +1866,9 @@ final class MediaLibraryCoordinator: ObservableObject {
             switch result {
             case .loaded:
                 loadedItemID = item.id
-                unavailableItemIDs.remove(item.id)
+                markItemAvailable(item.id)
             case let .mediaFailure(failure):
-                unavailableItemIDs.insert(item.id)
+                markItemUnavailable(item.id)
                 let didAdvance = advanceAfterFailedLoad(
                     failedItemID: item.id,
                     attemptsRemaining: attemptsRemaining - 1,
@@ -1638,7 +1923,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             switch result {
             case .loaded:
                 loadedItemID = item.id
-                unavailableItemIDs.remove(item.id)
+                markItemAvailable(item.id)
                 return .restored
             case let .mediaFailure(failure):
                 guard await isPermanentlyUnavailable(
@@ -1648,7 +1933,7 @@ final class MediaLibraryCoordinator: ObservableObject {
                     return .temporarilyUnavailable
                 }
 
-                unavailableItemIDs.insert(item.id)
+                markItemUnavailable(item.id)
                 guard var queue else {
                     stopPlaybackAndClearQueue()
                     return .permanentlyUnavailable
@@ -1727,7 +2012,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             return false
         }
 
-        unavailableItemIDs.insert(failedItemID)
+        markItemUnavailable(failedItemID)
         let queueCount = queue.count
         guard let nextID = nextAvailableItem(
             in: &queue,

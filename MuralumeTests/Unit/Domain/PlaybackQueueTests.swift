@@ -29,6 +29,42 @@ final class PlaybackQueueTests: XCTestCase {
         XCTAssertEqual(queue.currentRoundPosition, 2)
     }
 
+    func testNavigationLookaheadMatchesNextMovesWithoutChangingSnapshot()
+        throws {
+        var queue = PlaybackQueue(items: ["a", "b", "c"])
+        let initialSnapshot = try XCTUnwrap(queue.makeSnapshot())
+
+        XCTAssertEqual(queue.nextItemWithoutAdvancing, "b")
+        XCTAssertNil(queue.previousItemWithoutAdvancing)
+        XCTAssertEqual(queue.makeSnapshot(), initialSnapshot)
+
+        XCTAssertEqual(queue.moveToNext(), "b")
+        let secondItemSnapshot = try XCTUnwrap(queue.makeSnapshot())
+        XCTAssertEqual(queue.nextItemWithoutAdvancing, "c")
+        XCTAssertEqual(queue.previousItemWithoutAdvancing, "a")
+        XCTAssertEqual(queue.makeSnapshot(), secondItemSnapshot)
+
+        XCTAssertEqual(queue.moveToPrevious(), "a")
+        let restoredSnapshot = try XCTUnwrap(queue.makeSnapshot())
+        XCTAssertEqual(queue.nextItemWithoutAdvancing, "b")
+        XCTAssertNil(queue.previousItemWithoutAdvancing)
+        XCTAssertEqual(queue.makeSnapshot(), restoredSnapshot)
+    }
+
+    func testShuffledRoundBoundaryRequiresMutationToChooseNextItem() {
+        var randomSource = SeededRandomNumberGenerator(seed: 42)
+        var queue = PlaybackQueue(
+            items: ["a", "b"],
+            order: .shuffled,
+            using: &randomSource
+        )
+
+        _ = queue.moveToNext(using: &randomSource)
+
+        XCTAssertTrue(queue.isAtEndOfRound)
+        XCTAssertNil(queue.nextItemWithoutAdvancing)
+    }
+
     func testShuffledRoundContainsEveryItemExactlyOnce() throws {
         let items = Array(1...8)
         var randomSource = SeededRandomNumberGenerator(seed: 42)

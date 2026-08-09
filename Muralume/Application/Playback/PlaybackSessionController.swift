@@ -52,6 +52,10 @@ final class PlaybackSessionController: ObservableObject {
     private var isShuttingDown = false
     private var cancellables: Set<AnyCancellable> = []
 
+#if DEBUG
+    private(set) var queueSnapshotConstructionCount = 0
+#endif
+
     init(
         playback: PlaybackCoordinator,
         library: MediaLibraryCoordinator,
@@ -248,7 +252,7 @@ final class PlaybackSessionController: ObservableObject {
         deferredRestorePlan = nil
         await cancelPendingPersistence()
 
-        if makeSnapshot() != nil,
+        if library.hasActiveQueue,
            let sourceSnapshot = restorationSourceSnapshot {
             // Queue restoration may have completed before cancellation while
             // the final play/pause intent was still intentionally deferred.
@@ -356,7 +360,7 @@ final class PlaybackSessionController: ObservableObject {
               !shouldPreserveStoredSnapshot else {
             return
         }
-        guard makeSnapshot() != nil else {
+        guard library.hasActiveQueue else {
             scheduleClear()
             return
         }
@@ -377,7 +381,7 @@ final class PlaybackSessionController: ObservableObject {
     private func scheduleSave(delay: Duration?) {
         guard !isShuttingDown,
               !restoreInProgress,
-              makeSnapshot() != nil else {
+              library.hasActiveQueue else {
             return
         }
 
@@ -501,6 +505,9 @@ final class PlaybackSessionController: ObservableObject {
     }
 
     private func makeSnapshot() -> PlaybackSessionSnapshot? {
+#if DEBUG
+        queueSnapshotConstructionCount += 1
+#endif
         guard let queue = library.makeQueueSnapshot() else {
             return nil
         }
