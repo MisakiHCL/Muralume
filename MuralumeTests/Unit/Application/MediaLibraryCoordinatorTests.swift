@@ -2043,4 +2043,335 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertFalse(fixture.coordinator.hasActiveQueue)
     }
 
+    func testUnavailableSourceAccessRetriesIntoAvailableLibrary() async {
+        let rootURL = URL(
+            fileURLWithPath: "/Volumes/Reconnected/Muralume Library",
+            isDirectory: true
+        )
+        let item = makeItem(
+            rootURL: rootURL,
+            name: "Recovered",
+            path: "Recovered.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Recovered Library"
+                    )
+                ],
+                items: [item]
+            )
+        )
+        fixture.session.hasUnavailablePersistedSources = true
+
+        let start = fixture.coordinator.start()
+
+        XCTAssertEqual(
+            start,
+            .noRestorableRoots(hasTemporarilyUnavailableRoots: true)
+        )
+        XCTAssertEqual(
+            fixture.coordinator.sourceAccessState,
+            .temporarilyUnavailable
+        )
+        XCTAssertTrue(fixture.coordinator.canRetrySourceAccess)
+        XCTAssertEqual(fixture.coordinator.scanState, .idle)
+        XCTAssertTrue(fixture.scanner.scannedSources.isEmpty)
+
+        fixture.session.restoredURLs = [rootURL]
+        fixture.session.hasUnavailablePersistedSources = false
+        fixture.coordinator.retryUnavailableSourceAccess()
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(fixture.coordinator.sourceAccessState, .available)
+        XCTAssertFalse(fixture.coordinator.canRetrySourceAccess)
+        XCTAssertEqual(fixture.coordinator.roots.map(\.url), [rootURL])
+        XCTAssertEqual(fixture.coordinator.items, [item])
+        XCTAssertEqual(
+            fixture.scanner.scannedSources,
+            [[MediaSource(url: rootURL, kind: .folder)]]
+        )
+    }
+
+    func testRetryParentTakeoverDrainsSupersededExactThumbnailRoot()
+        async throws
+    {
+        let folderURL = URL(
+            fileURLWithPath: "/tmp/Retry Adoption Drain",
+            isDirectory: true
+        )
+        let fileURL = folderURL.appendingPathComponent("Clip.mov")
+        let fileItem = makeFileItem(url: fileURL)
+        let folderItem = makeItem(
+            rootURL: folderURL,
+            name: "Clip",
+            path: "Clip.mov"
+        )
+        let thumbnailProvider = TestMediaThumbnailProvider()
+        thumbnailProvider.shouldBlockInvalidation = true
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: fileURL,
+                        displayName: fileURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [fileItem]
+            ),
+            mediaThumbnailProvider: thumbnailProvider
+        )
+        fixture.session.restoredURLs = [fileURL]
+        fixture.session.hasUnavailablePersistedSources = true
+        _ = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: folderURL,
+                        displayName: folderURL.lastPathComponent
+                    )
+                ],
+                items: [folderItem]
+            )
+        )
+        fixture.session.restoredURLs = [folderURL]
+        fixture.session.hasUnavailablePersistedSources = false
+
+        XCTAssertEqual(
+            fixture.coordinator.retryUnavailableSourceAccess(),
+            .scanStarted
+        )
+        await waitForScan(fixture.coordinator)
+
+        let parentRoot = try XCTUnwrap(fixture.coordinator.roots.first)
+        let exactFileRootID = MediaLibraryRoot.ID(
+            standardizedPath: fileURL.standardizedFileURL.path
+        )
+        let removalTask = Task {
+            await fixture.coordinator.removeRoot(parentRoot)
+        }
+        for _ in 0..<1_000 {
+            if thumbnailProvider.invalidatedRootIDs == [parentRoot.id] {
+                break
+            }
+            await Task.yield()
+        }
+        XCTAssertEqual(
+            thumbnailProvider.invalidatedRootIDs,
+            [parentRoot.id]
+        )
+        XCTAssertTrue(fixture.session.removedURLs.isEmpty)
+
+        thumbnailProvider.finishInvalidation(for: parentRoot.id)
+        for _ in 0..<1_000 {
+            if thumbnailProvider.invalidatedRootIDs
+                == [parentRoot.id, exactFileRootID] {
+                break
+            }
+            await Task.yield()
+        }
+        XCTAssertEqual(
+            thumbnailProvider.invalidatedRootIDs,
+            [parentRoot.id, exactFileRootID]
+        )
+        XCTAssertTrue(fixture.session.removedURLs.isEmpty)
+
+        thumbnailProvider.finishInvalidation(for: exactFileRootID)
+        await removalTask.value
+
+        XCTAssertEqual(fixture.session.removedURLs, [folderURL])
+        XCTAssertTrue(fixture.coordinator.items.isEmpty)
+        XCTAssertFalse(fixture.coordinator.hasActiveQueue)
+    }
+
+    func testFailedSourceAccessRetryRemainsTemporaryAndRetryable() {
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: .empty
+        )
+        fixture.session.hasUnavailablePersistedSources = true
+        _ = fixture.coordinator.start()
+
+        fixture.coordinator.retryUnavailableSourceAccess()
+
+        XCTAssertEqual(
+            fixture.coordinator.sourceAccessState,
+            .temporarilyUnavailable
+        )
+        XCTAssertTrue(fixture.coordinator.canRetrySourceAccess)
+        XCTAssertEqual(fixture.coordinator.scanState, .idle)
+        XCTAssertTrue(fixture.coordinator.roots.isEmpty)
+        XCTAssertTrue(fixture.scanner.scannedSources.isEmpty)
+    }
+
+    func testPartialSourceAccessCanResolveWithoutRescanningActiveRoots()
+        async
+    {
+        let rootURL = URL(
+            fileURLWithPath: "/tmp/Muralume Available Library",
+            isDirectory: true
+        )
+        let item = makeItem(
+            rootURL: rootURL,
+            name: "Available",
+            path: "Available.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Available Library"
+                    )
+                ],
+                items: [item]
+            )
+        )
+        fixture.session.restoredURLs = [rootURL]
+        fixture.session.hasUnavailablePersistedSources = true
+        _ = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+        let scanCount = fixture.scanner.scannedSources.count
+
+        XCTAssertEqual(
+            fixture.coordinator.sourceAccessState,
+            .partiallyUnavailable
+        )
+        XCTAssertTrue(fixture.coordinator.canRetrySourceAccess)
+
+        fixture.session.hasUnavailablePersistedSources = false
+        fixture.coordinator.retryUnavailableSourceAccess()
+
+        XCTAssertEqual(fixture.coordinator.sourceAccessState, .available)
+        XCTAssertFalse(fixture.coordinator.canRetrySourceAccess)
+        XCTAssertEqual(fixture.scanner.scannedSources.count, scanCount)
+        XCTAssertEqual(fixture.coordinator.items, [item])
+    }
+
+    func testReauthorizationCancelIsInertAndSuccessPreservesQueue() async {
+        let availableRootURL = URL(
+            fileURLWithPath: "/tmp/Muralume Existing Library",
+            isDirectory: true
+        )
+        let reauthorizedRootURL = URL(
+            fileURLWithPath: "/Volumes/Reauthorized/Muralume Library",
+            isDirectory: true
+        )
+        let currentItem = makeItem(
+            rootURL: availableRootURL,
+            name: "Current",
+            path: "Current.mov"
+        )
+        let recoveredItem = makeItem(
+            rootURL: reauthorizedRootURL,
+            name: "Recovered",
+            path: "Recovered.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [],
+            subsequentSelectedURLs: [[reauthorizedRootURL]],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: availableRootURL,
+                        displayName: "Existing Library"
+                    )
+                ],
+                items: [currentItem]
+            )
+        )
+        fixture.session.restoredURLs = [availableRootURL]
+        fixture.session.hasUnavailablePersistedSources = true
+        _ = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.play(currentItem)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+        let queueBeforeReauthorization =
+            fixture.coordinator.makeQueueSnapshot()
+        let scanCountBeforeCancel = fixture.scanner.scannedSources.count
+
+        fixture.coordinator.reauthorizeMediaSources()
+
+        XCTAssertTrue(fixture.session.addedURLs.isEmpty)
+        XCTAssertEqual(
+            fixture.coordinator.sourceAccessState,
+            .partiallyUnavailable
+        )
+        XCTAssertEqual(
+            fixture.scanner.scannedSources.count,
+            scanCountBeforeCancel
+        )
+        XCTAssertEqual(
+            fixture.coordinator.makeQueueSnapshot(),
+            queueBeforeReauthorization
+        )
+        XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: availableRootURL,
+                        displayName: "Existing Library"
+                    ),
+                    MediaLibraryRoot(
+                        url: reauthorizedRootURL,
+                        displayName: "Reauthorized Library"
+                    )
+                ],
+                items: [currentItem, recoveredItem]
+            )
+        )
+        fixture.session.hasUnavailablePersistedSources = false
+        fixture.coordinator.reauthorizeMediaSources()
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(
+            fixture.session.addedURLs,
+            [reauthorizedRootURL]
+        )
+        XCTAssertEqual(fixture.coordinator.sourceAccessState, .available)
+        XCTAssertEqual(
+            Set(fixture.coordinator.items),
+            Set([currentItem, recoveredItem])
+        )
+        XCTAssertEqual(
+            fixture.coordinator.makeQueueSnapshot(),
+            queueBeforeReauthorization
+        )
+        XCTAssertEqual(fixture.coordinator.currentItemID, currentItem.id)
+        XCTAssertEqual(fixture.playback.source?.url, currentItem.url)
+        XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+        XCTAssertEqual(
+            fixture.sourceSelector.intents,
+            [.reauthorizingSources, .reauthorizingSources]
+        )
+    }
+
+    func testAddAndReauthorizationUseDistinctPickerIntents() {
+        let fixture = makeFixture(
+            selectedURLs: [],
+            subsequentSelectedURLs: [[]],
+            snapshot: .empty
+        )
+
+        fixture.coordinator.addMedia()
+        fixture.coordinator.reauthorizeMediaSources()
+
+        XCTAssertEqual(
+            fixture.sourceSelector.intents,
+            [.addingMedia, .reauthorizingSources]
+        )
+    }
+
 }

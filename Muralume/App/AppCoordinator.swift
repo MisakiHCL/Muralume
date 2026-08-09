@@ -187,6 +187,35 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         }
     }
 
+    func reauthorizeMediaSources() {
+        guard canImportMedia,
+              initialRestoreTask == nil,
+              !playbackSession.isRestoring else {
+            return
+        }
+        guard let libraryStart = library.reauthorizeMediaSources() else {
+            return
+        }
+        resumeDeferredPlaybackSession(
+            after: libraryStart,
+            overridingPresentation: .player
+        )
+    }
+
+    func retryUnavailableSourceAccess() {
+        guard canImportMedia,
+              initialRestoreTask == nil,
+              !playbackSession.isRestoring,
+              library.canRetrySourceAccess else {
+            return
+        }
+        let libraryStart = library.retryUnavailableSourceAccess()
+        resumeDeferredPlaybackSession(
+            after: libraryStart,
+            overridingPresentation: .player
+        )
+    }
+
     @discardableResult
     func importDroppedURLs(_ urls: [URL]) -> Bool {
         guard canImportMedia, !urls.isEmpty else {
@@ -401,6 +430,55 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                     restoreGeneration == initialRestoreGeneration
                         && canImportMedia
             )
+        }
+    }
+
+    private func resumeDeferredPlaybackSession(
+        after libraryStart: MediaLibraryStartDisposition,
+        overridingPresentation presentationOverride:
+            PlaybackSessionPresentation? = nil
+    ) {
+        guard initialRestoreTask == nil,
+              playbackSession.hasDeferredRestorePlan,
+              !isShutDown else {
+            return
+        }
+
+        initialRestoreGeneration &+= 1
+        let generation = initialRestoreGeneration
+        initialRestoreTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            defer {
+                playbackSession.finishCancelledRestoreIfNeeded()
+                desktopPreset.finishExternalRestore(
+                    commitCurrentState: false
+                )
+                initialRestoreTask = nil
+            }
+
+            desktopPreset.beginExternalRestore()
+            let restoreResult = await playbackSession.resumeDeferredRestore(
+                after: libraryStart,
+                overridingPresentation: presentationOverride
+            )
+            let shouldCommitDesktopPreset =
+                restoreResult == .restored
+                && generation == initialRestoreGeneration
+                && !isShutDown
+            desktopPreset.finishExternalRestore(
+                commitCurrentState: shouldCommitDesktopPreset
+            )
+
+            guard generation == initialRestoreGeneration,
+                  !isShutDown else {
+                return
+            }
+            if restoreResult != .restored
+                || playback.presentation == .player {
+                showMainWindowInStandardMode()
+            }
         }
     }
 

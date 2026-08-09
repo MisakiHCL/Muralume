@@ -521,6 +521,45 @@ final class PlaybackSessionControllerTests: XCTestCase {
         await shutdown(permanentFixture)
     }
 
+    func testQueueMutationReplacesDeferredRestorePlan() async throws {
+        let availableItem = makeItems()[0]
+        let missingRootURL = URL(
+            fileURLWithPath: "/Volumes/Muralume Missing Library",
+            isDirectory: true
+        )
+        let missingItem = makeItem(
+            rootURL: missingRootURL,
+            name: "Missing",
+            path: "missing.mp4"
+        )
+        let snapshot = try makeSnapshot(
+            items: [missingItem],
+            currentItem: missingItem,
+            currentTime: 11,
+            isPlaying: true,
+            presentation: .desktop
+        )
+        let fixture = makeFixture(
+            items: [availableItem],
+            snapshot: snapshot,
+            hasUnavailablePersistedSources: true
+        )
+
+        let result = await restoreStoredSession(in: fixture)
+
+        XCTAssertEqual(result, .temporarilyUnavailable)
+        XCTAssertTrue(fixture.controller.hasDeferredRestorePlan)
+
+        fixture.library.play(availableItem)
+        await waitUntil {
+            fixture.playback.readiness == .ready
+        }
+
+        XCTAssertFalse(fixture.controller.hasDeferredRestorePlan)
+
+        await shutdown(fixture)
+    }
+
     private func restoreStoredSession(
         in fixture: PlaybackSessionFixture
     ) async -> PlaybackStateRestoreResult {
@@ -570,7 +609,8 @@ final class PlaybackSessionControllerTests: XCTestCase {
         items: [LibraryMediaItem],
         scannedRoots: [MediaLibraryRoot]? = nil,
         snapshot: PlaybackSessionSnapshot? = nil,
-        store suppliedStore: MemoryPlaybackSessionStore? = nil
+        store suppliedStore: MemoryPlaybackSessionStore? = nil,
+        hasUnavailablePersistedSources: Bool = false
     ) -> PlaybackSessionFixture {
         let rootURL = makeItems()[0].rootURL
         let engine = SessionPlaybackEngine()
@@ -580,7 +620,11 @@ final class PlaybackSessionControllerTests: XCTestCase {
         let library = MediaLibraryCoordinator(
             playback: playback,
             sourceSelector: SessionSourceSelector(),
-            mediaSession: SessionMediaAccessSession(rootURLs: [rootURL]),
+            mediaSession: SessionMediaAccessSession(
+                rootURLs: [rootURL],
+                hasUnavailablePersistedSources:
+                    hasUnavailablePersistedSources
+            ),
             scanner: SessionMediaScanner(
                 snapshot: MediaLibrarySnapshot(
                     roots: scannedRoots ?? [
@@ -691,7 +735,7 @@ private struct PlaybackSessionFixture {
 
 @MainActor
 private final class SessionSourceSelector: MediaSourceSelecting {
-    func selectSources() -> [URL] {
+    func selectSources(for intent: MediaSourceSelectionIntent) -> [URL] {
         []
     }
 }
@@ -699,9 +743,15 @@ private final class SessionSourceSelector: MediaSourceSelecting {
 @MainActor
 private final class SessionMediaAccessSession: MediaAccessSession {
     private let rootURLs: [URL]
+    let hasUnavailablePersistedSources: Bool
 
-    init(rootURLs: [URL]) {
+    init(
+        rootURLs: [URL],
+        hasUnavailablePersistedSources: Bool
+    ) {
         self.rootURLs = rootURLs
+        self.hasUnavailablePersistedSources =
+            hasUnavailablePersistedSources
     }
 
     func restoreFolders() -> [URL] {

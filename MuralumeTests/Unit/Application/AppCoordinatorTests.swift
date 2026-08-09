@@ -522,6 +522,160 @@ final class AppCoordinatorTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
+    func testRetryRestoresDeferredDesktopSessionIntoVisiblePlayer() async {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            sessionPresentation: .desktop,
+            sourceInitiallyAvailable: false
+        )
+
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+                && !fixture.playbackSession.isRestoring
+        }
+
+        XCTAssertEqual(
+            fixture.library.sourceAccessState,
+            .temporarilyUnavailable
+        )
+        XCTAssertTrue(fixture.playbackSession.hasDeferredRestorePlan)
+        XCTAssertTrue(fixture.engine.loadedSources.isEmpty)
+
+        fixture.mediaSession.makePersistedSourceAvailable()
+        fixture.coordinator.retryUnavailableSourceAccess()
+        await waitUntil {
+            fixture.playback.readiness == .ready
+                && !fixture.playbackSession.isRestoring
+        }
+
+        XCTAssertTrue(fixture.window.isVisible)
+        XCTAssertEqual(fixture.playback.presentation, .player)
+        XCTAssertFalse(fixture.desktopSession.isActive)
+        XCTAssertEqual(fixture.library.currentItemID, fixture.item.id)
+        XCTAssertEqual(
+            fixture.library.makeQueueSnapshot()?.currentItem,
+            fixture.item.id
+        )
+        XCTAssertEqual(fixture.playback.currentTime, 12)
+        XCTAssertTrue(fixture.playback.isPlaybackRequested)
+        XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+        XCTAssertFalse(fixture.playbackSession.hasDeferredRestorePlan)
+        let sessionLoadCount = await fixture.sessionStore.loadCount
+        XCTAssertEqual(sessionLoadCount, 1)
+
+        fixture.coordinator.retryUnavailableSourceAccess()
+        await Task.yield()
+        XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testReauthorizationCancelPreservesDeferredSession() async {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            sessionPresentation: .desktop,
+            sourceInitiallyAvailable: false,
+            selectedSources: [[]]
+        )
+
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+                && !fixture.playbackSession.isRestoring
+        }
+        let scansBeforeCancel = fixture.scanner.scannedRootURLs
+
+        fixture.coordinator.reauthorizeMediaSources()
+
+        XCTAssertEqual(
+            fixture.sourceSelector.intents,
+            [.reauthorizingSources]
+        )
+        XCTAssertEqual(
+            fixture.library.sourceAccessState,
+            .temporarilyUnavailable
+        )
+        XCTAssertTrue(fixture.playbackSession.hasDeferredRestorePlan)
+        XCTAssertTrue(fixture.mediaSession.activeSources.isEmpty)
+        XCTAssertEqual(fixture.scanner.scannedRootURLs, scansBeforeCancel)
+        XCTAssertTrue(fixture.engine.loadedSources.isEmpty)
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testReauthorizationRestoresDeferredSessionIntoVisiblePlayer()
+        async
+    {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            sessionPresentation: .desktop,
+            sourceInitiallyAvailable: false,
+            selectedSources: nil
+        )
+        fixture.sourceSelector.replaceSelections([[fixture.item.rootURL]])
+
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+                && !fixture.playbackSession.isRestoring
+        }
+
+        fixture.coordinator.reauthorizeMediaSources()
+        await waitUntil {
+            fixture.playback.readiness == .ready
+                && !fixture.playbackSession.isRestoring
+        }
+
+        XCTAssertEqual(
+            fixture.sourceSelector.intents,
+            [.reauthorizingSources]
+        )
+        XCTAssertTrue(fixture.window.isVisible)
+        XCTAssertEqual(fixture.playback.presentation, .player)
+        XCTAssertEqual(fixture.library.currentItemID, fixture.item.id)
+        XCTAssertEqual(fixture.playback.currentTime, 12)
+        XCTAssertTrue(fixture.playback.isPlaybackRequested)
+        XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+        XCTAssertFalse(fixture.playbackSession.hasDeferredRestorePlan)
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testUserActionCancellingDeferredRetryClearsRestorePlan() async {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            sessionPresentation: .desktop,
+            sourceInitiallyAvailable: false
+        )
+
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+                && !fixture.playbackSession.isRestoring
+        }
+        fixture.mediaSession.makePersistedSourceAvailable()
+        fixture.engine.blockPlayerAttachment()
+
+        fixture.coordinator.retryUnavailableSourceAccess()
+        await waitUntil {
+            fixture.engine.didBeginBlockedPlayerAttachment
+        }
+
+        fixture.coordinator.openSettings()
+        fixture.engine.finishBlockedPlayerAttachment()
+        await waitUntil {
+            fixture.coordinator.playerChrome.isSettingsPresented
+                && !fixture.playbackSession.isRestoring
+        }
+
+        XCTAssertFalse(fixture.playbackSession.hasDeferredRestorePlan)
+        XCTAssertEqual(fixture.playback.presentation, .player)
+        XCTAssertFalse(fixture.desktopSession.isActive)
+
+        await fixture.coordinator.shutdown()
+    }
+
     private func prepareActiveQueue(in fixture: AppCoordinatorFixture) async {
         let start = fixture.library.start()
         _ = await fixture.library.waitForStartupScan(after: start)
@@ -536,7 +690,9 @@ final class AppCoordinatorTests: XCTestCase {
         blockPresetLoad: Bool = false,
         blockDesktopAttachment: Bool = false,
         blockSessionLoad: Bool = false,
-        sessionPresentation: PlaybackSessionPresentation? = nil
+        sessionPresentation: PlaybackSessionPresentation? = nil,
+        sourceInitiallyAvailable: Bool = true,
+        selectedSources: [[URL]]? = nil
     ) -> AppCoordinatorFixture {
         let rootURL = URL(
             fileURLWithPath: "/tmp/AppCoordinatorTests/Library"
@@ -565,7 +721,13 @@ final class AppCoordinatorTests: XCTestCase {
         let playback = PlaybackCoordinator(engine: engine)
         let playerSurface = TestPlaybackSurface(id: .player)
         playback.registerPlayerSurface(playerSurface)
-        let mediaSession = AppCoordinatorMediaSession(rootURL: rootURL)
+        let mediaSession = AppCoordinatorMediaSession(
+            rootURL: rootURL,
+            initiallyAvailable: sourceInitiallyAvailable
+        )
+        let sourceSelector = AppCoordinatorSourceSelector(
+            selections: selectedSources ?? []
+        )
         let thumbnailProvider = AppCoordinatorThumbnailProvider()
         let scanner = AppCoordinatorMediaScanner(
             snapshot: MediaLibrarySnapshot(
@@ -580,7 +742,7 @@ final class AppCoordinatorTests: XCTestCase {
         )
         let library = MediaLibraryCoordinator(
             playback: playback,
-            sourceSelector: AppCoordinatorSourceSelector(),
+            sourceSelector: sourceSelector,
             mediaSession: mediaSession,
             scanner: scanner,
             mediaThumbnailProvider: thumbnailProvider,
@@ -661,6 +823,7 @@ final class AppCoordinatorTests: XCTestCase {
             desktopHost: desktopHost,
             applicationPresence: applicationPresence,
             thumbnailProvider: thumbnailProvider,
+            sourceSelector: sourceSelector,
             mediaSession: mediaSession,
             scanner: scanner,
             store: store,
@@ -697,6 +860,7 @@ private struct AppCoordinatorFixture {
     let desktopHost: TestDesktopHost
     let applicationPresence: TestApplicationPresenceController
     let thumbnailProvider: AppCoordinatorThumbnailProvider
+    let sourceSelector: AppCoordinatorSourceSelector
     let mediaSession: AppCoordinatorMediaSession
     let scanner: AppCoordinatorMediaScanner
     let store: AppCoordinatorPresetStore
@@ -799,8 +963,23 @@ private final class AppCoordinatorPlaybackEngine: PlaybackEngine {
 
 @MainActor
 private final class AppCoordinatorSourceSelector: MediaSourceSelecting {
-    func selectSources() -> [URL] {
-        []
+    private var selections: [[URL]]
+    private(set) var intents: [MediaSourceSelectionIntent] = []
+
+    init(selections: [[URL]]) {
+        self.selections = selections
+    }
+
+    func selectSources(for intent: MediaSourceSelectionIntent) -> [URL] {
+        intents.append(intent)
+        guard !selections.isEmpty else {
+            return []
+        }
+        return selections.removeFirst()
+    }
+
+    func replaceSelections(_ selections: [[URL]]) {
+        self.selections = selections
     }
 }
 
@@ -808,13 +987,33 @@ private final class AppCoordinatorSourceSelector: MediaSourceSelecting {
 private final class AppCoordinatorMediaSession: MediaAccessSession {
     private(set) var activeSources: [MediaSource]
     private(set) var stopCount = 0
+    private let persistedSource: MediaSource
+    private var persistedSourceIsAvailable: Bool
 
-    init(rootURL: URL) {
-        activeSources = [MediaSource(url: rootURL, kind: .folder)]
+    var hasUnavailablePersistedSources: Bool {
+        !persistedSourceIsAvailable
+    }
+
+    init(rootURL: URL, initiallyAvailable: Bool) {
+        persistedSource = MediaSource(url: rootURL, kind: .folder)
+        persistedSourceIsAvailable = initiallyAvailable
+        activeSources = initiallyAvailable ? [persistedSource] : []
     }
 
     func restoreSources() -> [MediaSource] {
         activeSources
+    }
+
+    func retryUnavailableSources() -> [MediaSource] {
+        if persistedSourceIsAvailable,
+           !activeSources.contains(where: { $0.id == persistedSource.id }) {
+            activeSources.append(persistedSource)
+        }
+        return activeSources
+    }
+
+    func makePersistedSourceAvailable() {
+        persistedSourceIsAvailable = true
     }
 
     func addSources(_ urls: [URL]) -> MediaAccessUpdate {
@@ -829,6 +1028,9 @@ private final class AppCoordinatorMediaSession: MediaAccessSession {
             if !activeSources.contains(where: { $0.id == source.id }) {
                 activeSources.append(source)
                 didChangeSources = true
+            }
+            if source.id == persistedSource.id {
+                persistedSourceIsAvailable = true
             }
         }
         return MediaAccessUpdate(

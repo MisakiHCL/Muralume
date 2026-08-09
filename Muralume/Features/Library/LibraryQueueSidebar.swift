@@ -11,6 +11,8 @@ struct LibraryQueueSidebar: View {
     let isEditing: Bool
     let setEditing: (Bool) -> Void
     let addMedia: () -> Void
+    let retryUnavailableSourceAccess: () -> Void
+    let reauthorizeMediaSources: () -> Void
     let dismiss: () -> Void
 
     init(
@@ -20,6 +22,8 @@ struct LibraryQueueSidebar: View {
         isEditing: Bool,
         setEditing: @escaping (Bool) -> Void,
         addMedia: @escaping () -> Void,
+        retryUnavailableSourceAccess: @escaping () -> Void,
+        reauthorizeMediaSources: @escaping () -> Void,
         dismiss: @escaping () -> Void
     ) {
         self.library = library
@@ -28,6 +32,8 @@ struct LibraryQueueSidebar: View {
         self.isEditing = isEditing
         self.setEditing = setEditing
         self.addMedia = addMedia
+        self.retryUnavailableSourceAccess = retryUnavailableSourceAccess
+        self.reauthorizeMediaSources = reauthorizeMediaSources
         self.dismiss = dismiss
         _playbackStatus = State(
             initialValue: LibraryPlaybackStatus(playback: playback)
@@ -218,6 +224,37 @@ struct LibraryQueueSidebar: View {
             librarySummary
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+            if !library.items.isEmpty,
+               library.sourceAccessState.hasUnavailableSources {
+                Button {
+                    retryUnavailableSourceAccess()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(
+                            .system(
+                                size: MuralumeTheme.Size.icon,
+                                weight: .semibold
+                            )
+                        )
+                        .frame(
+                            width: MuralumeTheme.Size.control,
+                            height: MuralumeTheme.Size.control
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(!library.canRetrySourceAccess)
+                .help(Text("library.sourceAccess.retry"))
+                .accessibilityLabel(Text("library.sourceAccess.retry"))
+                .accessibilityIdentifier(
+                    MuralumeAccessibilityIdentifier.retrySourceAccessButton
+                )
+            }
+
+            if !library.items.isEmpty,
+               library.sourceAccessState == .partiallyUnavailable {
+                reauthorizeSourceAccessButton
+            }
+
             sortMenu
         }
     }
@@ -236,6 +273,10 @@ struct LibraryQueueSidebar: View {
             editorRefreshStatus
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+            if library.sourceAccessState == .partiallyUnavailable {
+                reauthorizeSourceAccessButton
+            }
+
             Button {
                 library.refresh()
             } label: {
@@ -253,6 +294,30 @@ struct LibraryQueueSidebar: View {
                 MuralumeAccessibilityIdentifier.refreshLibraryButton
             )
         }
+    }
+
+    private var reauthorizeSourceAccessButton: some View {
+        Button {
+            reauthorizeMediaSources()
+        } label: {
+            Image(systemName: "key.horizontal")
+                .font(
+                    .system(
+                        size: MuralumeTheme.Size.icon,
+                        weight: .semibold
+                    )
+                )
+                .frame(
+                    width: MuralumeTheme.Size.control,
+                    height: MuralumeTheme.Size.control
+                )
+        }
+        .buttonStyle(.plain)
+        .help(Text("library.sourceAccess.reauthorize"))
+        .accessibilityLabel(Text("library.sourceAccess.reauthorize"))
+        .accessibilityIdentifier(
+            MuralumeAccessibilityIdentifier.reauthorizeSourcesButton
+        )
     }
 
     private var rootEditor: some View {
@@ -357,7 +422,11 @@ struct LibraryQueueSidebar: View {
     private var editorRefreshStatus: some View {
         switch library.scanState {
         case .idle:
-            Text("library.summary.empty")
+            Text(
+                library.sourceAccessState == .temporarilyUnavailable
+                    ? "library.sourceAccess.unavailable.short"
+                    : "library.summary.empty"
+            )
                 .foregroundStyle(MuralumeTheme.Colors.textSecondary)
         case .scanning:
             HStack(spacing: MuralumeTheme.Spacing.small) {
@@ -369,8 +438,17 @@ struct LibraryQueueSidebar: View {
             }
             .foregroundStyle(MuralumeTheme.Colors.textSecondary)
         case .ready:
-            Text(videoCountText)
-                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+            if library.sourceAccessState == .partiallyUnavailable {
+                Label(
+                    "library.sourceAccess.partial",
+                    systemImage: "externaldrive.badge.exclamationmark"
+                )
+                .foregroundStyle(MuralumeTheme.Colors.warning)
+                .lineLimit(1)
+            } else {
+                Text(videoCountText)
+                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+            }
         case .failed:
             HStack(spacing: MuralumeTheme.Spacing.small) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -398,7 +476,11 @@ struct LibraryQueueSidebar: View {
     private var librarySummary: some View {
         switch library.scanState {
         case .idle:
-            Text("library.summary.empty")
+            Text(
+                library.sourceAccessState == .temporarilyUnavailable
+                    ? "library.sourceAccess.unavailable.short"
+                    : "library.summary.empty"
+            )
                 .foregroundStyle(MuralumeTheme.Colors.textSecondary)
         case .scanning:
             HStack(spacing: MuralumeTheme.Spacing.small) {
@@ -442,7 +524,14 @@ struct LibraryQueueSidebar: View {
                         )
                     }
                 }
-                if let sourceText {
+                if library.sourceAccessState == .partiallyUnavailable {
+                    Label(
+                        "library.sourceAccess.partial",
+                        systemImage: "externaldrive.badge.exclamationmark"
+                    )
+                    .foregroundStyle(MuralumeTheme.Colors.warning)
+                    .lineLimit(1)
+                } else if let sourceText {
                     Text(sourceText)
                         .foregroundStyle(MuralumeTheme.Colors.textTertiary)
                         .lineLimit(1)
@@ -531,7 +620,11 @@ struct LibraryQueueSidebar: View {
         if library.items.isEmpty {
             LibrarySidebarEmptyState(
                 scanState: library.scanState,
-                hasSources: !library.roots.isEmpty
+                hasSources: !library.roots.isEmpty,
+                sourceAccessState: library.sourceAccessState,
+                canRetrySourceAccess: library.canRetrySourceAccess,
+                retrySourceAccess: retryUnavailableSourceAccess,
+                reauthorizeMediaSources: reauthorizeMediaSources
             )
         } else {
             ScrollViewReader { proxy in
@@ -933,15 +1026,31 @@ private struct LibraryMediaRow: View {
 private struct LibrarySidebarEmptyState: View {
     let scanState: MediaLibraryScanState
     let hasSources: Bool
+    let sourceAccessState: MediaLibrarySourceAccessState
+    let canRetrySourceAccess: Bool
+    let retrySourceAccess: () -> Void
+    let reauthorizeMediaSources: () -> Void
+
+    private var sourceAccessIsUnavailable: Bool {
+        sourceAccessState.hasUnavailableSources
+    }
+
+    private var sourceAccessUnavailableTitleKey: String {
+        sourceAccessState == .partiallyUnavailable
+            ? "library.sourceAccess.partial"
+            : "library.sourceAccess.unavailable.title"
+    }
 
     var body: some View {
         VStack(spacing: MuralumeTheme.Spacing.medium) {
             Spacer(minLength: MuralumeTheme.Spacing.large)
 
             Image(
-                systemName: scanState == .scanning
-                    ? "magnifyingglass"
-                    : "plus.rectangle.on.folder"
+                systemName: sourceAccessIsUnavailable
+                    ? "externaldrive.badge.exclamationmark"
+                    : scanState == .scanning
+                        ? "magnifyingglass"
+                        : "plus.rectangle.on.folder"
             )
             .font(.system(size: 32, weight: .medium))
             .foregroundStyle(MuralumeTheme.Colors.controlAccent)
@@ -951,7 +1060,9 @@ private struct LibrarySidebarEmptyState: View {
                 LocalizedStringKey(
                     scanState == .scanning
                         ? "library.scanning"
-                        : hasSources
+                        : sourceAccessIsUnavailable
+                            ? sourceAccessUnavailableTitleKey
+                            : hasSources
                             ? "library.empty.title"
                             : "media.none.title"
                 )
@@ -962,14 +1073,52 @@ private struct LibrarySidebarEmptyState: View {
             if scanState != .scanning {
                 Text(
                     LocalizedStringKey(
-                        hasSources
-                            ? "library.empty.detail"
-                            : "media.none.detail"
+                        sourceAccessIsUnavailable
+                            ? sourceAccessState == .partiallyUnavailable
+                                ? "library.sourceAccess.partial.detail"
+                                : "library.sourceAccess.unavailable.detail"
+                            : hasSources
+                                ? "library.empty.detail"
+                                : "media.none.detail"
                     )
                 )
                 .font(.caption)
                 .foregroundStyle(MuralumeTheme.Colors.textSecondary)
                 .multilineTextAlignment(.center)
+            }
+
+            if sourceAccessIsUnavailable,
+               scanState != .scanning {
+                HStack(spacing: MuralumeTheme.Spacing.small) {
+                    Button("library.sourceAccess.retry") {
+                        retrySourceAccess()
+                    }
+                    .buttonStyle(
+                        MuralumeToolbarButtonStyle(
+                            width: MuralumeTheme.Size
+                                .playlistRefreshActionWidth
+                        )
+                    )
+                    .disabled(!canRetrySourceAccess)
+                    .accessibilityIdentifier(
+                        MuralumeAccessibilityIdentifier
+                            .retrySourceAccessButton
+                    )
+
+                    Button("library.sourceAccess.reauthorize") {
+                        reauthorizeMediaSources()
+                    }
+                    .buttonStyle(
+                        MuralumeToolbarButtonStyle(
+                            width: MuralumeTheme.Size
+                                .playlistRefreshActionWidth
+                        )
+                    )
+                    .accessibilityIdentifier(
+                        MuralumeAccessibilityIdentifier
+                            .reauthorizeSourcesButton
+                    )
+                }
             }
 
             Spacer(minLength: MuralumeTheme.Spacing.large)

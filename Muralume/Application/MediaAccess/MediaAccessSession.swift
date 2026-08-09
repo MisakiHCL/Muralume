@@ -21,6 +21,9 @@ protocol MediaAccessSession: AnyObject {
     func restoreFolders() -> [URL]
     /// Restores persisted file and folder grants and keeps their scopes active.
     func restoreSources() -> [MediaSource]
+    /// Re-attempts only persisted grants that were unavailable during the
+    /// initial restore. Existing active scopes remain open.
+    func retryUnavailableSources() -> [MediaSource]
 
     /// Legacy folder-only add API.
     func addFolders(_ urls: [URL]) -> [URL]
@@ -57,6 +60,10 @@ extension MediaAccessSession {
 
     func restoreFolders() -> [URL] {
         []
+    }
+
+    func retryUnavailableSources() -> [MediaSource] {
+        restoreSources()
     }
 
     func addSources(_ urls: [URL]) -> MediaAccessUpdate {

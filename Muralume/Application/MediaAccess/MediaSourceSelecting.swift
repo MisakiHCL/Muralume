@@ -1,6 +1,11 @@
 import Foundation
 
+enum MediaSourceSelectionIntent: Equatable, Sendable {
+    case addingMedia
+    case reauthorizingSources
+}
+
 @MainActor
 protocol MediaSourceSelecting: AnyObject {
-    func selectSources() -> [URL]
+    func selectSources(for intent: MediaSourceSelectionIntent) -> [URL]
 }

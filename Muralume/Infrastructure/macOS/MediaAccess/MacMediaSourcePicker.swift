@@ -9,7 +9,7 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
         self.localization = localization
     }
 
-    func selectSources() -> [URL] {
+    func selectSources(for intent: MediaSourceSelectionIntent) -> [URL] {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.resolvesAliases = true
@@ -20,8 +20,8 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.canCreateDirectories = false
-        panel.message = localized("library.media.picker.message")
-        panel.prompt = localized("library.media.picker.prompt")
+        panel.message = localized(messageKey(for: intent))
+        panel.prompt = localized(promptKey(for: intent))
 
         guard panel.runModal() == .OK else {
             return []
@@ -31,5 +31,23 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
 
     private func localized(_ key: String) -> String {
         localization.localized(key)
+    }
+
+    private func messageKey(for intent: MediaSourceSelectionIntent) -> String {
+        switch intent {
+        case .addingMedia:
+            "library.media.picker.message"
+        case .reauthorizingSources:
+            "library.media.picker.reauthorize.message"
+        }
+    }
+
+    private func promptKey(for intent: MediaSourceSelectionIntent) -> String {
+        switch intent {
+        case .addingMedia:
+            "library.media.picker.prompt"
+        case .reauthorizingSources:
+            "library.media.picker.reauthorize.prompt"
+        }
     }
 }

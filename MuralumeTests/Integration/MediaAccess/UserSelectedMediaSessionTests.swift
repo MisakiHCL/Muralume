@@ -627,7 +627,7 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         fixture.session.stop()
     }
 
-    func testRestoreDropsLegacyOverlappingBookmarksAndStopsRejectedURLs() throws {
+    func testRestorePreservesRejectedLegacyOverlapAndStopsItsScope() throws {
         let fixture = makeSessionFixture()
         defer { fixture.clearDefaults() }
 
@@ -670,9 +670,13 @@ final class UserSelectedMediaSessionTests: XCTestCase {
             storedSourceRecords(in: fixture.defaults),
             [StoredSourceRecord(kind: .folder, bookmark: rootBookmark)]
         )
-        XCTAssertNil(
-            fixture.defaults.array(forKey: TestStorage.legacyBookmarkKey)
+        XCTAssertEqual(
+            fixture.defaults.array(
+                forKey: TestStorage.legacyBookmarkKey
+            ) as? [Data],
+            [childBookmark]
         )
+        XCTAssertTrue(fixture.session.hasUnavailablePersistedSources)
 
         fixture.session.stop()
         XCTAssertEqual(
@@ -1385,6 +1389,339 @@ final class UserSelectedMediaSessionTests: XCTestCase {
             [resolvedURL, selectedURL]
         )
         XCTAssertTrue(storedSourceRecords(in: fixture.defaults).isEmpty)
+    }
+
+    func testTypedFolderRestoresAcrossFreshDefaultsAndSessionInstances() {
+        let suiteName = "\(TestStorage.suiteName).\(UUID().uuidString)"
+        let folderURL = URL(
+            fileURLWithPath: "/tmp/Muralume Fresh Defaults Library",
+            isDirectory: true
+        )
+        let bookmark = Data(folderURL.absoluteString.utf8)
+        defer {
+            UserDefaults(suiteName: suiteName)?
+                .removePersistentDomain(forName: suiteName)
+        }
+
+        do {
+            let defaults = UserDefaults(suiteName: suiteName)!
+            defaults.removePersistentDomain(forName: suiteName)
+            let recorder = SecurityScopeRecorder()
+            recorder.resolvedURLByBookmark[bookmark] = folderURL
+            let session = makeSession(
+                defaults: defaults,
+                recorder: recorder
+            )
+
+            let update = session.addSources([folderURL])
+
+            XCTAssertEqual(
+                update.activeSources,
+                [MediaSource(url: folderURL, kind: .folder)]
+            )
+            session.stop()
+        }
+
+        let freshDefaults = UserDefaults(suiteName: suiteName)!
+        let freshRecorder = SecurityScopeRecorder()
+        freshRecorder.resolvedURLByBookmark[bookmark] = folderURL
+        let freshSession = makeSession(
+            defaults: freshDefaults,
+            recorder: freshRecorder
+        )
+
+        XCTAssertEqual(
+            freshSession.restoreSources(),
+            [MediaSource(url: folderURL, kind: .folder)]
+        )
+        XCTAssertFalse(freshSession.hasUnavailablePersistedSources)
+        XCTAssertEqual(
+            storedSourceRecords(in: freshDefaults),
+            [StoredSourceRecord(kind: .folder, bookmark: bookmark)]
+        )
+        freshSession.stop()
+    }
+
+    func testRetryUnavailableTypedFolderSucceedsWithoutRecreatingSession() {
+        let fixture = makeSessionFixture()
+        defer { fixture.clearDefaults() }
+        let folderURL = URL(
+            fileURLWithPath: "/Volumes/Offline/Muralume Library",
+            isDirectory: true
+        )
+        let bookmark = fixture.recorder.bookmark(for: folderURL)
+        let record = StoredSourceRecord(
+            kind: .folder,
+            bookmark: bookmark
+        )
+        fixture.defaults.set(
+            [record.storedValue],
+            forKey: TestStorage.sourceRecordKey
+        )
+
+        XCTAssertTrue(fixture.session.restoreSources().isEmpty)
+        XCTAssertTrue(fixture.session.hasUnavailablePersistedSources)
+
+        fixture.recorder.resolvedURLByBookmark[bookmark] = folderURL
+        let restoredSources = fixture.session.retryUnavailableSources()
+        let resolutionCountAfterRecovery =
+            fixture.recorder.resolvedBookmarks.count
+
+        XCTAssertEqual(
+            restoredSources,
+            [MediaSource(url: folderURL, kind: .folder)]
+        )
+        XCTAssertFalse(fixture.session.hasUnavailablePersistedSources)
+        XCTAssertEqual(storedSourceRecords(in: fixture.defaults), [record])
+        XCTAssertEqual(fixture.recorder.startedURLs, [folderURL])
+
+        XCTAssertEqual(
+            fixture.session.retryUnavailableSources(),
+            restoredSources
+        )
+        XCTAssertEqual(
+            fixture.recorder.resolvedBookmarks.count,
+            resolutionCountAfterRecovery
+        )
+        fixture.session.stop()
+    }
+
+    func testSuccessfulPersistedRestoreRefreshesBookmarkBestEffort() {
+        let fixture = makeSessionFixture()
+        defer { fixture.clearDefaults() }
+        let folderURL = URL(
+            fileURLWithPath: "/tmp/Muralume Refreshed Bookmark",
+            isDirectory: true
+        )
+        let originalBookmark = Data("original-bookmark".utf8)
+        let refreshedBookmark = Data("refreshed-bookmark".utf8)
+        fixture.defaults.set(
+            [
+                StoredSourceRecord(
+                    kind: .folder,
+                    bookmark: originalBookmark
+                ).storedValue
+            ],
+            forKey: TestStorage.sourceRecordKey
+        )
+        fixture.recorder.resolvedURLByBookmark[originalBookmark] = folderURL
+        fixture.recorder.generatedBookmarkByURL[folderURL] = refreshedBookmark
+
+        XCTAssertEqual(
+            fixture.session.restoreSources(),
+            [MediaSource(url: folderURL, kind: .folder)]
+        )
+        XCTAssertEqual(
+            storedSourceRecords(in: fixture.defaults),
+            [
+                StoredSourceRecord(
+                    kind: .folder,
+                    bookmark: refreshedBookmark
+                )
+            ]
+        )
+        XCTAssertEqual(fixture.recorder.bookmarkedURLs, [folderURL])
+        fixture.session.stop()
+    }
+
+    func testFailedPersistedBookmarkRefreshKeepsOriginalGrant() {
+        let fixture = makeSessionFixture()
+        defer { fixture.clearDefaults() }
+        let folderURL = URL(
+            fileURLWithPath: "/tmp/Muralume Oversized Refresh",
+            isDirectory: true
+        )
+        let originalBookmark = Data("working-bookmark".utf8)
+        fixture.defaults.set(
+            [
+                StoredSourceRecord(
+                    kind: .folder,
+                    bookmark: originalBookmark
+                ).storedValue
+            ],
+            forKey: TestStorage.sourceRecordKey
+        )
+        fixture.recorder.resolvedURLByBookmark[originalBookmark] = folderURL
+        fixture.recorder.generatedBookmarkByURL[folderURL] = Data(
+            repeating: 0xA5,
+            count: MediaImportPolicy.maximumBookmarkByteCount + 1
+        )
+
+        XCTAssertEqual(
+            fixture.session.restoreSources(),
+            [MediaSource(url: folderURL, kind: .folder)]
+        )
+        XCTAssertFalse(fixture.session.hasUnavailablePersistedSources)
+        XCTAssertEqual(
+            storedSourceRecords(in: fixture.defaults),
+            [
+                StoredSourceRecord(
+                    kind: .folder,
+                    bookmark: originalBookmark
+                )
+            ]
+        )
+        fixture.session.stop()
+    }
+
+    func testReauthorizationPreservesUnmatchedUnavailableTypedRecord() {
+        let fixture = makeSessionFixture()
+        defer { fixture.clearDefaults() }
+        let unavailableBookmark = Data("unmatched-v1-bookmark".utf8)
+        let unavailableRecord = StoredSourceRecord(
+            kind: .folder,
+            bookmark: unavailableBookmark
+        )
+        fixture.defaults.set(
+            [unavailableRecord.storedValue],
+            forKey: TestStorage.sourceRecordKey
+        )
+        XCTAssertTrue(fixture.session.restoreSources().isEmpty)
+
+        let reauthorizedURL = URL(
+            fileURLWithPath: "/tmp/Muralume Reauthorized Library",
+            isDirectory: true
+        )
+        let reauthorizedBookmark = fixture.recorder.bookmark(
+            for: reauthorizedURL
+        )
+        fixture.recorder.resolvedURLByBookmark[reauthorizedBookmark] =
+            reauthorizedURL
+
+        let update = fixture.session.addSources([reauthorizedURL])
+
+        XCTAssertEqual(
+            update.activeSources,
+            [MediaSource(url: reauthorizedURL, kind: .folder)]
+        )
+        XCTAssertTrue(fixture.session.hasUnavailablePersistedSources)
+        XCTAssertEqual(
+            Set(storedSourceRecords(in: fixture.defaults)),
+            Set([
+                unavailableRecord,
+                StoredSourceRecord(
+                    kind: .folder,
+                    bookmark: reauthorizedBookmark
+                )
+            ])
+        )
+        fixture.session.stop()
+    }
+
+    func testRetryDropsCoveredExactFileAfterParentFolderReauthorization()
+        throws
+    {
+        let fixture = makeSessionFixture()
+        defer { fixture.clearDefaults() }
+        let folderURL = try makeSandbox()
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+        let fileURL = folderURL.appendingPathComponent("Recovered.mov")
+        try Data([0xA5]).write(to: fileURL)
+        let fileBookmark = fixture.recorder.bookmark(for: fileURL)
+        let fileRecord = StoredSourceRecord(
+            kind: .file,
+            bookmark: fileBookmark
+        )
+        fixture.defaults.set(
+            [fileRecord.storedValue],
+            forKey: TestStorage.sourceRecordKey
+        )
+
+        XCTAssertTrue(fixture.session.restoreSources().isEmpty)
+        XCTAssertTrue(fixture.session.hasUnavailablePersistedSources)
+
+        let folderBookmark = fixture.recorder.bookmark(for: folderURL)
+        fixture.recorder.resolvedURLByBookmark[fileBookmark] = fileURL
+        fixture.recorder.resolvedURLByBookmark[folderBookmark] = folderURL
+        let folderUpdate = fixture.session.addSources([folderURL])
+
+        XCTAssertEqual(
+            folderUpdate.activeSources,
+            [MediaSource(url: folderURL, kind: .folder)]
+        )
+        XCTAssertTrue(fixture.session.hasUnavailablePersistedSources)
+
+        XCTAssertEqual(
+            fixture.session.retryUnavailableSources(),
+            [MediaSource(url: folderURL, kind: .folder)]
+        )
+        XCTAssertFalse(fixture.session.hasUnavailablePersistedSources)
+        XCTAssertEqual(
+            storedSourceRecords(in: fixture.defaults),
+            [
+                StoredSourceRecord(
+                    kind: .folder,
+                    bookmark: folderBookmark
+                )
+            ]
+        )
+        XCTAssertEqual(fixture.recorder.startedURLs, [folderURL, fileURL])
+        XCTAssertEqual(fixture.recorder.stoppedURLs, [folderURL, fileURL])
+        fixture.session.stop()
+    }
+
+    func testRetryPreservesUnavailableParentRejectedByActiveChild()
+        throws
+    {
+        let fixture = makeSessionFixture()
+        defer { fixture.clearDefaults() }
+        let parentURL = try makeSandbox()
+        defer { try? FileManager.default.removeItem(at: parentURL) }
+        let childURL = parentURL.appendingPathComponent(
+            "Active Child",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: childURL,
+            withIntermediateDirectories: true
+        )
+
+        let parentBookmark = fixture.recorder.bookmark(for: parentURL)
+        let parentRecord = StoredSourceRecord(
+            kind: .folder,
+            bookmark: parentBookmark
+        )
+        fixture.defaults.set(
+            [parentRecord.storedValue],
+            forKey: TestStorage.sourceRecordKey
+        )
+
+        XCTAssertTrue(fixture.session.restoreSources().isEmpty)
+        XCTAssertTrue(fixture.session.hasUnavailablePersistedSources)
+
+        let childBookmark = fixture.recorder.bookmark(for: childURL)
+        fixture.recorder.resolvedURLByBookmark[childBookmark] = childURL
+        XCTAssertEqual(
+            fixture.session.addSources([childURL]).activeSources,
+            [MediaSource(url: childURL, kind: .folder)]
+        )
+
+        fixture.recorder.resolvedURLByBookmark[parentBookmark] = parentURL
+        XCTAssertEqual(
+            fixture.session.retryUnavailableSources(),
+            [MediaSource(url: childURL, kind: .folder)]
+        )
+
+        XCTAssertTrue(fixture.session.hasUnavailablePersistedSources)
+        XCTAssertEqual(
+            Set(storedSourceRecords(in: fixture.defaults)),
+            Set([
+                parentRecord,
+                StoredSourceRecord(
+                    kind: .folder,
+                    bookmark: childBookmark
+                )
+            ])
+        )
+        XCTAssertEqual(
+            fixture.recorder.startedURLs,
+            [childURL, parentURL]
+        )
+        XCTAssertEqual(
+            fixture.recorder.stoppedURLs,
+            [childURL, parentURL]
+        )
+        fixture.session.stop()
     }
 
     private func makeSessionFixture(

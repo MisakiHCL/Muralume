@@ -1313,7 +1313,7 @@ private struct DesktopPresetFixture {
 
 @MainActor
 private final class EmptySourceSelector: MediaSourceSelecting {
-    func selectSources() -> [URL] {
+    func selectSources(for intent: MediaSourceSelectionIntent) -> [URL] {
         []
     }
 }

@@ -159,6 +159,26 @@ enum MediaLibraryFilePolicy {
     ]
 }
 
+enum MediaLibrarySourceAccessState: Equatable, Sendable {
+    /// No persisted or currently accessible media sources exist.
+    case empty
+    /// Every persisted source that was considered is currently accessible.
+    case available
+    /// Persisted sources exist, but none can currently be accessed.
+    case temporarilyUnavailable
+    /// At least one source is accessible and at least one remains unavailable.
+    case partiallyUnavailable
+
+    var hasUnavailableSources: Bool {
+        switch self {
+        case .temporarilyUnavailable, .partiallyUnavailable:
+            true
+        case .empty, .available:
+            false
+        }
+    }
+}
+
 enum MediaImportPolicy {
     /// Bounds one picker/drop transaction before any bookmark work begins.
     static let maximumTopLevelSourceCount = 256

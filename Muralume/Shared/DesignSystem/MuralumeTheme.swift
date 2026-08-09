@@ -134,6 +134,8 @@ enum MuralumeAccessibilityIdentifier {
     static let editLibraryButton = "muralume.edit-library"
     static let refreshLibraryButton = "muralume.refresh-library"
     static let addMediaButton = "muralume.add-media"
+    static let retrySourceAccessButton = "muralume.retry-source-access"
+    static let reauthorizeSourcesButton = "muralume.reauthorize-sources"
     static let mediaDropOverlay = "muralume.media-drop-overlay"
     static let playbackOrderButton = "muralume.playback-order"
     static let librarySortButton = "muralume.library-sort"

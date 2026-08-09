@@ -122,6 +122,8 @@ final class MediaLibraryCoordinator: ObservableObject {
     @Published private(set) var unavailableItemIDs: Set<LibraryMediaItem.ID> = []
     @Published private(set) var queueRevision: UInt64 = 0
     @Published private(set) var importNotice: MediaImportNotice?
+    @Published private(set) var sourceAccessState:
+        MediaLibrarySourceAccessState = .empty
 
     var currentItem: LibraryMediaItem? {
         guard let currentItemID else {
@@ -148,6 +150,13 @@ final class MediaLibraryCoordinator: ObservableObject {
             && !activeSources.isEmpty
             && rootIDsPendingRemoval.isEmpty
             && scanState != .scanning
+    }
+
+    var canRetrySourceAccess: Bool {
+        !isShutDown
+            && rootIDsPendingRemoval.isEmpty
+            && scanState != .scanning
+            && sourceAccessState.hasUnavailableSources
     }
 
     var canMoveToPrevious: Bool {
@@ -226,6 +235,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         hasStarted = true
 
         let restoredSources = mediaSession.restoreSources()
+        updateSourceAccessState(using: restoredSources)
         guard !restoredSources.isEmpty else {
             scanState = .idle
             return .noRestorableRoots(
@@ -262,14 +272,68 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     func addMedia() {
+        selectMediaSources(
+            intent: .addingMedia,
+            autoplayExplicitFiles: true
+        )
+    }
+
+    @discardableResult
+    func reauthorizeMediaSources() -> MediaLibraryStartDisposition? {
+        selectMediaSources(
+            intent: .reauthorizingSources,
+            autoplayExplicitFiles: false
+        )
+    }
+
+    @discardableResult
+    private func selectMediaSources(
+        intent: MediaSourceSelectionIntent,
+        autoplayExplicitFiles: Bool
+    ) -> MediaLibraryStartDisposition? {
         guard !isShutDown, rootIDsPendingRemoval.isEmpty else {
-            return
+            return nil
         }
-        let selectedURLs = sourceSelector.selectSources()
+        let selectedURLs = sourceSelector.selectSources(for: intent)
         guard let preparation = prepareImport(selectedURLs) else {
-            return
+            return nil
         }
-        commitImport(preparation)
+        commitImport(
+            preparation,
+            autoplayExplicitFiles: autoplayExplicitFiles
+        )
+        return scanState == .scanning ? .scanStarted : .alreadyStarted
+    }
+
+    @discardableResult
+    func retryUnavailableSourceAccess() -> MediaLibraryStartDisposition {
+        guard canRetrySourceAccess else {
+            return .alreadyStarted
+        }
+
+        let previousSources = activeSources
+        let previousSourcePaths = sourcePathSet(previousSources)
+        let restoredSources = mediaSession.retryUnavailableSources()
+        recordSupersededThumbnailRoots(
+            previousSources: previousSources,
+            activeSources: restoredSources
+        )
+        latestPreparedSources = restoredSources
+        updateSourceAccessState(using: restoredSources)
+
+        guard sourcePathSet(restoredSources) != previousSourcePaths,
+              !restoredSources.isEmpty else {
+            if restoredSources.isEmpty {
+                return .noRestorableRoots(
+                    hasTemporarilyUnavailableRoots:
+                        mediaSession.hasUnavailablePersistedSources
+                )
+            }
+            return .alreadyStarted
+        }
+        preparedSourcesNeedRefresh = true
+        refresh(using: restoredSources)
+        return .scanStarted
     }
 
     func prepareImport(
@@ -299,6 +363,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             activeSources: update.activeSources
         )
         latestPreparedSources = update.activeSources
+        updateSourceAccessState(using: update.activeSources)
         preparedSourcesNeedRefresh =
             preparedSourcesNeedRefresh || update.didChangeSources
         if !requestedFileURLs.isEmpty {
@@ -526,6 +591,7 @@ final class MediaLibraryCoordinator: ObservableObject {
 
         activeSources = remainingSources
         latestPreparedSources = remainingSources
+        updateSourceAccessState(using: remainingSources)
         preparedSourcesNeedRefresh = !remainingSources.isEmpty
         let shouldReloadCurrentItem =
             (playbackTouchesRemovedItems || removedCurrentItem)
@@ -808,6 +874,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         mediaSession.stop()
         activeSources = []
         latestPreparedSources = []
+        sourceAccessState = .empty
         preparedSourcesNeedRefresh = false
         supersededThumbnailRootPaths = []
         incompleteRootPaths = []
@@ -829,6 +896,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         let generation = scanGeneration
         cancelCurrentScanTask()
         activeSources = sources
+        updateSourceAccessState(using: sources)
         scanState = .scanning
 
         let taskID = UUID()
@@ -1268,6 +1336,16 @@ final class MediaLibraryCoordinator: ObservableObject {
         _ sources: [MediaSource]
     ) -> Set<String> {
         Set(sources.map { $0.id.standardizedPath })
+    }
+
+    private func updateSourceAccessState(using sources: [MediaSource]) {
+        if mediaSession.hasUnavailablePersistedSources {
+            sourceAccessState = sources.isEmpty
+                ? .temporarilyUnavailable
+                : .partiallyUnavailable
+        } else {
+            sourceAccessState = sources.isEmpty ? .empty : .available
+        }
     }
 
     private func recordSupersededThumbnailRoots(

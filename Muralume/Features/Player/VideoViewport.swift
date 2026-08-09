@@ -136,6 +136,14 @@ private struct PlayerEmptyState: View {
         if library.scanState == .scanning {
             return "library.scanning"
         }
+        switch library.sourceAccessState {
+        case .temporarilyUnavailable:
+            return "library.sourceAccess.unavailable.title"
+        case .partiallyUnavailable:
+            return "library.sourceAccess.partial"
+        case .empty, .available:
+            break
+        }
         if library.roots.isEmpty {
             return "media.none.title"
         }
@@ -148,6 +156,14 @@ private struct PlayerEmptyState: View {
     private var detailKey: String {
         if library.scanState == .scanning {
             return "library.scanning.detail"
+        }
+        switch library.sourceAccessState {
+        case .temporarilyUnavailable:
+            return "library.sourceAccess.unavailable.detail"
+        case .partiallyUnavailable:
+            return "library.sourceAccess.partial.detail"
+        case .empty, .available:
+            break
         }
         if library.roots.isEmpty {
             return "media.none.detail"

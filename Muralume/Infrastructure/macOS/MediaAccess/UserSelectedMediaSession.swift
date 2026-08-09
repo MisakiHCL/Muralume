@@ -153,6 +153,41 @@ final class UserSelectedMediaSession: MediaAccessSession {
         // format cannot impose a total byte bound without a migration.
         let storedRecordValues = storedSourceRecordValues
         let legacyBookmarks = storedLegacyBookmarks
+        restoreCandidates(
+            storedRecordValues: storedRecordValues,
+            legacyBookmarks: legacyBookmarks
+        )
+        storeSourceRecords(currentStoredRecordValues)
+        storeLegacyBookmarks(currentLegacyBookmarks)
+        return activeSources
+    }
+
+    func retryUnavailableSources() -> [MediaSource] {
+        guard didAttemptRestore else {
+            return restoreSources()
+        }
+        guard hasUnavailablePersistedSources else {
+            return activeSources
+        }
+
+        let storedRecordValues = Array(deferredStoredRecordValues)
+            + unavailableStoredRecordValues
+        let legacyBookmarks = Array(deferredLegacyBookmarks)
+            + unavailableLegacyBookmarks
+
+        restoreCandidates(
+            storedRecordValues: storedRecordValues,
+            legacyBookmarks: legacyBookmarks
+        )
+        storeSourceRecords(currentStoredRecordValues)
+        storeLegacyBookmarks(currentLegacyBookmarks)
+        return activeSources
+    }
+
+    private func restoreCandidates(
+        storedRecordValues: [Any],
+        legacyBookmarks: [Data]
+    ) {
         unavailableStoredRecordValues = []
         unavailableLegacyBookmarks = []
         deferredStoredRecordValues = []
@@ -221,10 +256,6 @@ final class UserSelectedMediaSession: MediaAccessSession {
                 continue
             }
         }
-
-        storeSourceRecords(currentStoredRecordValues)
-        storeLegacyBookmarks(currentLegacyBookmarks)
-        return activeSources
     }
 
     func restoreFolders() -> [URL] {
@@ -662,11 +693,16 @@ final class UserSelectedMediaSession: MediaAccessSession {
             return
         }
 
+        let refreshedCandidate = candidateByRefreshingBookmark(
+            candidate,
+            resolvedURL: resolvedURL
+        )
+
         if linkResolution.didResolveLink {
             securityAccess.stopAccess(resolvedURL)
             pendingLinkedCandidates.append(
                 PendingLinkedCandidate(
-                    candidate: candidate,
+                    candidate: refreshedCandidate,
                     targetSource: MediaSource(
                         url: linkResolution.targetURL,
                         kind: record.kind
@@ -678,32 +714,53 @@ final class UserSelectedMediaSession: MediaAccessSession {
 
         let source = MediaSource(url: resolvedURL, kind: record.kind)
         switch disposition(for: source) {
-        case .covered, .rejected:
+        case .covered:
             securityAccess.stopAccess(resolvedURL)
+        case .rejected:
+            securityAccess.stopAccess(resolvedURL)
+            preserveUnavailable(refreshedCandidate)
         case let .insert(replacingKeys):
-            let activeBookmark: Data
-            if resolvedBookmark.isStale,
-               let refreshedBookmark = securityAccess.makeBookmark(resolvedURL) {
-                guard Self.bookmarkIsWithinPersistenceLimit(
-                    refreshedBookmark
-                ) else {
-                    securityAccess.stopAccess(resolvedURL)
-                    preserveUnavailable(candidate)
-                    return
-                }
-                activeBookmark = refreshedBookmark
-            } else {
-                activeBookmark = record.bookmark
+            guard canInstallSource(replacingKeys: replacingKeys) else {
+                securityAccess.stopAccess(resolvedURL)
+                preserveUnavailable(refreshedCandidate)
+                return
             }
             let replacedURLs = install(
                 source,
-                bookmark: activeBookmark,
+                bookmark: refreshedCandidate.record.bookmark,
                 replacingKeys: replacingKeys
             )
             for replacedURL in replacedURLs {
                 securityAccess.stopAccess(replacedURL)
             }
         }
+    }
+
+    private func candidateByRefreshingBookmark(
+        _ candidate: RestoreCandidate,
+        resolvedURL: URL
+    ) -> RestoreCandidate {
+        // Refresh every successfully resolved persisted grant when the
+        // current signing identity can create a replacement. A failed or
+        // oversized refresh must not discard the still-working bookmark.
+        guard let refreshedBookmark = securityAccess.makeBookmark(resolvedURL),
+              Self.bookmarkIsWithinPersistenceLimit(refreshedBookmark) else {
+            return candidate
+        }
+        let refreshedRecord = PersistedSourceRecord(
+            kind: candidate.record.kind,
+            bookmark: refreshedBookmark
+        )
+        let refreshedOrigin: RestoreOrigin = switch candidate.origin {
+        case .typed:
+            .typed(storedValue: refreshedRecord.storedValue)
+        case .legacy:
+            .legacy(bookmark: refreshedBookmark)
+        }
+        return RestoreCandidate(
+            record: refreshedRecord,
+            origin: refreshedOrigin
+        )
     }
 
     private func playbackURL(for candidate: MediaSource) -> URL {

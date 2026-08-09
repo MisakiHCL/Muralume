@@ -32,6 +32,10 @@ final class PlaybackSessionController: ObservableObject {
         restoreInProgress
     }
 
+    var hasDeferredRestorePlan: Bool {
+        deferredRestorePlan != nil
+    }
+
     private let playback: PlaybackCoordinator
     private let library: MediaLibraryCoordinator
     private let desktopSession: DesktopSessionCoordinator
@@ -44,6 +48,7 @@ final class PlaybackSessionController: ObservableObject {
     private var persistenceTask: Task<Void, Never>?
     private var persistenceTaskGeneration: UInt64?
     private var restorationSourceSnapshot: PlaybackSessionSnapshot?
+    private var deferredRestorePlan: PlaybackSessionRestorePlan?
     private var isShuttingDown = false
     private var cancellables: Set<AnyCancellable> = []
 
@@ -77,6 +82,7 @@ final class PlaybackSessionController: ObservableObject {
         guard !isShuttingDown, !Task.isCancelled else {
             return .cancelled
         }
+        deferredRestorePlan = nil
         restoreInProgress = true
 
         do {
@@ -142,18 +148,52 @@ final class PlaybackSessionController: ObservableObject {
 
         switch result {
         case .restored:
+            deferredRestorePlan = nil
             shouldPreserveStoredSnapshot = false
             restoreInProgress = false
             scheduleSave(delay: nil)
-        case .cancelled, .temporarilyUnavailable:
+        case .cancelled:
+            shouldPreserveStoredSnapshot = true
+            restoreInProgress = false
+        case .temporarilyUnavailable:
+            deferredRestorePlan = plan
             shouldPreserveStoredSnapshot = true
             restoreInProgress = false
         case .permanentlyUnavailable:
+            deferredRestorePlan = nil
             shouldPreserveStoredSnapshot = false
             restoreInProgress = false
             await invalidateStoredSnapshot()
         }
         return result
+    }
+
+    func resumeDeferredRestore(
+        after libraryStart: MediaLibraryStartDisposition,
+        overridingPresentation presentationOverride:
+            PlaybackSessionPresentation? = nil
+    ) async -> PlaybackStateRestoreResult {
+        guard !restoreInProgress,
+              !isShuttingDown,
+              !Task.isCancelled,
+              let deferredRestorePlan else {
+            return .cancelled
+        }
+        let plan = PlaybackSessionRestorePlan(
+            snapshot: deferredRestorePlan.snapshot,
+            presentation:
+                presentationOverride ?? deferredRestorePlan.presentation
+        )
+        restorationSourceSnapshot = plan.snapshot
+        restoreInProgress = true
+        shouldPreserveStoredSnapshot = true
+
+        await cancelPendingPersistence()
+        guard !isShuttingDown, !Task.isCancelled else {
+            restoreInProgress = false
+            return .cancelled
+        }
+        return await restore(plan, after: libraryStart)
     }
 
     func preserveStoredSnapshotWhileCancellingRestore() {
@@ -205,6 +245,7 @@ final class PlaybackSessionController: ObservableObject {
         guard !isShuttingDown, !restoreInProgress else {
             return
         }
+        deferredRestorePlan = nil
         await cancelPendingPersistence()
 
         if makeSnapshot() != nil,
@@ -304,6 +345,7 @@ final class PlaybackSessionController: ObservableObject {
         }
         // A real queue mutation means the current process has replaced any
         // temporarily unavailable session and can become the new truth.
+        deferredRestorePlan = nil
         shouldPreserveStoredSnapshot = false
         synchronizeSnapshot()
     }

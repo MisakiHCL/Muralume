@@ -173,6 +173,12 @@ private struct MuralumePlayerRootView: View {
                 addMedia: {
                     coordinator.addMedia()
                 },
+                retryUnavailableSourceAccess: {
+                    coordinator.retryUnavailableSourceAccess()
+                },
+                reauthorizeMediaSources: {
+                    coordinator.reauthorizeMediaSources()
+                },
                 importDroppedURLs: { urls in
                     coordinator.importDroppedURLs(urls)
                 },

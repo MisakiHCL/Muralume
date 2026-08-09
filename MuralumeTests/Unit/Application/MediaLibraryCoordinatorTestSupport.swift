@@ -38,6 +38,7 @@ func makeFixture(
         coordinator: coordinator,
         playback: playback,
         engine: engine,
+        sourceSelector: selector,
         session: session,
         scanner: scanner,
         mediaThumbnailProvider: mediaThumbnailProvider
@@ -116,6 +117,7 @@ struct Fixture {
     let coordinator: MediaLibraryCoordinator
     let playback: PlaybackCoordinator
     let engine: TestPlaybackEngine
+    let sourceSelector: TestMediaSourceSelector
     let session: TestMediaAccessSession
     let scanner: TestMediaLibraryScanner
     let mediaThumbnailProvider: TestMediaThumbnailProvider
@@ -124,12 +126,14 @@ struct Fixture {
 @MainActor
 final class TestMediaSourceSelector: MediaSourceSelecting {
     private var selections: [[URL]]
+    private(set) var intents: [MediaSourceSelectionIntent] = []
 
     init(selections: [[URL]]) {
         self.selections = selections
     }
 
-    func selectSources() -> [URL] {
+    func selectSources(for intent: MediaSourceSelectionIntent) -> [URL] {
+        intents.append(intent)
         guard !selections.isEmpty else {
             return []
         }
@@ -146,6 +150,10 @@ final class TestMediaAccessSession: MediaAccessSession {
     var hasUnavailablePersistedSources = false
     var treatsFilesInsideActiveFoldersAsCovered = false
     var replacesFilesCoveredByAddedFolder = false
+
+    func retryUnavailableSources() -> [MediaSource] {
+        activeURLs.map(makeSource)
+    }
 
     func restoreSources() -> [MediaSource] {
         activeURLs.map(makeSource)

@@ -249,6 +249,9 @@ struct PlayerScreen<PlayerSurface: View>: View {
                     chromeController.setLibraryEditing(isEditing)
                 },
                 addMedia: actions.addMedia,
+                retryUnavailableSourceAccess:
+                    actions.retryUnavailableSourceAccess,
+                reauthorizeMediaSources: actions.reauthorizeMediaSources,
                 dismiss: {
                     chromeController.setPlaylistPresented(false)
                 }
