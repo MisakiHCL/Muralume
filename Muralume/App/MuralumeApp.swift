@@ -182,6 +182,9 @@ private struct MuralumePlayerRootView: View {
                 importDroppedURLs: { urls in
                     coordinator.importDroppedURLs(urls)
                 },
+                revealMediaInFinder: { url in
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                },
                 enterDesktop: {
                     coordinator.enterDesktop()
                 },

@@ -50,15 +50,45 @@ struct LibraryMediaItem: Identifiable, Hashable, Sendable {
     struct ID: Codable, Hashable, Sendable {
         let rootPath: String
         let relativePath: String
+        private let normalizedMediaPath: String
+
+        private enum CodingKeys: String, CodingKey {
+            case rootPath
+            case relativePath
+        }
 
         init(rootPath: String, relativePath: String) {
             self.rootPath = rootPath
             self.relativePath = relativePath
+            // SwiftUI diffing and queue indexes hash IDs frequently.
+            normalizedMediaPath = Self.normalizedMediaPath(
+                rootPath: rootPath,
+                relativePath: relativePath
+            )
         }
 
         init(mediaURL: URL) {
-            rootPath = mediaURL.standardizedFileURL.path
+            let standardizedPath = mediaURL.standardizedFileURL.path
+            rootPath = standardizedPath
             relativePath = ""
+            normalizedMediaPath = standardizedPath
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(
+                rootPath: try container.decode(String.self, forKey: .rootPath),
+                relativePath: try container.decode(
+                    String.self,
+                    forKey: .relativePath
+                )
+            )
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(rootPath, forKey: .rootPath)
+            try container.encode(relativePath, forKey: .relativePath)
         }
 
         static func == (lhs: Self, rhs: Self) -> Bool {
@@ -73,7 +103,10 @@ struct LibraryMediaItem: Identifiable, Hashable, Sendable {
             normalizedMediaPath
         }
 
-        private var normalizedMediaPath: String {
+        private static func normalizedMediaPath(
+            rootPath: String,
+            relativePath: String
+        ) -> String {
             let rootURL = URL(fileURLWithPath: rootPath)
             let mediaURL = if relativePath.isEmpty {
                 rootURL

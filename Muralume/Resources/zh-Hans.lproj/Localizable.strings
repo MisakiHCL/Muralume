@@ -79,6 +79,7 @@
 "library.sort.descending" = "降序";
 "library.sort.direction" = "排序方向";
 "library.item.unavailable" = "这个视频无法播放";
+"library.item.revealInFinder" = "在访达中显示";
 "library.item.creationDate.unavailable" = "创建时间未知";
 "library.item.metadata.accessibility" = "文件大小 %@，创建时间 %@";
 "library.item.metadata.accessibility.dateUnavailable" = "文件大小 %@，创建时间未知";

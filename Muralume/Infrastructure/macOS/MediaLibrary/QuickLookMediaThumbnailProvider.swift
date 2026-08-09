@@ -32,8 +32,14 @@ final class SystemQuickLookThumbnailGenerator: QuickLookThumbnailGenerating {
 
 @MainActor
 final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
+    typealias CacheMissDelayer = @MainActor (Duration) async throws -> Void
+
     private enum Policy {
         static let generatorVersion = 1
+        // Quick Look cancellation is cooperative, so bound actual in-flight work.
+        static let maximumConcurrentRequestCount = 4
+        // Avoid starting video decoding for rows only crossed while scrolling.
+        static let cacheMissDelay: Duration = .milliseconds(80)
     }
 
     private final class CacheKey: NSObject {
@@ -114,21 +120,37 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
 
     @MainActor
     private final class ActiveRequest {
+        enum State: Equatable {
+            case queued
+            case running
+            case finished
+        }
+
         let cacheKey: CacheKey
-        let cancellation: CancellationBox
+        let fileURL: URL
+        let size: CGSize
+        let scale: CGFloat
         let cacheGeneration: UInt64
         let isCacheable: Bool
+        var state: State = .queued
+        var cancellation: CancellationBox?
         var waiters: [UUID: CheckedContinuation<CGImage?, Never>] = [:]
         var task: Task<Void, Never>?
+        weak var previousQueuedRequest: ActiveRequest?
+        var nextQueuedRequest: ActiveRequest?
 
         init(
             cacheKey: CacheKey,
-            cancellation: CancellationBox,
+            fileURL: URL,
+            size: CGSize,
+            scale: CGFloat,
             cacheGeneration: UInt64,
             isCacheable: Bool
         ) {
             self.cacheKey = cacheKey
-            self.cancellation = cancellation
+            self.fileURL = fileURL
+            self.size = size
+            self.scale = scale
             self.cacheGeneration = cacheGeneration
             self.isCacheable = isCacheable
         }
@@ -139,9 +161,19 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         let continuation: CheckedContinuation<Void, Never>
     }
 
+    private enum ActiveRequestLookup {
+        case missing
+        case completed(CGImage?)
+    }
+
     private let generator: any QuickLookThumbnailGenerating
+    private let cacheMissDelay: Duration
+    private let cacheMissDelayer: CacheMissDelayer
+    private let maximumConcurrentRequestCount: Int
     private let cache = NSCache<CacheKey, ImageBox>()
     private var attachableRequests: [CacheKey: ActiveRequest] = [:]
+    private var firstQueuedRequest: ActiveRequest?
+    private var lastQueuedRequest: ActiveRequest?
     // A cancelled request remains here until Quick Look actually returns.
     private var runningRequests: [ObjectIdentifier: ActiveRequest] = [:]
     private var requestByWaiterID: [UUID: ActiveRequest] = [:]
@@ -153,9 +185,23 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
 
     init(
         generator: any QuickLookThumbnailGenerating =
-            SystemQuickLookThumbnailGenerator()
+            SystemQuickLookThumbnailGenerator(),
+        cacheMissDelay: Duration? = nil,
+        maximumConcurrentRequestCount: Int? = nil,
+        cacheMissDelayer: @escaping CacheMissDelayer = { duration in
+            try await Task.sleep(for: duration)
+        }
     ) {
+        let effectiveMaximumConcurrentRequestCount =
+            maximumConcurrentRequestCount
+            ?? Policy.maximumConcurrentRequestCount
+        precondition(effectiveMaximumConcurrentRequestCount > 0)
+
         self.generator = generator
+        self.cacheMissDelay = cacheMissDelay ?? Policy.cacheMissDelay
+        self.maximumConcurrentRequestCount =
+            effectiveMaximumConcurrentRequestCount
+        self.cacheMissDelayer = cacheMissDelayer
         cache.countLimit = AppConfiguration.mediaThumbnailCacheCountLimit
         cache.totalCostLimit = AppConfiguration.mediaThumbnailCacheByteLimit
     }
@@ -177,8 +223,47 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             scale: effectiveScale
         )
         let isCacheable = item.modificationDate != nil
-        if isCacheable,
-           let cachedImage = cache.object(forKey: cacheKey)?.image {
+        let requestCacheGeneration = cacheGeneration
+        if let cachedImage = cachedImage(
+            for: cacheKey,
+            isCacheable: isCacheable
+        ) {
+            return cachedImage
+        }
+
+        switch await attachToActiveRequestIfAvailable(
+            cacheKey: cacheKey,
+            rootPath: item.id.rootPath
+        ) {
+        case .completed(let image):
+            return image
+        case .missing:
+            break
+        }
+
+        if let cachedImage = cachedImage(
+            for: cacheKey,
+            isCacheable: isCacheable
+        ) {
+            return cachedImage
+        }
+
+        if cacheMissDelay > .zero {
+            do {
+                try await cacheMissDelayer(cacheMissDelay)
+            } catch {
+                return nil
+            }
+        }
+        guard !Task.isCancelled,
+              !isShutDown,
+              !invalidatedRootPaths.contains(item.id.rootPath) else {
+            return nil
+        }
+        if let cachedImage = cachedImage(
+            for: cacheKey,
+            isCacheable: isCacheable
+        ) {
             return cachedImage
         }
 
@@ -187,8 +272,45 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             size: size,
             scale: effectiveScale,
             cacheKey: cacheKey,
+            cacheGeneration: requestCacheGeneration,
             isCacheable: isCacheable
         )
+    }
+
+    private func cachedImage(
+        for cacheKey: CacheKey,
+        isCacheable: Bool
+    ) -> CGImage? {
+        guard isCacheable else {
+            return nil
+        }
+        return cache.object(forKey: cacheKey)?.image
+    }
+
+    private func attachToActiveRequestIfAvailable(
+        cacheKey: CacheKey,
+        rootPath: String
+    ) async -> ActiveRequestLookup {
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            guard !Task.isCancelled,
+                  !isShutDown,
+                  !invalidatedRootPaths.contains(rootPath) else {
+                return .completed(nil)
+            }
+            guard let activeRequest = attachableRequests[cacheKey] else {
+                return .missing
+            }
+            let image = await withCheckedContinuation { continuation in
+                activeRequest.waiters[waiterID] = continuation
+                requestByWaiterID[waiterID] = activeRequest
+            }
+            return .completed(image)
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelWaiter(waiterID)
+            }
+        }
     }
 
     func purgeMemoryCache() {
@@ -208,6 +330,16 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         purgeMemoryCache()
         let rootPath = rootID.standardizedPath
         invalidatedRootPaths.insert(rootPath)
+
+        var queuedRequest = firstQueuedRequest
+        while let activeRequest = queuedRequest {
+            queuedRequest = activeRequest.nextQueuedRequest
+            guard activeRequest.cacheKey.itemID.rootPath == rootPath else {
+                continue
+            }
+            discardQueuedRequest(activeRequest)
+        }
+
         let matchingRequests = runningRequests.values.filter {
             $0.cacheKey.itemID.rootPath == rootPath
         }
@@ -218,8 +350,10 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
                 attachableRequests[activeRequest.cacheKey] = nil
             }
             activeRequest.task?.cancel()
-            activeRequest.cancellation.cancel()
+            activeRequest.cancellation?.cancel()
         }
+
+        startQueuedRequestsIfPossible()
 
         guard hasRunningRequest(forRootPath: rootPath) else {
             return
@@ -239,9 +373,14 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             isShutDown = true
             cacheGeneration &+= 1
             cache.removeAllObjects()
+
+            while let activeRequest = firstQueuedRequest {
+                discardQueuedRequest(activeRequest)
+            }
+
             runningRequests.values.forEach { activeRequest in
                 activeRequest.task?.cancel()
-                activeRequest.cancellation.cancel()
+                activeRequest.cancellation?.cancel()
             }
         }
 
@@ -259,12 +398,15 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         size: CGSize,
         scale: CGFloat,
         cacheKey: CacheKey,
+        cacheGeneration: UInt64,
         isCacheable: Bool
     ) async -> CGImage? {
         let waiterID = UUID()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                guard !Task.isCancelled, !isShutDown else {
+                guard !Task.isCancelled,
+                      !isShutDown,
+                      !invalidatedRootPaths.contains(item.id.rootPath) else {
                     continuation.resume(returning: nil)
                     return
                 }
@@ -275,39 +417,106 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
                     return
                 }
 
-                let request = QLThumbnailGenerator.Request(
-                    fileAt: item.url,
-                    size: size,
-                    scale: scale,
-                    representationTypes: [
-                        .lowQualityThumbnail,
-                        .thumbnail
-                    ]
-                )
-                request.iconMode = false
                 let activeRequest = ActiveRequest(
                     cacheKey: cacheKey,
-                    cancellation: CancellationBox(
-                        generator: generator,
-                        request: request
-                    ),
+                    fileURL: item.url,
+                    size: size,
+                    scale: scale,
                     cacheGeneration: cacheGeneration,
                     isCacheable: isCacheable
                 )
                 activeRequest.waiters[waiterID] = continuation
                 attachableRequests[cacheKey] = activeRequest
-                runningRequests[ObjectIdentifier(activeRequest)] = activeRequest
                 requestByWaiterID[waiterID] = activeRequest
-                activeRequest.task = Task { [weak self, weak activeRequest] in
-                    guard let self, let activeRequest else {
-                        return
-                    }
-                    await generateThumbnail(for: activeRequest)
-                }
+                enqueue(activeRequest)
+                startQueuedRequestsIfPossible()
             }
         } onCancel: {
             Task { @MainActor [weak self] in
                 self?.cancelWaiter(waiterID)
+            }
+        }
+    }
+
+    private func enqueue(_ activeRequest: ActiveRequest) {
+        activeRequest.previousQueuedRequest = lastQueuedRequest
+        activeRequest.nextQueuedRequest = nil
+        lastQueuedRequest?.nextQueuedRequest = activeRequest
+        lastQueuedRequest = activeRequest
+        if firstQueuedRequest == nil {
+            firstQueuedRequest = activeRequest
+        }
+    }
+
+    private func removeFromQueue(_ activeRequest: ActiveRequest) {
+        let previousRequest = activeRequest.previousQueuedRequest
+        let nextRequest = activeRequest.nextQueuedRequest
+
+        if let previousRequest {
+            previousRequest.nextQueuedRequest = nextRequest
+        } else {
+            firstQueuedRequest = nextRequest
+        }
+        if let nextRequest {
+            nextRequest.previousQueuedRequest = previousRequest
+        } else {
+            lastQueuedRequest = previousRequest
+        }
+
+        activeRequest.previousQueuedRequest = nil
+        activeRequest.nextQueuedRequest = nil
+    }
+
+    private func discardQueuedRequest(_ activeRequest: ActiveRequest) {
+        guard activeRequest.state == .queued else {
+            return
+        }
+
+        removeFromQueue(activeRequest)
+        activeRequest.state = .finished
+        if attachableRequests[activeRequest.cacheKey] === activeRequest {
+            attachableRequests[activeRequest.cacheKey] = nil
+        }
+        detachWaiters(from: activeRequest)
+    }
+
+    private func startQueuedRequestsIfPossible() {
+        guard !isShutDown else {
+            return
+        }
+
+        while runningRequests.count < maximumConcurrentRequestCount,
+              let activeRequest = firstQueuedRequest {
+            guard !activeRequest.waiters.isEmpty,
+                  !invalidatedRootPaths.contains(
+                    activeRequest.cacheKey.itemID.rootPath
+                  ) else {
+                discardQueuedRequest(activeRequest)
+                continue
+            }
+
+            removeFromQueue(activeRequest)
+            let request = QLThumbnailGenerator.Request(
+                fileAt: activeRequest.fileURL,
+                size: activeRequest.size,
+                scale: activeRequest.scale,
+                representationTypes: [
+                    .lowQualityThumbnail,
+                    .thumbnail
+                ]
+            )
+            request.iconMode = false
+            activeRequest.state = .running
+            activeRequest.cancellation = CancellationBox(
+                generator: generator,
+                request: request
+            )
+            runningRequests[ObjectIdentifier(activeRequest)] = activeRequest
+            activeRequest.task = Task { [weak self, weak activeRequest] in
+                guard let self, let activeRequest else {
+                    return
+                }
+                await generateThumbnail(for: activeRequest)
             }
         }
     }
@@ -317,16 +526,20 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             finishRequest(activeRequest, image: nil)
             return
         }
+        guard let cancellation = activeRequest.cancellation else {
+            finishRequest(activeRequest, image: nil)
+            return
+        }
 
         let image: CGImage?
         do {
             let generatedImage = try await withTaskCancellationHandler {
                 try await generator.generateImage(
-                    for: activeRequest.cancellation.request
+                    for: cancellation.request
                 )
             } onCancel: {
                 Task { @MainActor in
-                    activeRequest.cancellation.cancel()
+                    cancellation.cancel()
                 }
             }
             try Task.checkCancellation()
@@ -350,17 +563,30 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         guard activeRequest.waiters.isEmpty else {
             return
         }
-        if attachableRequests[activeRequest.cacheKey] === activeRequest {
-            attachableRequests[activeRequest.cacheKey] = nil
+
+        switch activeRequest.state {
+        case .queued:
+            discardQueuedRequest(activeRequest)
+        case .running:
+            if attachableRequests[activeRequest.cacheKey] === activeRequest {
+                attachableRequests[activeRequest.cacheKey] = nil
+            }
+            activeRequest.task?.cancel()
+            activeRequest.cancellation?.cancel()
+        case .finished:
+            break
         }
-        activeRequest.task?.cancel()
-        activeRequest.cancellation.cancel()
     }
 
     private func finishRequest(
         _ activeRequest: ActiveRequest,
         image: CGImage?
     ) {
+        guard activeRequest.state == .running else {
+            return
+        }
+
+        activeRequest.state = .finished
         runningRequests[ObjectIdentifier(activeRequest)] = nil
         if attachableRequests[activeRequest.cacheKey] === activeRequest {
             attachableRequests[activeRequest.cacheKey] = nil
@@ -383,6 +609,9 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             requestByWaiterID[waiterID] = nil
             continuation.resume(returning: result)
         }
+        activeRequest.task = nil
+        activeRequest.cancellation = nil
+        startQueuedRequestsIfPossible()
         resumeDrainWaitersIfNeeded()
     }
 

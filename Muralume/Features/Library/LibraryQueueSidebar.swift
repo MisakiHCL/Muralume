@@ -13,6 +13,7 @@ struct LibraryQueueSidebar: View {
     let addMedia: () -> Void
     let retryUnavailableSourceAccess: () -> Void
     let reauthorizeMediaSources: () -> Void
+    let revealMediaInFinder: (URL) -> Void
     let dismiss: () -> Void
 
     init(
@@ -24,6 +25,7 @@ struct LibraryQueueSidebar: View {
         addMedia: @escaping () -> Void,
         retryUnavailableSourceAccess: @escaping () -> Void,
         reauthorizeMediaSources: @escaping () -> Void,
+        revealMediaInFinder: @escaping (URL) -> Void,
         dismiss: @escaping () -> Void
     ) {
         self.library = library
@@ -34,6 +36,7 @@ struct LibraryQueueSidebar: View {
         self.addMedia = addMedia
         self.retryUnavailableSourceAccess = retryUnavailableSourceAccess
         self.reauthorizeMediaSources = reauthorizeMediaSources
+        self.revealMediaInFinder = revealMediaInFinder
         self.dismiss = dismiss
         _playbackStatus = State(
             initialValue: LibraryPlaybackStatus(playback: playback)
@@ -639,6 +642,9 @@ struct LibraryQueueSidebar: View {
                                 play: {
                                     library.play(item)
                                     dismiss()
+                                },
+                                revealInFinder: {
+                                    revealMediaInFinder(item.url)
                                 }
                             )
                             .id(item.id)
@@ -666,8 +672,7 @@ struct LibraryQueueSidebar: View {
         await Task.yield()
 
         guard !Task.isCancelled,
-              library.currentItemID == targetID,
-              library.items.contains(where: { $0.id == targetID }) else {
+              library.currentItemID == targetID else {
             return
         }
         proxy.scrollTo(targetID, anchor: .center)
@@ -847,8 +852,18 @@ private struct LibraryMediaRow: View {
     let playbackState: LibraryMediaRowPlaybackState
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let play: () -> Void
+    let revealInFinder: () -> Void
 
     var body: some View {
+        let displayedLocation = locationText
+        let formattedFileSize = fileSizeText
+        let formattedCreationDate = creationDateText
+        let rowAccessibilityLabel = accessibilityLabel(
+            locationText: displayedLocation,
+            fileSizeText: formattedFileSize,
+            creationDateText: formattedCreationDate
+        )
+
         Button(action: play) {
             HStack(spacing: MuralumeTheme.Spacing.small) {
                 currentIndicator
@@ -865,20 +880,20 @@ private struct LibraryMediaRow: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
 
-                    Text(locationText)
+                    Text(displayedLocation)
                         .font(.caption)
                         .foregroundStyle(MuralumeTheme.Colors.textTertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
 
                     HStack(spacing: MuralumeTheme.Spacing.xSmall) {
-                        Text(verbatim: fileSizeText)
+                        Text(verbatim: formattedFileSize)
                             .fixedSize(horizontal: true, vertical: false)
 
                         Text(verbatim: "·")
                             .accessibilityHidden(true)
 
-                        Text(verbatim: creationDateText)
+                        Text(verbatim: formattedCreationDate)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
@@ -950,8 +965,16 @@ private struct LibraryMediaRow: View {
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
+        .contextMenu {
+            Button(action: revealInFinder) {
+                Label(
+                    "library.item.revealInFinder",
+                    systemImage: "folder"
+                )
+            }
+        }
         .help(Text(verbatim: item.relativePath))
-        .accessibilityLabel(Text(verbatim: accessibilityLabel))
+        .accessibilityLabel(Text(verbatim: rowAccessibilityLabel))
         .accessibilityValue(
             Text(
                 LocalizedStringKey(playbackState.accessibilityKey)
@@ -1005,7 +1028,11 @@ private struct LibraryMediaRow: View {
         .format(creationDate)
     }
 
-    private var accessibilityLabel: String {
+    private func accessibilityLabel(
+        locationText: String,
+        fileSizeText: String,
+        creationDateText: String
+    ) -> String {
         let metadata: String
         if item.creationDate == nil {
             metadata = localization.localizedFormat(

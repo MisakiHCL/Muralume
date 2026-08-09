@@ -252,6 +252,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 retryUnavailableSourceAccess:
                     actions.retryUnavailableSourceAccess,
                 reauthorizeMediaSources: actions.reauthorizeMediaSources,
+                revealMediaInFinder: actions.revealMediaInFinder,
                 dismiss: {
                     chromeController.setPlaylistPresented(false)
                 }

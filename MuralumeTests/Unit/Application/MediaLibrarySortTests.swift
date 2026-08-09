@@ -2,6 +2,49 @@ import XCTest
 @testable import Muralume
 
 final class MediaLibrarySortTests: XCTestCase {
+    func testMediaItemIDKeepsNormalizedIdentity() {
+        let nestedID = LibraryMediaItem.ID(
+            rootPath: "/tmp/MuralumeLibrary",
+            relativePath: "Nested/../Clip.mp4"
+        )
+        let directID = LibraryMediaItem.ID(
+            mediaURL: URL(
+                fileURLWithPath: "/tmp/MuralumeLibrary/Clip.mp4"
+            )
+        )
+
+        XCTAssertEqual(nestedID, directID)
+        XCTAssertEqual(Set([nestedID, directID]).count, 1)
+        XCTAssertEqual(
+            nestedID.standardizedMediaPath,
+            "/tmp/MuralumeLibrary/Clip.mp4"
+        )
+    }
+
+    func testMediaItemIDCodableSchemaRemainsBackwardCompatible() throws {
+        let itemID = LibraryMediaItem.ID(
+            rootPath: "/tmp/MuralumeLibrary",
+            relativePath: "Nested/Clip.mp4"
+        )
+
+        let data = try JSONEncoder().encode(itemID)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: String]
+        )
+
+        XCTAssertEqual(
+            object,
+            [
+                "rootPath": "/tmp/MuralumeLibrary",
+                "relativePath": "Nested/Clip.mp4"
+            ]
+        )
+        XCTAssertEqual(
+            try JSONDecoder().decode(LibraryMediaItem.ID.self, from: data),
+            itemID
+        )
+    }
+
     func testNameSortUsesNaturalOrderingAndStablePathTieBreak() {
         let items = [
             makeItem(name: "Clip 10", path: "B/clip.mov"),

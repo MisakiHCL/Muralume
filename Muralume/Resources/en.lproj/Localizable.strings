@@ -79,6 +79,7 @@
 "library.sort.descending" = "Descending";
 "library.sort.direction" = "Sort Direction";
 "library.item.unavailable" = "This video could not be played";
+"library.item.revealInFinder" = "Show in Finder";
 "library.item.creationDate.unavailable" = "Date unavailable";
 "library.item.metadata.accessibility" = "File size %@, created %@";
 "library.item.metadata.accessibility.dateUnavailable" = "File size %@, creation date unavailable";

@@ -17,9 +17,7 @@ struct LibraryMediaThumbnail: View {
     let provider: any MediaThumbnailProviding
 
     var body: some View {
-        ZStack {
-            placeholder
-
+        Group {
             if let thumbnail {
                 Image(
                     decorative: thumbnail,
@@ -28,6 +26,9 @@ struct LibraryMediaThumbnail: View {
                 )
                 .resizable()
                 .scaledToFill()
+                .background(MuralumeTheme.Colors.canvas)
+            } else {
+                placeholder
             }
         }
         .frame(
