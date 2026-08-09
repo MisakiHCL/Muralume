@@ -8,8 +8,8 @@ readonly expected_product_name="Muralume"
 readonly production_bundle_identifier="com.muralume.Muralume"
 readonly local_bundle_identifier="com.muralume.Muralume.local"
 readonly expected_architecture="arm64"
-readonly expected_marketing_version="1.0.3"
-readonly expected_build_number="5"
+readonly expected_marketing_version="1.0.4"
+readonly expected_build_number="6"
 readonly dmg_volume_name="Muralume"
 readonly dmg_background_file_name="background.png"
 readonly dmg_background_width="660"
@@ -18,17 +18,22 @@ readonly launch_services_register_path="/System/Library/Frameworks/CoreServices.
 
 readonly script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly project_root="$(cd "${script_directory}/.." && pwd)"
-readonly project_path="${project_root}/Muralume.xcodeproj"
-readonly entitlements_path="${project_root}/Muralume/Resources/Muralume.entitlements"
 readonly release_config_path="${project_root}/Config/Release.local.mk"
 readonly distribution_requirements_path="${project_root}/Config/Distribution.requirements"
-readonly dmg_background_renderer_path="${script_directory}/render_dmg_background.swift"
-readonly dmg_layout_tool_path="${script_directory}/configure_dmg.py"
 readonly distribution_requirements_helper_path="${script_directory}/lib/distribution_requirements.sh"
+readonly release_output_transaction_helper_path="${script_directory}/lib/release_output_transaction.sh"
+readonly release_signature_validation_helper_path="${script_directory}/lib/release_signature_validation.sh"
+readonly release_source_snapshot_helper_path="${script_directory}/lib/release_source_snapshot.sh"
 readonly secure_timestamp_helper_path="${script_directory}/lib/secure_timestamp.sh"
 
 # shellcheck source=lib/distribution_requirements.sh
 source "${distribution_requirements_helper_path}"
+# shellcheck source=lib/release_output_transaction.sh
+source "${release_output_transaction_helper_path}"
+# shellcheck source=lib/release_signature_validation.sh
+source "${release_signature_validation_helper_path}"
+# shellcheck source=lib/release_source_snapshot.sh
+source "${release_source_snapshot_helper_path}"
 # shellcheck source=lib/secure_timestamp.sh
 source "${secure_timestamp_helper_path}"
 
@@ -44,6 +49,10 @@ mounted_device=""
 work_directory=""
 mount_directory=""
 xcode_python_path=""
+source_checkout_path=""
+source_checkout_registered=0
+release_source_commit=""
+release_source_tree=""
 
 print_usage() {
     cat <<'EOF'
@@ -137,6 +146,15 @@ cleanup() {
         fi
     fi
 
+    if [[ "${source_checkout_registered}" -eq 1 ]]; then
+        if ! release_git -C "${project_root}" worktree remove --force \
+            "${source_checkout_path}" >/dev/null 2>&1; then
+            printf 'Warning: unable to unregister the isolated release source.\n' \
+                >&2
+        fi
+        source_checkout_registered=0
+    fi
+
     if [[ "${status}" -eq 0 && -n "${work_directory}" ]]; then
         rm -rf "${work_directory}"
     elif [[ -n "${work_directory}" ]]; then
@@ -180,11 +198,20 @@ case "${selected_mode}" in
         ;;
 esac
 
+if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
+    [[ -z "${GIT_REPLACE_REF_BASE:-}" ]] \
+        || fail "A formal release rejects GIT_REPLACE_REF_BASE."
+    export GIT_NO_REPLACE_OBJECTS=1
+    unset GIT_REPLACE_REF_BASE
+fi
+
 [[ -n "${requested_output_path}" ]] || fail "--output is required."
 [[ "${requested_output_path}" == *.dmg ]] \
     || fail "--output must use the .dmg extension."
 
 require_command codesign
+require_command chmod
+require_command cp
 require_command diskutil
 require_command ditto
 require_command hdiutil
@@ -219,38 +246,37 @@ if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
     [[ "${expected_team_identifier}" =~ ^[A-Z0-9]{10}$ ]] \
         || fail "A 10-character expected Apple Team ID is required."
 
-    [[ -f "${release_config_path}" ]] \
+    [[ -f "${release_config_path}" && ! -L "${release_config_path}" ]] \
         || fail "Config/Release.local.mk is required for a formal release."
     config_permissions="$(stat -f '%Lp' "${release_config_path}")"
     [[ "${config_permissions}" == "600" ]] \
         || fail "Config/Release.local.mk must have permissions 0600."
 
-    [[ -f "${distribution_requirements_path}" ]] \
+    [[ -f "${distribution_requirements_path}" \
+        && ! -L "${distribution_requirements_path}" ]] \
         || fail "Config/Distribution.requirements is required for a formal release."
     requirements_permissions="$(
         stat -f '%Lp' "${distribution_requirements_path}"
     )"
     [[ "${requirements_permissions}" == "600" ]] \
         || fail "Config/Distribution.requirements must have permissions 0600."
-    v1_0_3_source_commit="$(
-        git -C "${project_root}" rev-parse 'v1.0.3^{commit}' 2>/dev/null
-    )" || fail "The immutable v1.0.3 source tag is required for provenance validation."
-    validate_distribution_requirement_provenance \
-        "${distribution_requirements_path}" \
-        "${production_bundle_identifier}" \
-        "${expected_team_identifier}" \
+    reject_release_git_object_overrides "${project_root}" \
+        || fail "The formal release repository uses forbidden Git object overrides."
+    verify_clean_release_repository "${project_root}" \
+        || fail "The formal release source is not clean."
+    release_source_commit="$(
+        release_git -C "${project_root}" rev-parse --verify 'HEAD^{commit}'
+    )"
+    release_source_tree="$(
+        release_git -C "${project_root}" rev-parse --verify 'HEAD^{tree}'
+    )"
+    validate_formal_release_version \
         "${project_root}" \
-        "${v1_0_3_source_commit}" \
-        || fail "The Xcode-exported distribution requirement failed provenance validation."
-
-    resolved_signing_identity="$(
-        resolve_developer_id_identity_hash \
-            "${signing_identity}" \
-            "${expected_team_identifier}"
-    )" || fail "The configured Developer ID Application identity is unavailable or ambiguous."
-
-    xcrun notarytool history \
-        --keychain-profile "${notary_profile}" >/dev/null
+        "${release_source_commit}" \
+        "${expected_marketing_version}" \
+        "${expected_build_number}" \
+        "${xcode_python_path}" \
+        || fail "The formal release version or tag state is invalid."
 fi
 
 mkdir -p "$(dirname "${requested_output_path}")"
@@ -259,6 +285,7 @@ readonly output_path="${output_directory}/$(basename "${requested_output_path}")
 readonly checksum_path="${output_path}.sha256"
 
 work_directory="$(mktemp -d "${TMPDIR:-/tmp}/MuralumeRelease.XXXXXX")"
+chmod 700 "${work_directory}"
 readonly archive_path="${work_directory}/Muralume.xcarchive"
 readonly derived_data_path="${work_directory}/DerivedData"
 readonly archive_app_path="${archive_path}/Products/Applications/Muralume.app"
@@ -274,11 +301,84 @@ readonly layout_mount_directory="${work_directory}/layout-mount"
 readonly verification_mount_directory="${work_directory}/verification-mount"
 readonly signed_entitlements_path="${work_directory}/signed-entitlements.plist"
 readonly notary_result_path="${work_directory}/notary-result.plist"
+readonly distribution_requirements_snapshot_path="${work_directory}/Distribution.requirements"
+readonly release_gate_artifacts_path="${work_directory}/ReleaseGate"
 mount_directory=""
+
+build_project_root="${project_root}"
+requirements_snapshot_digest=""
+if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
+    cp -p \
+        "${distribution_requirements_path}" \
+        "${distribution_requirements_snapshot_path}"
+    chmod 400 "${distribution_requirements_snapshot_path}"
+    [[ -f "${distribution_requirements_snapshot_path}" \
+        && ! -L "${distribution_requirements_snapshot_path}" ]] \
+        || fail "The private distribution requirement snapshot is invalid."
+    [[ "$(stat -f '%Lp' "${distribution_requirements_snapshot_path}")" \
+        == "400" ]] \
+        || fail "The private distribution requirement snapshot must be read-only."
+
+    v1_0_3_source_commit="$(
+        release_git -C "${project_root}" rev-parse \
+            'v1.0.3^{commit}' 2>/dev/null
+    )" || fail "The immutable v1.0.3 source tag is required for provenance validation."
+    validate_distribution_requirement_provenance \
+        "${distribution_requirements_snapshot_path}" \
+        "${production_bundle_identifier}" \
+        "${expected_team_identifier}" \
+        "${project_root}" \
+        "${v1_0_3_source_commit}" \
+        || fail "The Xcode-exported distribution requirement snapshot failed provenance validation."
+    requirements_snapshot_digest="$(
+        shasum -a 256 "${distribution_requirements_snapshot_path}" \
+            | awk '{ print $1 }'
+    )"
+
+    resolved_signing_identity="$(
+        resolve_developer_id_identity_hash \
+            "${signing_identity}" \
+            "${expected_team_identifier}"
+    )" || fail "The configured Developer ID Application identity is unavailable or ambiguous."
+    xcrun notarytool history \
+        --keychain-profile "${notary_profile}" >/dev/null
+
+    source_checkout_path="${work_directory}/source"
+    if ! release_git -C "${project_root}" worktree add --detach \
+        "${source_checkout_path}" \
+        "${release_source_commit}" >/dev/null; then
+        fail "Unable to create the isolated release source checkout."
+    fi
+    source_checkout_registered=1
+    verify_release_source_snapshot \
+        "${source_checkout_path}" \
+        "${release_source_commit}" \
+        "${release_source_tree}" \
+        || fail "The isolated release source does not match the captured HEAD."
+    build_project_root="${source_checkout_path}"
+
+    printf 'Testing isolated release source %s (%s)...\n' \
+        "${release_source_commit}" \
+        "${release_source_tree}"
+    [[ -x "${build_project_root}/Scripts/verify.sh" ]] \
+        || fail "The isolated release source has no executable release gate."
+    MURALUME_TEST_ARTIFACTS_DIR="${release_gate_artifacts_path}" \
+        "${build_project_root}/Scripts/verify.sh" release-gate
+    verify_release_source_snapshot \
+        "${source_checkout_path}" \
+        "${release_source_commit}" \
+        "${release_source_tree}" \
+        || fail "The tested release source changed before archive."
+fi
+readonly build_project_root
+readonly build_project_path="${build_project_root}/Muralume.xcodeproj"
+readonly build_entitlements_path="${build_project_root}/Muralume/Resources/Muralume.entitlements"
+readonly build_dmg_background_renderer_path="${build_project_root}/Scripts/render_dmg_background.swift"
+readonly build_dmg_layout_tool_path="${build_project_root}/Scripts/configure_dmg.py"
 
 printf 'Archiving the arm64 Release app...\n'
 xcodebuild archive \
-    -project "${project_path}" \
+    -project "${build_project_path}" \
     -scheme "${expected_product_name}" \
     -configuration Release \
     -destination "generic/platform=macOS" \
@@ -305,6 +405,10 @@ fi
 
 mkdir -p "${dmg_staging_directory}"
 ditto "${archive_app_path}" "${staged_app_path}"
+validate_release_privacy_manifest \
+    "${xcode_python_path}" \
+    "${staged_app_path}" \
+    || fail "The staged App privacy manifest failed validation."
 
 for nested_code_directory in \
     "${staged_app_path}/Contents/Frameworks" \
@@ -317,21 +421,26 @@ for nested_code_directory in \
 done
 
 if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
+    [[ "$(
+        shasum -a 256 "${distribution_requirements_snapshot_path}" \
+            | awk '{ print $1 }'
+    )" == "${requirements_snapshot_digest}" ]] \
+        || fail "The private distribution requirement snapshot changed before signing."
     printf 'Signing the app with Developer ID...\n'
     sign_with_secure_timestamp \
         "${expected_product_name}.app" \
         "${staged_app_path}" \
         --force \
         --options runtime \
-        --entitlements "${entitlements_path}" \
-        --requirements "${distribution_requirements_path}" \
+        --entitlements "${build_entitlements_path}" \
+        --requirements "${distribution_requirements_snapshot_path}" \
         --sign "${resolved_signing_identity}"
 else
     printf 'Applying an ad-hoc signature for local installation...\n'
     codesign \
         --force \
         --options runtime \
-        --entitlements "${entitlements_path}" \
+        --entitlements "${build_entitlements_path}" \
         --sign - \
         "${staged_app_path}"
 fi
@@ -341,7 +450,7 @@ codesign --verify --deep --strict --verbose=2 "${staged_app_path}"
 if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
     verify_embedded_distribution_requirement \
         "${staged_app_path}" \
-        "${distribution_requirements_path}" \
+        "${distribution_requirements_snapshot_path}" \
         "${work_directory}" \
         || fail "The signed app's designated requirement failed verification."
 fi
@@ -378,6 +487,10 @@ build_number="$(
 codesign --display --entitlements :- "${staged_app_path}" \
     >"${signed_entitlements_path}" 2>/dev/null
 plutil -lint "${signed_entitlements_path}" >/dev/null
+validate_release_entitlements_allowlist \
+    "${xcode_python_path}" \
+    "${signed_entitlements_path}" \
+    || fail "Release entitlements contain a missing, changed, or unexpected key."
 
 sandbox_enabled="$(
     plutil -extract 'com\.apple\.security\.app-sandbox' raw -o - \
@@ -405,9 +518,14 @@ if plutil -extract 'com\.apple\.security\.get-task-allow' raw -o - \
     fail "Release entitlements must not contain get-task-allow."
 fi
 
+signature_details="$(codesign --display --verbose=4 \
+    "${staged_app_path}" 2>&1)"
+signature_has_hardened_runtime \
+    "${xcode_python_path}" \
+    "${signature_details}" \
+    || fail "The app signature does not enable Hardened Runtime."
+
 if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
-    signature_details="$(codesign --display --verbose=4 \
-        "${staged_app_path}" 2>&1)"
     printf '%s\n' "${signature_details}" \
         | rg '^Authority=Developer ID Application:' >/dev/null \
         || fail "The app is not signed by Developer ID Application."
@@ -442,7 +560,7 @@ app_icon_path="${staged_app_path}/Contents/Resources/${app_icon_file_name}"
 ditto "${app_icon_path}" "${dmg_staging_directory}/.VolumeIcon.icns"
 
 printf 'Rendering the DMG background...\n'
-xcrun swift "${dmg_background_renderer_path}" \
+xcrun swift "${build_dmg_background_renderer_path}" \
     --output "${dmg_background_path}"
 
 actual_background_width="$(
@@ -482,7 +600,7 @@ load_attached_image_state \
 
 xcrun SetFile -a C "${mount_directory}"
 
-"${xcode_python_path}" "${dmg_layout_tool_path}" configure \
+"${xcode_python_path}" "${build_dmg_layout_tool_path}" configure \
     --mount-path "${mount_directory}" \
     --application-name "${expected_product_name}.app" \
     --background-file-name "${dmg_background_file_name}" \
@@ -577,7 +695,7 @@ readonly mounted_app_path="${mount_directory}/Muralume.app"
     || fail "The DMG does not contain its branded background."
 [[ -f "${mount_directory}/.VolumeIcon.icns" ]] \
     || fail "The DMG does not contain its custom volume icon."
-"${xcode_python_path}" "${dmg_layout_tool_path}" verify \
+"${xcode_python_path}" "${build_dmg_layout_tool_path}" verify \
     --mount-path "${mount_directory}" \
     --application-name "${expected_product_name}.app" \
     --background-file-name "${dmg_background_file_name}" \
@@ -599,6 +717,10 @@ visible_root_item_count="$(
     || fail "The DMG root must expose exactly two visible items."
 
 codesign --verify --deep --strict --verbose=2 "${mounted_app_path}"
+validate_release_privacy_manifest \
+    "${xcode_python_path}" \
+    "${mounted_app_path}" \
+    || fail "The mounted App privacy manifest failed validation."
 
 if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
     spctl --assess \
@@ -616,14 +738,48 @@ fi
 
 detach_mounted_image
 
-mv -f "${temporary_dmg_path}" "${output_path}"
+verified_temporary_dmg_digest="$(
+    shasum -a 256 "${temporary_dmg_path}" | awk '{ print $1 }'
+)"
+[[ "${verified_temporary_dmg_digest}" =~ ^[[:xdigit:]]{64}$ ]] \
+    || fail "Unable to capture the verified DMG digest."
 
-(
-    cd "${output_directory}"
-    shasum -a 256 "$(basename "${output_path}")" \
-        >"$(basename "${checksum_path}")"
-    shasum -a 256 -c "$(basename "${checksum_path}")"
-)
+if [[ "${selected_mode}" == "${distribution_mode}" ]]; then
+    verify_release_source_snapshot \
+        "${source_checkout_path}" \
+        "${release_source_commit}" \
+        "${release_source_tree}" \
+        || fail "The tested release source changed during packaging."
+    verify_clean_release_repository "${project_root}" \
+        || fail "The original release repository changed during packaging."
+    reject_release_git_object_overrides "${project_root}" \
+        || fail "The release repository gained a forbidden Git object override."
+    [[ "$(release_git -C "${project_root}" rev-parse --verify 'HEAD^{commit}')" \
+        == "${release_source_commit}" ]] \
+        || fail "The release HEAD changed during packaging."
+    [[ "$(release_git -C "${project_root}" rev-parse --verify 'HEAD^{tree}')" \
+        == "${release_source_tree}" ]] \
+        || fail "The release tree changed during packaging."
+    validate_formal_release_version \
+        "${project_root}" \
+        "${release_source_commit}" \
+        "${expected_marketing_version}" \
+        "${expected_build_number}" \
+        "${xcode_python_path}" \
+        || fail "The formal release version or tag state changed during packaging."
+    [[ "$(
+        shasum -a 256 "${distribution_requirements_snapshot_path}" \
+            | awk '{ print $1 }'
+    )" == "${requirements_snapshot_digest}" ]] \
+        || fail "The private distribution requirement snapshot changed during packaging."
+fi
+
+commit_release_output_pair \
+    "${temporary_dmg_path}" \
+    "${output_path}" \
+    "${checksum_path}" \
+    "${verified_temporary_dmg_digest}" \
+    || fail "The verified DMG and checksum could not be published safely."
 
 printf 'DMG: %s\n' "${output_path}"
 printf 'SHA-256: %s\n' "${checksum_path}"

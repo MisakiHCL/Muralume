@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 set -u
+umask 077
 
 if [[ "$#" -lt 2 ]]; then
     printf 'Usage: %s <workflow> <command> [args...]\n' "$0" >&2
@@ -29,11 +30,19 @@ else
     keep_log=1
     printf '[FAIL] %s failed after %ss\n' \
         "${workflow_name}" "$((SECONDS - start_seconds))" >&2
-    printf '%s\n' '--- last 40 log lines ---' >&2
-    tail -n 40 "${log_file}" >&2
-    printf '%s\n' '--- end of log ---' >&2
+    if [[ "${workflow_name}" == "release-macos" ]]; then
+        printf '%s\n' \
+            'Release output is not echoed because signing metadata may be private.' \
+            >&2
+    else
+        printf '%s\n' '--- last 40 log lines ---' >&2
+        tail -n 40 "${log_file}" >&2
+        printf '%s\n' '--- end of log ---' >&2
+    fi
     printf 'Full log: %s\n' "${log_file}" >&2
-    printf 'Run again with full output: make %s VERBOSE=1\n' \
-        "${workflow_name}" >&2
+    if [[ "${workflow_name}" != "release-macos" ]]; then
+        printf 'Run again with full output: make %s VERBOSE=1\n' \
+            "${workflow_name}" >&2
+    fi
     exit "${status}"
 fi

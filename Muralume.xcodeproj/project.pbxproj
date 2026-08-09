@@ -98,6 +98,7 @@
 		CEB28A8BFD66AAC33B3CF6A1 /* FileDesktopPresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2E5FCCB7B72B4DD3AFAF836 /* FileDesktopPresetStore.swift */; };
 		D0A0FBE24BAF468290B1E7D1 /* SystemNotificationName.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC6DCFAE93B6413084C9C561 /* SystemNotificationName.swift */; };
 		D0E3643141099DD2E8F3DF6D /* PlayerScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED645770F764AF0E6A40DE45 /* PlayerScreen.swift */; };
+		D70000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D70000000000000000000001 /* PrivacyInfo.xcprivacy */; };
 		D60000000000000000000011 /* DesktopPlayerLayerSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */; };
 		D411CD1097024403912B986C /* PlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82C43CDEEC83437E807E0533 /* PlaybackEngine.swift */; };
 		DE6157F7308D1EE1AE13B15F /* DesktopPresetController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8074E4CA3AA4FB1321DFE13C /* DesktopPresetController.swift */; };
@@ -234,6 +235,7 @@
 		D382901D037C4949AA2E1090 /* VideoViewport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoViewport.swift; sourceTree = "<group>"; };
 		D3F2E5966FB709EA70C9D0D3 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 		D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopPlayerLayerSurfaceView.swift; sourceTree = "<group>"; };
+		D70000000000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		D9C9A8AA279227FF1FED1E7E /* Localizable.strings */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		DC6DCFAE93B6413084C9C561 /* SystemNotificationName.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemNotificationName.swift; sourceTree = "<group>"; };
 		E4C1719B3EBF498C8A5CCF6E /* PlayerControls.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerControls.swift; sourceTree = "<group>"; };
@@ -750,6 +752,7 @@
 				B7A3F1C8282945F09D215A01 /* Assets.xcassets */,
 				AF42D16CD96624D4E2402FDD /* Info.plist */,
 				1D3E98E0E1DCE91699F8422D /* Muralume.entitlements */,
+				D70000000000000000000001 /* PrivacyInfo.xcprivacy */,
 				CCB0920EA9C7D76809E4B7D6 /* Localizable.strings */,
 			);
 			name = Resources;
@@ -919,6 +922,7 @@
 			files = (
 				CD3E5428B18F4A41A00C9FD2 /* Assets.xcassets in Resources */,
 				F8669EC8157A2D6B426D64E3 /* Localizable.strings in Resources */,
+				D70000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -27,7 +27,10 @@ make test
 
 `make test` performs architecture and localization checks, unit and integration
 tests, XCUITest, fixture validation, and an unsigned Release build. Integration
-and UI tests require an active macOS graphical session.
+and UI tests require an active macOS graphical session. Every XCTest invocation
+must produce a readable result bundle with at least one test, no failures,
+skips, or expected failures, and every Swift test source must belong to its
+Xcode test target.
 
 Debug builds use `com.muralume.Muralume.debug`, so their sandbox and media
 bookmarks stay separate from the production app. The public defaults build
@@ -50,6 +53,15 @@ A direct Xcode Release build is also local-only and uses the same isolated
 bundle identifier. Formal distribution is intentionally available only through
 `make release-macos`, which overrides the production bundle identifier and
 fails closed unless its private signing inputs are present.
+
+A formal release requires a clean, committed source tree. Its marketing version
+and build must increase from the latest semantic-version tag; an existing tag
+for the candidate version must point to the exact source commit. The release
+script creates a detached source snapshot, runs `release-gate` inside that
+snapshot, and archives the same unchanged tree. It snapshots the private code
+requirement before signing and installs the final DMG and checksum as a
+rollback-protected pair, so the public output is not replaced after a failed
+workflow.
 
 Maintainers preparing a formal Developer ID release must copy
 `Config/Release.local.mk.example` to the Git-ignored

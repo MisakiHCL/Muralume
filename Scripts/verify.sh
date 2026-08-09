@@ -14,6 +14,7 @@ source "${script_directory}/lib/signing_privacy.sh"
 
 readonly artifacts_root="${MURALUME_TEST_ARTIFACTS_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/MuralumeVerify.XXXXXX")}"
 readonly derived_data_path="${artifacts_root}/DerivedData"
+readonly test_results_root="${artifacts_root}/TestResults"
 
 readonly -a common_debug_arguments=(
     -project "${project_path}"
@@ -181,6 +182,180 @@ load_test_selectors() {
     readonly integration_test_selectors
 }
 
+xcresult_summary_value() {
+    local summary_path="$1"
+    local key="$2"
+    local value
+
+    if ! value="$(plutil -extract "${key}" raw -o - "${summary_path}" 2>/dev/null)"; then
+        echo "Test result summary is missing or has an invalid ${key}: ${summary_path}" >&2
+        return 1
+    fi
+    printf '%s\n' "${value}"
+}
+
+xcresult_summary_integer() {
+    local summary_path="$1"
+    local key="$2"
+    local value
+
+    if ! value="$(xcresult_summary_value "${summary_path}" "${key}")"; then
+        return 1
+    fi
+    case "${value}" in
+        ''|*[!0-9]*)
+            echo "Test result summary has a non-integer ${key}: ${value}" >&2
+            return 1
+            ;;
+    esac
+    printf '%s\n' "${value}"
+}
+
+assert_xcresult_passed() {
+    local result_bundle_path="$1"
+    local summary_path="${result_bundle_path}.summary.json"
+    local total_count
+    local passed_count
+    local failed_count
+    local skipped_count
+    local expected_failure_count
+    local result
+
+    if [[ ! -d "${result_bundle_path}" ]]; then
+        echo "Expected XCTest result bundle is missing: ${result_bundle_path}" >&2
+        return 1
+    fi
+    if ! xcrun xcresulttool get test-results summary \
+        --path "${result_bundle_path}" \
+        --compact > "${summary_path}"; then
+        echo "Could not read XCTest result summary: ${result_bundle_path}" >&2
+        return 1
+    fi
+
+    if ! total_count="$(xcresult_summary_integer "${summary_path}" totalTestCount)" ||
+        ! passed_count="$(xcresult_summary_integer "${summary_path}" passedTests)" ||
+        ! failed_count="$(xcresult_summary_integer "${summary_path}" failedTests)" ||
+        ! skipped_count="$(xcresult_summary_integer "${summary_path}" skippedTests)" ||
+        ! expected_failure_count="$(
+            xcresult_summary_integer "${summary_path}" expectedFailures
+        )" ||
+        ! result="$(xcresult_summary_value "${summary_path}" result)"; then
+        return 1
+    fi
+
+    if [[ "${total_count}" -eq 0 ]]; then
+        echo "XCTest executed zero tests: ${result_bundle_path}" >&2
+        return 1
+    fi
+    if [[ "${failed_count}" -ne 0 ]]; then
+        echo "XCTest reported ${failed_count} failed test(s): ${result_bundle_path}" >&2
+        return 1
+    fi
+    if [[ "${skipped_count}" -ne 0 ]]; then
+        echo "XCTest reported ${skipped_count} skipped test(s): ${result_bundle_path}" >&2
+        return 1
+    fi
+    if [[ "${expected_failure_count}" -ne 0 ]]; then
+        echo "XCTest reported ${expected_failure_count} expected failure(s): ${result_bundle_path}" >&2
+        return 1
+    fi
+    if [[ "${passed_count}" -ne "${total_count}" ]]; then
+        echo \
+            "XCTest result counts are inconsistent: total=${total_count}, passed=${passed_count}." \
+            >&2
+        return 1
+    fi
+    if [[ "${result}" != "Passed" ]]; then
+        echo "XCTest result is not Passed (${result}): ${result_bundle_path}" >&2
+        return 1
+    fi
+
+    echo \
+        "Verified XCTest result: ${passed_count} passed, 0 failed, 0 skipped (${result_bundle_path})."
+}
+
+new_test_result_bundle_path() {
+    local invocation_name="$1"
+    local invocation_directory
+
+    mkdir -p "${test_results_root}"
+    invocation_directory="$(
+        mktemp -d "${test_results_root}/${invocation_name}.XXXXXX"
+    )"
+    printf '%s/%s.xcresult\n' "${invocation_directory}" "${invocation_name}"
+}
+
+run_xcode_test_invocation() {
+    local invocation_name="$1"
+    shift
+    local result_bundle_path
+    local xcodebuild_status=0
+    local result_validation_status=0
+
+    result_bundle_path="$(new_test_result_bundle_path "${invocation_name}")"
+    echo "Writing XCTest results to ${result_bundle_path}"
+    if xcodebuild \
+        "${common_debug_arguments[@]}" \
+        -resultBundlePath "${result_bundle_path}" \
+        "$@"; then
+        :
+    else
+        xcodebuild_status=$?
+    fi
+
+    assert_xcresult_passed "${result_bundle_path}" || result_validation_status=$?
+    if [[ "${xcodebuild_status}" -ne 0 ]]; then
+        echo \
+            "xcodebuild test invocation failed with status ${xcodebuild_status}: ${invocation_name}" \
+            >&2
+        return "${xcodebuild_status}"
+    fi
+    if [[ "${result_validation_status}" -ne 0 ]]; then
+        return "${result_validation_status}"
+    fi
+}
+
+assert_test_sources_belong_to_target() {
+    local source_directory="$1"
+    local target_name="$2"
+    local intermediates_root="${derived_data_path}/Build/Intermediates.noindex"
+    local source_file
+    local source_count=0
+    local file_list
+    local -a swift_file_lists=()
+
+    while IFS= read -r -d '' file_list; do
+        swift_file_lists+=("${file_list}")
+    done < <(
+        find "${intermediates_root}" \
+            -type f \
+            -path "*/${target_name}.build/Objects-normal/*/${target_name}.SwiftFileList" \
+            -print0
+    )
+
+    if [[ "${#swift_file_lists[@]}" -eq 0 ]]; then
+        echo "Could not find Xcode Swift source list for test target ${target_name}." >&2
+        return 1
+    fi
+
+    while IFS= read -r -d '' source_file; do
+        source_count=$((source_count + 1))
+        if ! rg -F -x -q -- "${source_file}" "${swift_file_lists[@]}"; then
+            echo \
+                "XCTestCase source is not compiled by ${target_name}: ${source_file}" \
+                >&2
+            return 1
+        fi
+    done < <(find "${source_directory}" -type f -name '*.swift' -print0)
+
+    if [[ "${source_count}" -eq 0 ]]; then
+        echo "No Swift test source files found in ${source_directory}." >&2
+        return 1
+    fi
+    echo \
+        "Verified ${source_count} Swift test source file(s) belong to ${target_name}."
+}
+
 check_architecture() {
     local retired_entry
     local -a retired_entries=(
@@ -201,6 +376,12 @@ check_architecture() {
     "${script_directory}/tests/prepare_distribution_requirements_test.sh"
     "${script_directory}/tests/signing_privacy_test.sh"
     "${script_directory}/tests/secure_timestamp_test.sh"
+    "${script_directory}/tests/release_output_transaction_test.sh"
+    "${script_directory}/tests/release_signature_validation_test.sh"
+    "${script_directory}/tests/release_source_snapshot_test.sh"
+    "${script_directory}/tests/release_macos_fault_injection_test.sh"
+    "${script_directory}/tests/run_quiet_workflow_test.sh"
+    "${script_directory}/tests/verify_test_results_test.sh"
 
     reject_imports \
         "Domain" \
@@ -291,38 +472,53 @@ verify_architecture() {
 }
 
 run_unit_tests() {
-    xcodebuild \
-        "${common_debug_arguments[@]}" \
+    run_xcode_test_invocation \
+        unit \
         "${unit_test_selectors[@]}" \
         test
+    assert_test_sources_belong_to_target \
+        "${project_root}/MuralumeTests/Unit" \
+        MuralumeTests
 }
 
 run_integration_tests() {
-    xcodebuild \
-        "${common_debug_arguments[@]}" \
+    run_xcode_test_invocation \
+        integration \
         "${integration_test_selectors[@]}" \
         test
+    assert_test_sources_belong_to_target \
+        "${project_root}/MuralumeTests/Integration" \
+        MuralumeTests
 }
 
 run_ui_tests() {
-    xcodebuild \
-        "${common_debug_arguments[@]}" \
+    run_xcode_test_invocation \
+        ui \
         -only-testing:MuralumeUITests \
         test
+    assert_test_sources_belong_to_target \
+        "${project_root}/MuralumeUITests" \
+        MuralumeUITests
 }
 
 run_non_ui_debug_tests_without_building() {
-    xcodebuild \
-        "${common_debug_arguments[@]}" \
+    run_xcode_test_invocation \
+        non-ui \
         -only-testing:MuralumeTests \
         test-without-building
+    assert_test_sources_belong_to_target \
+        "${project_root}/MuralumeTests" \
+        MuralumeTests
 }
 
 run_ui_tests_without_building() {
-    xcodebuild \
-        "${common_debug_arguments[@]}" \
+    run_xcode_test_invocation \
+        ui-without-building \
         -only-testing:MuralumeUITests \
         test-without-building
+    assert_test_sources_belong_to_target \
+        "${project_root}/MuralumeUITests" \
+        MuralumeUITests
 }
 
 run_all_debug_tests_without_building() {
@@ -336,6 +532,7 @@ check_bundled_resources() {
     local -a required_resources=(
         "${app_bundle}/Contents/Resources/AppIcon.icns"
         "${app_bundle}/Contents/Resources/Assets.car"
+        "${app_bundle}/Contents/Resources/PrivacyInfo.xcprivacy"
         "${app_bundle}/Contents/Resources/en.lproj/Localizable.strings"
         "${app_bundle}/Contents/Resources/zh-Hans.lproj/Localizable.strings"
         "${test_bundle}/Contents/Resources/landscape-20s-h264.mp4"
@@ -380,42 +577,48 @@ run_release_gate() {
     build_release
 }
 
-require_command rg
-require_command plutil
-require_command xcodebuild
-mkdir -p "${artifacts_root}"
-load_test_selectors
+main() {
+    require_command rg
+    require_command plutil
+    require_command xcodebuild
+    require_command xcrun
+    mkdir -p "${artifacts_root}"
+    load_test_selectors
 
-case "${selected_suite}" in
-    architecture)
-        verify_architecture
-        ;;
-    unit)
-        run_unit_tests
-        ;;
-    integration)
-        run_integration_tests
-        ;;
-    ui)
-        run_ui_tests
-        ;;
-    release)
-        build_release
-        ;;
-    release-gate)
-        run_release_gate
-        ;;
-    all)
-        run_all
-        ;;
-    help|-h|--help)
-        print_usage
-        ;;
-    *)
-        echo "Unknown suite: ${selected_suite}" >&2
-        print_usage >&2
-        exit 64
-        ;;
-esac
+    case "${selected_suite}" in
+        architecture)
+            verify_architecture
+            ;;
+        unit)
+            run_unit_tests
+            ;;
+        integration)
+            run_integration_tests
+            ;;
+        ui)
+            run_ui_tests
+            ;;
+        release)
+            build_release
+            ;;
+        release-gate)
+            run_release_gate
+            ;;
+        all)
+            run_all
+            ;;
+        help|-h|--help)
+            print_usage
+            ;;
+        *)
+            echo "Unknown suite: ${selected_suite}" >&2
+            print_usage >&2
+            exit 64
+            ;;
+    esac
+    echo "Artifacts: ${artifacts_root}"
+}
 
-echo "Artifacts: ${artifacts_root}"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

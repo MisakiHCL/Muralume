@@ -2,6 +2,11 @@
 #   chmod 600 Config/Release.local.mk
 # The destination is ignored by Git. Store notarization credentials only in
 # the macOS Keychain; never put passwords, private keys, or API keys here.
+# Creating an App Store Connect app record does not install a local Developer
+# ID Application certificate. Confirm a valid identity and private key with:
+#   security find-identity -v -p codesigning
+# Store notarization credentials under an opaque Keychain profile alias with
+# `xcrun notarytool store-credentials`; put only that alias below.
 # Prepare the private designated requirement only through the controlled
 # Developer ID archive/export workflow after filling this file:
 #   make prepare-distribution-requirements

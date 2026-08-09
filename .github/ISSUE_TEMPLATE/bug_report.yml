@@ -13,7 +13,7 @@ body:
     attributes:
       label: Muralume version
       description: Use the version shown in Finder or the Git commit for a source build.
-      placeholder: "1.0.3 or commit SHA"
+      placeholder: "1.0.4 or commit SHA"
     validations:
       required: true
   - type: input

@@ -70,7 +70,6 @@ release-macos:
 
 release-macos-steps:
 	@./Scripts/prepare_distribution_requirements.sh --check
-	./Scripts/verify.sh release-gate
 	@./Scripts/release_macos.sh \
 		--mode distribution \
 		--output "$(RELEASE_DMG)"
