@@ -299,6 +299,127 @@ final class AppDelegateTests: XCTestCase {
         )
     }
 
+    func testAboutPanelCreditsExposeLocalizedHTTPSLinks() throws {
+        let expectations: [
+            (language: AppLanguage, labels: [String])
+        ] = [
+            (
+                .english,
+                ["Official Website", "Privacy Policy", "Source Code"]
+            ),
+            (
+                .simplifiedChinese,
+                ["官方网站", "隐私政策", "开源代码"]
+            )
+        ]
+        let links = MuralumeExternalLink.aboutPanelOrder
+        let expectedURLs = [
+            "https://hclgame.com/muralume/",
+            "https://hclgame.com/muralume/privacy",
+            "https://github.com/MisakiHCL/Muralume"
+        ]
+
+        XCTAssertEqual(links.count, 3)
+        XCTAssertEqual(links.map(\.url.absoluteString), expectedURLs)
+        XCTAssertTrue(
+            links.allSatisfy {
+                $0.url.scheme == "https" && $0.url.host != nil
+                    && $0.url.user == nil && $0.url.password == nil
+                    && $0.url.query == nil && $0.url.fragment == nil
+            }
+        )
+
+        for expectation in expectations {
+            let options = MuralumeAboutPanelContent.options(
+                localization: AppLocalizationController(
+                    initialLanguage: expectation.language
+                )
+            )
+            let credits = try XCTUnwrap(
+                options[.credits] as? NSAttributedString
+            )
+
+            XCTAssertEqual(
+                credits.string,
+                expectation.labels.joined(separator: " · ")
+            )
+
+            for (label, link) in zip(expectation.labels, links) {
+                let range = (credits.string as NSString).range(of: label)
+                XCTAssertNotEqual(range.location, NSNotFound)
+                let value = credits.attribute(
+                    .link,
+                    at: range.location,
+                    effectiveRange: nil
+                )
+                XCTAssertEqual(value as? URL, link.url)
+            }
+        }
+    }
+
+    func testAboutMenuPresentsCreditsWithoutAddingVisibleMenuItems() throws {
+        let presenter = TestAboutPanelPresenter()
+        let controller = makeMainMenuController(
+            commandHandler: TestMainMenuCommandHandler(),
+            mainWindow: NSWindow(),
+            aboutPanelPresenter: presenter
+        )
+        let applicationMenu = try XCTUnwrap(
+            controller.canonicalMenu.items.first?.submenu
+        )
+        let aboutItem = try XCTUnwrap(
+            applicationMenu.items.first { $0.title == "About Muralume" }
+        )
+        let action = try XCTUnwrap(aboutItem.action)
+
+        XCTAssertTrue(
+            NSApp.sendAction(action, to: aboutItem.target, from: aboutItem)
+        )
+        XCTAssertEqual(presenter.presentedOptions.count, 1)
+        XCTAssertNotNil(
+            presenter.presentedOptions[0][.credits] as? NSAttributedString
+        )
+        XCTAssertEqual(
+            applicationMenu.items
+                .filter { !$0.isSeparatorItem }
+                .map(\.title),
+            [
+                "About Muralume",
+                "Settings…",
+                "Services",
+                "Hide Muralume",
+                "Hide Others",
+                "Show All",
+                "Quit Muralume"
+            ]
+        )
+    }
+
+    func testAboutMenuRetainsInjectedPresenter() throws {
+        var presenter: TestAboutPanelPresenter? = TestAboutPanelPresenter()
+        weak var retainedPresenter = presenter
+        let controller = makeMainMenuController(
+            commandHandler: TestMainMenuCommandHandler(),
+            mainWindow: NSWindow(),
+            aboutPanelPresenter: presenter
+        )
+        presenter = nil
+
+        let applicationMenu = try XCTUnwrap(
+            controller.canonicalMenu.items.first?.submenu
+        )
+        let aboutItem = try XCTUnwrap(
+            applicationMenu.items.first { $0.title == "About Muralume" }
+        )
+        let action = try XCTUnwrap(aboutItem.action)
+
+        XCTAssertNotNil(retainedPresenter)
+        XCTAssertTrue(
+            NSApp.sendAction(action, to: aboutItem.target, from: aboutItem)
+        )
+        XCTAssertEqual(retainedPresenter?.presentedOptions.count, 1)
+    }
+
     func testPlayerMenuUsesOneShortcutOwnerAndDynamicState() throws {
         let commandHandler = TestMainMenuCommandHandler()
         let controller = makeMainMenuController(
@@ -593,7 +714,8 @@ final class AppDelegateTests: XCTestCase {
 
     private func makeMainMenuController(
         commandHandler: TestMainMenuCommandHandler,
-        mainWindow: NSWindow
+        mainWindow: NSWindow,
+        aboutPanelPresenter: (any MacAboutPanelPresenting)? = nil
     ) -> MacMainMenuController {
         MacMainMenuController(
             application: NSApp,
@@ -601,8 +723,22 @@ final class AppDelegateTests: XCTestCase {
                 initialLanguage: .english
             ),
             commandHandler: commandHandler,
-            mainWindow: mainWindow
+            mainWindow: mainWindow,
+            aboutPanelPresenter: aboutPanelPresenter
         )
+    }
+}
+
+@MainActor
+private final class TestAboutPanelPresenter: MacAboutPanelPresenting {
+    private(set) var presentedOptions: [
+        [NSApplication.AboutPanelOptionKey: Any]
+    ] = []
+
+    func orderFrontStandardAboutPanel(
+        options: [NSApplication.AboutPanelOptionKey: Any]
+    ) {
+        presentedOptions.append(options)
     }
 }
 

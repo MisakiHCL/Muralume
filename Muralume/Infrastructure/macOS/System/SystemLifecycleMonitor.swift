@@ -15,12 +15,21 @@ enum DisplaySleepPolicy {
     }
 }
 
+enum ThermalPlaybackPolicy {
+    static func shouldSuspend(for state: ProcessInfo.ThermalState) -> Bool {
+        state == .serious || state == .critical
+    }
+}
+
 @MainActor
 final class SystemLifecycleMonitor: SystemLifecycleMonitoring {
     var suspensionHandler: ((PlaybackSuspensionReason, Bool) -> Void)?
+    var energyConstrainedHandler: ((Bool) -> Void)?
 
     private let workspaceCenter: NotificationCenter
     private let defaultCenter: NotificationCenter
+    private let thermalStateProvider: () -> ProcessInfo.ThermalState
+    private let lowPowerModeProvider: () -> Bool
     private var workspaceObservers: [NSObjectProtocol] = []
     private var defaultObservers: [NSObjectProtocol] = []
     private var isRunning = false
@@ -28,10 +37,18 @@ final class SystemLifecycleMonitor: SystemLifecycleMonitoring {
     init(
         workspaceCenter: NotificationCenter = NSWorkspace.shared
             .notificationCenter,
-        defaultCenter: NotificationCenter = .default
+        defaultCenter: NotificationCenter = .default,
+        thermalStateProvider: @escaping () -> ProcessInfo.ThermalState = {
+            ProcessInfo.processInfo.thermalState
+        },
+        lowPowerModeProvider: @escaping () -> Bool = {
+            ProcessInfo.processInfo.isLowPowerModeEnabled
+        }
     ) {
         self.workspaceCenter = workspaceCenter
         self.defaultCenter = defaultCenter
+        self.thermalStateProvider = thermalStateProvider
+        self.lowPowerModeProvider = lowPowerModeProvider
     }
 
     func start() {
@@ -88,6 +105,17 @@ final class SystemLifecycleMonitor: SystemLifecycleMonitoring {
         }
         defaultObservers.append(thermalObserver)
 
+        let powerStateObserver = defaultCenter.addObserver(
+            forName: .NSProcessInfoPowerStateDidChange,
+            object: ProcessInfo.processInfo,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.publishCurrentPowerState()
+            }
+        }
+        defaultObservers.append(powerStateObserver)
+
         let screenParametersObserver = defaultCenter.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -102,6 +130,7 @@ final class SystemLifecycleMonitor: SystemLifecycleMonitoring {
         publishInitialSessionState()
         publishInitialDisplayState()
         publishCurrentThermalState()
+        publishCurrentPowerState()
     }
 
     func stop() {
@@ -136,9 +165,14 @@ final class SystemLifecycleMonitor: SystemLifecycleMonitoring {
     }
 
     private func publishCurrentThermalState() {
-        let thermalState = ProcessInfo.processInfo.thermalState
-        let isPressured = thermalState == .serious || thermalState == .critical
-        suspensionHandler?(.thermalPressure, isPressured)
+        suspensionHandler?(
+            .thermalPressure,
+            ThermalPlaybackPolicy.shouldSuspend(for: thermalStateProvider())
+        )
+    }
+
+    private func publishCurrentPowerState() {
+        energyConstrainedHandler?(lowPowerModeProvider())
     }
 
     private func publishInitialSessionState() {

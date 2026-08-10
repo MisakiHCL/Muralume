@@ -103,6 +103,23 @@ final class MediaLibrarySortTests: XCTestCase {
         XCTAssertEqual(descending.map(\.displayName), ["Large", "Small"])
     }
 
+    func testInPlaceSortMatchesValueReturningSort() {
+        let sort = MediaLibrarySort(
+            field: .fileSize,
+            direction: .descending
+        )
+        let items = [
+            makeItem(name: "Medium", path: "medium.mov", fileSize: 8),
+            makeItem(name: "Small", path: "small.mov", fileSize: 4),
+            makeItem(name: "Large", path: "large.mov", fileSize: 12)
+        ]
+        var inPlaceItems = items
+
+        sort.sortInPlace(&inPlaceItems)
+
+        XCTAssertEqual(inPlaceItems, sort.sorted(items))
+    }
+
     private func makeItem(
         name: String,
         path: String,

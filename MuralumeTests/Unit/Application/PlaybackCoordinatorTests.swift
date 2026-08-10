@@ -320,7 +320,8 @@ final class PlaybackCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(completionCount, 0)
         XCTAssertEqual(coordinator.currentTime, 120)
-        XCTAssertEqual(engine.soughtTimes, [120])
+        XCTAssertEqual(engine.soughtTimes, [120, 120])
+        XCTAssertEqual(engine.seekModes, [.interactive, .exact])
         XCTAssertFalse(coordinator.isPlaybackRequested)
         XCTAssertFalse(engine.isPlaying)
 
@@ -352,9 +353,103 @@ final class PlaybackCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(completionCount, 0)
         XCTAssertEqual(coordinator.currentTime, 42)
-        XCTAssertEqual(engine.soughtTimes, [120, 42])
+        XCTAssertEqual(engine.soughtTimes, [120, 42, 42])
+        XCTAssertEqual(
+            engine.seekModes,
+            [.interactive, .interactive, .exact]
+        )
         XCTAssertTrue(coordinator.isPlaybackRequested)
         XCTAssertTrue(engine.isPlaying)
+    }
+
+    func testTimelineSeekUsesInteractiveUpdatesAndExactFinalTarget() async {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+
+        coordinator.beginTimelineSeek()
+        coordinator.seek(to: 10)
+        coordinator.seek(to: 20)
+        coordinator.seek(to: 30)
+        coordinator.endTimelineSeek()
+
+        XCTAssertEqual(engine.soughtTimes, [10, 20, 30, 30])
+        XCTAssertEqual(
+            engine.seekModes,
+            [.interactive, .interactive, .interactive, .exact]
+        )
+        XCTAssertEqual(coordinator.currentTime, 30)
+        XCTAssertTrue(engine.isPlaying)
+    }
+
+    func testTimelineValueChangeWithoutEditingUsesExactSeek() async {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+
+        coordinator.seek(to: 42)
+
+        XCTAssertEqual(engine.soughtTimes, [42])
+        XCTAssertEqual(engine.seekModes, [.exact])
+        XCTAssertEqual(coordinator.currentTime, 42)
+    }
+
+    func testInteractiveSeekCoalescesPendingTargetsToTheLatest() async {
+        var requests: [(TimeInterval, PlaybackSeekMode)] = []
+        var completions: [PlaybackSeekCoalescer.Completion] = []
+        let coalescer = PlaybackSeekCoalescer { seconds, mode, completion in
+            requests.append((seconds, mode))
+            completions.append(completion)
+        }
+
+        coalescer.seek(to: 10, mode: .interactive)
+        coalescer.seek(to: 20, mode: .interactive)
+        coalescer.seek(to: 30, mode: .interactive)
+
+        XCTAssertEqual(requests.map { $0.0 }, [10])
+        XCTAssertEqual(requests.map { $0.1 }, [.interactive])
+
+        let firstCompletion = completions.removeFirst()
+        firstCompletion()
+        await Task.yield()
+
+        XCTAssertEqual(requests.map { $0.0 }, [10, 30])
+        XCTAssertEqual(
+            requests.map { $0.1 },
+            [.interactive, .interactive]
+        )
+    }
+
+    func testExactSeekDiscardsPendingInteractiveTarget() async {
+        var requests: [(TimeInterval, PlaybackSeekMode)] = []
+        var completions: [PlaybackSeekCoalescer.Completion] = []
+        let coalescer = PlaybackSeekCoalescer { seconds, mode, completion in
+            requests.append((seconds, mode))
+            completions.append(completion)
+        }
+
+        coalescer.seek(to: 10, mode: .interactive)
+        coalescer.seek(to: 20, mode: .interactive)
+        coalescer.seek(to: 40, mode: .exact)
+
+        XCTAssertEqual(requests.map { $0.0 }, [10, 40])
+        XCTAssertEqual(requests.map { $0.1 }, [.interactive, .exact])
+
+        let supersededCompletion = completions.removeFirst()
+        supersededCompletion()
+        await Task.yield()
+
+        XCTAssertEqual(requests.map { $0.0 }, [10, 40])
     }
 
     func testLoadingReplacementCancelsTimelineSeekInteraction() async {
@@ -633,9 +728,9 @@ final class PlaybackCoordinatorTests: XCTestCase {
         )
         try await coordinator.transitionToDesktop(desktopSurface)
 
-        coordinator.setSuspended(true, for: .screenLocked)
+        coordinator.setSuspended(true, for: .thermalPressure)
         coordinator.setSuspended(true, for: .displaySleeping)
-        coordinator.setSuspended(false, for: .screenLocked)
+        coordinator.setSuspended(false, for: .thermalPressure)
 
         XCTAssertFalse(engine.isPlaying)
 
@@ -643,7 +738,8 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertTrue(engine.isPlaying)
     }
 
-    func testSuspensionRecordedInPlayerRemainsEffectiveAcrossDesktopRoundTrips() async throws {
+    func testSystemSuspensionPausesEveryPresentationAndPreservesIntent()
+        async throws {
         let engine = TestPlaybackEngine()
         let coordinator = PlaybackCoordinator(engine: engine)
         let playerSurface = TestPlaybackSurface(id: .player)
@@ -658,19 +754,127 @@ final class PlaybackCoordinatorTests: XCTestCase {
             )
         )
         coordinator.setSuspended(true, for: .screenLocked)
-        XCTAssertTrue(engine.isPlaying)
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertTrue(coordinator.isPlaybackRequested)
+        XCTAssertTrue(coordinator.isSystemSuspended)
 
         try await coordinator.transitionToDesktop(desktopSurface)
         XCTAssertFalse(engine.isPlaying)
 
         try await coordinator.transitionToPlayer()
-        XCTAssertTrue(engine.isPlaying)
+        XCTAssertFalse(engine.isPlaying)
 
         try await coordinator.transitionToDesktop(desktopSurface)
         XCTAssertFalse(engine.isPlaying)
 
         coordinator.setSuspended(false, for: .screenLocked)
         XCTAssertTrue(engine.isPlaying)
+        XCTAssertFalse(coordinator.isSystemSuspended)
+    }
+
+    func testSystemSuspensionPublishesWhilePlaybackIsAlreadyPaused() {
+        let coordinator = PlaybackCoordinator(engine: TestPlaybackEngine())
+        var publishedStates: [Bool] = []
+        let observation = coordinator.$isSystemSuspended
+            .dropFirst()
+            .sink { publishedStates.append($0) }
+
+        coordinator.setSuspended(true, for: .displaySleeping)
+        coordinator.setSuspended(false, for: .displaySleeping)
+
+        XCTAssertEqual(publishedStates, [true, false])
+        withExtendedLifetime(observation) {}
+    }
+
+    func testPlayerWindowSuspensionDoesNotPauseDesktopPlayback() async throws {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        let desktopSurface = TestPlaybackSurface(id: .desktop)
+        coordinator.registerPlayerSurface(playerSurface)
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+
+        coordinator.setSuspended(true, for: .playerWindowMiniaturized)
+        XCTAssertFalse(engine.isPlaying)
+
+        try await coordinator.transitionToDesktop(desktopSurface)
+        XCTAssertTrue(engine.isPlaying)
+
+        try await coordinator.transitionToPlayer()
+        XCTAssertFalse(engine.isPlaying)
+
+        coordinator.setSuspended(false, for: .playerWindowMiniaturized)
+        XCTAssertTrue(engine.isPlaying)
+    }
+
+    func testDesktopCadenceReevaluatesMixedSuspensionReasons() async throws {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let desktopSurface = TestPlaybackSurface(id: .desktop)
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+        coordinator.setSuspended(true, for: .playerWindowMiniaturized)
+        coordinator.setSuspended(true, for: .displaySleeping)
+
+        try await coordinator.transitionToDesktop(desktopSurface)
+        XCTAssertEqual(engine.progressCadence, .inactive)
+        XCTAssertFalse(engine.isPlaying)
+
+        coordinator.setSuspended(false, for: .displaySleeping)
+
+        XCTAssertEqual(engine.progressCadence, .background)
+        XCTAssertTrue(engine.isPlaying)
+        XCTAssertTrue(coordinator.isSystemSuspended)
+    }
+
+    func testMiniaturizedReturnPausesDuringAttachmentAndResumesOnFailure()
+        async throws
+    {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        let desktopSurface = TestPlaybackSurface(id: .desktop)
+        coordinator.registerPlayerSurface(playerSurface)
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+        try await coordinator.transitionToDesktop(desktopSurface)
+        coordinator.setSuspended(true, for: .playerWindowMiniaturized)
+        engine.shouldBlockAttachments = true
+
+        let transition = Task {
+            try await coordinator.transitionToPlayer()
+        }
+        for _ in 0..<1_000 where !engine.didBeginBlockedAttachment {
+            await Task.yield()
+        }
+
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertEqual(engine.progressCadence, .inactive)
+
+        transition.cancel()
+        do {
+            try await transition.value
+            XCTFail("Expected the blocked attachment to be cancelled")
+        } catch is CancellationError {
+            // Expected.
+        }
+
+        XCTAssertEqual(coordinator.presentation, .desktop)
+        XCTAssertTrue(engine.isPlaying)
+        XCTAssertEqual(engine.progressCadence, .background)
     }
 
     func testEngineFailureResetsPlaybackAndNotifiesTheApp() async {
@@ -695,6 +899,47 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.isActuallyPlaying)
         XCTAssertFalse(coordinator.hasPlayableMedia)
         XCTAssertEqual(reportedFailure, .cannotOpen)
+    }
+
+    func testProgressCadenceTracksVisibleDesktopAndDismissedStates()
+        async throws {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        let desktopSurface = TestPlaybackSurface(id: .desktop)
+        coordinator.registerPlayerSurface(playerSurface)
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+
+        try await coordinator.transitionToDesktop(desktopSurface)
+        try await coordinator.transitionToPlayer()
+        coordinator.dismissPlayerWindow()
+        let hiddenTime = coordinator.currentTime
+        engine.progressHandler?(hiddenTime + 10)
+
+        XCTAssertEqual(coordinator.currentTime, hiddenTime)
+
+        coordinator.restorePlayerWindow()
+        await Task.yield()
+        coordinator.stop()
+
+        XCTAssertEqual(
+            engine.progressCadenceChanges,
+            [
+                .inactive,
+                .visible,
+                .background,
+                .visible,
+                .inactive,
+                .visible,
+                .inactive
+            ]
+        )
+        XCTAssertEqual(engine.progressCadence, .inactive)
     }
 
     func testDismissingPlayingWindowPausesAndResumesOriginalIntent() async {

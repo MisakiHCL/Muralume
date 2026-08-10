@@ -23,6 +23,11 @@ struct MediaLibrarySort: Equatable, Sendable {
         items.sorted(by: precedes)
     }
 
+    /// Sorts existing mutable storage without creating a second full array.
+    func sortInPlace(_ items: inout [LibraryMediaItem]) {
+        items.sort(by: precedes)
+    }
+
     private func precedes(
         _ lhs: LibraryMediaItem,
         _ rhs: LibraryMediaItem

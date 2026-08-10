@@ -321,7 +321,8 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         )
     }
 
-    func testLifecycleEventsPauseOnlyTheDesktopPresentation() async {
+    func testLifecycleSuspensionPausesPlayerAndDesktopWithoutLosingIntent()
+        async {
         let engine = TestPlaybackEngine()
         let playback = PlaybackCoordinator(engine: engine)
         let lifecycleMonitor = TestSystemLifecycleMonitor()
@@ -349,14 +350,59 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         )
         XCTAssertTrue(engine.isPlaying)
 
-        lifecycleMonitor.emit(.screenLocked, suspended: true)
-        XCTAssertTrue(engine.isPlaying)
+        lifecycleMonitor.emit(.displaySleeping, suspended: true)
+        lifecycleMonitor.emit(.sessionInactive, suspended: true)
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertTrue(playback.isPlaybackRequested)
 
         session.enterDesktop()
         await waitUntil { session.isActive }
         XCTAssertFalse(engine.isPlaying)
 
-        lifecycleMonitor.emit(.screenLocked, suspended: false)
+        lifecycleMonitor.emit(.displaySleeping, suspended: false)
+        XCTAssertFalse(engine.isPlaying)
+
+        lifecycleMonitor.emit(.sessionInactive, suspended: false)
+        XCTAssertTrue(engine.isPlaying)
+    }
+
+    func testEnergyConstraintReducesDesktopEffectsWithoutPausingPlayback()
+        async {
+        let engine = TestPlaybackEngine()
+        let playback = PlaybackCoordinator(engine: engine)
+        let desktopHost = TestDesktopHost()
+        let lifecycleMonitor = TestSystemLifecycleMonitor()
+        let session = DesktopSessionCoordinator(
+            playback: playback,
+            desktopHost: desktopHost,
+            statusMenu: TestDesktopStatusPresenter(),
+            videoContentModeStore: TestDesktopVideoContentModeStore(),
+            lifecycleMonitor: lifecycleMonitor,
+            mainWindow: TestMainWindowPresenter(),
+            applicationPresence: TestApplicationPresenceController()
+        )
+        defer { session.shutdown() }
+
+        playback.registerPlayerSurface(TestPlaybackSurface(id: .player))
+        await Task.yield()
+        await playback.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+
+        lifecycleMonitor.emitEnergyConstrained(true)
+        XCTAssertEqual(desktopHost.appliedEnergyConstraints, [true])
+        XCTAssertTrue(engine.isPlaying)
+        XCTAssertFalse(playback.isSystemSuspended)
+
+        session.enterDesktop()
+        await waitUntil { session.isActive }
+        XCTAssertTrue(engine.isPlaying)
+
+        lifecycleMonitor.emitEnergyConstrained(false)
+        XCTAssertEqual(desktopHost.appliedEnergyConstraints, [true, false])
         XCTAssertTrue(engine.isPlaying)
     }
 

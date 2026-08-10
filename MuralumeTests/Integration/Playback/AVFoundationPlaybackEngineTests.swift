@@ -11,6 +11,13 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
         static let scale: CGFloat = 2
     }
 
+    private enum PlaybackExpectation {
+        static let seekAccuracy: TimeInterval = 0.25
+        static let pollAttempts = 100
+        static let pollIntervalNanoseconds: UInt64 = 50_000_000
+        static let staleSeekSettleNanoseconds: UInt64 = 300_000_000
+    }
+
     func testLoadsBundledH264Sample() async throws {
         let engine = AVFoundationPlaybackEngine()
 
@@ -23,6 +30,76 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
 
         XCTAssertEqual(duration, TestMediaFixture.duration, accuracy: 0.1)
         engine.stop()
+    }
+
+    func testRapidInteractiveSeekEndsAtExactReleaseTarget() async throws {
+        let engine = AVFoundationPlaybackEngine()
+        var latestProgress: TimeInterval?
+        engine.progressHandler = { latestProgress = $0 }
+        engine.setProgressCadence(.visible)
+        defer { engine.stop() }
+
+        _ = try await engine.load(
+            ResolvedMediaSource(
+                url: try TestMediaFixture.h264URL(for: Self.self),
+                displayName: "Sample"
+            )
+        )
+        engine.seek(to: 3, mode: .interactive)
+        engine.seek(to: 6, mode: .interactive)
+        engine.seek(to: 11, mode: .interactive)
+        engine.seek(to: 7, mode: .exact)
+
+        let reachedTarget = await waitForPlaybackProgress(
+            7,
+            latestProgress: { latestProgress }
+        )
+        XCTAssertTrue(reachedTarget)
+    }
+
+    func testLoadingNewItemCancelsSeeksFromPreviousItem() async throws {
+        let engine = AVFoundationPlaybackEngine()
+        var latestProgress: TimeInterval?
+        engine.progressHandler = { latestProgress = $0 }
+        engine.setProgressCadence(.visible)
+        defer { engine.stop() }
+
+        _ = try await engine.load(
+            ResolvedMediaSource(
+                url: try TestMediaFixture.h264URL(for: Self.self),
+                displayName: "Landscape"
+            )
+        )
+        engine.seek(to: 18, mode: .interactive)
+        engine.seek(to: 19, mode: .interactive)
+
+        let portraitURL = try XCTUnwrap(
+            Bundle(for: Self.self).url(
+                forResource: "portrait-20s-h264",
+                withExtension: "mp4"
+            )
+        )
+        _ = try await engine.load(
+            ResolvedMediaSource(
+                url: portraitURL,
+                displayName: "Portrait"
+            )
+        )
+        engine.seek(to: 4, mode: .exact)
+
+        let reachedTarget = await waitForPlaybackProgress(
+            4,
+            latestProgress: { latestProgress }
+        )
+        XCTAssertTrue(reachedTarget)
+        try await Task.sleep(
+            nanoseconds: PlaybackExpectation.staleSeekSettleNanoseconds
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(latestProgress),
+            4,
+            accuracy: PlaybackExpectation.seekAccuracy
+        )
     }
 
     func testBundledH264SampleContainsVisibleColor() async throws {
@@ -1294,6 +1371,23 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
         }
         XCTAssertEqual(generator.generationCount, expectedCount)
         return generator.generationCount == expectedCount
+    }
+
+    private func waitForPlaybackProgress(
+        _ expectedProgress: TimeInterval,
+        latestProgress: () -> TimeInterval?
+    ) async -> Bool {
+        for _ in 0..<PlaybackExpectation.pollAttempts {
+            if let progress = latestProgress(),
+               abs(progress - expectedProgress)
+                <= PlaybackExpectation.seekAccuracy {
+                return true
+            }
+            try? await Task.sleep(
+                nanoseconds: PlaybackExpectation.pollIntervalNanoseconds
+            )
+        }
+        return false
     }
 
     private func waitForFlag(_ flag: TestFlag) async {

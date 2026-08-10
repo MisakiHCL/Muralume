@@ -1341,6 +1341,8 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             fixture.coordinator.queueHistoryStorageIdentityForTesting
         )
         let initialStateRevision = fixture.coordinator.queueStateRevision
+        let initialStructureRevision =
+            fixture.coordinator.queueStructureRevision
 
         XCTAssertTrue(fixture.coordinator.playNext())
         await waitForLoads(fixture.engine, count: 2)
@@ -1352,6 +1354,10 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(
             fixture.coordinator.queueStateRevision,
             initialStateRevision + 1
+        )
+        XCTAssertEqual(
+            fixture.coordinator.queueStructureRevision,
+            initialStructureRevision
         )
 
         let firstSnapshot = try XCTUnwrap(
@@ -1384,6 +1390,10 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(
             fixture.coordinator.queueStateRevision,
             initialStateRevision + 2
+        )
+        XCTAssertEqual(
+            fixture.coordinator.queueStructureRevision,
+            initialStructureRevision
         )
 
         fixture.coordinator.playPrevious()

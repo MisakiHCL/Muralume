@@ -7,11 +7,25 @@ private enum MainWindowNotification {
         NSWindow.willExitFullScreenNotification,
         NSWindow.didExitFullScreenNotification
     ]
+    static let miniaturizationChanges: [Notification.Name] = [
+        NSWindow.didMiniaturizeNotification,
+        NSWindow.didDeminiaturizeNotification
+    ]
 }
 
 @MainActor
 final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
     var unexpectedWindowCloseHandler: (() -> Void)?
+    var miniaturizationStateHandler: ((Bool) -> Void)? {
+        didSet {
+            if let window {
+                publishMiniaturizationState(
+                    window.isMiniaturized,
+                    force: true
+                )
+            }
+        }
+    }
     var fullScreenStateHandler: ((Bool) -> Void)? {
         didSet {
             if let window {
@@ -24,6 +38,7 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
     }
 
     private var window: NSWindow?
+    private var lastPublishedMiniaturizationState: Bool?
     private var lastPublishedFullScreenState: Bool?
     private var isDismissalPending = false
     private var hasObservedUnexpectedClose = false
@@ -43,6 +58,7 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
 
         self.window = window
         window.isReleasedWhenClosed = false
+        lastPublishedMiniaturizationState = nil
         lastPublishedFullScreenState = nil
         isDismissalPending = false
         hasObservedUnexpectedClose = false
@@ -60,6 +76,14 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
                 object: window
             )
         }
+        for notificationName in MainWindowNotification.miniaturizationChanges {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowMiniaturizationDidChange(_:)),
+                name: notificationName,
+                object: window
+            )
+        }
         applyWindowChrome(to: window)
         window.minSize = NSSize(
             width: AppConfiguration.minimumWindowWidth,
@@ -69,6 +93,7 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
             window.styleMask.contains(.fullScreen),
             force: true
         )
+        publishMiniaturizationState(window.isMiniaturized, force: true)
     }
 
     private func applyWindowChrome(to window: NSWindow) {
@@ -155,7 +180,22 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
         hasObservedUnexpectedClose = true
         isDismissalPending = false
         publishFullScreenState(false)
+        publishMiniaturizationState(false)
         unexpectedWindowCloseHandler?()
+    }
+
+    @objc
+    private func windowMiniaturizationDidChange(_ notification: Notification) {
+        guard let changedWindow = notification.object as? NSWindow,
+              changedWindow === window else {
+            return
+        }
+
+        if notification.name == NSWindow.didMiniaturizeNotification {
+            publishMiniaturizationState(true)
+        } else if notification.name == NSWindow.didDeminiaturizeNotification {
+            publishMiniaturizationState(false)
+        }
     }
 
     @objc
@@ -199,6 +239,18 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
         fullScreenStateHandler?(isFullScreen)
     }
 
+    private func publishMiniaturizationState(
+        _ isMiniaturized: Bool,
+        force: Bool = false
+    ) {
+        guard force
+                || lastPublishedMiniaturizationState != isMiniaturized else {
+            return
+        }
+        lastPublishedMiniaturizationState = isMiniaturized
+        miniaturizationStateHandler?(isMiniaturized)
+    }
+
     private func stopObserving(_ window: NSWindow) {
         NotificationCenter.default.removeObserver(
             self,
@@ -206,6 +258,13 @@ final class MacMainWindowPresenter: NSObject, MainWindowPresenting {
             object: window
         )
         for notificationName in MainWindowNotification.chromeChanges {
+            NotificationCenter.default.removeObserver(
+                self,
+                name: notificationName,
+                object: window
+            )
+        }
+        for notificationName in MainWindowNotification.miniaturizationChanges {
             NotificationCenter.default.removeObserver(
                 self,
                 name: notificationName,

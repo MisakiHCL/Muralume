@@ -138,6 +138,9 @@
 "menu.window" = "窗口";
 "menu.help" = "帮助";
 "menu.about" = "关于 Muralume";
+"about.website" = "官方网站";
+"about.privacyPolicy" = "隐私政策";
+"about.sourceCode" = "开源代码";
 "menu.settings" = "设置…";
 "menu.services" = "服务";
 "menu.hideApplication" = "隐藏 Muralume";

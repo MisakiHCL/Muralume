@@ -3,10 +3,6 @@ import Foundation
 struct FileSystemMediaSourceInspection: Sendable {
     let canonicalURL: @Sendable (URL) -> URL
     let resourceIdentifier: @Sendable (URL) -> NSObject?
-    let relationship: @Sendable (
-        _ directoryURL: URL,
-        _ itemURL: URL
-    ) -> FileManager.URLRelationship
 
     static let live = FileSystemMediaSourceInspection(
         canonicalURL: { url in
@@ -16,35 +12,11 @@ struct FileSystemMediaSourceInspection: Sendable {
             try? url.resourceValues(
                 forKeys: [.fileResourceIdentifierKey]
             ).fileResourceIdentifier as? NSObject
-        },
-        relationship: { directoryURL, itemURL in
-            var relationship = FileManager.URLRelationship.other
-            do {
-                try FileManager.default.getRelationship(
-                    &relationship,
-                    ofDirectoryAt: directoryURL,
-                    toItemAt: itemURL
-                )
-            } catch {
-                return .other
-            }
-            return relationship
         }
     )
 }
 
 struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
-    private struct RootScanResult {
-        let items: [LibraryMediaItem]
-        let isComplete: Bool
-    }
-
-    private struct NormalizedSource {
-        let source: MediaSource
-        let canonicalURL: URL
-        let resourceIdentifier: NSObject?
-    }
-
     private let sourceInspection: FileSystemMediaSourceInspection
 
     init(
@@ -97,35 +69,54 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         sources: [MediaSource]
     ) throws -> MediaLibrarySnapshot {
         let fileManager = FileManager.default
-        let normalizedSources = normalizedUniqueSources(sources)
+        let normalizedSources = try normalizedUniqueSources(sources)
         var roots: [MediaLibraryRoot] = []
-        var itemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
+        var items: [LibraryMediaItem] = []
+        var itemIndicesByID: [LibraryMediaItem.ID: Int] = [:]
         var incompleteRootPaths: Set<String> = []
         var firstRootError: MediaLibraryScanError?
 
         for source in normalizedSources {
             try Task.checkCancellation()
+            var scannedRootPath: String?
             do {
                 let root = try Self.inspectRoot(
                     source,
                     fileManager: fileManager
                 )
-                let rootScan = try Self.scan(
+                scannedRootPath = root.id.standardizedPath
+                let isComplete = try Self.scan(
                     root: root,
-                    fileManager: fileManager
+                    fileManager: fileManager,
+                    onItem: { item in
+                        if let existingIndex = itemIndicesByID[item.id] {
+                            if items[existingIndex].kind == .folder {
+                                return
+                            }
+                            items[existingIndex] = item
+                            return
+                        }
+                        itemIndicesByID[item.id] = items.endIndex
+                        items.append(item)
+                    }
                 )
                 roots.append(root)
-                for item in rootScan.items {
-                    if let existingItem = itemsByID[item.id],
-                       existingItem.kind == .folder {
-                        continue
-                    }
-                    itemsByID[item.id] = item
-                }
-                if !rootScan.isComplete {
+                if !isComplete {
                     incompleteRootPaths.insert(root.id.standardizedPath)
                 }
             } catch let error as MediaLibraryScanError {
+                // Items are streamed into the final array to avoid a second
+                // full item collection per root. A root-level failure is
+                // uncommon, so rebuild the compact ID index only on failure.
+                if let scannedRootPath {
+                    items.removeAll {
+                        $0.id.rootPath == scannedRootPath
+                    }
+                    itemIndicesByID.removeAll(keepingCapacity: true)
+                    for (index, item) in items.enumerated() {
+                        itemIndicesByID[item.id] = index
+                    }
+                }
                 if firstRootError == nil {
                     firstRootError = error
                 }
@@ -136,50 +127,144 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
             throw firstRootError
         }
 
+        // The ID index is no longer needed. Release it before sorting so peak
+        // scan memory is the final item array plus the sort's own workspace.
+        itemIndicesByID = [:]
+        roots.sort(by: Self.rootPathPrecedes)
+        items.sort(by: Self.itemPathPrecedes)
         return MediaLibrarySnapshot(
-            roots: roots.sorted(by: Self.rootPathPrecedes),
-            items: itemsByID.values.sorted(by: Self.itemPathPrecedes),
+            roots: roots,
+            items: items,
             incompleteRootPaths: incompleteRootPaths
         )
     }
 
     private func normalizedUniqueSources(
         _ sources: [MediaSource]
-    ) -> [MediaSource] {
-        var acceptedSources: [NormalizedSource] = []
-        let sortedSources = sources
-            .map {
-                MediaSource(url: $0.url.standardizedFileURL, kind: $0.kind)
-            }
-            .sorted(by: Self.sourcePrecedes)
-        guard sortedSources.count > 1 else {
-            return sortedSources
-        }
-        let normalizedSources = sortedSources.map { source in
-            let canonicalURL = sourceInspection.canonicalURL(source.url)
-            return NormalizedSource(
-                source: source,
-                canonicalURL: canonicalURL,
-                resourceIdentifier: sourceInspection.resourceIdentifier(
-                    canonicalURL
+    ) throws -> [MediaSource] {
+        var sortedSources: [MediaSource] = []
+        sortedSources.reserveCapacity(sources.count)
+        for source in sources {
+            try Task.checkCancellation()
+            sortedSources.append(
+                MediaSource(
+                    url: source.url.standardizedFileURL,
+                    kind: source.kind
                 )
             )
         }
+        sortedSources.sort(by: Self.sourcePrecedes)
+        guard sortedSources.count > 1 else {
+            return sortedSources
+        }
 
-        for candidate in normalizedSources {
-            if acceptedSources.contains(where: {
-                representsSameItem($0, candidate)
-                    || ($0.source.kind == .folder
-                        && folder(
-                            $0.source.url,
-                            covers: candidate.source.url
-                        ))
-            }) {
+        var acceptedSources: [MediaSource] = []
+        acceptedSources.reserveCapacity(sortedSources.count)
+        var acceptedCanonicalPaths: Set<String> = []
+        acceptedCanonicalPaths.reserveCapacity(sortedSources.count)
+        var acceptedResourceIdentifiers: Set<NSObject> = []
+        acceptedResourceIdentifiers.reserveCapacity(sortedSources.count)
+        var acceptedFolderPaths: Set<String> = []
+        var acceptedFolderResourceIdentifiers: Set<NSObject> = []
+        var inspectedAncestorPaths: Set<String> = []
+        var ancestorResourceIdentifiersByPath: [String: NSObject] = [:]
+
+        for source in sortedSources {
+            try Task.checkCancellation()
+            let canonicalURL = sourceInspection
+                .canonicalURL(source.url)
+                .standardizedFileURL
+            try Task.checkCancellation()
+            let resourceIdentifier = sourceInspection.resourceIdentifier(
+                canonicalURL
+            )
+            let canonicalPath = canonicalURL.path
+
+            if acceptedCanonicalPaths.contains(canonicalPath)
+                || resourceIdentifier.map(
+                    acceptedResourceIdentifiers.contains
+                ) == true {
                 continue
             }
-            acceptedSources.append(candidate)
+            if try isCoveredByAcceptedFolder(
+                    canonicalURL,
+                    acceptedFolderPaths: acceptedFolderPaths,
+                    acceptedFolderResourceIdentifiers:
+                        acceptedFolderResourceIdentifiers,
+                    inspectedAncestorPaths: &inspectedAncestorPaths,
+                    ancestorResourceIdentifiersByPath:
+                        &ancestorResourceIdentifiersByPath
+                ) {
+                continue
+            }
+
+            acceptedSources.append(source)
+            acceptedCanonicalPaths.insert(canonicalPath)
+            if let resourceIdentifier {
+                acceptedResourceIdentifiers.insert(resourceIdentifier)
+            }
+            if source.kind == .folder {
+                acceptedFolderPaths.insert(canonicalPath)
+                if let resourceIdentifier {
+                    acceptedFolderResourceIdentifiers.insert(
+                        resourceIdentifier
+                    )
+                }
+            }
         }
-        return acceptedSources.map(\.source)
+        return acceptedSources
+    }
+
+    private func isCoveredByAcceptedFolder(
+        _ canonicalURL: URL,
+        acceptedFolderPaths: Set<String>,
+        acceptedFolderResourceIdentifiers: Set<NSObject>,
+        inspectedAncestorPaths: inout Set<String>,
+        ancestorResourceIdentifiersByPath: inout [String: NSObject]
+    ) throws -> Bool {
+        guard !acceptedFolderPaths.isEmpty else {
+            return false
+        }
+
+        var ancestorURL = canonicalURL.deletingLastPathComponent()
+        while true {
+            try Task.checkCancellation()
+            let ancestorPath = ancestorURL.path
+            if acceptedFolderPaths.contains(ancestorPath) {
+                return true
+            }
+            if !acceptedFolderResourceIdentifiers.isEmpty {
+                let ancestorIdentifier: NSObject?
+                if inspectedAncestorPaths.contains(ancestorPath) {
+                    ancestorIdentifier = ancestorResourceIdentifiersByPath[
+                        ancestorPath
+                    ]
+                } else {
+                    inspectedAncestorPaths.insert(ancestorPath)
+                    ancestorIdentifier = sourceInspection.resourceIdentifier(
+                        ancestorURL
+                    )
+                    if let ancestorIdentifier {
+                        ancestorResourceIdentifiersByPath[ancestorPath] =
+                            ancestorIdentifier
+                    }
+                }
+                if let ancestorIdentifier,
+                   acceptedFolderResourceIdentifiers.contains(
+                        ancestorIdentifier
+                   ) {
+                    return true
+                }
+            }
+            guard ancestorPath != "/" else {
+                return false
+            }
+            let parentURL = ancestorURL.deletingLastPathComponent()
+            guard parentURL.path != ancestorPath else {
+                return false
+            }
+            ancestorURL = parentURL
+        }
     }
 
     private static func inspectRoot(
@@ -240,13 +325,12 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
 
     private static func scan(
         root: MediaLibraryRoot,
-        fileManager: FileManager
-    ) throws -> RootScanResult {
+        fileManager: FileManager,
+        onItem: (LibraryMediaItem) -> Void
+    ) throws -> Bool {
         if root.kind == .file {
-            return RootScanResult(
-                items: [try inspectFile(root: root)],
-                isComplete: true
-            )
+            onItem(try inspectFile(root: root))
+            return true
         }
 
         let rootFailureRecorder = RootEnumerationFailureRecorder(
@@ -269,7 +353,6 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
             throw MediaLibraryScanError.cannotEnumerateRoot(root.url)
         }
 
-        var items: [LibraryMediaItem] = []
         let rootPathComponents = root.url.standardizedFileURL.pathComponents
 
         while let fileURL = enumerator.nextObject() as? URL {
@@ -320,7 +403,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                 rootFailureRecorder.record(fileURL)
                 continue
             }
-            items.append(
+            onItem(
                 LibraryMediaItem(
                     rootURL: root.url,
                     rootName: root.displayName,
@@ -347,10 +430,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
             )
         }
 
-        return RootScanResult(
-            items: items,
-            isComplete: !rootFailureRecorder.didEncounterFailure
-        )
+        return !rootFailureRecorder.didEncounterFailure
     }
 
     private static let mediaResourceKeys: Set<URLResourceKey> = [
@@ -477,26 +557,6 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         return nil
     }
 
-    private func representsSameItem(
-        _ firstSource: NormalizedSource,
-        _ secondSource: NormalizedSource
-    ) -> Bool {
-        if firstSource.canonicalURL.path == secondSource.canonicalURL.path {
-            return true
-        }
-        guard let firstIdentifier = firstSource.resourceIdentifier,
-              let secondIdentifier = secondSource.resourceIdentifier else {
-            return false
-        }
-        return firstIdentifier.isEqual(secondIdentifier)
-    }
-
-    private func folder(
-        _ directoryURL: URL,
-        covers itemURL: URL
-    ) -> Bool {
-        sourceInspection.relationship(directoryURL, itemURL) != .other
-    }
 }
 
 private final class RootEnumerationFailureRecorder: @unchecked Sendable {

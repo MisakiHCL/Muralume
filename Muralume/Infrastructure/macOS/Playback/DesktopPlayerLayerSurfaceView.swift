@@ -12,6 +12,40 @@ private enum DesktopBlurRenderingPolicy {
     static let shadeOpacity: Float = 0.16
 }
 
+enum DesktopBlurBackgroundPolicy {
+    // This only absorbs floating-point noise. If a real bar can be visible,
+    // the blurred background remains enabled.
+    private static let aspectRatioTolerance: CGFloat = 0.000_001
+
+    static func shouldRender(
+        videoSize: CGSize,
+        containerSize: CGSize,
+        isEnergyConstrained: Bool
+    ) -> Bool {
+        guard !isEnergyConstrained else {
+            return false
+        }
+        guard videoSize.width.isFinite,
+              videoSize.height.isFinite,
+              containerSize.width.isFinite,
+              containerSize.height.isFinite,
+              videoSize.width > 0,
+              videoSize.height > 0,
+              containerSize.width > 0,
+              containerSize.height > 0 else {
+            // Preserve the decorative layer until AVFoundation publishes the
+            // presentation size; this avoids a black-to-blur flash on attach.
+            return true
+        }
+
+        let videoAspectRatio = videoSize.width / videoSize.height
+        let containerAspectRatio = containerSize.width / containerSize.height
+        let tolerance = max(videoAspectRatio, containerAspectRatio)
+            * aspectRatioTolerance
+        return abs(videoAspectRatio - containerAspectRatio) > tolerance
+    }
+}
+
 @MainActor
 final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
     let id: PlaybackSurfaceID
@@ -49,12 +83,23 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
         backgroundPlayerLayer.bounds.size
     }
 
+    var isObservingPlayerItemChanges: Bool {
+        currentItemObservation != nil
+    }
+
+    var isObservingPresentationSizeChanges: Bool {
+        presentationSizeObservation != nil
+    }
+
     private(set) var contentMode: DesktopVideoContentMode
+    private(set) var isEnergyConstrained = false
 
     private let backgroundPlayerLayer = AVPlayerLayer()
     private let backgroundShadeLayer = CALayer()
     private let foregroundPlayerLayer = AVPlayerLayer()
     private weak var connectedPlayer: AVPlayer?
+    private var currentItemObservation: NSKeyValueObservation?
+    private var presentationSizeObservation: NSKeyValueObservation?
 
     init(
         id: PlaybackSurfaceID,
@@ -90,8 +135,13 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
     }
 
     func connect(to player: AVPlayer?) {
+        let didChangePlayer = connectedPlayer !== player
+        if didChangePlayer {
+            stopObservingPlayerChanges()
+        }
         connectedPlayer = player
-        updateBackgroundConnection()
+        refreshPlayerObservations()
+        updateBackgroundPresentation()
         // Keep the clear foreground as the most recently associated layer.
         // Older AVFoundation implementations prioritized that layer when a
         // player was connected to more than one presentation surface.
@@ -103,8 +153,18 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
             return
         }
         self.contentMode = contentMode
+        refreshPlayerObservations()
         applyContentMode()
         updateLayerGeometry()
+    }
+
+    func setEnergyConstrained(_ isEnergyConstrained: Bool) {
+        guard self.isEnergyConstrained != isEnergyConstrained else {
+            return
+        }
+        self.isEnergyConstrained = isEnergyConstrained
+        refreshPlayerObservations()
+        updateBackgroundPresentation()
     }
 
     private func configureLayers() {
@@ -155,30 +215,104 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
         switch contentMode {
         case .blurredBackground:
             foregroundPlayerLayer.videoGravity = .resizeAspect
-            backgroundPlayerLayer.isHidden = false
-            backgroundShadeLayer.isHidden = false
         case .cover:
             foregroundPlayerLayer.videoGravity = .resizeAspectFill
-            backgroundPlayerLayer.isHidden = true
-            backgroundShadeLayer.isHidden = true
         case .contain:
             foregroundPlayerLayer.videoGravity = .resizeAspect
-            backgroundPlayerLayer.isHidden = true
-            backgroundShadeLayer.isHidden = true
         }
-        updateBackgroundConnection()
+        updateBackgroundPresentation()
         if contentMode == .blurredBackground {
             foregroundPlayerLayer.player = connectedPlayer
         }
     }
 
-    private func updateBackgroundConnection() {
-        backgroundPlayerLayer.player = contentMode == .blurredBackground
+    private func updateBackgroundPresentation() {
+        let shouldRenderBackground = contentMode == .blurredBackground
+            && DesktopBlurBackgroundPolicy.shouldRender(
+                videoSize: connectedPlayer?.currentItem?.presentationSize
+                    ?? .zero,
+                containerSize: bounds.size,
+                isEnergyConstrained: isEnergyConstrained
+            )
+        let isBackgroundHidden = !shouldRenderBackground
+        if backgroundPlayerLayer.isHidden != isBackgroundHidden {
+            backgroundPlayerLayer.isHidden = isBackgroundHidden
+            backgroundShadeLayer.isHidden = isBackgroundHidden
+        }
+        let desiredBackgroundPlayer = shouldRenderBackground
             ? connectedPlayer
             : nil
+        if backgroundPlayerLayer.player !== desiredBackgroundPlayer {
+            backgroundPlayerLayer.player = desiredBackgroundPlayer
+        }
+    }
+
+    private func observeCurrentItemChanges(in player: AVPlayer?) {
+        stopObservingPlayerChanges()
+
+        guard let player else {
+            return
+        }
+        currentItemObservation = player.observe(
+            \.currentItem,
+            options: [.new]
+        ) { [weak self] observedPlayer, _ in
+            Task { @MainActor [weak self, weak observedPlayer] in
+                guard let self,
+                      self.connectedPlayer === observedPlayer else {
+                    return
+                }
+                self.observePresentationSize(of: observedPlayer?.currentItem)
+            }
+        }
+        observePresentationSize(of: player.currentItem)
+    }
+
+    private func observePresentationSize(of item: AVPlayerItem?) {
+        presentationSizeObservation?.invalidate()
+        presentationSizeObservation = nil
+
+        guard let item else {
+            updateBackgroundPresentation()
+            return
+        }
+        presentationSizeObservation = item.observe(
+            \.presentationSize,
+            options: [.new]
+        ) { [weak self, weak item] _, _ in
+            Task { @MainActor [weak self, weak item] in
+                guard let self,
+                      self.connectedPlayer?.currentItem === item else {
+                    return
+                }
+                self.updateBackgroundPresentation()
+            }
+        }
+        updateBackgroundPresentation()
+    }
+
+    private func refreshPlayerObservations() {
+        let shouldObserve = contentMode == .blurredBackground
+            && !isEnergyConstrained
+        guard shouldObserve, let connectedPlayer else {
+            stopObservingPlayerChanges()
+            return
+        }
+        guard currentItemObservation == nil else {
+            return
+        }
+        observeCurrentItemChanges(in: connectedPlayer)
+    }
+
+    private func stopObservingPlayerChanges() {
+        currentItemObservation?.invalidate()
+        currentItemObservation = nil
+        presentationSizeObservation?.invalidate()
+        presentationSizeObservation = nil
     }
 
     private func updateLayerGeometry() {
+        updateBackgroundPresentation()
         guard !bounds.isEmpty else {
             return
         }
@@ -248,6 +382,7 @@ final class DesktopPlayerLayerSurfaceGroup: AVPlayerRenderSurface {
     }
 
     private(set) var displaySurfaces: [DesktopPlayerLayerSurfaceView] = []
+    private(set) var isEnergyConstrained = false
     private weak var connectedPlayer: AVPlayer?
 
     init(id: PlaybackSurfaceID) {
@@ -275,10 +410,23 @@ final class DesktopPlayerLayerSurfaceGroup: AVPlayerRenderSurface {
         self.displaySurfaces = displaySurfaces
         self.displaySurfaces
             .filter { !previousIdentities.contains(ObjectIdentifier($0)) }
-            .forEach { $0.connect(to: connectedPlayer) }
+            .forEach {
+                $0.setEnergyConstrained(isEnergyConstrained)
+                $0.connect(to: connectedPlayer)
+            }
     }
 
     func setContentMode(_ contentMode: DesktopVideoContentMode) {
         displaySurfaces.forEach { $0.setContentMode(contentMode) }
+    }
+
+    func setEnergyConstrained(_ isEnergyConstrained: Bool) {
+        guard self.isEnergyConstrained != isEnergyConstrained else {
+            return
+        }
+        self.isEnergyConstrained = isEnergyConstrained
+        displaySurfaces.forEach {
+            $0.setEnergyConstrained(isEnergyConstrained)
+        }
     }
 }

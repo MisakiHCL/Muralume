@@ -284,13 +284,14 @@ actor ControlledMediaLibrarySnapshotPreparer:
         _ items: [LibraryMediaItem],
         sort: MediaLibrarySort
     ) -> PreparedMediaLibraryItems {
-        let itemsByID = Dictionary(
-            uniqueKeysWithValues: items.map { ($0.id, $0) }
-        )
+        var itemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
+        itemsByID.reserveCapacity(items.count)
+        for item in items {
+            itemsByID[item.id] = item
+        }
         return PreparedMediaLibraryItems(
             items: sort.sorted(Array(itemsByID.values)),
-            itemsByID: itemsByID,
-            itemIDs: Set(itemsByID.keys)
+            itemsByID: itemsByID
         )
     }
 }

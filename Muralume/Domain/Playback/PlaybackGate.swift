@@ -7,6 +7,14 @@ struct PlaybackGate: Equatable, Sendable {
         intent == .playing && suspensionReasons.isEmpty && !isTerminating
     }
 
+    func shouldPlay(
+        ignoring ignoredReason: PlaybackSuspensionReason
+    ) -> Bool {
+        intent == .playing
+            && !isTerminating
+            && suspensionReasons.allSatisfy { $0 == ignoredReason }
+    }
+
     mutating func setIntent(_ intent: PlaybackIntent) {
         guard !isTerminating else {
             return

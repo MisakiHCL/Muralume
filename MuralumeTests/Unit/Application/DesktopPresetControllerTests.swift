@@ -118,6 +118,9 @@ final class DesktopPresetControllerTests: XCTestCase {
         let store = FileDesktopPresetStore(fileURL: fileURL)
 
         try await store.save(preset)
+        let externalReplacement = Data("external replacement".utf8)
+        try externalReplacement.write(to: fileURL, options: [.atomic])
+        try await store.save(preset)
         let restoredPreset = try await store.load()
         XCTAssertEqual(restoredPreset, preset)
 
@@ -393,11 +396,17 @@ final class DesktopPresetControllerTests: XCTestCase {
         let result = await fixture.controller.prepareAutomaticRestore()
         let storedPreset = try await store.load()
         let clearCount = await store.clearCount
+        let failedSaveCount = await store.saveCount
+        for _ in 0..<64 {
+            await Task.yield()
+        }
+        let saveCountAfterObservation = await store.saveCount
 
         XCTAssertEqual(result, .persistenceFailed)
         XCTAssertEqual(fixture.controller.persistenceFailure, .saveFailed)
         XCTAssertNil(storedPreset)
         XCTAssertEqual(clearCount, 1)
+        XCTAssertEqual(saveCountAfterObservation, failedSaveCount)
     }
 
     func testPreparationReportsUnsafeInvalidationFailure() async throws {
@@ -490,6 +499,279 @@ final class DesktopPresetControllerTests: XCTestCase {
         XCTAssertEqual(storedOrder, .ordered)
     }
 
+    func testQueueChangesCoalesceUntilShutdownFlushesLatestPreset()
+        async throws
+    {
+        let rootURL = URL(fileURLWithPath: "/tmp/CoalescedDesktopPreset")
+        let first = makeItem(rootURL: rootURL, name: "First", path: "1.mp4")
+        let second = makeItem(rootURL: rootURL, name: "Second", path: "2.mp4")
+        let store = MemoryDesktopPresetStore(preset: nil)
+        let delayedPolicy = DesktopPresetPersistencePolicy(
+            stateChangeCoalescingDelay: .seconds(3_600),
+            minimumSnapshotSaveInterval: .zero,
+            progressSaveDelay: .seconds(3_600),
+            failureRetryDelay: .seconds(3_600)
+        )
+        let fixture = makeFixture(
+            rootURL: rootURL,
+            items: [first, second],
+            preset: nil,
+            store: store,
+            persistencePolicy: delayedPolicy
+        )
+        defer {
+            fixture.desktopSession.shutdown()
+        }
+        await prepareActiveQueue(first, in: fixture)
+        fixture.controller.setAutomaticRestorePrepared(true)
+        let initialSaveCount = await waitForPersistenceToSettle(in: store)
+
+        fixture.library.setPlaybackOrder(.ordered)
+        fixture.library.setPlaybackOrder(.shuffled)
+        fixture.library.setPlaybackOrder(.ordered)
+        for _ in 0..<32 {
+            await Task.yield()
+        }
+        let saveCountBeforeShutdown = await store.saveCount
+        XCTAssertEqual(saveCountBeforeShutdown, initialSaveCount)
+
+        await fixture.controller.prepareForShutdown()
+        let finalSaveCount = await store.saveCount
+        let storedOrder = try await store.load()?.queue.order
+
+        XCTAssertEqual(finalSaveCount, initialSaveCount + 1)
+        XCTAssertEqual(storedOrder, .ordered)
+    }
+
+    func testIdenticalExplicitPresetDoesNotReachStoreTwice() async {
+        let rootURL = URL(fileURLWithPath: "/tmp/DeduplicatedDesktopPreset")
+        let item = makeItem(rootURL: rootURL, name: "Clip", path: "clip.mp4")
+        let store = MemoryDesktopPresetStore(preset: nil)
+        let fixture = makeFixture(
+            rootURL: rootURL,
+            items: [item],
+            preset: nil,
+            store: store
+        )
+        defer {
+            fixture.desktopSession.shutdown()
+        }
+        await prepareActiveQueue(item, in: fixture)
+        fixture.controller.setAutomaticRestorePrepared(true)
+        let settledSaveCount = await waitForPersistenceToSettle(in: store)
+
+        fixture.controller.preserveCurrentPreset()
+        let finalSaveCount = await waitForPersistenceToSettle(in: store)
+
+        XCTAssertEqual(finalSaveCount, settledSaveCount)
+        await fixture.controller.prepareForShutdown()
+    }
+
+    func testCriticalStateChangeIgnoresDesktopQueueCheckpointInterval()
+        async throws
+    {
+        let rootURL = URL(fileURLWithPath: "/tmp/CriticalDesktopPreset")
+        let item = makeItem(rootURL: rootURL, name: "Clip", path: "clip.mp4")
+        let store = MemoryDesktopPresetStore(preset: nil)
+        let checkpointPolicy = DesktopPresetPersistencePolicy(
+            stateChangeCoalescingDelay: .zero,
+            minimumSnapshotSaveInterval: .seconds(3_600),
+            progressSaveDelay: .seconds(3_600),
+            failureRetryDelay: .seconds(3_600)
+        )
+        let fixture = makeFixture(
+            rootURL: rootURL,
+            items: [item],
+            preset: nil,
+            store: store,
+            persistencePolicy: checkpointPolicy
+        )
+        defer {
+            fixture.desktopSession.shutdown()
+        }
+        await prepareActiveQueue(item, in: fixture)
+        fixture.controller.setAutomaticRestorePrepared(true)
+        let initialSaveCount = await waitForPersistenceToSettle(in: store)
+
+        fixture.playback.setPlaybackIntent(.paused)
+        await waitForSave(after: initialSaveCount, in: store)
+        let preset = try await store.load()
+
+        XCTAssertFalse(preset?.isPlaybackRequested == true)
+        await fixture.controller.prepareForShutdown()
+    }
+
+    func testQueueStructureChangeIgnoresCursorCheckpointInterval()
+        async throws
+    {
+        let rootURL = URL(fileURLWithPath: "/tmp/StructuralDesktopPreset")
+        let item = makeItem(rootURL: rootURL, name: "Clip", path: "clip.mp4")
+        let store = MemoryDesktopPresetStore(preset: nil)
+        let checkpointPolicy = DesktopPresetPersistencePolicy(
+            stateChangeCoalescingDelay: .zero,
+            minimumSnapshotSaveInterval: .seconds(3_600),
+            progressSaveDelay: .seconds(3_600),
+            failureRetryDelay: .seconds(3_600)
+        )
+        let fixture = makeFixture(
+            rootURL: rootURL,
+            items: [item],
+            preset: nil,
+            store: store,
+            persistencePolicy: checkpointPolicy
+        )
+        defer { fixture.desktopSession.shutdown() }
+        await prepareActiveQueue(item, in: fixture)
+        fixture.controller.setAutomaticRestorePrepared(true)
+        let initialSaveCount = await waitForPersistenceToSettle(in: store)
+
+        fixture.library.setPlaybackOrder(.ordered)
+        await waitForSave(after: initialSaveCount, in: store)
+        let preset = try await store.load()
+
+        XCTAssertEqual(preset?.queue.order, .ordered)
+        await fixture.controller.prepareForShutdown()
+    }
+
+    func testGenericDesktopSaveFailureAutomaticallyRetriesWithoutPublisher()
+        async throws
+    {
+        let rootURL = URL(fileURLWithPath: "/tmp/RetriedDesktopPreset")
+        let item = makeItem(rootURL: rootURL, name: "Clip", path: "clip.mp4")
+        let store = MemoryDesktopPresetStore(preset: nil)
+        let retryPolicy = DesktopPresetPersistencePolicy(
+            stateChangeCoalescingDelay: .zero,
+            minimumSnapshotSaveInterval: .seconds(3_600),
+            progressSaveDelay: .seconds(3_600),
+            failureRetryDelay: .milliseconds(50)
+        )
+        let fixture = makeFixture(
+            rootURL: rootURL,
+            items: [item],
+            preset: nil,
+            store: store,
+            persistencePolicy: retryPolicy
+        )
+        defer {
+            fixture.desktopSession.shutdown()
+        }
+        await prepareActiveQueue(item, in: fixture)
+        fixture.controller.setAutomaticRestorePrepared(true)
+        _ = await waitForPersistenceToSettle(in: store)
+        await store.setFailures(save: true, clear: false)
+
+        let changedRate = PlaybackRate(rawValue: 1.5)
+        fixture.playback.setRate(changedRate)
+        for _ in 0..<1_000 {
+            if fixture.controller.persistenceFailure == .saveFailed {
+                break
+            }
+            await Task.yield()
+        }
+        XCTAssertEqual(fixture.controller.persistenceFailure, .saveFailed)
+        let failedSaveCount = await store.saveCount
+
+        // No coordinator publisher follows this store recovery. Persistence
+        // must be resumed by the controller's own backoff task.
+        await store.setFailures(save: false, clear: false)
+        try? await Task.sleep(for: .milliseconds(100))
+        await waitForSave(after: failedSaveCount, in: store)
+        let preset = try await store.load()
+
+        XCTAssertEqual(preset?.playbackRate, changedRate)
+        XCTAssertNil(fixture.controller.persistenceFailure)
+        await fixture.controller.prepareForShutdown()
+    }
+
+    func testContentLimitFailureRetriesOnlyAfterQueueStructureChanges()
+        async
+    {
+        let rootURL = URL(fileURLWithPath: "/tmp/DesktopContentLimit")
+        let first = makeItem(rootURL: rootURL, name: "First", path: "1.mp4")
+        let second = makeItem(rootURL: rootURL, name: "Second", path: "2.mp4")
+        let store = MemoryDesktopPresetStore(preset: nil)
+        let fixture = makeFixture(
+            rootURL: rootURL,
+            items: [first, second],
+            preset: nil,
+            store: store
+        )
+        defer { fixture.desktopSession.shutdown() }
+        await prepareActiveQueue(first, in: fixture)
+        fixture.controller.setAutomaticRestorePrepared(true)
+        _ = await waitForPersistenceToSettle(in: store)
+
+        await store.setContentSaveError(
+            .fileTooLarge(maximumByteCount: 1, observedByteCount: 2)
+        )
+        fixture.playback.setRate(PlaybackRate(rawValue: 1.5))
+        for _ in 0..<1_000 {
+            if fixture.controller.persistenceFailure == .saveFailed {
+                break
+            }
+            await Task.yield()
+        }
+        let rejectedSaveCount = await waitForPersistenceToSettle(in: store)
+
+        let blockedStructureRevision = fixture.library.queueStructureRevision
+        _ = fixture.library.playNext()
+        for _ in 0..<32 {
+            await Task.yield()
+        }
+        let saveCountAfterCursorChange = await store.saveCount
+        XCTAssertEqual(saveCountAfterCursorChange, rejectedSaveCount)
+        XCTAssertEqual(
+            fixture.library.queueStructureRevision,
+            blockedStructureRevision
+        )
+
+        await store.setContentSaveError(nil)
+        fixture.library.setPlaybackOrder(.ordered)
+        XCTAssertEqual(
+            fixture.library.queueStructureRevision,
+            blockedStructureRevision + 1
+        )
+        await waitForSave(after: saveCountAfterCursorChange, in: store)
+
+        XCTAssertNil(fixture.controller.persistenceFailure)
+        await fixture.controller.prepareForShutdown()
+    }
+
+    func testImmediatePolicyDoesNotSpinOnPersistentDesktopFailure() async {
+        let rootURL = URL(fileURLWithPath: "/tmp/PersistentDesktopFailure")
+        let item = makeItem(rootURL: rootURL, name: "Clip", path: "clip.mp4")
+        let store = MemoryDesktopPresetStore(preset: nil)
+        let fixture = makeFixture(
+            rootURL: rootURL,
+            items: [item],
+            preset: nil,
+            store: store
+        )
+        defer { fixture.desktopSession.shutdown() }
+        await prepareActiveQueue(item, in: fixture)
+        fixture.controller.setAutomaticRestorePrepared(true)
+        _ = await waitForPersistenceToSettle(in: store)
+        await store.setFailures(save: true, clear: false)
+
+        fixture.playback.setRate(PlaybackRate(rawValue: 1.5))
+        for _ in 0..<1_000 {
+            if fixture.controller.persistenceFailure == .saveFailed {
+                break
+            }
+            await Task.yield()
+        }
+        let failedSaveCount = await store.saveCount
+        for _ in 0..<64 {
+            await Task.yield()
+        }
+        let saveCountAfterObservation = await store.saveCount
+
+        XCTAssertEqual(fixture.controller.persistenceFailure, .saveFailed)
+        XCTAssertEqual(saveCountAfterObservation, failedSaveCount)
+        await store.setFailures(save: false, clear: false)
+        await fixture.controller.prepareForShutdown()
+    }
+
 #if DEBUG
     func testQueueRevisionBuildsOneSnapshotForScheduledPersistence() async {
         let rootURL = URL(fileURLWithPath: "/tmp/QueueSnapshotCountingPreset")
@@ -514,8 +796,10 @@ final class DesktopPresetControllerTests: XCTestCase {
 
         fixture.library.setPlaybackOrder(.ordered)
         await waitForSave(after: settledSaveCount, in: store)
+        let finalSaveCount = await waitForPersistenceToSettle(in: store)
 
         XCTAssertEqual(fixture.library.queueRevision, initialRevision + 1)
+        XCTAssertEqual(finalSaveCount - settledSaveCount, 1)
         XCTAssertEqual(
             fixture.controller.queueSnapshotConstructionCount
                 - initialSnapshotCount,
@@ -1286,7 +1570,8 @@ final class DesktopPresetControllerTests: XCTestCase {
         store suppliedStore: (any DesktopPresetStoring)? = nil,
         snapshotRoots: [MediaLibraryRoot]? = nil,
         restoredRootURLs: [URL]? = nil,
-        hasUnavailablePersistedFolders: Bool = false
+        hasUnavailablePersistedFolders: Bool = false,
+        persistencePolicy: DesktopPresetPersistencePolicy = .immediate
     ) -> DesktopPresetFixture {
         let engine = TestPlaybackEngine()
         let playback = PlaybackCoordinator(engine: engine)
@@ -1327,7 +1612,8 @@ final class DesktopPresetControllerTests: XCTestCase {
             playback: playback,
             library: library,
             desktopSession: desktopSession,
-            store: store
+            store: store,
+            persistencePolicy: persistencePolicy
         )
         return DesktopPresetFixture(
             controller: controller,
@@ -1443,6 +1729,7 @@ private actor MemoryDesktopPresetStore: DesktopPresetStoring {
     private var shouldFailClear = false
     private var shouldReportInvalidPreset = false
     private var contentLoadError: DesktopPresetStoreError?
+    private var contentSaveError: DesktopPresetStoreError?
     private var shouldBlockSave = false
     private var blockedSaveContinuation: CheckedContinuation<Void, Never>?
     private(set) var didBeginBlockedSave = false
@@ -1471,6 +1758,10 @@ private actor MemoryDesktopPresetStore: DesktopPresetStoring {
 
     func setContentLoadError(_ error: DesktopPresetStoreError?) {
         contentLoadError = error
+    }
+
+    func setContentSaveError(_ error: DesktopPresetStoreError?) {
+        contentSaveError = error
     }
 
     func finishBlockedSave() {
@@ -1502,6 +1793,9 @@ private actor MemoryDesktopPresetStore: DesktopPresetStoring {
         }
         if shouldFailSave {
             throw MemoryDesktopPresetStoreError.saveFailed
+        }
+        if let contentSaveError {
+            throw contentSaveError
         }
         self.preset = preset
     }

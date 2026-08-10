@@ -45,6 +45,9 @@ final class TestPlaybackEngine: PlaybackEngine {
     private(set) var rate = PlaybackPolicy.defaultRate
     private(set) var loadedSources: [ResolvedMediaSource] = []
     private(set) var soughtTimes: [TimeInterval] = []
+    private(set) var seekModes: [PlaybackSeekMode] = []
+    private(set) var progressCadence: PlaybackProgressCadence = .inactive
+    private(set) var progressCadenceChanges: [PlaybackProgressCadence] = []
     var loadErrorsByURL: [URL: PlaybackEngineError] = [:]
     var shouldBlockLoads = false
     var shouldBlockAttachments = false
@@ -99,7 +102,17 @@ final class TestPlaybackEngine: PlaybackEngine {
     }
 
     func seek(to seconds: TimeInterval) {
+        seek(to: seconds, mode: .exact)
+    }
+
+    func seek(to seconds: TimeInterval, mode: PlaybackSeekMode) {
         soughtTimes.append(seconds)
+        seekModes.append(mode)
+    }
+
+    func setProgressCadence(_ cadence: PlaybackProgressCadence) {
+        progressCadence = cadence
+        progressCadenceChanges.append(cadence)
     }
 
     func setVolume(_ volume: PlaybackVolume) {
@@ -195,6 +208,7 @@ final class TestDesktopHost: DesktopHosting {
     private(set) var prepareCount = 0
     private(set) var preparedContentModes: [DesktopVideoContentMode] = []
     private(set) var appliedContentModes: [DesktopVideoContentMode] = []
+    private(set) var appliedEnergyConstraints: [Bool] = []
     private(set) var revealCount = 0
     private(set) var reassertCount = 0
     private(set) var closeCount = 0
@@ -209,6 +223,10 @@ final class TestDesktopHost: DesktopHosting {
 
     func setVideoContentMode(_ contentMode: DesktopVideoContentMode) {
         appliedContentModes.append(contentMode)
+    }
+
+    func setEnergyConstrained(_ isEnergyConstrained: Bool) {
+        appliedEnergyConstraints.append(isEnergyConstrained)
     }
 
     func reveal() {
@@ -294,6 +312,7 @@ final class TestDesktopVideoContentModeStore: DesktopVideoContentModeStoring {
 @MainActor
 final class TestSystemLifecycleMonitor: SystemLifecycleMonitoring {
     var suspensionHandler: ((PlaybackSuspensionReason, Bool) -> Void)?
+    var energyConstrainedHandler: ((Bool) -> Void)?
     private(set) var startCount = 0
     private(set) var stopCount = 0
 
@@ -307,6 +326,10 @@ final class TestSystemLifecycleMonitor: SystemLifecycleMonitoring {
 
     func emit(_ reason: PlaybackSuspensionReason, suspended: Bool) {
         suspensionHandler?(reason, suspended)
+    }
+
+    func emitEnergyConstrained(_ isEnergyConstrained: Bool) {
+        energyConstrainedHandler?(isEnergyConstrained)
     }
 }
 
