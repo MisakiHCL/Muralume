@@ -112,11 +112,11 @@ git -C "${fixture_root}" commit -qm 'release 1.0.3 fixture'
 git -C "${fixture_root}" tag v1.0.3
 
 printf '%s\n' \
-    'MARKETING_VERSION = 1.0.4' \
-    'CURRENT_PROJECT_VERSION = 6' \
+    'MARKETING_VERSION = 1.1.0' \
+    'CURRENT_PROJECT_VERSION = 8' \
     >"${fixture_root}/Config/Base.xcconfig"
 git -C "${fixture_root}" add Config/Base.xcconfig
-git -C "${fixture_root}" commit -qm 'release 1.0.4 candidate fixture'
+git -C "${fixture_root}" commit -qm 'release 1.1.0 candidate fixture'
 readonly expected_commit="$(git -C "${fixture_root}" rev-parse HEAD)"
 readonly expected_tree="$(git -C "${fixture_root}" rev-parse 'HEAD^{tree}')"
 
