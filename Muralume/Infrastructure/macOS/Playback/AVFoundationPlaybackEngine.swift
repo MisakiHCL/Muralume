@@ -5,11 +5,7 @@ import Foundation
 final class AVFoundationPlaybackEngine: PlaybackEngine {
     var progressHandler: ((TimeInterval) -> Void)? {
         didSet {
-            if progressHandler == nil {
-                removeProgressObserver()
-            } else {
-                installProgressObserver()
-            }
+            refreshProgressObserver()
         }
     }
     var itemEndedHandler: (() -> Void)?
@@ -32,10 +28,21 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     private var failureObserver: NSObjectProtocol?
     private var loadGeneration: UInt64 = 0
     private var surfaceGeneration: UInt64 = 0
+    private var progressCadence: PlaybackProgressCadence = .inactive
+    private lazy var seekCoalescer = PlaybackSeekCoalescer {
+        [weak self] seconds, mode, completion in
+        self?.performSeek(
+            to: seconds,
+            mode: mode,
+            completion: completion
+        )
+    }
 
     init() {}
 
     func load(_ source: ResolvedMediaSource) async throws -> TimeInterval {
+        seekCoalescer.invalidate()
+        player.currentItem?.cancelPendingSeeks()
         if progressHandler != nil {
             installProgressObserver()
         }
@@ -155,11 +162,50 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     }
 
     func seek(to seconds: TimeInterval) {
+        seek(to: seconds, mode: .exact)
+    }
+
+    func seek(to seconds: TimeInterval, mode: PlaybackSeekMode) {
+        seekCoalescer.seek(to: seconds, mode: mode)
+    }
+
+    func setProgressCadence(_ cadence: PlaybackProgressCadence) {
+        guard cadence != progressCadence else {
+            return
+        }
+
+        progressCadence = cadence
+        refreshProgressObserver()
+        publishCurrentProgressIfAvailable()
+    }
+
+    private func performSeek(
+        to seconds: TimeInterval,
+        mode: PlaybackSeekMode,
+        completion: @escaping PlaybackSeekCoalescer.Completion
+    ) {
         let target = CMTime(
             seconds: max(seconds, 0),
             preferredTimescale: CMTimeScale(NSEC_PER_SEC)
         )
-        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+        let tolerance: CMTime
+        switch mode {
+        case .interactive:
+            tolerance = CMTime(
+                seconds: PlaybackPolicy.interactiveSeekTolerance,
+                preferredTimescale: CMTimeScale(NSEC_PER_SEC)
+            )
+        case .exact:
+            player.currentItem?.cancelPendingSeeks()
+            tolerance = .zero
+        }
+        player.seek(
+            to: target,
+            toleranceBefore: tolerance,
+            toleranceAfter: tolerance
+        ) { _ in
+            completion()
+        }
     }
 
     func setVolume(_ volume: PlaybackVolume) {
@@ -173,6 +219,8 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     func stop() {
         loadGeneration &+= 1
         surfaceGeneration &+= 1
+        seekCoalescer.invalidate()
+        player.currentItem?.cancelPendingSeeks()
         player.pause()
         player.replaceCurrentItem(with: nil)
         removeItemObservers()
@@ -182,11 +230,13 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     }
 
     private func installProgressObserver() {
-        guard timeObserver == nil else {
+        guard timeObserver == nil,
+              progressHandler != nil,
+              let progressUpdateInterval else {
             return
         }
         let interval = CMTime(
-            seconds: PlaybackPolicy.progressUpdateInterval,
+            seconds: progressUpdateInterval,
             preferredTimescale: CMTimeScale(NSEC_PER_SEC)
         )
         timeObserver = player.addPeriodicTimeObserver(
@@ -207,6 +257,35 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         if let timeObserver {
             player.removeTimeObserver(timeObserver)
             self.timeObserver = nil
+        }
+    }
+
+    private func refreshProgressObserver() {
+        removeProgressObserver()
+        installProgressObserver()
+    }
+
+    private func publishCurrentProgressIfAvailable() {
+        guard progressCadence != .inactive,
+              progressHandler != nil,
+              player.currentItem != nil else {
+            return
+        }
+        let seconds = player.currentTime().seconds
+        guard seconds.isFinite else {
+            return
+        }
+        progressHandler?(seconds)
+    }
+
+    private var progressUpdateInterval: TimeInterval? {
+        switch progressCadence {
+        case .inactive:
+            return nil
+        case .background:
+            return PlaybackPolicy.backgroundProgressUpdateInterval
+        case .visible:
+            return PlaybackPolicy.visibleProgressUpdateInterval
         }
     }
 

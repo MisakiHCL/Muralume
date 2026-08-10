@@ -30,10 +30,38 @@ enum DesktopPresetInvalidation: Equatable, Sendable {
     case permanentlyUnavailable
 }
 
+struct DesktopPresetPersistencePolicy: Sendable {
+    let stateChangeCoalescingDelay: Duration
+    let minimumSnapshotSaveInterval: Duration
+    let progressSaveDelay: Duration
+    let failureRetryDelay: Duration
+
+    /// Queue/progress uses a slower, staggered checkpoint than the playback
+    /// session so both large JSON files are not rewritten per clip.
+    static let production = DesktopPresetPersistencePolicy(
+        stateChangeCoalescingDelay: .seconds(1),
+        minimumSnapshotSaveInterval: .seconds(60),
+        progressSaveDelay: .seconds(60),
+        failureRetryDelay: .seconds(60)
+    )
+
+    static let immediate = DesktopPresetPersistencePolicy(
+        stateChangeCoalescingDelay: .zero,
+        minimumSnapshotSaveInterval: .zero,
+        progressSaveDelay: .zero,
+        // Zero disables automatic retries so deterministic callers cannot
+        // create a tight failure loop.
+        failureRetryDelay: .zero
+    )
+}
+
 @MainActor
 final class DesktopPresetController: ObservableObject {
-    private enum PersistencePolicy {
-        static let progressSaveDelay: Duration = .seconds(60)
+    private enum PersistenceUrgency: Int {
+        case progress
+        case queueChange
+        case stateChange
+        case immediate
     }
 
     private enum AutomaticRestorePreparationState: Equatable {
@@ -64,6 +92,8 @@ final class DesktopPresetController: ObservableObject {
     private let desktopSession: DesktopSessionCoordinator
     private let store: any DesktopPresetStoring
     private let restorer: PlaybackStateRestorer
+    private let persistencePolicy: DesktopPresetPersistencePolicy
+    private let persistenceClock = ContinuousClock()
 
     private var automaticRestorePreparationState:
         AutomaticRestorePreparationState = .unreconciled
@@ -74,6 +104,11 @@ final class DesktopPresetController: ObservableObject {
     private var persistenceGeneration: UInt64 = 0
     private var persistenceTask: Task<Void, Never>?
     private var persistenceTaskGeneration: UInt64?
+    private var persistenceTaskUrgency: PersistenceUrgency?
+    private var pendingPersistenceUrgency: PersistenceUrgency?
+    private var lastSnapshotSaveInstant: ContinuousClock.Instant?
+    private var retryNotBefore: ContinuousClock.Instant?
+    private var blockedQueueStructureRevision: UInt64?
     private var lastCommittedPreset: DesktopPreset?
     private var isExternalRestoreInProgress = false
     private var isShuttingDown = false
@@ -87,12 +122,14 @@ final class DesktopPresetController: ObservableObject {
         playback: PlaybackCoordinator,
         library: MediaLibraryCoordinator,
         desktopSession: DesktopSessionCoordinator,
-        store: any DesktopPresetStoring
+        store: any DesktopPresetStoring,
+        persistencePolicy: DesktopPresetPersistencePolicy = .production
     ) {
         self.playback = playback
         self.library = library
         self.desktopSession = desktopSession
         self.store = store
+        self.persistencePolicy = persistencePolicy
         restorer = PlaybackStateRestorer(
             playback: playback,
             library: library,
@@ -165,7 +202,7 @@ final class DesktopPresetController: ObservableObject {
             shouldPreserveStoredPreset = false
             automaticRestoreInvalidation = nil
             bootstrapState = .active
-            scheduleSave(delay: nil)
+            scheduleSave(urgency: .immediate)
             return true
         case .cancelled:
             shouldPreserveStoredPreset = true
@@ -188,7 +225,7 @@ final class DesktopPresetController: ObservableObject {
         }
         shouldPreserveStoredPreset = false
         bootstrapState = .active
-        scheduleSave(delay: nil)
+        scheduleSave(urgency: .immediate)
     }
 
     func markDesktopInactive() {
@@ -205,6 +242,8 @@ final class DesktopPresetController: ObservableObject {
         shouldPreserveStoredPreset = true
         persistenceGeneration &+= 1
         persistenceTask?.cancel()
+        persistenceTaskUrgency = nil
+        pendingPersistenceUrgency = nil
     }
 
     func finishExternalRestore(commitCurrentState: Bool) {
@@ -220,7 +259,7 @@ final class DesktopPresetController: ObservableObject {
             return
         }
         shouldPreserveStoredPreset = false
-        synchronizePreset()
+        synchronizePreset(urgency: .stateChange)
     }
 
     func setAutomaticRestorePrepared(_ isPrepared: Bool) {
@@ -240,7 +279,7 @@ final class DesktopPresetController: ObservableObject {
                 return
             }
             shouldPreserveStoredPreset = false
-            scheduleSave(delay: nil, skipIfUnchanged: true)
+            scheduleSave(urgency: .immediate)
         } else {
             shouldPreserveStoredPreset = false
             scheduleClear()
@@ -256,6 +295,8 @@ final class DesktopPresetController: ObservableObject {
         shouldPreserveStoredPreset = true
         persistenceGeneration &+= 1
         persistenceTask?.cancel()
+        persistenceTaskUrgency = nil
+        pendingPersistenceUrgency = nil
     }
 
     func prepareAutomaticRestore() async ->
@@ -268,6 +309,8 @@ final class DesktopPresetController: ObservableObject {
         previousTask?.cancel()
         persistenceTask = nil
         persistenceTaskGeneration = nil
+        persistenceTaskUrgency = nil
+        pendingPersistenceUrgency = nil
         await previousTask?.value
 
         guard !isShuttingDown, !Task.isCancelled else {
@@ -280,16 +323,11 @@ final class DesktopPresetController: ObservableObject {
             return .noActiveQueue
         }
 
-        do {
-            try await store.save(preset)
-            lastCommittedPreset = preset
-            persistenceFailure = nil
+        if await savePreset(preset) {
             automaticRestoreInvalidation = nil
             return .prepared
-        } catch {
-            await failClosedAfterSaveFailure()
-            return .persistenceFailed
         }
+        return .persistenceFailed
     }
 
     func discardPreparedAutomaticRestore() async {
@@ -301,6 +339,8 @@ final class DesktopPresetController: ObservableObject {
         previousTask?.cancel()
         persistenceTask = nil
         persistenceTaskGeneration = nil
+        persistenceTaskUrgency = nil
+        pendingPersistenceUrgency = nil
         await previousTask?.value
         await clearStoredPreset()
     }
@@ -317,7 +357,7 @@ final class DesktopPresetController: ObservableObject {
         guard isAutomaticRestorePrepared else {
             return
         }
-        scheduleSave(delay: nil)
+        scheduleSave(urgency: .immediate)
     }
 
     func prepareForShutdown() async {
@@ -330,6 +370,8 @@ final class DesktopPresetController: ObservableObject {
         persistenceTask?.cancel()
         persistenceTask = nil
         persistenceTaskGeneration = nil
+        persistenceTaskUrgency = nil
+        pendingPersistenceUrgency = nil
         await previousTask?.value
 
         guard !isExternalRestoreInProgress else {
@@ -355,21 +397,28 @@ final class DesktopPresetController: ObservableObject {
             await clearStoredPreset()
             return
         }
-        do {
-            try await store.save(preset)
-            lastCommittedPreset = preset
-            persistenceFailure = nil
-        } catch {
-            await failClosedAfterSaveFailure()
-        }
+        _ = await savePreset(preset, forceWrite: true)
     }
 
     private func observePresetChanges() {
+        library.$queueRevision
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.synchronizePreset(urgency: .queueChange)
+            }
+            .store(in: &cancellables)
+
+        library.$queueStructureRevision
+            .dropFirst()
+            .sink { [weak self] revision in
+                self?.synchronizePreset(
+                    urgency: .stateChange,
+                    observedQueueStructureRevision: revision
+                )
+            }
+            .store(in: &cancellables)
+
         Publishers.MergeMany([
-            library.$queueRevision
-                .dropFirst()
-                .map { _ in () }
-                .eraseToAnyPublisher(),
             playback.$isPlaybackRequested
                 .removeDuplicates()
                 .dropFirst()
@@ -388,7 +437,7 @@ final class DesktopPresetController: ObservableObject {
                 .eraseToAnyPublisher()
         ])
         .sink { [weak self] in
-            self?.synchronizePreset()
+            self?.synchronizePreset(urgency: .stateChange)
         }
         .store(in: &cancellables)
 
@@ -404,22 +453,32 @@ final class DesktopPresetController: ObservableObject {
         guard !isShuttingDown,
               isAutomaticRestorePrepared,
               !isExternalRestoreInProgress,
-              !isBootstrapping,
-              persistenceTask == nil else {
+              !isBootstrapping else {
             return
         }
-        scheduleSave(delay: PersistencePolicy.progressSaveDelay)
+        scheduleSave(urgency: .progress)
     }
 
     private func scheduleSave(
-        delay: Duration?,
-        skipIfUnchanged: Bool = false
+        urgency: PersistenceUrgency,
+        observedQueueStructureRevision: UInt64? = nil
     ) {
         guard !isShuttingDown,
               isAutomaticRestorePrepared,
               !isExternalRestoreInProgress,
               !isBootstrapping,
               library.hasActiveQueue else {
+            return
+        }
+        let effectiveQueueStructureRevision =
+            observedQueueStructureRevision ?? library.queueStructureRevision
+        if urgency != .immediate,
+           blockedQueueStructureRevision == effectiveQueueStructureRevision {
+            return
+        }
+        if let currentUrgency = persistenceTaskUrgency,
+           currentUrgency.rawValue >= urgency.rawValue {
+            retainPendingPersistenceUrgency(urgency)
             return
         }
 
@@ -429,6 +488,8 @@ final class DesktopPresetController: ObservableObject {
         previousTask?.cancel()
 
         persistenceTaskGeneration = generation
+        persistenceTaskUrgency = urgency
+        pendingPersistenceUrgency = nil
         persistenceTask = Task { [weak self] in
             guard let self else {
                 return
@@ -437,34 +498,26 @@ final class DesktopPresetController: ObservableObject {
                 finishPersistenceTask(generation: generation)
             }
             await previousTask?.value
-            if let delay {
+            let delay = persistenceDelay(for: urgency)
+            if delay > .zero {
                 try? await Task.sleep(for: delay)
             }
             guard !Task.isCancelled,
-                  generation == persistenceGeneration,
-                  let preset = makePreset() else {
+                  generation == persistenceGeneration else {
                 return
             }
-            if skipIfUnchanged, preset == lastCommittedPreset {
+            pendingPersistenceUrgency = nil
+            let queueStructureRevisionAtSnapshot =
+                library.queueStructureRevision
+            guard let preset = makePreset() else {
                 return
             }
-            do {
-                try await store.save(preset)
-                guard !Task.isCancelled,
-                      generation == persistenceGeneration else {
-                    return
-                }
-                lastCommittedPreset = preset
-                persistenceFailure = nil
-            } catch {
-                guard !Task.isCancelled,
-                      generation == persistenceGeneration else {
-                    return
-                }
-                await failClosedAfterSaveFailure(
-                    expectedGeneration: generation
-                )
-            }
+            _ = await savePreset(
+                preset,
+                queueStructureRevisionAtSnapshot:
+                    queueStructureRevisionAtSnapshot,
+                expectedGeneration: generation
+            )
         }
     }
 
@@ -478,6 +531,8 @@ final class DesktopPresetController: ObservableObject {
         previousTask?.cancel()
 
         persistenceTaskGeneration = generation
+        persistenceTaskUrgency = .immediate
+        pendingPersistenceUrgency = nil
         persistenceTask = Task { [weak self] in
             guard let self else {
                 return
@@ -500,9 +555,28 @@ final class DesktopPresetController: ObservableObject {
         }
         persistenceTaskGeneration = nil
         persistenceTask = nil
+        persistenceTaskUrgency = nil
+        let pendingUrgency = pendingPersistenceUrgency
+        pendingPersistenceUrgency = nil
+        if let pendingUrgency {
+            synchronizePreset(urgency: pendingUrgency)
+        }
     }
 
-    private func synchronizePreset() {
+    private func retainPendingPersistenceUrgency(
+        _ urgency: PersistenceUrgency
+    ) {
+        if let pendingPersistenceUrgency,
+           pendingPersistenceUrgency.rawValue >= urgency.rawValue {
+            return
+        }
+        pendingPersistenceUrgency = urgency
+    }
+
+    private func synchronizePreset(
+        urgency: PersistenceUrgency,
+        observedQueueStructureRevision: UInt64? = nil
+    ) {
         guard !isShuttingDown,
               isAutomaticRestorePrepared,
               !isExternalRestoreInProgress,
@@ -518,7 +592,11 @@ final class DesktopPresetController: ObservableObject {
         } else {
             shouldPreserveStoredPreset = false
             automaticRestoreInvalidation = nil
-            scheduleSave(delay: nil)
+            scheduleSave(
+                urgency: urgency,
+                observedQueueStructureRevision:
+                    observedQueueStructureRevision
+            )
         }
     }
 
@@ -530,6 +608,9 @@ final class DesktopPresetController: ObservableObject {
         let previousTask = persistenceTask
         previousTask?.cancel()
         persistenceTask = nil
+        persistenceTaskGeneration = nil
+        persistenceTaskUrgency = nil
+        pendingPersistenceUrgency = nil
         await previousTask?.value
         await clearStoredPreset()
         automaticRestoreInvalidation = reason
@@ -540,8 +621,62 @@ final class DesktopPresetController: ObservableObject {
             try await store.clear()
             lastCommittedPreset = nil
             persistenceFailure = nil
+            lastSnapshotSaveInstant = nil
+            retryNotBefore = nil
+            blockedQueueStructureRevision = nil
         } catch {
             persistenceFailure = .clearFailed
+        }
+    }
+
+    @discardableResult
+    private func savePreset(
+        _ preset: DesktopPreset,
+        queueStructureRevisionAtSnapshot: UInt64? = nil,
+        expectedGeneration: UInt64? = nil,
+        forceWrite: Bool = false
+    ) async -> Bool {
+        let attemptedQueueStructureRevision =
+            queueStructureRevisionAtSnapshot ?? library.queueStructureRevision
+        if !forceWrite, preset == lastCommittedPreset {
+            guard expectedGeneration == nil
+                    || expectedGeneration == persistenceGeneration else {
+                return false
+            }
+            persistenceFailure = nil
+            retryNotBefore = nil
+            blockedQueueStructureRevision = nil
+            return true
+        }
+        do {
+            try await store.save(preset)
+            guard expectedGeneration == nil
+                    || expectedGeneration == persistenceGeneration else {
+                return false
+            }
+            lastCommittedPreset = preset
+            persistenceFailure = nil
+            lastSnapshotSaveInstant = persistenceClock.now
+            retryNotBefore = nil
+            blockedQueueStructureRevision = nil
+            return true
+        } catch {
+            guard expectedGeneration == nil
+                    || expectedGeneration == persistenceGeneration else {
+                return false
+            }
+            let shouldRetry = registerSaveFailure(
+                error,
+                attemptedQueueStructureRevision:
+                    attemptedQueueStructureRevision
+            )
+            if shouldRetry, expectedGeneration != nil {
+                retainPendingPersistenceUrgency(.stateChange)
+            }
+            await failClosedAfterSaveFailure(
+                expectedGeneration: expectedGeneration
+            )
+            return false
         }
     }
 
@@ -583,5 +718,56 @@ final class DesktopPresetController: ObservableObject {
             playbackRate: playback.settings.rate,
             videoContentMode: desktopSession.videoContentMode
         )
+    }
+
+    private func persistenceDelay(
+        for urgency: PersistenceUrgency
+    ) -> Duration {
+        guard urgency != .immediate else {
+            return .zero
+        }
+
+        var delay = urgency == .progress
+            ? persistencePolicy.progressSaveDelay
+            : persistencePolicy.stateChangeCoalescingDelay
+        let now = persistenceClock.now
+        if urgency == .progress || urgency == .queueChange,
+           let lastSnapshotSaveInstant {
+            let nextSnapshotSave = lastSnapshotSaveInstant.advanced(
+                by: persistencePolicy.minimumSnapshotSaveInterval
+            )
+            let minimumIntervalDelay = now.duration(to: nextSnapshotSave)
+            if minimumIntervalDelay > delay {
+                delay = minimumIntervalDelay
+            }
+        }
+        if let retryNotBefore {
+            let retryDelay = now.duration(to: retryNotBefore)
+            if retryDelay > delay {
+                delay = retryDelay
+            }
+        }
+        return max(delay, .zero)
+    }
+
+    private func registerSaveFailure(
+        _ error: any Error,
+        attemptedQueueStructureRevision: UInt64
+    ) -> Bool {
+        switch error as? DesktopPresetStoreError {
+        case .fileTooLarge?, .queueLimitExceeded?:
+            blockedQueueStructureRevision = attemptedQueueStructureRevision
+            retryNotBefore = nil
+            return false
+        case .invalidPreset?, nil:
+            guard persistencePolicy.failureRetryDelay > .zero else {
+                retryNotBefore = nil
+                return false
+            }
+            retryNotBefore = persistenceClock.now.advanced(
+                by: persistencePolicy.failureRetryDelay
+            )
+            return true
+        }
     }
 }

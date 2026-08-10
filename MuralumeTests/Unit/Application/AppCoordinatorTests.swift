@@ -375,6 +375,32 @@ final class AppCoordinatorTests: XCTestCase {
         XCTAssertEqual(snapshot?.state.isPlaybackRequested, true)
     }
 
+    func testMiniaturizingPlayerSuspendsDecodeAndRestoresIntent() async {
+        let fixture = makeFixture(launchStatus: .disabled)
+        fixture.coordinator.start(source: .interactive)
+        await prepareActiveQueue(in: fixture)
+
+        NotificationCenter.default.post(
+            name: NSWindow.didMiniaturizeNotification,
+            object: fixture.window
+        )
+
+        XCTAssertTrue(fixture.playback.isSystemSuspended)
+        XCTAssertTrue(fixture.playback.isPlaybackRequested)
+        XCTAssertFalse(fixture.engine.isPlaying)
+
+        NotificationCenter.default.post(
+            name: NSWindow.didDeminiaturizeNotification,
+            object: fixture.window
+        )
+
+        XCTAssertFalse(fixture.playback.isSystemSuspended)
+        XCTAssertTrue(fixture.playback.isPlaybackRequested)
+        XCTAssertTrue(fixture.engine.isPlaying)
+
+        await fixture.coordinator.shutdown()
+    }
+
     func testMenuLibraryEditOpensPlaylistEditorAndRevalidatesSources() async {
         let fixture = makeFixture(launchStatus: .disabled)
 

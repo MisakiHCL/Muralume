@@ -336,6 +336,10 @@ final class DesktopSessionCoordinator: ObservableObject {
         lifecycleMonitor.suspensionHandler = { [weak self] reason, suspended in
             self?.playback.setSuspended(suspended, for: reason)
         }
+        lifecycleMonitor.energyConstrainedHandler = {
+            [weak self] isConstrained in
+            self?.desktopHost.setEnergyConstrained(isConstrained)
+        }
     }
 
     private func handlePlaybackFailure(_ failure: PlaybackFailure) {

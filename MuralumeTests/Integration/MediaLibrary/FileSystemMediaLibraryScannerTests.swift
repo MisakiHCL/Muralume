@@ -273,7 +273,6 @@ final class FileSystemMediaLibraryScannerTests: XCTestCase {
         XCTAssertEqual(snapshot.items.count, sourceCount)
         XCTAssertEqual(counter.canonicalURLCount, sourceCount)
         XCTAssertEqual(counter.resourceIdentifierCount, sourceCount)
-        XCTAssertEqual(counter.relationshipCount, 0)
     }
 
     func testSingleSourceSkipsDeduplicationMetadataInspection() async throws {
@@ -293,7 +292,137 @@ final class FileSystemMediaLibraryScannerTests: XCTestCase {
         XCTAssertEqual(snapshot.items.map(\.url), [mediaURL])
         XCTAssertEqual(counter.canonicalURLCount, 0)
         XCTAssertEqual(counter.resourceIdentifierCount, 0)
-        XCTAssertEqual(counter.relationshipCount, 0)
+    }
+
+    func testManyUniqueFileSourcesUseNearLinearIdentityComparison() async {
+        let sourceCount = 2_000
+        let counter = SourceIdentifierEqualityCounter()
+        let scanner = FileSystemMediaLibraryScanner(
+            sourceInspection: FileSystemMediaSourceInspection(
+                canonicalURL: { $0 },
+                resourceIdentifier: { url in
+                    CountingSourceIdentifier(
+                        value: url.lastPathComponent,
+                        counter: counter
+                    )
+                }
+            )
+        )
+        let sources = (0..<sourceCount).map { index in
+            MediaSource(
+                url: URL(
+                    fileURLWithPath: "/nonexistent/source-\(index).mp4"
+                ),
+                kind: .file
+            )
+        }
+
+        do {
+            _ = try await scanner.scan(sources: sources)
+            XCTFail("Expected unavailable synthetic roots")
+        } catch let error as MediaLibraryScanError {
+            guard case .rootUnavailable = error else {
+                return XCTFail("Unexpected scan error: \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected scan error: \(error)")
+        }
+
+        XCTAssertLessThan(counter.equalityCount, sourceCount * 2)
+    }
+
+    func testSourceNormalizationRespondsToCancellation() async {
+        let sourceCount = 2_000
+        let inspectionCount = LockedIntegerCounter()
+        let scanner = FileSystemMediaLibraryScanner(
+            sourceInspection: FileSystemMediaSourceInspection(
+                canonicalURL: { url in
+                    let count = inspectionCount.increment()
+                    if count == 16 {
+                        withUnsafeCurrentTask { task in
+                            task?.cancel()
+                        }
+                    }
+                    return url
+                },
+                resourceIdentifier: { _ in nil }
+            )
+        )
+        let sources = (0..<sourceCount).map { index in
+            MediaSource(
+                url: URL(
+                    fileURLWithPath: "/nonexistent/cancel-\(index).mp4"
+                ),
+                kind: .file
+            )
+        }
+        let scanTask = Task {
+            try await scanner.scan(sources: sources)
+        }
+
+        do {
+            _ = try await scanTask.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected: normalization checks cancellation between sources.
+        } catch {
+            XCTFail("Unexpected scan error: \(error)")
+        }
+
+        XCTAssertLessThan(inspectionCount.value, sourceCount)
+    }
+
+    func testFolderIdentityCoversMediaReachedThroughAnAliasAncestor()
+        async throws {
+        let sandboxURL = try makeSandbox()
+        defer { removeSandbox(sandboxURL) }
+        let folderURL = sandboxURL.appendingPathComponent(
+            "Library",
+            isDirectory: true
+        )
+        let aliasContainerURL = sandboxURL.appendingPathComponent(
+            "Alias",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: folderURL,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: aliasContainerURL,
+            withIntermediateDirectories: true
+        )
+        let libraryMediaURL = folderURL.appendingPathComponent("Inside.mp4")
+        let aliasMediaURL = aliasContainerURL.appendingPathComponent(
+            "Alias.mp4"
+        )
+        try writeFile(at: libraryMediaURL, byteCount: 1)
+        try writeFile(at: aliasMediaURL, byteCount: 1)
+        let folderIdentity = "folder-identity"
+        let scanner = FileSystemMediaLibraryScanner(
+            sourceInspection: FileSystemMediaSourceInspection(
+                canonicalURL: { $0 },
+                resourceIdentifier: { url in
+                    switch url.standardizedFileURL.path {
+                    case folderURL.standardizedFileURL.path,
+                         aliasContainerURL.standardizedFileURL.path:
+                        return NSString(string: folderIdentity)
+                    default:
+                        return NSString(string: url.path)
+                    }
+                }
+            )
+        )
+
+        let snapshot = try await scanner.scan(
+            sources: [
+                MediaSource(url: aliasMediaURL, kind: .file),
+                MediaSource(url: folderURL, kind: .folder)
+            ]
+        )
+
+        XCTAssertEqual(snapshot.roots.map(\.url), [folderURL])
+        XCTAssertEqual(snapshot.items.map(\.url), [libraryMediaURL])
     }
 
     func testCachedSourceIdentityPreservesHardLinkAndSymlinkDeduplication()
@@ -620,7 +749,6 @@ private final class FileSystemMediaSourceInspectionCounter: @unchecked Sendable 
     private let lock = NSLock()
     private var storedCanonicalURLCount = 0
     private var storedResourceIdentifierCount = 0
-    private var storedRelationshipCount = 0
 
     var canonicalURLCount: Int {
         lock.withLock { storedCanonicalURLCount }
@@ -628,10 +756,6 @@ private final class FileSystemMediaSourceInspectionCounter: @unchecked Sendable 
 
     var resourceIdentifierCount: Int {
         lock.withLock { storedResourceIdentifierCount }
-    }
-
-    var relationshipCount: Int {
-        lock.withLock { storedRelationshipCount }
     }
 
     func makeInspection() -> FileSystemMediaSourceInspection {
@@ -648,13 +772,58 @@ private final class FileSystemMediaSourceInspectionCounter: @unchecked Sendable 
                     storedResourceIdentifierCount += 1
                 }
                 return liveInspection.resourceIdentifier(url)
-            },
-            relationship: { [self] directoryURL, itemURL in
-                lock.withLock {
-                    storedRelationshipCount += 1
-                }
-                return liveInspection.relationship(directoryURL, itemURL)
             }
         )
+    }
+}
+
+private final class LockedIntegerCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue = 0
+
+    var value: Int {
+        lock.withLock { storedValue }
+    }
+
+    @discardableResult
+    func increment() -> Int {
+        lock.withLock {
+            storedValue += 1
+            return storedValue
+        }
+    }
+}
+
+private final class SourceIdentifierEqualityCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedEqualityCount = 0
+
+    var equalityCount: Int {
+        lock.withLock { storedEqualityCount }
+    }
+
+    func recordComparison() {
+        lock.withLock {
+            storedEqualityCount += 1
+        }
+    }
+}
+
+private final class CountingSourceIdentifier: NSObject {
+    private let value: String
+    private let counter: SourceIdentifierEqualityCounter
+
+    init(value: String, counter: SourceIdentifierEqualityCounter) {
+        self.value = value
+        self.counter = counter
+    }
+
+    override var hash: Int {
+        value.hashValue
+    }
+
+    override func isEqual(_ object: Any?) -> Bool {
+        counter.recordComparison()
+        return (object as? CountingSourceIdentifier)?.value == value
     }
 }

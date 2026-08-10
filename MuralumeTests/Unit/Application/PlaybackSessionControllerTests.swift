@@ -22,6 +22,9 @@ final class PlaybackSessionControllerTests: XCTestCase {
         let store = FilePlaybackSessionStore(fileURL: fileURL)
 
         try await store.save(snapshot)
+        let externalReplacement = Data("external replacement".utf8)
+        try externalReplacement.write(to: fileURL, options: [.atomic])
+        try await store.save(snapshot)
         let restoredSnapshot = try await store.load()
         XCTAssertEqual(restoredSnapshot, snapshot)
 
@@ -456,11 +459,18 @@ final class PlaybackSessionControllerTests: XCTestCase {
         await waitUntil {
             fixture.controller.persistenceFailure == .saveFailed
         }
+        _ = await waitForPersistenceToSettle(in: store)
         let preservedSnapshot = await store.value()
         let clearCount = await store.clearCount
+        let failedSaveCount = await store.saveCount
+        for _ in 0..<64 {
+            await Task.yield()
+        }
+        let saveCountAfterObservation = await store.saveCount
 
         XCTAssertEqual(preservedSnapshot, lastKnownGood)
         XCTAssertEqual(clearCount, 0)
+        XCTAssertEqual(saveCountAfterObservation, failedSaveCount)
         XCTAssertEqual(fixture.controller.persistenceFailure, .saveFailed)
 
         await shutdown(fixture)
@@ -560,6 +570,294 @@ final class PlaybackSessionControllerTests: XCTestCase {
         await shutdown(fixture)
     }
 
+    func testShutdownFlushesFirstQueueWhileCheckpointIsPending() async {
+        let items = makeItems()
+        let store = MemoryPlaybackSessionStore(snapshot: nil)
+        let delayedPolicy = PlaybackSessionPersistencePolicy(
+            stateChangeCoalescingDelay: .seconds(3_600),
+            minimumSnapshotSaveInterval: .zero,
+            progressSaveDelay: .seconds(3_600),
+            failureRetryDelay: .seconds(3_600)
+        )
+        let fixture = makeFixture(
+            items: items,
+            store: store,
+            persistencePolicy: delayedPolicy
+        )
+        await prepareActiveQueue(items[0], in: fixture)
+
+        await fixture.controller.prepareForShutdown()
+        let snapshot = await store.value()
+        let saveCount = await store.saveCount
+
+        XCTAssertEqual(saveCount, 1)
+        XCTAssertEqual(snapshot?.state.queue.currentItem, items[0].id)
+        fixture.desktopSession.shutdown()
+        await fixture.library.shutdown()
+    }
+
+    func testCoalescedQueueChangesFlushOnlyLatestSnapshotAtShutdown() async {
+        let items = makeItems()
+        let store = MemoryPlaybackSessionStore(snapshot: nil)
+        let delayedPolicy = PlaybackSessionPersistencePolicy(
+            stateChangeCoalescingDelay: .seconds(3_600),
+            minimumSnapshotSaveInterval: .zero,
+            progressSaveDelay: .seconds(3_600),
+            failureRetryDelay: .seconds(3_600)
+        )
+        let fixture = makeFixture(
+            items: items,
+            store: store,
+            persistencePolicy: delayedPolicy
+        )
+        await prepareActiveQueue(items[0], in: fixture)
+
+        _ = fixture.library.playNext()
+        fixture.library.playPrevious()
+        _ = fixture.library.playNext()
+        for _ in 0..<32 {
+            await Task.yield()
+        }
+
+        let saveCountBeforeShutdown = await store.saveCount
+        XCTAssertEqual(saveCountBeforeShutdown, 0)
+
+        await fixture.controller.prepareForShutdown()
+        let snapshot = await store.value()
+
+        let saveCountAfterShutdown = await store.saveCount
+        XCTAssertEqual(saveCountAfterShutdown, 1)
+        XCTAssertEqual(snapshot?.state.queue.currentItem, items[1].id)
+        fixture.desktopSession.shutdown()
+        await fixture.library.shutdown()
+    }
+
+    func testIdenticalExplicitSnapshotDoesNotReachStoreTwice() async {
+        let items = makeItems()
+        let store = MemoryPlaybackSessionStore(snapshot: nil)
+        let fixture = makeFixture(items: items, store: store)
+        await prepareActiveQueue(items[0], in: fixture)
+        let settledSaveCount = await waitForPersistenceToSettle(in: store)
+
+        fixture.controller.preserveCurrentSnapshot()
+        let finalSaveCount = await waitForPersistenceToSettle(in: store)
+
+        XCTAssertEqual(finalSaveCount, settledSaveCount)
+        await shutdown(fixture)
+    }
+
+    func testSaveFailureBackoffDoesNotRetryForEveryProgressTick() async {
+        let items = makeItems()
+        let store = MemoryPlaybackSessionStore(snapshot: nil)
+        await store.setSaveFailure(true)
+        let backoffPolicy = PlaybackSessionPersistencePolicy(
+            stateChangeCoalescingDelay: .zero,
+            minimumSnapshotSaveInterval: .zero,
+            progressSaveDelay: .zero,
+            failureRetryDelay: .seconds(3_600)
+        )
+        let fixture = makeFixture(
+            items: items,
+            store: store,
+            persistencePolicy: backoffPolicy
+        )
+        await prepareActiveQueue(items[0], in: fixture)
+        await waitUntil {
+            fixture.controller.persistenceFailure == .saveFailed
+        }
+        let failedSaveCount = await store.saveCount
+
+        fixture.playback.seek(to: 1)
+        fixture.playback.seek(to: 2)
+        fixture.playback.seek(to: 3)
+        for _ in 0..<32 {
+            await Task.yield()
+        }
+
+        let saveCountAfterProgress = await store.saveCount
+        XCTAssertEqual(saveCountAfterProgress, failedSaveCount)
+        await shutdown(fixture)
+    }
+
+    func testCriticalStateChangeIgnoresQueueCheckpointInterval() async {
+        let items = makeItems()
+        let store = MemoryPlaybackSessionStore(snapshot: nil)
+        let checkpointPolicy = PlaybackSessionPersistencePolicy(
+            stateChangeCoalescingDelay: .zero,
+            minimumSnapshotSaveInterval: .seconds(3_600),
+            progressSaveDelay: .seconds(3_600),
+            failureRetryDelay: .seconds(3_600)
+        )
+        let fixture = makeFixture(
+            items: items,
+            store: store,
+            persistencePolicy: checkpointPolicy
+        )
+        await prepareActiveQueue(items[0], in: fixture)
+        let initialSaveCount = await waitForPersistenceToSettle(in: store)
+
+        fixture.playback.setPlaybackIntent(.paused)
+        await waitForSave(after: initialSaveCount, in: store)
+        let snapshot = await store.value()
+
+        XCTAssertFalse(snapshot?.state.isPlaybackRequested == true)
+        await shutdown(fixture)
+    }
+
+    func testQueueStructureChangeIgnoresCursorCheckpointInterval() async {
+        let items = makeItems()
+        let store = MemoryPlaybackSessionStore(snapshot: nil)
+        let checkpointPolicy = PlaybackSessionPersistencePolicy(
+            stateChangeCoalescingDelay: .zero,
+            minimumSnapshotSaveInterval: .seconds(3_600),
+            progressSaveDelay: .seconds(3_600),
+            failureRetryDelay: .seconds(3_600)
+        )
+        let fixture = makeFixture(
+            items: items,
+            store: store,
+            persistencePolicy: checkpointPolicy
+        )
+        await prepareActiveQueue(items[0], in: fixture)
+        let initialSaveCount = await waitForPersistenceToSettle(in: store)
+
+        fixture.library.setPlaybackOrder(.shuffled)
+        await waitForSave(after: initialSaveCount, in: store)
+        let snapshot = await store.value()
+
+        XCTAssertEqual(snapshot?.state.queue.order, .shuffled)
+        await shutdown(fixture)
+    }
+
+    func testGenericSaveFailureAutomaticallyRetriesWithoutPublisher()
+        async throws
+    {
+        let items = makeItems()
+        let store = MemoryPlaybackSessionStore(snapshot: nil)
+        let retryPolicy = PlaybackSessionPersistencePolicy(
+            stateChangeCoalescingDelay: .zero,
+            minimumSnapshotSaveInterval: .seconds(3_600),
+            progressSaveDelay: .seconds(3_600),
+            failureRetryDelay: .milliseconds(50)
+        )
+        let fixture = makeFixture(
+            items: items,
+            store: store,
+            persistencePolicy: retryPolicy
+        )
+        await prepareActiveQueue(items[0], in: fixture)
+        _ = await waitForPersistenceToSettle(in: store)
+        await store.setSaveFailure(true)
+
+        let changedRate = try XCTUnwrap(PlaybackPolicy.supportedRates.last)
+        fixture.playback.setRate(changedRate)
+        await waitUntil {
+            fixture.controller.persistenceFailure == .saveFailed
+        }
+        let failedSaveCount = await store.saveCount
+
+        // Store recovery is intentionally not accompanied by another model
+        // publisher; the controller's backoff task must drive this retry.
+        await store.setSaveFailure(false)
+        try? await Task.sleep(for: .milliseconds(100))
+        await waitForSave(after: failedSaveCount, in: store)
+        let snapshot = await store.value()
+
+        XCTAssertEqual(snapshot?.state.playbackRate, changedRate)
+        XCTAssertNil(fixture.controller.persistenceFailure)
+        await shutdown(fixture)
+    }
+
+    func testHighestPendingUrgencyPersistsStateChangedDuringStoreWrite()
+        async throws
+    {
+        let items = makeItems()
+        let store = MemoryPlaybackSessionStore(snapshot: nil)
+        let checkpointPolicy = PlaybackSessionPersistencePolicy(
+            stateChangeCoalescingDelay: .zero,
+            minimumSnapshotSaveInterval: .seconds(3_600),
+            progressSaveDelay: .seconds(3_600),
+            failureRetryDelay: .zero
+        )
+        let fixture = makeFixture(
+            items: items,
+            store: store,
+            persistencePolicy: checkpointPolicy
+        )
+        await prepareActiveQueue(items[0], in: fixture)
+        _ = await waitForPersistenceToSettle(in: store)
+        await store.setBlockSave(true)
+
+        fixture.playback.seek(to: 1)
+        fixture.controller.preserveCurrentSnapshot()
+        for _ in 0..<1_000 {
+            if await store.didBeginBlockedSave {
+                break
+            }
+            await Task.yield()
+        }
+        let didBeginBlockedSave = await store.didBeginBlockedSave
+        XCTAssertTrue(didBeginBlockedSave)
+        let blockedSaveCount = await store.saveCount
+
+        fixture.playback.setPlaybackIntent(.paused)
+        // Progress arrives last but must not downgrade the pending critical
+        // state urgency to the one-hour checkpoint interval above.
+        fixture.playback.seek(to: 5)
+        await store.finishBlockedSave()
+        await waitForSave(after: blockedSaveCount, in: store)
+        let snapshot = await store.value()
+
+        XCTAssertEqual(snapshot?.state.currentTime, 5)
+        XCTAssertFalse(snapshot?.state.isPlaybackRequested == true)
+        await shutdown(fixture)
+    }
+
+    func testContentLimitFailureRetriesOnlyAfterQueueStructureChanges() async {
+        let items = makeItems()
+        let store = MemoryPlaybackSessionStore(snapshot: nil)
+        await store.setSaveContentError(
+            .fileTooLarge(maximumByteCount: 1, observedByteCount: 2)
+        )
+        let fixture = makeFixture(items: items, store: store)
+        await prepareActiveQueue(items[0], in: fixture)
+        await waitUntil {
+            fixture.controller.persistenceFailure == .saveFailed
+        }
+        let rejectedSaveCount = await waitForPersistenceToSettle(in: store)
+
+        fixture.playback.seek(to: 1)
+        fixture.playback.seek(to: 2)
+        for _ in 0..<32 {
+            await Task.yield()
+        }
+        let saveCountAfterProgress = await store.saveCount
+        XCTAssertEqual(saveCountAfterProgress, rejectedSaveCount)
+
+        let blockedStructureRevision = fixture.library.queueStructureRevision
+        _ = fixture.library.playNext()
+        for _ in 0..<32 {
+            await Task.yield()
+        }
+        let saveCountAfterCursorChange = await store.saveCount
+        XCTAssertEqual(saveCountAfterCursorChange, rejectedSaveCount)
+        XCTAssertEqual(
+            fixture.library.queueStructureRevision,
+            blockedStructureRevision
+        )
+
+        await store.setSaveContentError(nil)
+        fixture.library.setPlaybackOrder(.shuffled)
+        XCTAssertEqual(
+            fixture.library.queueStructureRevision,
+            blockedStructureRevision + 1
+        )
+        await waitForSave(after: saveCountAfterCursorChange, in: store)
+
+        XCTAssertNil(fixture.controller.persistenceFailure)
+        await shutdown(fixture)
+    }
+
 #if DEBUG
     func testQueueRevisionBuildsOneSnapshotForScheduledPersistence() async {
         let items = makeItems()
@@ -573,8 +871,10 @@ final class PlaybackSessionControllerTests: XCTestCase {
 
         fixture.library.setPlaybackOrder(.shuffled)
         await waitForSave(after: settledSaveCount, in: store)
+        let finalSaveCount = await waitForPersistenceToSettle(in: store)
 
         XCTAssertEqual(fixture.library.queueRevision, initialRevision + 1)
+        XCTAssertEqual(finalSaveCount - settledSaveCount, 1)
         XCTAssertEqual(
             fixture.controller.queueSnapshotConstructionCount
                 - initialSnapshotCount,
@@ -670,7 +970,8 @@ final class PlaybackSessionControllerTests: XCTestCase {
         scannedRoots: [MediaLibraryRoot]? = nil,
         snapshot: PlaybackSessionSnapshot? = nil,
         store suppliedStore: MemoryPlaybackSessionStore? = nil,
-        hasUnavailablePersistedSources: Bool = false
+        hasUnavailablePersistedSources: Bool = false,
+        persistencePolicy: PlaybackSessionPersistencePolicy = .immediate
     ) -> PlaybackSessionFixture {
         let rootURL = makeItems()[0].rootURL
         let engine = SessionPlaybackEngine()
@@ -715,7 +1016,8 @@ final class PlaybackSessionControllerTests: XCTestCase {
             playback: playback,
             library: library,
             desktopSession: desktopSession,
-            store: store
+            store: store,
+            persistencePolicy: persistencePolicy
         )
         return PlaybackSessionFixture(
             controller: controller,
@@ -918,7 +1220,11 @@ private enum MemoryPlaybackSessionStoreError: Error {
 private actor MemoryPlaybackSessionStore: PlaybackSessionStoring {
     private var snapshot: PlaybackSessionSnapshot?
     private var loadError: PlaybackSessionStoreError?
+    private var saveContentError: PlaybackSessionStoreError?
     private var shouldFailSave = false
+    private var shouldBlockSave = false
+    private var blockedSaveContinuation: CheckedContinuation<Void, Never>?
+    private(set) var didBeginBlockedSave = false
     private(set) var saveCount = 0
     private(set) var clearCount = 0
 
@@ -934,6 +1240,20 @@ private actor MemoryPlaybackSessionStore: PlaybackSessionStoring {
         loadError = error
     }
 
+    func setSaveContentError(_ error: PlaybackSessionStoreError?) {
+        saveContentError = error
+    }
+
+    func setBlockSave(_ shouldBlock: Bool) {
+        shouldBlockSave = shouldBlock
+    }
+
+    func finishBlockedSave() {
+        shouldBlockSave = false
+        blockedSaveContinuation?.resume()
+        blockedSaveContinuation = nil
+    }
+
     func value() -> PlaybackSessionSnapshot? {
         snapshot
     }
@@ -945,8 +1265,17 @@ private actor MemoryPlaybackSessionStore: PlaybackSessionStoring {
         return snapshot
     }
 
-    func save(_ snapshot: PlaybackSessionSnapshot) throws {
+    func save(_ snapshot: PlaybackSessionSnapshot) async throws {
         saveCount += 1
+        if shouldBlockSave {
+            didBeginBlockedSave = true
+            await withCheckedContinuation { continuation in
+                blockedSaveContinuation = continuation
+            }
+        }
+        if let saveContentError {
+            throw saveContentError
+        }
         if shouldFailSave {
             throw MemoryPlaybackSessionStoreError.saveFailed
         }

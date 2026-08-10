@@ -8,23 +8,36 @@ final class PlaybackCoordinator: ObservableObject {
     var itemFailureHandler: ((PlaybackFailure) -> Bool)?
 
     @Published private(set) var source: ResolvedMediaSource?
-    @Published private(set) var readiness: PlaybackReadiness = .empty
-    @Published private(set) var presentation: PlaybackPresentation = .player
+    @Published private(set) var readiness: PlaybackReadiness = .empty {
+        didSet {
+            updateProgressCadence()
+        }
+    }
+    @Published private(set) var presentation: PlaybackPresentation = .player {
+        didSet {
+            updateProgressCadence()
+        }
+    }
     @Published private(set) var currentTime: TimeInterval = 0
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var isActuallyPlaying = false
     @Published private(set) var isPlaybackRequested = false
     @Published private(set) var hasPlayableMedia = false
     @Published private(set) var settings: PlaybackSettings
-    @Published private(set) var isPlayerWindowDismissed = false
+    @Published private(set) var isPlayerWindowDismissed = false {
+        didSet {
+            updateProgressCadence()
+        }
+    }
+    @Published private(set) var isSystemSuspended = false {
+        didSet {
+            updateProgressCadence()
+        }
+    }
 
     var canPresentOnDesktop: Bool {
         readiness == .ready
             && presentation == .player
-    }
-
-    var isSystemSuspended: Bool {
-        isDesktopPresentationRelevant && !gate.suspensionReasons.isEmpty
     }
 
     private let engine: any PlaybackEngine
@@ -39,6 +52,7 @@ final class PlaybackCoordinator: ObservableObject {
     private var transitionGeneration: UInt64 = 0
     private var timelineSeekTarget: TimeInterval?
     private var hasHandledCurrentItemEnd = false
+    private var appliedProgressCadence: PlaybackProgressCadence?
 
     init(
         engine: any PlaybackEngine,
@@ -69,6 +83,7 @@ final class PlaybackCoordinator: ObservableObject {
         engine.playbackActivityHandler = { [weak self] isPlaying in
             self?.isActuallyPlaying = isPlaying
         }
+        updateProgressCadence()
         applySettings(settings)
     }
 
@@ -234,6 +249,8 @@ final class PlaybackCoordinator: ObservableObject {
             return
         }
 
+        engine.seek(to: finalTarget, mode: .exact)
+
         if isPlaybackRequested, isAtPlaybackEnd(finalTarget) {
             completeCurrentItem()
         } else {
@@ -245,15 +262,31 @@ final class PlaybackCoordinator: ObservableObject {
         guard readiness == .ready else {
             return
         }
-        let clampedSeconds = min(max(seconds, 0), duration)
         if timelineSeekTarget != nil {
-            timelineSeekTarget = clampedSeconds
+            updateTimelineSeek(to: seconds)
+            return
         }
+
+        let clampedSeconds = min(max(seconds, 0), duration)
         if clampedSeconds < duration {
             hasHandledCurrentItemEnd = false
         }
         currentTime = clampedSeconds
-        engine.seek(to: clampedSeconds)
+        engine.seek(to: clampedSeconds, mode: .exact)
+    }
+
+    private func updateTimelineSeek(to seconds: TimeInterval) {
+        guard readiness == .ready, timelineSeekTarget != nil else {
+            return
+        }
+
+        let clampedSeconds = min(max(seconds, 0), duration)
+        timelineSeekTarget = clampedSeconds
+        if clampedSeconds < duration {
+            hasHandledCurrentItemEnd = false
+        }
+        currentTime = clampedSeconds
+        engine.seek(to: clampedSeconds, mode: .interactive)
     }
 
     func skip(by seconds: TimeInterval) {
@@ -362,6 +395,7 @@ final class PlaybackCoordinator: ObservableObject {
         transitionGeneration &+= 1
         let generation = transitionGeneration
         presentation = .switching(generation: generation, destination: .player)
+        applyPlaybackGate()
 
         do {
             try await engine.attach(to: playerSurface)
@@ -378,15 +412,22 @@ final class PlaybackCoordinator: ObservableObject {
                 throw error
             }
             presentation = .desktop
+            applyPlaybackGate()
             throw error
         }
     }
 
     func setSuspended(_ suspended: Bool, for reason: PlaybackSuspensionReason) {
         gate.setSuspended(suspended, for: reason)
-        if isDesktopPresentationRelevant {
-            applyPlaybackGate()
+        let nextSuspensionState = !gate.suspensionReasons.isEmpty
+        if isSystemSuspended != nextSuspensionState {
+            isSystemSuspended = nextSuspensionState
         }
+        // Some reasons (for example a miniaturized player window) are ignored
+        // by desktop playback while system reasons still block it. Recompute
+        // even when the aggregate published Bool remains true.
+        updateProgressCadence()
+        applyPlaybackGate()
     }
 
     func dismissPlayerWindow() {
@@ -452,6 +493,7 @@ final class PlaybackCoordinator: ObservableObject {
         transitionGeneration &+= 1
         presentation = .terminating
         gate.terminate()
+        isSystemSuspended = false
         isPlayerWindowDismissed = true
         isActuallyPlaying = false
         isPlaybackRequested = false
@@ -475,11 +517,7 @@ final class PlaybackCoordinator: ObservableObject {
             return
         }
 
-        let shouldPlay = isDesktopPresentationRelevant
-            ? gate.shouldPlay
-            : gate.intent == .playing && !gate.isTerminating
-
-        if shouldPlay {
+        if shouldPlayForCurrentPresentation {
             engine.play(at: settings.rate)
         } else {
             engine.pause()
@@ -554,7 +592,8 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     private func handleProgress(_ seconds: TimeInterval) {
-        guard timelineSeekTarget == nil else {
+        guard appliedProgressCadence != .inactive,
+              timelineSeekTarget == nil else {
             return
         }
         currentTime = seconds
@@ -682,6 +721,59 @@ final class PlaybackCoordinator: ObservableObject {
         timelineSeekTarget = nil
     }
 
+    private func updateProgressCadence() {
+        let cadence = desiredProgressCadence
+        guard cadence != appliedProgressCadence else {
+            return
+        }
+        appliedProgressCadence = cadence
+        engine.setProgressCadence(cadence)
+    }
+
+    private var desiredProgressCadence: PlaybackProgressCadence {
+        guard readiness == .ready,
+              !isPlayerWindowDismissed,
+              !hasBlockingSuspensionForCurrentPresentation else {
+            return .inactive
+        }
+
+        switch presentation {
+        case .player:
+            return .visible
+        case .switching, .desktop:
+            return .background
+        case .terminating:
+            return .inactive
+        }
+    }
+
+    private var shouldPlayForCurrentPresentation: Bool {
+        if ignoresPlayerWindowSuspension {
+            return gate.shouldPlay(ignoring: .playerWindowMiniaturized)
+        }
+        return gate.shouldPlay
+    }
+
+    private var hasBlockingSuspensionForCurrentPresentation: Bool {
+        if ignoresPlayerWindowSuspension {
+            return gate.suspensionReasons.contains {
+                $0 != .playerWindowMiniaturized
+            }
+        }
+        return !gate.suspensionReasons.isEmpty
+    }
+
+    private var ignoresPlayerWindowSuspension: Bool {
+        switch presentation {
+        case let .switching(_, destination):
+            return destination == .desktop
+        case .desktop:
+            return true
+        case .player, .terminating:
+            return false
+        }
+    }
+
     private func isAtPlaybackEnd(_ target: TimeInterval) -> Bool {
         duration > 0 && target >= duration
     }
@@ -693,14 +785,5 @@ final class PlaybackCoordinator: ObservableObject {
             return false
         }
         return ObjectIdentifier(playerSurface) == ObjectIdentifier(surface)
-    }
-
-    private var isDesktopPresentationRelevant: Bool {
-        switch presentation {
-        case .desktop, .switching:
-            true
-        case .player, .terminating:
-            false
-        }
     }
 }

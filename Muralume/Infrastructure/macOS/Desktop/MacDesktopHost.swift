@@ -113,6 +113,7 @@ final class MacDesktopHost: DesktopHosting {
     private var emptyTopologyTask: Task<Void, Never>?
     private var screenObserver: NSObjectProtocol?
     private var contentMode = DesktopVideoContentMode.defaultValue
+    private var isEnergyConstrained = false
     private var isRevealed = false
 
     init(
@@ -140,6 +141,7 @@ final class MacDesktopHost: DesktopHosting {
         self.contentMode = contentMode
         isRevealed = false
         let surface = DesktopPlayerLayerSurfaceGroup(id: .desktop)
+        surface.setEnergyConstrained(isEnergyConstrained)
         self.surface = surface
         reconcileDisplays()
         installScreenObserver()
@@ -149,6 +151,14 @@ final class MacDesktopHost: DesktopHosting {
     func setVideoContentMode(_ contentMode: DesktopVideoContentMode) {
         self.contentMode = contentMode
         surface?.setContentMode(contentMode)
+    }
+
+    func setEnergyConstrained(_ isEnergyConstrained: Bool) {
+        guard self.isEnergyConstrained != isEnergyConstrained else {
+            return
+        }
+        self.isEnergyConstrained = isEnergyConstrained
+        surface?.setEnergyConstrained(isEnergyConstrained)
     }
 
     func reveal() {
@@ -266,6 +276,7 @@ final class MacDesktopHost: DesktopHosting {
             id: .desktop,
             contentMode: contentMode
         )
+        surface.setEnergyConstrained(isEnergyConstrained)
         surface.frame = NSRect(origin: .zero, size: display.frame.size)
         surface.autoresizingMask = [.width, .height]
 

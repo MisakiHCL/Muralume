@@ -51,6 +51,10 @@ typealias RestoredPlaybackQueueShuffler = @MainActor (
 
 @MainActor
 final class MediaLibraryCoordinator: ObservableObject {
+    private enum QueueChangeKind {
+        case cursor
+        case structure
+    }
     private struct LoadTaskRecord {
         let itemID: LibraryMediaItem.ID
         let autoplay: Bool
@@ -130,6 +134,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         Set<LibraryMediaItem.ID> = []
     private(set) var unavailableItemsRevision: UInt64 = 0
     @Published private(set) var queueRevision: UInt64 = 0
+    @Published private(set) var queueStructureRevision: UInt64 = 0
     private(set) var queueStateRevision: UInt64 = 0
     @Published private(set) var importNotice: MediaImportNotice?
     @Published private(set) var sourceAccessState:
@@ -193,7 +198,6 @@ final class MediaLibraryCoordinator: ObservableObject {
     private var visibleItemsByID: [
         LibraryMediaItem.ID: LibraryMediaItem
     ] = [:]
-    private var visibleItemIDs: Set<LibraryMediaItem.ID> = []
     private var cachedQueueSnapshot:
         PlaybackQueueSnapshot<LibraryMediaItem.ID>?
     private var queue: PlaybackQueue<LibraryMediaItem.ID>? {
@@ -684,7 +688,7 @@ final class MediaLibraryCoordinator: ObservableObject {
                     standardizedPath: item.rootURL.standardizedFileURL.path
                 )
               ),
-              visibleItemIDs.contains(item.id) else {
+              visibleItemsByID[item.id] != nil else {
             return
         }
 
@@ -716,7 +720,7 @@ final class MediaLibraryCoordinator: ObservableObject {
            !unavailableItemIDs.contains(nextID) {
             _ = queue?.moveToNext()
             currentItemID = nextID
-            publishQueueChange()
+            publishQueueChange(.cursor)
             loadCurrentItem(attemptsRemaining: queueCount)
             return true
         }
@@ -732,7 +736,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         }
         self.queue = queue
         currentItemID = nextID
-        publishQueueChange()
+        publishQueueChange(.cursor)
         loadCurrentItem(attemptsRemaining: queue.count)
         return true
     }
@@ -748,7 +752,7 @@ final class MediaLibraryCoordinator: ObservableObject {
            !unavailableItemIDs.contains(previousID) {
             _ = queue?.moveToPrevious()
             currentItemID = previousID
-            publishQueueChange()
+            publishQueueChange(.cursor)
             loadCurrentItem(attemptsRemaining: queueCount)
             return
         }
@@ -769,7 +773,7 @@ final class MediaLibraryCoordinator: ObservableObject {
 
             self.queue = queue
             currentItemID = previousID
-            publishQueueChange()
+            publishQueueChange(.cursor)
             loadCurrentItem(attemptsRemaining: queueCount)
             return
         }
@@ -926,8 +930,10 @@ final class MediaLibraryCoordinator: ObservableObject {
         ) else {
             return .permanentlyUnavailable
         }
-        let missingItemIDs = Set(snapshot.items)
-            .subtracting(visibleItemIDs)
+        var missingItemIDs: Set<LibraryMediaItem.ID> = []
+        for itemID in snapshot.items where visibleItemsByID[itemID] == nil {
+            missingItemIDs.insert(itemID)
+        }
         let requestedRootPaths = Set(
             activeSources.map { $0.id.standardizedPath }
         )
@@ -1039,7 +1045,6 @@ final class MediaLibraryCoordinator: ObservableObject {
         loadedItemID = nil
         queueItemsByID.removeAll()
         visibleItemsByID.removeAll()
-        visibleItemIDs.removeAll()
     }
 
     private func refresh(
@@ -1248,6 +1253,7 @@ final class MediaLibraryCoordinator: ObservableObject {
                             prepared.library.itemsByID[$0]?.id ?? $0
                         }
                     )
+                    publishQueueChange()
                 }
             }
             replaceUnavailableItemIDs(with: visibleUnavailableItemIDs)
@@ -1298,14 +1304,15 @@ final class MediaLibraryCoordinator: ObservableObject {
         guard self.items != items else {
             return false
         }
-        let itemsByID = Dictionary(
-            uniqueKeysWithValues: items.map { ($0.id, $0) }
-        )
+        var itemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
+        itemsByID.reserveCapacity(items.count)
+        for item in items {
+            itemsByID[item.id] = item
+        }
         return replaceItems(
             with: PreparedMediaLibraryItems(
                 items: items,
-                itemsByID: itemsByID,
-                itemIDs: Set(itemsByID.keys)
+                itemsByID: itemsByID
             )
         )
     }
@@ -1318,7 +1325,6 @@ final class MediaLibraryCoordinator: ObservableObject {
             return false
         }
         visibleItemsByID = prepared.itemsByID
-        visibleItemIDs = prepared.itemIDs
         itemsRevision &+= 1
         items = prepared.items
         return true
@@ -1497,7 +1503,10 @@ final class MediaLibraryCoordinator: ObservableObject {
             return
         }
         let orderedVisibleItemIDs = items.map(\.id)
-        guard Set(queue.items) != visibleItemIDs else {
+        guard queue.items.count != visibleItemsByID.count
+                || queue.items.contains(where: {
+                    visibleItemsByID[$0] == nil
+                }) else {
             return
         }
 
@@ -1509,7 +1518,9 @@ final class MediaLibraryCoordinator: ObservableObject {
         )
         currentItemID = self.queue?.currentItem
         replaceUnavailableItemIDs(
-            with: unavailableItemIDs.intersection(visibleItemIDs)
+            with: Set(unavailableItemIDs.filter {
+                visibleItemsByID[$0] != nil
+            })
         )
         publishQueueChange()
     }
@@ -1584,6 +1595,9 @@ final class MediaLibraryCoordinator: ObservableObject {
             snapshot,
             using: availableItemsByID
         )
+        guard remappedSnapshot != snapshot else {
+            return
+        }
         guard let remappedQueue: PlaybackQueue<LibraryMediaItem.ID> = PlaybackQueue(
             snapshot: remappedSnapshot
         ) else {
@@ -1599,6 +1613,7 @@ final class MediaLibraryCoordinator: ObservableObject {
                 availableItemsByID[$0]?.id ?? $0
             })
         )
+        publishQueueChange()
     }
 
     private func remappedQueueSnapshot(
@@ -1771,8 +1786,13 @@ final class MediaLibraryCoordinator: ObservableObject {
         publishQueueChange()
     }
 
-    private func publishQueueChange() {
+    private func publishQueueChange(
+        _ kind: QueueChangeKind = .structure
+    ) {
         queueRevision &+= 1
+        if kind == .structure {
+            queueStructureRevision &+= 1
+        }
     }
 
     private var currentLoadTaskRecord: LoadTaskRecord? {
@@ -2003,7 +2023,7 @@ final class MediaLibraryCoordinator: ObservableObject {
 
         self.queue = queue
         currentItemID = nextID
-        publishQueueChange()
+        publishQueueChange(.cursor)
         loadCurrentItem(
             attemptsRemaining: attemptsRemaining,
             autoplay: autoplay
@@ -2038,7 +2058,7 @@ final class MediaLibraryCoordinator: ObservableObject {
 
         self.queue = queue
         currentItemID = nextID
-        publishQueueChange()
+        publishQueueChange(.cursor)
         loadCurrentItem(attemptsRemaining: queueCount)
         return true
     }

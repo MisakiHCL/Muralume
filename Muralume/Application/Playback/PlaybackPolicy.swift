@@ -1,7 +1,9 @@
 import Foundation
 
 enum PlaybackPolicy {
-    static let progressUpdateInterval: TimeInterval = 0.25
+    static let visibleProgressUpdateInterval: TimeInterval = 0.25
+    static let backgroundProgressUpdateInterval: TimeInterval = 5
+    static let interactiveSeekTolerance: TimeInterval = 0.1
     static let itemReadyTimeoutNanoseconds: UInt64 = 5_000_000_000
     static let surfaceReadyTimeoutNanoseconds: UInt64 = 1_500_000_000
     static let surfacePollIntervalNanoseconds: UInt64 = 16_000_000

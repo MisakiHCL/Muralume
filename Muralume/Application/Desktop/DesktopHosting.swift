@@ -28,6 +28,7 @@ protocol DesktopHosting: AnyObject {
         contentMode: DesktopVideoContentMode
     ) -> any PlaybackRenderSurface
     func setVideoContentMode(_ contentMode: DesktopVideoContentMode)
+    func setEnergyConstrained(_ isEnergyConstrained: Bool)
     func reveal()
     func reassertDesktopPlacement()
     func close()

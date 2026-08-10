@@ -66,13 +66,9 @@ final class RealAVPlayerLayerRoundTripTests: XCTestCase {
         )
 
         try await engine.attach(to: desktopSurface)
-        let desktopPlayerIdentity = try XCTUnwrap(
-            desktopSurface.connectedPlayerIdentity
-        )
-        XCTAssertEqual(
-            desktopSurface.backgroundConnectedPlayerIdentity,
-            desktopPlayerIdentity
-        )
+        XCTAssertNotNil(desktopSurface.connectedPlayerIdentity)
+        XCTAssertNil(desktopSurface.backgroundConnectedPlayerIdentity)
+        XCTAssertFalse(desktopSurface.isBackgroundVisible)
         try await Task.sleep(
             nanoseconds: TestConfiguration.renderingSettleNanoseconds
         )
@@ -161,14 +157,9 @@ final class RealAVPlayerLayerRoundTripTests: XCTestCase {
         try await coordinator.transitionToDesktop(desktopSurface)
         XCTAssertEqual(coordinator.presentation, .desktop)
         XCTAssertNil(playerSurface.connectedPlayerIdentity)
-        let desktopPlayerIdentity = try XCTUnwrap(
-            desktopSurface.connectedPlayerIdentity
-        )
-        XCTAssertEqual(
-            desktopSurface.backgroundConnectedPlayerIdentity,
-            desktopPlayerIdentity
-        )
-        XCTAssertTrue(desktopSurface.isBackgroundVisible)
+        XCTAssertNotNil(desktopSurface.connectedPlayerIdentity)
+        XCTAssertNil(desktopSurface.backgroundConnectedPlayerIdentity)
+        XCTAssertFalse(desktopSurface.isBackgroundVisible)
         XCTAssertEqual(desktopSurface.foregroundVideoGravity, .resizeAspect)
         XCTAssertEqual(desktopSurface.backgroundVideoGravity, .resizeAspectFill)
         XCTAssertTrue(desktopSurface.isReadyForDisplay)
@@ -208,7 +199,8 @@ final class RealAVPlayerLayerRoundTripTests: XCTestCase {
         )
         let window = makeWindow(
             for: desktopSurface,
-            originX: TestConfiguration.desktopWindowOriginX
+            originX: TestConfiguration.desktopWindowOriginX,
+            size: TestConfiguration.squareDesktopWindowSize
         )
         defer {
             engine.stop()
@@ -288,7 +280,8 @@ final class RealAVPlayerLayerRoundTripTests: XCTestCase {
             ),
             makeWindow(
                 for: secondDisplaySurface,
-                originX: TestConfiguration.secondDesktopWindowOriginX
+                originX: TestConfiguration.secondDesktopWindowOriginX,
+                size: TestConfiguration.squareDesktopWindowSize
             )
         ]
         defer {
@@ -315,10 +308,8 @@ final class RealAVPlayerLayerRoundTripTests: XCTestCase {
         XCTAssertTrue(desktopSurface.isReadyForDisplay)
         XCTAssertTrue(firstDisplaySurface.isReadyForDisplay)
         XCTAssertTrue(secondDisplaySurface.isReadyForDisplay)
-        XCTAssertEqual(
-            firstDisplaySurface.backgroundConnectedPlayerIdentity,
-            playerIdentity
-        )
+        XCTAssertNil(firstDisplaySurface.backgroundConnectedPlayerIdentity)
+        XCTAssertFalse(firstDisplaySurface.isBackgroundVisible)
         XCTAssertEqual(
             secondDisplaySurface.connectedPlayerIdentity,
             playerIdentity
@@ -327,6 +318,7 @@ final class RealAVPlayerLayerRoundTripTests: XCTestCase {
             secondDisplaySurface.backgroundConnectedPlayerIdentity,
             playerIdentity
         )
+        XCTAssertTrue(secondDisplaySurface.isBackgroundVisible)
 
         let thirdDisplaySurface = DesktopPlayerLayerSurfaceView(
             id: .desktop,
@@ -353,10 +345,8 @@ final class RealAVPlayerLayerRoundTripTests: XCTestCase {
             thirdDisplaySurface.connectedPlayerIdentity,
             playerIdentity
         )
-        XCTAssertEqual(
-            thirdDisplaySurface.backgroundConnectedPlayerIdentity,
-            playerIdentity
-        )
+        XCTAssertNil(thirdDisplaySurface.backgroundConnectedPlayerIdentity)
+        XCTAssertFalse(thirdDisplaySurface.isBackgroundVisible)
 
         desktopSurface.replaceDisplaySurfaces([
             secondDisplaySurface,
@@ -377,11 +367,175 @@ final class RealAVPlayerLayerRoundTripTests: XCTestCase {
             thirdDisplaySurface.connectedPlayerIdentity,
             playerIdentity
         )
+        XCTAssertNil(thirdDisplaySurface.backgroundConnectedPlayerIdentity)
+        XCTAssertTrue(desktopSurface.isReadyForDisplay)
+    }
+
+    func testEnergyConstraintDisablesOnlyDecorativeBlurLayer() async throws {
+        let engine = AVFoundationPlaybackEngine()
+        let surface = DesktopPlayerLayerSurfaceView(
+            id: .desktop,
+            contentMode: .blurredBackground
+        )
+        let window = makeWindow(
+            for: surface,
+            originX: TestConfiguration.desktopWindowOriginX,
+            size: TestConfiguration.squareDesktopWindowSize
+        )
+        defer {
+            engine.stop()
+            close([window])
+        }
+
+        _ = try await engine.load(
+            ResolvedMediaSource(
+                url: try TestMediaFixture.h264URL(for: Self.self),
+                displayName: "Sample"
+            )
+        )
+        try await engine.attach(to: surface)
+        let playerIdentity = try XCTUnwrap(surface.connectedPlayerIdentity)
         XCTAssertEqual(
-            thirdDisplaySurface.backgroundConnectedPlayerIdentity,
+            surface.backgroundConnectedPlayerIdentity,
             playerIdentity
         )
-        XCTAssertTrue(desktopSurface.isReadyForDisplay)
+
+        surface.setEnergyConstrained(true)
+
+        XCTAssertEqual(surface.connectedPlayerIdentity, playerIdentity)
+        XCTAssertNil(surface.backgroundConnectedPlayerIdentity)
+        XCTAssertFalse(surface.isBackgroundVisible)
+        XCTAssertEqual(surface.foregroundVideoGravity, .resizeAspect)
+        XCTAssertTrue(surface.isReadyForDisplay)
+
+        surface.setEnergyConstrained(false)
+
+        XCTAssertEqual(surface.connectedPlayerIdentity, playerIdentity)
+        XCTAssertEqual(
+            surface.backgroundConnectedPlayerIdentity,
+            playerIdentity
+        )
+        XCTAssertTrue(surface.isBackgroundVisible)
+    }
+
+    func testPlayerObservationIsRemovedOnDisconnectAndDeinit() {
+        let player = AVPlayer()
+        weak var releasedSurface: DesktopPlayerLayerSurfaceView?
+
+        autoreleasepool {
+            var surface: DesktopPlayerLayerSurfaceView? =
+                DesktopPlayerLayerSurfaceView(
+                    id: .desktop,
+                    contentMode: .blurredBackground
+                )
+            releasedSurface = surface
+
+            surface?.connect(to: player)
+            XCTAssertTrue(surface?.isObservingPlayerItemChanges == true)
+
+            surface?.connect(to: nil)
+            XCTAssertFalse(surface?.isObservingPlayerItemChanges == true)
+            XCTAssertFalse(
+                surface?.isObservingPresentationSizeChanges == true
+            )
+            surface = nil
+        }
+
+        XCTAssertNil(releasedSurface)
+        player.replaceCurrentItem(with: AVPlayerItem(url: URL(
+            fileURLWithPath: "/tmp/nonexistent.mp4"
+        )))
+    }
+
+    func testBlurPolicyTracksCurrentItemReplacementWhileConnected()
+        async throws {
+        let player = AVPlayer()
+        let surface = DesktopPlayerLayerSurfaceView(
+            id: .desktop,
+            contentMode: .blurredBackground
+        )
+        let window = makeWindow(
+            for: surface,
+            originX: TestConfiguration.desktopWindowOriginX
+        )
+        let bundle = Bundle(for: Self.self)
+        let landscapeURL = try XCTUnwrap(
+            bundle.url(
+                forResource: TestConfiguration.landscapeFixtureName,
+                withExtension: "mp4"
+            )
+        )
+        let portraitURL = try XCTUnwrap(
+            bundle.url(
+                forResource: TestConfiguration.portraitFixtureName,
+                withExtension: "mp4"
+            )
+        )
+        defer {
+            surface.connect(to: nil)
+            player.replaceCurrentItem(with: nil)
+            close([window])
+        }
+
+        surface.connect(to: player)
+        player.replaceCurrentItem(with: AVPlayerItem(url: landscapeURL))
+        try await waitForCondition("landscape blur removal") {
+            guard let size = player.currentItem?.presentationSize else {
+                return false
+            }
+            return size.width > size.height
+                && !surface.isBackgroundVisible
+                && surface.backgroundConnectedPlayerIdentity == nil
+        }
+
+        player.replaceCurrentItem(with: AVPlayerItem(url: portraitURL))
+        try await waitForCondition("portrait blur activation") {
+            guard let size = player.currentItem?.presentationSize else {
+                return false
+            }
+            return size.height > size.width
+                && surface.isBackgroundVisible
+                && surface.backgroundConnectedPlayerIdentity
+                    == surface.connectedPlayerIdentity
+        }
+
+        player.replaceCurrentItem(with: AVPlayerItem(url: landscapeURL))
+        try await waitForCondition("replacement blur removal") {
+            guard let size = player.currentItem?.presentationSize else {
+                return false
+            }
+            return size.width > size.height
+                && !surface.isBackgroundVisible
+                && surface.backgroundConnectedPlayerIdentity == nil
+        }
+    }
+
+    func testBlurBackgroundPolicyKeepsOnlyVisibleBars() {
+        let wideVideo = CGSize(width: 1_920, height: 1_080)
+        let wideDisplay = CGSize(width: 2_560, height: 1_440)
+        let squareDisplay = CGSize(width: 1_440, height: 1_440)
+
+        XCTAssertFalse(
+            DesktopBlurBackgroundPolicy.shouldRender(
+                videoSize: wideVideo,
+                containerSize: wideDisplay,
+                isEnergyConstrained: false
+            )
+        )
+        XCTAssertTrue(
+            DesktopBlurBackgroundPolicy.shouldRender(
+                videoSize: wideVideo,
+                containerSize: squareDisplay,
+                isEnergyConstrained: false
+            )
+        )
+        XCTAssertFalse(
+            DesktopBlurBackgroundPolicy.shouldRender(
+                videoSize: wideVideo,
+                containerSize: squareDisplay,
+                isEnergyConstrained: true
+            )
+        )
     }
 
     func testBlurredBackgroundRevealsExpectedBarsForLandscapeAndPortraitVideo()
@@ -522,6 +676,25 @@ final class RealAVPlayerLayerRoundTripTests: XCTestCase {
                 nanoseconds: TestConfiguration.hotPlugPollIntervalNanoseconds
             )
             elapsedNanoseconds += TestConfiguration.hotPlugPollIntervalNanoseconds
+        }
+    }
+
+    private func waitForCondition(
+        _ description: String,
+        condition: () -> Bool
+    ) async throws {
+        var elapsedNanoseconds: UInt64 = 0
+        while !condition() {
+            guard elapsedNanoseconds
+                    < TestConfiguration.hotPlugReadyTimeoutNanoseconds else {
+                XCTFail("Timed out waiting for \(description)")
+                return
+            }
+            try await Task.sleep(
+                nanoseconds: TestConfiguration.hotPlugPollIntervalNanoseconds
+            )
+            elapsedNanoseconds +=
+                TestConfiguration.hotPlugPollIntervalNanoseconds
         }
     }
 

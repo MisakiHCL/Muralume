@@ -80,6 +80,12 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         mainWindowPresenter.unexpectedWindowCloseHandler = { [weak self] in
             self?.dismissMainWindow()
         }
+        mainWindowPresenter.miniaturizationStateHandler = { [weak playback] state in
+            playback?.setSuspended(
+                state,
+                for: .playerWindowMiniaturized
+            )
+        }
         mainWindowPresenter.fullScreenStateHandler = { [weak self] state in
             guard let self, isMainWindowFullScreen != state else {
                 return

@@ -121,6 +121,32 @@ final class MacMainWindowPresenterTests: XCTestCase {
         window.orderOut(nil)
     }
 
+    func testPublishesMiniaturizationForOnlyTheAttachedWindow() {
+        let attachedWindow = makeWindow()
+        let unrelatedWindow = makeWindow()
+        let presenter = MacMainWindowPresenter()
+        var publishedStates: [Bool] = []
+        presenter.miniaturizationStateHandler = { state in
+            publishedStates.append(state)
+        }
+        presenter.attach(attachedWindow)
+
+        NotificationCenter.default.post(
+            name: NSWindow.didMiniaturizeNotification,
+            object: unrelatedWindow
+        )
+        NotificationCenter.default.post(
+            name: NSWindow.didMiniaturizeNotification,
+            object: attachedWindow
+        )
+        NotificationCenter.default.post(
+            name: NSWindow.didDeminiaturizeNotification,
+            object: attachedWindow
+        )
+
+        XCTAssertEqual(publishedStates, [false, true, false])
+    }
+
     func testWindowIdentityMatchesOnlyAttachedMainWindow() {
         let attachedWindow = makeWindow()
         let unrelatedWindow = makeWindow()
@@ -384,6 +410,7 @@ final class MacDesktopHostTests: XCTestCase {
             emptyTopologyGracePeriodNanoseconds:
                 TestConfiguration.topologyGracePeriodNanoseconds
         )
+        host.setEnergyConstrained(true)
         let preparedSurface = host.prepare(contentMode: .contain)
         let surface = try XCTUnwrap(
             preparedSurface as? DesktopPlayerLayerSurfaceGroup
@@ -423,6 +450,10 @@ final class MacDesktopHostTests: XCTestCase {
             surface.displaySurfaces.allSatisfy {
                 $0.contentMode == .contain
             }
+        )
+        XCTAssertTrue(surface.isEnergyConstrained)
+        XCTAssertTrue(
+            surface.displaySurfaces.allSatisfy(\.isEnergyConstrained)
         )
         assertAlphaValues(
             host.hostedWindowAlphaValues,
@@ -529,6 +560,7 @@ final class MacDesktopHostTests: XCTestCase {
 
         let thirdSurface = surface.displaySurfaces[1]
         XCTAssertFalse(readiness.isReady(thirdSurface))
+        XCTAssertTrue(thirdSurface.isEnergyConstrained)
         readiness.markReady(thirdSurface)
         try await waitUntil("hot-plugged display reveal") {
             self.alpha(
@@ -559,6 +591,14 @@ final class MacDesktopHostTests: XCTestCase {
             stableSurfaceIdentities
         )
         XCTAssertEqual(host.hostedWindowFrames, stableFrames)
+
+        host.setEnergyConstrained(false)
+        XCTAssertFalse(surface.isEnergyConstrained)
+        XCTAssertTrue(
+            surface.displaySurfaces.allSatisfy {
+                !$0.isEnergyConstrained
+            }
+        )
     }
 
     func testRevealKeepsDisplayAddedAfterAttachHiddenUntilReady()

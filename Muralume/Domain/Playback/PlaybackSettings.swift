@@ -81,6 +81,7 @@ enum PlaybackIntent: Equatable, Sendable {
 }
 
 enum PlaybackSuspensionReason: Hashable, Sendable {
+    case playerWindowMiniaturized
     case screenLocked
     case displaySleeping
     case systemSleeping

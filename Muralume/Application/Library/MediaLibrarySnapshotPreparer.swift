@@ -9,7 +9,6 @@ enum MediaLibraryPerformancePolicy {
 struct PreparedMediaLibraryItems: Sendable {
     let items: [LibraryMediaItem]
     let itemsByID: [LibraryMediaItem.ID: LibraryMediaItem]
-    let itemIDs: Set<LibraryMediaItem.ID>
 }
 
 struct PreparedMediaLibrarySnapshot: Sendable {
@@ -62,10 +61,14 @@ struct DefaultMediaLibrarySnapshotPreparer:
         let roots = snapshot.roots.filter {
             requestedSourcePaths.contains($0.id.standardizedPath)
         }
-        let filteredItems = snapshot.items.filter {
-            requestedSourcePaths.contains($0.id.rootPath)
+        var itemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
+        itemsByID.reserveCapacity(snapshot.items.count)
+        for item in snapshot.items where requestedSourcePaths.contains(
+            item.id.rootPath
+        ) {
+            itemsByID[item.id] = item
         }
-        let library = try prepareItems(filteredItems, sort: sort)
+        let library = try prepareItemsByID(itemsByID, sort: sort)
 
         return PreparedMediaLibrarySnapshot(
             roots: roots,
@@ -82,9 +85,11 @@ struct DefaultMediaLibrarySnapshotPreparer:
     ) async throws -> PreparedMediaLibraryItems {
         try Task.checkCancellation()
 
-        var itemsByID = Dictionary(
-            uniqueKeysWithValues: items.map { ($0.id, $0) }
-        )
+        var itemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
+        itemsByID.reserveCapacity(items.count + candidates.count)
+        for item in items {
+            itemsByID[item.id] = item
+        }
         for candidate in candidates {
             itemsByID[candidate.id] = candidate
         }
@@ -140,9 +145,11 @@ struct DefaultMediaLibrarySnapshotPreparer:
         _ items: [LibraryMediaItem],
         sort: MediaLibrarySort
     ) throws -> PreparedMediaLibraryItems {
-        let itemsByID = Dictionary(
-            uniqueKeysWithValues: items.map { ($0.id, $0) }
-        )
+        var itemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
+        itemsByID.reserveCapacity(items.count)
+        for item in items {
+            itemsByID[item.id] = item
+        }
         return try prepareItemsByID(itemsByID, sort: sort)
     }
 
@@ -151,12 +158,12 @@ struct DefaultMediaLibrarySnapshotPreparer:
         sort: MediaLibrarySort
     ) throws -> PreparedMediaLibraryItems {
         try Task.checkCancellation()
-        let sortedItems = sort.sorted(Array(itemsByID.values))
+        var sortedItems = Array(itemsByID.values)
+        sort.sortInPlace(&sortedItems)
         try Task.checkCancellation()
         return PreparedMediaLibraryItems(
             items: sortedItems,
-            itemsByID: itemsByID,
-            itemIDs: Set(itemsByID.keys)
+            itemsByID: itemsByID
         )
     }
 

@@ -19,10 +19,38 @@ enum PlaybackSessionPersistenceFailure: Equatable, Sendable {
     case clearFailed
 }
 
+struct PlaybackSessionPersistencePolicy: Sendable {
+    let stateChangeCoalescingDelay: Duration
+    let minimumSnapshotSaveInterval: Duration
+    let progressSaveDelay: Duration
+    let failureRetryDelay: Duration
+
+    /// Queue/progress recovery is checkpointed at most twice per minute. A
+    /// short window still folds notifications emitted by one state change.
+    static let production = PlaybackSessionPersistencePolicy(
+        stateChangeCoalescingDelay: .milliseconds(500),
+        minimumSnapshotSaveInterval: .seconds(30),
+        progressSaveDelay: .seconds(60),
+        failureRetryDelay: .seconds(30)
+    )
+
+    static let immediate = PlaybackSessionPersistencePolicy(
+        stateChangeCoalescingDelay: .zero,
+        minimumSnapshotSaveInterval: .zero,
+        progressSaveDelay: .zero,
+        // Zero disables automatic retries so deterministic callers cannot
+        // create a tight failure loop.
+        failureRetryDelay: .zero
+    )
+}
+
 @MainActor
 final class PlaybackSessionController: ObservableObject {
-    private enum PersistencePolicy {
-        static let progressSaveDelay: Duration = .seconds(60)
+    private enum PersistenceUrgency: Int {
+        case progress
+        case queueChange
+        case stateChange
+        case immediate
     }
 
     @Published private(set) var persistenceFailure:
@@ -41,12 +69,19 @@ final class PlaybackSessionController: ObservableObject {
     private let desktopSession: DesktopSessionCoordinator
     private let store: any PlaybackSessionStoring
     private let restorer: PlaybackStateRestorer
+    private let persistencePolicy: PlaybackSessionPersistencePolicy
+    private let persistenceClock = ContinuousClock()
 
     private var restoreInProgress = false
     private var shouldPreserveStoredSnapshot = true
     private var persistenceGeneration: UInt64 = 0
     private var persistenceTask: Task<Void, Never>?
     private var persistenceTaskGeneration: UInt64?
+    private var persistenceTaskUrgency: PersistenceUrgency?
+    private var pendingPersistenceUrgency: PersistenceUrgency?
+    private var lastSnapshotSaveInstant: ContinuousClock.Instant?
+    private var retryNotBefore: ContinuousClock.Instant?
+    private var blockedQueueStructureRevision: UInt64?
     private var restorationSourceSnapshot: PlaybackSessionSnapshot?
     private var deferredRestorePlan: PlaybackSessionRestorePlan?
     private var isShuttingDown = false
@@ -60,12 +95,14 @@ final class PlaybackSessionController: ObservableObject {
         playback: PlaybackCoordinator,
         library: MediaLibraryCoordinator,
         desktopSession: DesktopSessionCoordinator,
-        store: any PlaybackSessionStoring
+        store: any PlaybackSessionStoring,
+        persistencePolicy: PlaybackSessionPersistencePolicy = .production
     ) {
         self.playback = playback
         self.library = library
         self.desktopSession = desktopSession
         self.store = store
+        self.persistencePolicy = persistencePolicy
         restorer = PlaybackStateRestorer(
             playback: playback,
             library: library,
@@ -155,7 +192,7 @@ final class PlaybackSessionController: ObservableObject {
             deferredRestorePlan = nil
             shouldPreserveStoredSnapshot = false
             restoreInProgress = false
-            scheduleSave(delay: nil)
+            scheduleSave(urgency: .immediate)
         case .cancelled:
             shouldPreserveStoredSnapshot = true
             restoreInProgress = false
@@ -223,6 +260,8 @@ final class PlaybackSessionController: ObservableObject {
         shouldPreserveStoredSnapshot = true
         persistenceGeneration &+= 1
         persistenceTask?.cancel()
+        persistenceTaskUrgency = nil
+        pendingPersistenceUrgency = nil
     }
 
     func finishExternalRestore(commitCurrentState: Bool) {
@@ -235,14 +274,14 @@ final class PlaybackSessionController: ObservableObject {
             return
         }
         shouldPreserveStoredSnapshot = false
-        scheduleSave(delay: nil)
+        scheduleSave(urgency: .immediate)
     }
 
     func preserveCurrentSnapshot() {
         guard !restoreInProgress, !shouldPreserveStoredSnapshot else {
             return
         }
-        scheduleSave(delay: nil)
+        scheduleSave(urgency: .immediate)
     }
 
     func adoptPlayerPresentationAfterCancelledRestore() async {
@@ -296,7 +335,7 @@ final class PlaybackSessionController: ObservableObject {
             await clearStoredSnapshot()
             return
         }
-        await save(snapshot)
+        await save(snapshot, forceWrite: true)
     }
 
     private func observeSessionChanges() {
@@ -304,6 +343,16 @@ final class PlaybackSessionController: ObservableObject {
             .dropFirst()
             .sink { [weak self] _ in
                 self?.handleQueueRevision()
+            }
+            .store(in: &cancellables)
+
+        library.$queueStructureRevision
+            .dropFirst()
+            .sink { [weak self] revision in
+                self?.synchronizeSnapshot(
+                    urgency: .stateChange,
+                    observedQueueStructureRevision: revision
+                )
             }
             .store(in: &cancellables)
 
@@ -331,7 +380,7 @@ final class PlaybackSessionController: ObservableObject {
                 .eraseToAnyPublisher()
         ])
         .sink { [weak self] in
-            self?.synchronizeSnapshot()
+            self?.synchronizeSnapshot(urgency: .stateChange)
         }
         .store(in: &cancellables)
 
@@ -351,10 +400,13 @@ final class PlaybackSessionController: ObservableObject {
         // temporarily unavailable session and can become the new truth.
         deferredRestorePlan = nil
         shouldPreserveStoredSnapshot = false
-        synchronizeSnapshot()
+        synchronizeSnapshot(urgency: .queueChange)
     }
 
-    private func synchronizeSnapshot() {
+    private func synchronizeSnapshot(
+        urgency: PersistenceUrgency,
+        observedQueueStructureRevision: UInt64? = nil
+    ) {
         guard !isShuttingDown,
               !restoreInProgress,
               !shouldPreserveStoredSnapshot else {
@@ -365,23 +417,39 @@ final class PlaybackSessionController: ObservableObject {
             return
         }
 
-        scheduleSave(delay: nil)
+        scheduleSave(
+            urgency: urgency,
+            observedQueueStructureRevision: observedQueueStructureRevision
+        )
     }
 
     private func scheduleProgressSaveIfNeeded() {
         guard !isShuttingDown,
               !restoreInProgress,
-              !shouldPreserveStoredSnapshot,
-              persistenceTask == nil else {
+              !shouldPreserveStoredSnapshot else {
             return
         }
-        scheduleSave(delay: PersistencePolicy.progressSaveDelay)
+        scheduleSave(urgency: .progress)
     }
 
-    private func scheduleSave(delay: Duration?) {
+    private func scheduleSave(
+        urgency: PersistenceUrgency,
+        observedQueueStructureRevision: UInt64? = nil
+    ) {
         guard !isShuttingDown,
               !restoreInProgress,
               library.hasActiveQueue else {
+            return
+        }
+        let effectiveQueueStructureRevision =
+            observedQueueStructureRevision ?? library.queueStructureRevision
+        if urgency != .immediate,
+           blockedQueueStructureRevision == effectiveQueueStructureRevision {
+            return
+        }
+        if let currentUrgency = persistenceTaskUrgency,
+           currentUrgency.rawValue >= urgency.rawValue {
+            retainPendingPersistenceUrgency(urgency)
             return
         }
 
@@ -390,6 +458,8 @@ final class PlaybackSessionController: ObservableObject {
         let previousTask = persistenceTask
         previousTask?.cancel()
         persistenceTaskGeneration = generation
+        persistenceTaskUrgency = urgency
+        pendingPersistenceUrgency = nil
         persistenceTask = Task { [weak self] in
             guard let self else {
                 return
@@ -398,15 +468,26 @@ final class PlaybackSessionController: ObservableObject {
                 finishPersistenceTask(generation: generation)
             }
             await previousTask?.value
-            if let delay {
+            let delay = persistenceDelay(for: urgency)
+            if delay > .zero {
                 try? await Task.sleep(for: delay)
             }
             guard !Task.isCancelled,
-                  generation == persistenceGeneration,
-                  let snapshot = makeSnapshot() else {
+                  generation == persistenceGeneration else {
                 return
             }
-            _ = await save(snapshot, expectedGeneration: generation)
+            pendingPersistenceUrgency = nil
+            let queueStructureRevisionAtSnapshot =
+                library.queueStructureRevision
+            guard let snapshot = makeSnapshot() else {
+                return
+            }
+            _ = await save(
+                snapshot,
+                queueStructureRevisionAtSnapshot:
+                    queueStructureRevisionAtSnapshot,
+                expectedGeneration: generation
+            )
         }
     }
 
@@ -420,6 +501,8 @@ final class PlaybackSessionController: ObservableObject {
         let previousTask = persistenceTask
         previousTask?.cancel()
         persistenceTaskGeneration = generation
+        persistenceTaskUrgency = .immediate
+        pendingPersistenceUrgency = nil
         persistenceTask = Task { [weak self] in
             guard let self else {
                 return
@@ -442,6 +525,8 @@ final class PlaybackSessionController: ObservableObject {
         previousTask?.cancel()
         persistenceTask = nil
         persistenceTaskGeneration = nil
+        persistenceTaskUrgency = nil
+        pendingPersistenceUrgency = nil
         await previousTask?.value
     }
 
@@ -451,13 +536,43 @@ final class PlaybackSessionController: ObservableObject {
         }
         persistenceTaskGeneration = nil
         persistenceTask = nil
+        persistenceTaskUrgency = nil
+        let pendingUrgency = pendingPersistenceUrgency
+        pendingPersistenceUrgency = nil
+        if let pendingUrgency {
+            synchronizeSnapshot(urgency: pendingUrgency)
+        }
+    }
+
+    private func retainPendingPersistenceUrgency(
+        _ urgency: PersistenceUrgency
+    ) {
+        if let pendingPersistenceUrgency,
+           pendingPersistenceUrgency.rawValue >= urgency.rawValue {
+            return
+        }
+        pendingPersistenceUrgency = urgency
     }
 
     @discardableResult
     private func save(
         _ snapshot: PlaybackSessionSnapshot,
-        expectedGeneration: UInt64? = nil
+        queueStructureRevisionAtSnapshot: UInt64? = nil,
+        expectedGeneration: UInt64? = nil,
+        forceWrite: Bool = false
     ) async -> Bool {
+        let attemptedQueueStructureRevision =
+            queueStructureRevisionAtSnapshot ?? library.queueStructureRevision
+        if !forceWrite, snapshot == restorationSourceSnapshot {
+            guard expectedGeneration == nil
+                    || expectedGeneration == persistenceGeneration else {
+                return false
+            }
+            persistenceFailure = nil
+            retryNotBefore = nil
+            blockedQueueStructureRevision = nil
+            return true
+        }
         do {
             try await store.save(snapshot)
             guard expectedGeneration == nil
@@ -466,6 +581,9 @@ final class PlaybackSessionController: ObservableObject {
             }
             restorationSourceSnapshot = snapshot
             persistenceFailure = nil
+            lastSnapshotSaveInstant = persistenceClock.now
+            retryNotBefore = nil
+            blockedQueueStructureRevision = nil
             return true
         } catch {
             guard expectedGeneration == nil
@@ -474,6 +592,14 @@ final class PlaybackSessionController: ObservableObject {
             }
             // Atomic replacement leaves the last-known-good snapshot intact.
             persistenceFailure = .saveFailed
+            let shouldRetry = registerSaveFailure(
+                error,
+                attemptedQueueStructureRevision:
+                    attemptedQueueStructureRevision
+            )
+            if shouldRetry, expectedGeneration != nil {
+                retainPendingPersistenceUrgency(.stateChange)
+            }
             return false
         }
     }
@@ -495,6 +621,9 @@ final class PlaybackSessionController: ObservableObject {
             }
             restorationSourceSnapshot = nil
             persistenceFailure = nil
+            lastSnapshotSaveInstant = nil
+            retryNotBefore = nil
+            blockedQueueStructureRevision = nil
         } catch {
             guard expectedGeneration == nil
                     || expectedGeneration == persistenceGeneration else {
@@ -522,6 +651,59 @@ final class PlaybackSessionController: ObservableObject {
             state: state,
             presentation: currentPresentation
         )
+    }
+
+    private func persistenceDelay(
+        for urgency: PersistenceUrgency
+    ) -> Duration {
+        guard urgency != .immediate else {
+            return .zero
+        }
+
+        var delay = urgency == .progress
+            ? persistencePolicy.progressSaveDelay
+            : persistencePolicy.stateChangeCoalescingDelay
+        let now = persistenceClock.now
+        if urgency == .progress || urgency == .queueChange,
+           let lastSnapshotSaveInstant {
+            let nextSnapshotSave = lastSnapshotSaveInstant.advanced(
+                by: persistencePolicy.minimumSnapshotSaveInterval
+            )
+            let minimumIntervalDelay = now.duration(to: nextSnapshotSave)
+            if minimumIntervalDelay > delay {
+                delay = minimumIntervalDelay
+            }
+        }
+        if let retryNotBefore {
+            let retryDelay = now.duration(to: retryNotBefore)
+            if retryDelay > delay {
+                delay = retryDelay
+            }
+        }
+        return max(delay, .zero)
+    }
+
+    private func registerSaveFailure(
+        _ error: any Error,
+        attemptedQueueStructureRevision: UInt64
+    ) -> Bool {
+        switch error as? PlaybackSessionStoreError {
+        case .fileTooLarge?, .queueLimitExceeded?:
+            // Progress and rate changes cannot make an oversized queue valid.
+            // A queue mutation (or shutdown flush) is the next useful retry.
+            blockedQueueStructureRevision = attemptedQueueStructureRevision
+            retryNotBefore = nil
+            return false
+        case .invalidSnapshot?, nil:
+            guard persistencePolicy.failureRetryDelay > .zero else {
+                retryNotBefore = nil
+                return false
+            }
+            retryNotBefore = persistenceClock.now.advanced(
+                by: persistencePolicy.failureRetryDelay
+            )
+            return true
+        }
     }
 
     private var currentPresentation: PlaybackSessionPresentation {
