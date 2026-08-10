@@ -495,13 +495,13 @@ final class TestMediaLibraryScanner: MediaLibraryScanning, @unchecked Sendable {
             }
             shouldBlockNextScan = false
             blockedScanSourcePaths = nil
-            blockedScanDidBegin = true
             return true
         }
         if shouldBlock {
             await withCheckedContinuation { continuation in
                 lock.withLock {
                     blockedScanContinuation = continuation
+                    blockedScanDidBegin = true
                 }
             }
             try Task.checkCancellation()
