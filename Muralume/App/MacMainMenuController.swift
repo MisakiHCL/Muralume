@@ -1,6 +1,99 @@
 import AppKit
 import Combine
 
+enum MuralumeExternalLink: CaseIterable {
+    case website
+    case privacyPolicy
+    case sourceCode
+
+    static let aboutPanelOrder: [Self] = [
+        .website,
+        .privacyPolicy,
+        .sourceCode
+    ]
+
+    var localizationKey: String {
+        switch self {
+        case .website:
+            "about.website"
+        case .privacyPolicy:
+            "about.privacyPolicy"
+        case .sourceCode:
+            "about.sourceCode"
+        }
+    }
+
+    var url: URL {
+        switch self {
+        case .website:
+            AppConfiguration.websiteURL
+        case .privacyPolicy:
+            AppConfiguration.privacyPolicyURL
+        case .sourceCode:
+            AppConfiguration.sourceCodeURL
+        }
+    }
+}
+
+@MainActor
+enum MuralumeAboutPanelContent {
+    private static let linkSeparator = " · "
+
+    static func options(
+        localization: AppLocalizationController
+    ) -> [NSApplication.AboutPanelOptionKey: Any] {
+        [.credits: credits(localization: localization)]
+    }
+
+    static func credits(
+        localization: AppLocalizationController
+    ) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .center
+        let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+
+        for (index, link) in MuralumeExternalLink.aboutPanelOrder.enumerated() {
+            if index > 0 {
+                result.append(
+                    NSAttributedString(
+                        string: linkSeparator,
+                        attributes: [
+                            .font: font,
+                            .foregroundColor: NSColor.secondaryLabelColor,
+                            .paragraphStyle: paragraphStyle
+                        ]
+                    )
+                )
+            }
+
+            result.append(
+                NSAttributedString(
+                    string: localization.localized(link.localizationKey),
+                    attributes: [
+                        .font: font,
+                        .foregroundColor: NSColor.linkColor,
+                        .link: link.url as NSURL,
+                        .paragraphStyle: paragraphStyle,
+                        .underlineStyle: NSUnderlineStyle.single.rawValue
+                    ]
+                )
+            )
+        }
+
+        return NSAttributedString(attributedString: result)
+    }
+}
+
+@MainActor
+protocol MacAboutPanelPresenting: AnyObject {
+    func orderFrontStandardAboutPanel(
+        options: [NSApplication.AboutPanelOptionKey: Any]
+    )
+}
+
+extension NSApplication: MacAboutPanelPresenting {}
+
 struct MacMainMenuCommandState: Equatable {
     let isPlaybackRequested: Bool
     let isMuted: Bool
@@ -80,6 +173,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     }
 
     private weak var application: NSApplication?
+    private let aboutPanelPresenter: any MacAboutPanelPresenting
     private weak var commandHandler: (any MacMainMenuCommandHandling)?
     private weak var mainWindow: NSWindow?
     private let localization: AppLocalizationController
@@ -132,9 +226,11 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         application: NSApplication,
         localization: AppLocalizationController,
         commandHandler: any MacMainMenuCommandHandling,
-        mainWindow: NSWindow
+        mainWindow: NSWindow,
+        aboutPanelPresenter: (any MacAboutPanelPresenting)? = nil
     ) {
         self.application = application
+        self.aboutPanelPresenter = aboutPanelPresenter ?? application
         self.localization = localization
         self.commandHandler = commandHandler
         self.mainWindow = mainWindow
@@ -650,7 +746,11 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
 
     @objc
     private func showAbout(_ sender: Any?) {
-        application?.orderFrontStandardAboutPanel(sender)
+        aboutPanelPresenter.orderFrontStandardAboutPanel(
+            options: MuralumeAboutPanelContent.options(
+                localization: localization
+            )
+        )
     }
 
     @objc

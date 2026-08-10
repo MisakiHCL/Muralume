@@ -138,6 +138,9 @@
 "menu.window" = "Window";
 "menu.help" = "Help";
 "menu.about" = "About Muralume";
+"about.website" = "Official Website";
+"about.privacyPolicy" = "Privacy Policy";
+"about.sourceCode" = "Source Code";
 "menu.settings" = "Settings…";
 "menu.services" = "Services";
 "menu.hideApplication" = "Hide Muralume";
