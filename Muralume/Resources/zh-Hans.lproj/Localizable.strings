@@ -58,6 +58,8 @@
 "library.playlist.show" = "显示媒体库";
 "library.playlist.hide" = "隐藏媒体库";
 "library.summary.empty" = "0 个视频";
+"library.summary.accessibility" = "%@，%@";
+"library.summary.accessibility.warning" = "%@，%@";
 "library.sourceAccess.unavailable.short" = "媒体来源暂时不可用";
 "library.sourceAccess.unavailable.title" = "媒体来源暂时不可用";
 "library.sourceAccess.partial" = "部分媒体来源暂时不可用";
@@ -73,8 +75,10 @@
 "library.empty.title" = "未找到可播放的视频";
 "library.empty.detail" = "请尝试其他视频或文件夹。";
 "library.playlist.empty" = "视频将显示在这里";
+"library.video.count.one" = "%d 个视频";
 "library.video.count" = "%d 个视频";
 "library.folder.count" = "%d 个文件夹";
+"library.source.count.one" = "%d 个媒体来源";
 "library.source.count" = "%d 个媒体来源";
 "library.sort" = "视频排序";
 "library.sort.name" = "名称";
@@ -111,7 +115,6 @@
 "queue.empty" = "播放队列为空";
 "queue.empty.detail" = "从媒体库播放视频，或在访达中打开视频。";
 "queue.upNext.count" = "待播放 %d 个";
-"queue.nowPlaying" = "正在播放";
 "queue.upNext" = "接下来播放";
 "queue.showMore" = "显示更多";
 "queue.temporary" = "临时";

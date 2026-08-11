@@ -1,5 +1,25 @@
+import AppKit
 import Combine
 import SwiftUI
+
+private enum SidebarMenuImages {
+    static let checkmark: NSImage =
+        NSImage(
+            systemSymbolName: "checkmark",
+            accessibilityDescription: nil
+        ) ?? NSImage(
+            size: NSSize(
+                width: MuralumeTheme.Size.icon,
+                height: MuralumeTheme.Size.icon
+            )
+        )
+
+    static let emptyCheckmark: NSImage = {
+        let image = NSImage(size: checkmark.size)
+        image.isTemplate = true
+        return image
+    }()
+}
 
 private extension LibrarySidebarSection {
     var localizedKey: LocalizedStringKey {
@@ -84,11 +104,13 @@ struct LibraryQueueSidebar: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.medium) {
+        VStack(alignment: .leading, spacing: 0) {
             header
 
             sidebarStatusBar
-                .frame(height: MuralumeTheme.Size.playlistStatusBarHeight)
+                .frame(
+                    minHeight: MuralumeTheme.Size.playlistStatusBarHeight
+                )
 
             Divider()
                 .overlay(MuralumeTheme.Colors.border)
@@ -144,20 +166,39 @@ struct LibraryQueueSidebar: View {
 
             Spacer(minLength: MuralumeTheme.Spacing.small)
 
-            if !isEditing, sidebarSection == .mediaLibrary {
-                Button(action: addMedia) {
-                    headerActionIcon(systemImage: "plus")
-                }
-                .buttonStyle(
-                    MuralumeToolbarButtonStyle(
-                        width: MuralumeTheme.Size.control
+            if sidebarSection == .mediaLibrary {
+                if isEditing {
+                    Button {
+                        library.refresh()
+                    } label: {
+                        headerActionIcon(systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(
+                        MuralumeToolbarButtonStyle(
+                            width: MuralumeTheme.Size.control
+                        )
                     )
-                )
-                .help(Text("library.add.media"))
-                .accessibilityLabel(Text("library.add.media"))
-                .accessibilityIdentifier(
-                    MuralumeAccessibilityIdentifier.addMediaButton
-                )
+                    .disabled(!library.canRefresh)
+                    .help(Text("library.refresh"))
+                    .accessibilityLabel(Text("library.refresh"))
+                    .accessibilityIdentifier(
+                        MuralumeAccessibilityIdentifier.refreshLibraryButton
+                    )
+                } else {
+                    Button(action: addMedia) {
+                        headerActionIcon(systemImage: "plus")
+                    }
+                    .buttonStyle(
+                        MuralumeToolbarButtonStyle(
+                            width: MuralumeTheme.Size.control
+                        )
+                    )
+                    .help(Text("library.add.media"))
+                    .accessibilityLabel(Text("library.add.media"))
+                    .accessibilityIdentifier(
+                        MuralumeAccessibilityIdentifier.addMediaButton
+                    )
+                }
             }
 
             if sidebarSection == .mediaLibrary, !library.roots.isEmpty {
@@ -231,10 +272,15 @@ struct LibraryQueueSidebar: View {
                     Button {
                         sidebarSection = section
                     } label: {
-                        if sidebarSection == section {
-                            Label(section.localizedKey, systemImage: "checkmark")
-                        } else {
+                        Label {
                             Text(section.localizedKey)
+                        } icon: {
+                            Image(
+                                nsImage: sidebarSection == section
+                                    ? SidebarMenuImages.checkmark
+                                    : SidebarMenuImages.emptyCheckmark
+                            )
+                                .accessibilityHidden(true)
                         }
                     }
                     .accessibilityAddTraits(
@@ -403,26 +449,9 @@ struct LibraryQueueSidebar: View {
             )
     }
 
-    private var refreshActionLabel: some View {
-        HStack(spacing: MuralumeTheme.Spacing.xSmall) {
-            Image(systemName: "arrow.clockwise")
-                .font(
-                    .system(
-                        size: MuralumeTheme.Size.icon,
-                        weight: .semibold
-                    )
-                )
-
-            Text("library.refresh")
-                .font(.system(size: 12, weight: .semibold))
-                .lineLimit(1)
-        }
-        .fixedSize(horizontal: true, vertical: false)
-    }
-
     private var libraryStatusBar: some View {
         HStack(spacing: MuralumeTheme.Spacing.small) {
-            librarySummary
+            librarySummary(showsInlineRetry: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if !library.items.isEmpty,
@@ -438,8 +467,8 @@ struct LibraryQueueSidebar: View {
                             )
                         )
                         .frame(
-                            width: MuralumeTheme.Size.control,
-                            height: MuralumeTheme.Size.control
+                            width: MuralumeTheme.Size.compactControl,
+                            height: MuralumeTheme.Size.compactControl
                         )
                 }
                 .buttonStyle(.plain)
@@ -495,6 +524,7 @@ struct LibraryQueueSidebar: View {
                 )
             } else {
                 Text("queue.empty")
+                    .font(.caption)
                     .foregroundStyle(MuralumeTheme.Colors.textSecondary)
             }
 
@@ -515,29 +545,12 @@ struct LibraryQueueSidebar: View {
 
     private var editorStatusBar: some View {
         HStack(spacing: MuralumeTheme.Spacing.small) {
-            editorRefreshStatus
+            librarySummary(showsInlineRetry: false)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if library.sourceAccessState == .partiallyUnavailable {
                 reauthorizeSourceAccessButton
             }
-
-            Button {
-                library.refresh()
-            } label: {
-                refreshActionLabel
-            }
-            .buttonStyle(
-                MuralumeToolbarButtonStyle(
-                    width: MuralumeTheme.Size.playlistRefreshActionWidth
-                )
-            )
-            .disabled(!library.canRefresh)
-            .help(Text("library.refresh"))
-            .accessibilityLabel(Text("library.refresh"))
-            .accessibilityIdentifier(
-                MuralumeAccessibilityIdentifier.refreshLibraryButton
-            )
         }
     }
 
@@ -553,8 +566,8 @@ struct LibraryQueueSidebar: View {
                     )
                 )
                 .frame(
-                    width: MuralumeTheme.Size.control,
-                    height: MuralumeTheme.Size.control
+                    width: MuralumeTheme.Size.compactControl,
+                    height: MuralumeTheme.Size.compactControl
                 )
         }
         .buttonStyle(.plain)
@@ -657,50 +670,12 @@ struct LibraryQueueSidebar: View {
                         }
                     }
                 }
-                .padding(.vertical, MuralumeTheme.Spacing.xSmall)
+                .padding(
+                    .vertical,
+                    MuralumeTheme.Size.playlistContentInset
+                )
             }
             .scrollIndicators(.visible)
-        }
-    }
-
-    @ViewBuilder
-    private var editorRefreshStatus: some View {
-        switch library.scanState {
-        case .idle:
-            Text(
-                library.sourceAccessState == .temporarilyUnavailable
-                    ? "library.sourceAccess.unavailable.short"
-                    : "library.summary.empty"
-            )
-                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-        case .scanning:
-            HStack(spacing: MuralumeTheme.Spacing.small) {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(MuralumeTheme.Colors.controlAccent)
-                    .accessibilityHidden(true)
-                Text("library.scanning")
-            }
-            .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-        case .ready:
-            if library.sourceAccessState == .partiallyUnavailable {
-                Label(
-                    "library.sourceAccess.partial",
-                    systemImage: "externaldrive.badge.exclamationmark"
-                )
-                .foregroundStyle(MuralumeTheme.Colors.warning)
-                .lineLimit(1)
-            } else {
-                Text(videoCountText)
-                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-            }
-        case .failed:
-            HStack(spacing: MuralumeTheme.Spacing.small) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(MuralumeTheme.Colors.warning)
-                Text("library.scan.failed")
-                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-            }
         }
     }
 
@@ -718,53 +693,75 @@ struct LibraryQueueSidebar: View {
     }
 
     @ViewBuilder
-    private var librarySummary: some View {
+    private func librarySummary(showsInlineRetry: Bool) -> some View {
         switch library.scanState {
         case .idle:
-            Text(
-                library.sourceAccessState == .temporarilyUnavailable
-                    ? "library.sourceAccess.unavailable.short"
-                    : "library.summary.empty"
-            )
-                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+            if library.sourceAccessState == .temporarilyUnavailable {
+                Text("library.sourceAccess.unavailable.short")
+                    .font(.caption)
+                    .lineLimit(1)
+                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+            } else {
+                libraryCountSummary
+            }
         case .scanning:
             HStack(spacing: MuralumeTheme.Spacing.small) {
                 ProgressView()
                     .controlSize(.small)
                     .tint(MuralumeTheme.Colors.controlAccent)
+                    .accessibilityHidden(true)
                 Text("library.scanning")
-            }
-            .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-        case .ready:
-            VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.xSmall) {
-                Text(videoCountText)
-                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-                if library.sourceAccessState == .partiallyUnavailable {
-                    Label(
-                        "library.sourceAccess.partial",
-                        systemImage: "externaldrive.badge.exclamationmark"
-                    )
-                    .foregroundStyle(MuralumeTheme.Colors.warning)
+                    .font(.caption)
                     .lineLimit(1)
-                } else if let sourceText {
-                    Text(sourceText)
-                        .foregroundStyle(MuralumeTheme.Colors.textTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
             }
+                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+        case .ready:
+            libraryCountSummary
         case .failed:
             HStack(spacing: MuralumeTheme.Spacing.small) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(MuralumeTheme.Colors.warning)
+                    .accessibilityHidden(true)
                 Text("library.scan.failed")
+                    .font(.caption)
+                    .lineLimit(1)
                     .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-                Button("library.retry") {
-                    library.refresh()
+                if showsInlineRetry {
+                    Button("library.retry") {
+                        library.refresh()
+                    }
+                    .buttonStyle(.link)
                 }
-                .buttonStyle(.link)
             }
         }
+    }
+
+    private var libraryCountSummary: some View {
+        HStack(spacing: MuralumeTheme.Spacing.small) {
+            Text(videoCountText)
+                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+                .truncationMode(.tail)
+
+            Text(sourceCountText)
+                .foregroundStyle(MuralumeTheme.Colors.textTertiary)
+                .truncationMode(.tail)
+
+            if library.sourceAccessState == .partiallyUnavailable {
+                Image(systemName: "externaldrive.badge.exclamationmark")
+                    .foregroundStyle(MuralumeTheme.Colors.warning)
+                    .help(Text("library.sourceAccess.partial"))
+                    .accessibilityLabel(Text("library.sourceAccess.partial"))
+            }
+        }
+        .font(.caption.monospacedDigit())
+        .lineLimit(1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            Text(verbatim: librarySummaryAccessibilityLabel)
+        )
+        .accessibilityIdentifier(
+            MuralumeAccessibilityIdentifier.librarySummary
+        )
     }
 
     private var sortMenu: some View {
@@ -815,8 +812,8 @@ struct LibraryQueueSidebar: View {
                 )
                 .foregroundStyle(MuralumeTheme.Colors.textSecondary)
                 .frame(
-                    width: MuralumeTheme.Size.control,
-                    height: MuralumeTheme.Size.control
+                    width: MuralumeTheme.Size.compactControl,
+                    height: MuralumeTheme.Size.compactControl
                 )
         }
         .menuStyle(.borderlessButton)
@@ -868,7 +865,8 @@ struct LibraryQueueSidebar: View {
                 scrollTargetID: library.currentItemID,
                 rowHeight: playlistRowHeight,
                 rowSpacing: MuralumeTheme.Spacing.xSmall,
-                verticalContentInset: MuralumeTheme.Spacing.xSmall
+                verticalContentInset:
+                    MuralumeTheme.Size.playlistContentInset
             ) { item in
                 LibraryMediaRow(
                     item: item,
@@ -929,7 +927,9 @@ struct LibraryQueueSidebar: View {
 
     private var videoCountText: String {
         localization.localizedFormat(
-            "library.video.count",
+            library.items.count == 1
+                ? "library.video.count.one"
+                : "library.video.count",
             library.items.count
         )
     }
@@ -982,16 +982,28 @@ struct LibraryQueueSidebar: View {
         }
     }
 
-    private var sourceText: String? {
-        guard !library.roots.isEmpty else {
-            return nil
-        }
-        if library.roots.count == 1 {
-            return library.roots[0].displayName
+    private var sourceCountText: String {
+        return localization.localizedFormat(
+            library.roots.count == 1
+                ? "library.source.count.one"
+                : "library.source.count",
+            library.roots.count
+        )
+    }
+
+    private var librarySummaryAccessibilityLabel: String {
+        let counts = localization.localizedFormat(
+            "library.summary.accessibility",
+            videoCountText,
+            sourceCountText
+        )
+        guard library.sourceAccessState == .partiallyUnavailable else {
+            return counts
         }
         return localization.localizedFormat(
-            "library.source.count",
-            library.roots.count
+            "library.summary.accessibility.warning",
+            counts,
+            localization.localized("library.sourceAccess.partial")
         )
     }
 

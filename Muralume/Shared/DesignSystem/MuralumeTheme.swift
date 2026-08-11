@@ -75,7 +75,8 @@ enum MuralumeTheme {
         static let playlistOverlayWidth: CGFloat = 320
         static let settingsPanelWidth: CGFloat = 400
         static let settingsRowMinimumHeight: CGFloat = 60
-        static let playlistStatusBarHeight: CGFloat = 40
+        static let playlistStatusBarHeight: CGFloat = 32
+        static let playlistContentInset: CGFloat = 8
         static let playlistRefreshActionWidth: CGFloat = 112
         static let playerControlsMaximumWidth: CGFloat = 1_040
         static let widePlayerControlsMinimumWidth: CGFloat = 1_000
@@ -164,11 +165,11 @@ enum MuralumeAccessibilityIdentifier {
     static let editLibraryButton = "muralume.edit-library"
     static let refreshLibraryButton = "muralume.refresh-library"
     static let addMediaButton = "muralume.add-media"
+    static let librarySummary = "muralume.library-summary"
     static let retrySourceAccessButton = "muralume.retry-source-access"
     static let reauthorizeSourcesButton = "muralume.reauthorize-sources"
     static let mediaDropOverlay = "muralume.media-drop-overlay"
     static let playbackQueue = "muralume.playback-queue"
-    static let nowPlayingSection = "muralume.playback-queue.now-playing"
     static let upNextSection = "muralume.playback-queue.up-next"
     static let playbackQueueActionsButton =
         "muralume.playback-queue.actions"

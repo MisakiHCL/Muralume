@@ -9,12 +9,15 @@ final class MuralumeLaunchTests: XCTestCase {
             "muralume.library-section.media-library"
         static let playQueueMenuItem =
             "muralume.library-section.play-queue"
+        static let librarySummary = "muralume.library-summary"
     }
 
     private enum LayoutExpectation {
         static let maximumSidebarHeaderTopInset: CGFloat = 80
         static let maximumSidebarHeaderTrailingInset: CGFloat = 64
         static let headerIconActionSize: CGFloat = 36
+        static let sidebarStatusBarHeight: CGFloat = 32
+        static let maximumAdjacentElementOffset: CGFloat = 1
         static let minimumSidebarTitleMenuHeight: CGFloat = 36
         static let sidebarTitleMenuHitInset: CGFloat = 2
         static let maximumControlSizeOffset: CGFloat = 1
@@ -59,6 +62,100 @@ final class MuralumeLaunchTests: XCTestCase {
             mediaPicker.staticTexts["Choose videos or folders."]
                 .waitForExistence(timeout: 2)
         )
+    }
+
+    @MainActor
+    func testEmptyLibrarySummaryUsesCompactSingleLine() {
+        let application = launchEmptyLibrary()
+        let addMediaButton = application
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.add-media")
+            .firstMatch
+        let librarySummary = application
+            .descendants(matching: .any)
+            .matching(
+                identifier: SidebarAccessibilityIdentifier.librarySummary
+            )
+            .firstMatch
+
+        XCTAssertTrue(addMediaButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(librarySummary.waitForExistence(timeout: 5))
+        XCTAssertEqual(
+            librarySummary.label,
+            "0 videos, 0 media sources"
+        )
+        XCTAssertLessThanOrEqual(
+            librarySummary.frame.height,
+            LayoutExpectation.sidebarStatusBarHeight
+        )
+        XCTAssertEqual(
+            librarySummary.frame.midY - addMediaButton.frame.maxY,
+            LayoutExpectation.sidebarStatusBarHeight / 2,
+            accuracy: LayoutExpectation.maximumAdjacentElementOffset
+        )
+    }
+
+    @MainActor
+    func testSidebarTitleMenuUsesStablePopupSpacing() {
+        let application = launchEmptyLibrary()
+        let titleMenu = application
+            .descendants(matching: .any)
+            .matching(identifier: SidebarAccessibilityIdentifier.titleMenu)
+            .firstMatch
+
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 5))
+        titleMenu.click()
+
+        let mediaLibraryMenuItem = application.menuItems[
+            SidebarAccessibilityIdentifier.mediaLibraryMenuItem
+        ]
+        let playQueueMenuItem = application.menuItems[
+            SidebarAccessibilityIdentifier.playQueueMenuItem
+        ]
+        XCTAssertTrue(mediaLibraryMenuItem.waitForExistence(timeout: 2))
+        XCTAssertTrue(playQueueMenuItem.waitForExistence(timeout: 2))
+        let libraryTriggerFrame = titleMenu.frame
+        let libraryPopupFrame = application.menus.firstMatch.frame
+        let libraryMediaItemFrame = mediaLibraryMenuItem.frame
+        let libraryQueueItemFrame = playQueueMenuItem.frame
+        playQueueMenuItem.click()
+
+        titleMenu.click()
+        XCTAssertTrue(mediaLibraryMenuItem.waitForExistence(timeout: 2))
+        XCTAssertTrue(playQueueMenuItem.waitForExistence(timeout: 2))
+        let queueTriggerFrame = titleMenu.frame
+        let queuePopupFrame = application.menus.firstMatch.frame
+        XCTAssertEqual(
+            queueTriggerFrame.minY,
+            libraryTriggerFrame.minY,
+            accuracy: LayoutExpectation.maximumAdjacentElementOffset
+        )
+        XCTAssertEqual(
+            queueTriggerFrame.height,
+            libraryTriggerFrame.height,
+            accuracy: LayoutExpectation.maximumAdjacentElementOffset
+        )
+        XCTAssertEqual(
+            queuePopupFrame.minY - queueTriggerFrame.maxY,
+            libraryPopupFrame.minY - libraryTriggerFrame.maxY,
+            accuracy: LayoutExpectation.maximumAdjacentElementOffset
+        )
+        XCTAssertEqual(
+            queuePopupFrame.height,
+            libraryPopupFrame.height,
+            accuracy: LayoutExpectation.maximumAdjacentElementOffset
+        )
+        XCTAssertEqual(
+            mediaLibraryMenuItem.frame.minY,
+            libraryMediaItemFrame.minY,
+            accuracy: LayoutExpectation.maximumAdjacentElementOffset
+        )
+        XCTAssertEqual(
+            playQueueMenuItem.frame.minY,
+            libraryQueueItemFrame.minY,
+            accuracy: LayoutExpectation.maximumAdjacentElementOffset
+        )
+        application.typeKey(.escape, modifierFlags: [])
     }
 
     @MainActor
@@ -178,6 +275,9 @@ final class MuralumeLaunchTests: XCTestCase {
         ]
         XCTAssertTrue(mediaLibraryMenuItem.waitForExistence(timeout: 2))
         XCTAssertTrue(playQueueMenuItem.waitForExistence(timeout: 2))
+        let librarySelectionTriggerFrame = sidebarTitleMenu.frame
+        let librarySelectionMediaItemFrame = mediaLibraryMenuItem.frame
+        let librarySelectionQueueItemFrame = playQueueMenuItem.frame
         playQueueMenuItem.click()
 
         XCTAssertEqual(sidebarTitleMenu.value as? String, "Play Queue")
@@ -204,6 +304,26 @@ final class MuralumeLaunchTests: XCTestCase {
             .click()
         XCTAssertTrue(mediaLibraryMenuItem.waitForExistence(timeout: 2))
         XCTAssertTrue(playQueueMenuItem.waitForExistence(timeout: 2))
+        XCTAssertEqual(
+            sidebarTitleMenu.frame.minY,
+            librarySelectionTriggerFrame.minY,
+            accuracy: LayoutExpectation.maximumAdjacentElementOffset
+        )
+        XCTAssertEqual(
+            sidebarTitleMenu.frame.height,
+            librarySelectionTriggerFrame.height,
+            accuracy: LayoutExpectation.maximumAdjacentElementOffset
+        )
+        XCTAssertEqual(
+            mediaLibraryMenuItem.frame.minY,
+            librarySelectionMediaItemFrame.minY,
+            accuracy: LayoutExpectation.maximumAdjacentElementOffset
+        )
+        XCTAssertEqual(
+            playQueueMenuItem.frame.minY,
+            librarySelectionQueueItemFrame.minY,
+            accuracy: LayoutExpectation.maximumAdjacentElementOffset
+        )
         mediaLibraryMenuItem.click()
         XCTAssertEqual(sidebarTitleMenu.value as? String, "Media Library")
         XCTAssertTrue(application.sliders["Playback Position"].exists)

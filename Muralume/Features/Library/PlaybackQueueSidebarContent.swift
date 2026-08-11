@@ -7,15 +7,6 @@ private enum PlaybackQueueSidebarPolicy {
 private enum PlaybackQueueSection: String, Hashable {
     case nowPlaying
     case upNext
-
-    var localizedKey: LocalizedStringKey {
-        switch self {
-        case .nowPlaying:
-            "queue.nowPlaying"
-        case .upNext:
-            "queue.upNext"
-        }
-    }
 }
 
 private enum PlaybackQueueScrollTarget: Hashable {
@@ -56,33 +47,22 @@ struct PlaybackQueueSidebarContent: View {
                             spacing: MuralumeTheme.Spacing.small
                         ) {
                             if let currentItem = library.currentItem {
-                                VStack(
-                                    alignment: .leading,
-                                    spacing: MuralumeTheme.Spacing.small
-                                ) {
-                                    sectionHeader(
-                                        .nowPlaying,
-                                        accessibilityIdentifier:
-                                            MuralumeAccessibilityIdentifier
-                                                .nowPlayingSection
+                                queueRow(
+                                    PlaybackQueueEntry(
+                                        id: .init(
+                                            section: .nowPlaying,
+                                            occurrence: 0,
+                                            itemID: currentItem.id
+                                        ),
+                                        item: currentItem
                                     )
-                                    queueRow(
-                                        PlaybackQueueEntry(
-                                            id: .init(
-                                                section: .nowPlaying,
-                                                occurrence: 0,
-                                                itemID: currentItem.id
-                                            ),
-                                            item: currentItem
-                                        )
-                                    )
-                                }
+                                )
                                 .id(PlaybackQueueScrollTarget.nowPlaying)
                             }
 
                             if !upNextEntries.isEmpty {
                                 sectionHeader(
-                                    .upNext,
+                                    "queue.upNext",
                                     accessibilityIdentifier:
                                         MuralumeAccessibilityIdentifier
                                             .upNextSection
@@ -107,7 +87,10 @@ struct PlaybackQueueSidebarContent: View {
                                 .frame(maxWidth: .infinity, alignment: .center)
                             }
                         }
-                        .padding(.vertical, MuralumeTheme.Spacing.xSmall)
+                        .padding(
+                            .vertical,
+                            MuralumeTheme.Size.playlistContentInset
+                        )
                     }
                     .scrollIndicators(.visible)
                     .task(id: focusRequest) {
@@ -153,10 +136,10 @@ struct PlaybackQueueSidebarContent: View {
     }
 
     private func sectionHeader(
-        _ section: PlaybackQueueSection,
+        _ title: LocalizedStringKey,
         accessibilityIdentifier: String
     ) -> some View {
-        Text(section.localizedKey)
+        Text(title)
             .font(.caption.weight(.semibold))
             .foregroundStyle(MuralumeTheme.Colors.textSecondary)
             .textCase(.uppercase)

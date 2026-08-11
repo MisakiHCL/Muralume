@@ -49,14 +49,61 @@ final class AppLocalizationControllerTests: XCTestCase {
         XCTAssertEqual(controller.localized("settings.title"), "设置")
     }
 
-    func testLocalizedFormatUsesSelectedBundle() {
+    func testLocalizedMediaCountsUseSelectedBundle() {
         let controller = AppLocalizationController(
-            initialLanguage: .simplifiedChinese
+            initialLanguage: .english
         )
+
+        XCTAssertEqual(
+            controller.localizedFormat("library.video.count.one", 1),
+            "1 video"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat("library.source.count", 3),
+            "3 media sources"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat(
+                "library.summary.accessibility",
+                "1 video",
+                "3 media sources"
+            ),
+            "1 video, 3 media sources"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat(
+                "library.summary.accessibility.warning",
+                "1 video, 3 media sources",
+                "Some media sources are unavailable"
+            ),
+            "1 video, 3 media sources. Some media sources are unavailable."
+        )
+
+        controller.selectLanguage(.simplifiedChinese)
 
         XCTAssertEqual(
             controller.localizedFormat("library.video.count", 3),
             "3 个视频"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat("library.source.count.one", 1),
+            "1 个媒体来源"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat(
+                "library.summary.accessibility",
+                "3 个视频",
+                "1 个媒体来源"
+            ),
+            "3 个视频，1 个媒体来源"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat(
+                "library.summary.accessibility.warning",
+                "3 个视频，1 个媒体来源",
+                "部分媒体来源暂时不可用"
+            ),
+            "3 个视频，1 个媒体来源，部分媒体来源暂时不可用"
         )
     }
 
@@ -190,10 +237,6 @@ final class AppLocalizationControllerTests: XCTestCase {
             "Hide Media Library"
         )
         XCTAssertEqual(controller.localized("queue.title"), "Play Queue")
-        XCTAssertEqual(
-            controller.localized("queue.nowPlaying"),
-            "Now Playing"
-        )
         XCTAssertEqual(controller.localized("queue.upNext"), "Up Next")
         XCTAssertEqual(controller.localized("queue.showMore"), "Show More")
         XCTAssertEqual(controller.localized("queue.temporary"), "Temporary")
@@ -225,10 +268,6 @@ final class AppLocalizationControllerTests: XCTestCase {
             "隐藏媒体库"
         )
         XCTAssertEqual(controller.localized("queue.title"), "播放队列")
-        XCTAssertEqual(
-            controller.localized("queue.nowPlaying"),
-            "正在播放"
-        )
         XCTAssertEqual(controller.localized("queue.upNext"), "接下来播放")
         XCTAssertEqual(controller.localized("queue.showMore"), "显示更多")
         XCTAssertEqual(controller.localized("queue.temporary"), "临时")

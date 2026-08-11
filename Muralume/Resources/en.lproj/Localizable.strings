@@ -58,6 +58,8 @@
 "library.playlist.show" = "Show Media Library";
 "library.playlist.hide" = "Hide Media Library";
 "library.summary.empty" = "0 videos";
+"library.summary.accessibility" = "%@, %@";
+"library.summary.accessibility.warning" = "%@. %@.";
 "library.sourceAccess.unavailable.short" = "Media sources unavailable";
 "library.sourceAccess.unavailable.title" = "Media sources are temporarily unavailable";
 "library.sourceAccess.partial" = "Some media sources are unavailable";
@@ -73,8 +75,10 @@
 "library.empty.title" = "No playable videos found";
 "library.empty.detail" = "Try another video or folder.";
 "library.playlist.empty" = "Videos will appear here";
+"library.video.count.one" = "%d video";
 "library.video.count" = "%d videos";
 "library.folder.count" = "%d folders";
+"library.source.count.one" = "%d media source";
 "library.source.count" = "%d media sources";
 "library.sort" = "Sort Videos";
 "library.sort.name" = "Name";
@@ -111,7 +115,6 @@
 "queue.empty" = "The play queue is empty";
 "queue.empty.detail" = "Play a video from the media library or open one in Finder.";
 "queue.upNext.count" = "%d up next";
-"queue.nowPlaying" = "Now Playing";
 "queue.upNext" = "Up Next";
 "queue.showMore" = "Show More";
 "queue.temporary" = "Temporary";
