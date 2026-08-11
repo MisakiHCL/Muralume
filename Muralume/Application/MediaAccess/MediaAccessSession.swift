@@ -7,6 +7,15 @@ enum MediaAccessRejectionReason: Hashable, Sendable {
     case activeFolderContainsSelectedFolder
 }
 
+enum MediaAccessIncomingScopePolicy: Hashable, Sendable {
+    /// The media access session consumes the incoming selector grant and
+    /// releases it after the request has been processed.
+    case sessionManaged
+    /// The caller keeps ownership of the incoming grant and remains
+    /// responsible for releasing it.
+    case callerManaged
+}
+
 struct MediaAccessUpdate: Equatable, Sendable {
     let activeSources: [MediaSource]
     /// Explicit file requests remain visible even when an existing folder
@@ -66,6 +75,13 @@ protocol MediaAccessSession: AnyObject {
     func addFolders(_ urls: [URL]) -> [URL]
     /// Persists selected file/folder grants and reports import/play intent.
     func addSources(_ urls: [URL]) -> MediaAccessUpdate
+    /// Persists grants while making ownership of each incoming security scope
+    /// explicit. Bookmark-resolved scopes opened by the session remain owned
+    /// by the session regardless of this policy.
+    func addSources(
+        _ urls: [URL],
+        incomingScopePolicy: MediaAccessIncomingScopePolicy
+    ) -> MediaAccessUpdate
 
     /// Persists the user's removal decision while keeping the active security
     /// scope alive until in-flight readers have drained.
@@ -115,6 +131,13 @@ extension MediaAccessSession {
             rejectedRequestCount: 0,
             didChangeSources: activeURLs != previousURLs
         )
+    }
+
+    func addSources(
+        _ urls: [URL],
+        incomingScopePolicy: MediaAccessIncomingScopePolicy
+    ) -> MediaAccessUpdate {
+        addSources(urls)
     }
 
     func addFolders(_ urls: [URL]) -> [URL] {

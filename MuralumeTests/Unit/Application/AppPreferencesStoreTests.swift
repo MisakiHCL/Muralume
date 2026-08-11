@@ -13,6 +13,7 @@ final class AppPreferencesStoreTests: XCTestCase {
 
             XCTAssertEqual(preferences, .defaultValue)
             XCTAssertEqual(preferences.playbackOrder, .shuffled)
+            XCTAssertEqual(preferences.playbackRepeatBehavior, .queue)
         }
     }
 
@@ -31,6 +32,7 @@ final class AppPreferencesStoreTests: XCTestCase {
             store.saveAudio(audio)
             store.savePlaybackRate(PlaybackRate(rawValue: 1.5))
             store.savePlaybackOrder(.ordered)
+            store.savePlaybackRepeatBehavior(.currentItem)
             store.saveLibrarySort(sort)
             store.saveLanguage(.simplifiedChinese)
 
@@ -44,6 +46,10 @@ final class AppPreferencesStoreTests: XCTestCase {
                 PlaybackRate(rawValue: 1.5)
             )
             XCTAssertEqual(restored.playbackOrder, .ordered)
+            XCTAssertEqual(
+                restored.playbackRepeatBehavior,
+                .currentItem
+            )
             XCTAssertEqual(restored.librarySort, sort)
             XCTAssertEqual(restored.language, .simplifiedChinese)
             XCTAssertEqual(
@@ -78,6 +84,10 @@ final class AppPreferencesStoreTests: XCTestCase {
                 forKey: AppPreferencesStorageKey.playbackOrder
             )
             defaults.set(
+                "invalid",
+                forKey: AppPreferencesStorageKey.playbackRepeatBehavior
+            )
+            defaults.set(
                 MediaLibrarySortField.fileSize.rawValue,
                 forKey: AppPreferencesStorageKey.librarySortField
             )
@@ -98,6 +108,7 @@ final class AppPreferencesStoreTests: XCTestCase {
                 PlaybackPolicy.defaultRate
             )
             XCTAssertEqual(restored.playbackOrder, .shuffled)
+            XCTAssertEqual(restored.playbackRepeatBehavior, .queue)
             XCTAssertEqual(restored.librarySort.field, .fileSize)
             XCTAssertEqual(restored.librarySort.direction, .ascending)
             XCTAssertEqual(restored.language, .system)

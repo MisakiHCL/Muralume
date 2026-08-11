@@ -301,7 +301,9 @@ final class DesktopPresetController: ObservableObject {
 
     func prepareAutomaticRestore() async ->
         DesktopPresetPreparationResult {
-        guard !isShuttingDown, !Task.isCancelled else {
+        guard !isShuttingDown,
+              !Task.isCancelled,
+              !library.isExternalPlaybackContext else {
             return .persistenceFailed
         }
         persistenceGeneration &+= 1
@@ -313,7 +315,9 @@ final class DesktopPresetController: ObservableObject {
         pendingPersistenceUrgency = nil
         await previousTask?.value
 
-        guard !isShuttingDown, !Task.isCancelled else {
+        guard !isShuttingDown,
+              !Task.isCancelled,
+              !library.isExternalPlaybackContext else {
             return .persistenceFailed
         }
         guard library.hasActiveQueue else {
@@ -354,7 +358,8 @@ final class DesktopPresetController: ObservableObject {
     }
 
     func preserveCurrentPreset() {
-        guard isAutomaticRestorePrepared else {
+        guard isAutomaticRestorePrepared,
+              !library.isExternalPlaybackContext else {
             return
         }
         scheduleSave(urgency: .immediate)
@@ -374,7 +379,8 @@ final class DesktopPresetController: ObservableObject {
         pendingPersistenceUrgency = nil
         await previousTask?.value
 
-        guard !isExternalRestoreInProgress else {
+        guard !isExternalRestoreInProgress,
+              !library.isExternalPlaybackContext else {
             return
         }
         switch automaticRestorePreparationState {
@@ -401,6 +407,16 @@ final class DesktopPresetController: ObservableObject {
     }
 
     private func observePresetChanges() {
+        library.$isExternalPlaybackContext
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] isExternalPlaybackContext in
+                self?.handleExternalPlaybackContextChange(
+                    isExternalPlaybackContext
+                )
+            }
+            .store(in: &cancellables)
+
         library.$queueRevision
             .dropFirst()
             .sink { [weak self] _ in
@@ -453,6 +469,7 @@ final class DesktopPresetController: ObservableObject {
         guard !isShuttingDown,
               isAutomaticRestorePrepared,
               !isExternalRestoreInProgress,
+              !library.isExternalPlaybackContext,
               !isBootstrapping else {
             return
         }
@@ -466,6 +483,7 @@ final class DesktopPresetController: ObservableObject {
         guard !isShuttingDown,
               isAutomaticRestorePrepared,
               !isExternalRestoreInProgress,
+              !library.isExternalPlaybackContext,
               !isBootstrapping,
               library.hasActiveQueue else {
             return
@@ -503,7 +521,8 @@ final class DesktopPresetController: ObservableObject {
                 try? await Task.sleep(for: delay)
             }
             guard !Task.isCancelled,
-                  generation == persistenceGeneration else {
+                  generation == persistenceGeneration,
+                  !library.isExternalPlaybackContext else {
                 return
             }
             pendingPersistenceUrgency = nil
@@ -580,6 +599,7 @@ final class DesktopPresetController: ObservableObject {
         guard !isShuttingDown,
               isAutomaticRestorePrepared,
               !isExternalRestoreInProgress,
+              !library.isExternalPlaybackContext,
               !isBootstrapping else {
             return
         }
@@ -616,6 +636,21 @@ final class DesktopPresetController: ObservableObject {
         automaticRestoreInvalidation = reason
     }
 
+    private func handleExternalPlaybackContextChange(
+        _ isExternalPlaybackContext: Bool
+    ) {
+        guard isExternalPlaybackContext, !isShuttingDown else {
+            return
+        }
+        shouldPreserveStoredPreset = true
+        persistenceGeneration &+= 1
+        persistenceTask?.cancel()
+        persistenceTask = nil
+        persistenceTaskGeneration = nil
+        persistenceTaskUrgency = nil
+        pendingPersistenceUrgency = nil
+    }
+
     private func clearStoredPreset() async {
         do {
             try await store.clear()
@@ -636,6 +671,9 @@ final class DesktopPresetController: ObservableObject {
         expectedGeneration: UInt64? = nil,
         forceWrite: Bool = false
     ) async -> Bool {
+        guard !library.isExternalPlaybackContext else {
+            return false
+        }
         let attemptedQueueStructureRevision =
             queueStructureRevisionAtSnapshot ?? library.queueStructureRevision
         if !forceWrite, preset == lastCommittedPreset {
@@ -705,6 +743,9 @@ final class DesktopPresetController: ObservableObject {
     }
 
     private func makePreset() -> DesktopPreset? {
+        guard !library.isExternalPlaybackContext else {
+            return nil
+        }
 #if DEBUG
         queueSnapshotConstructionCount += 1
 #endif

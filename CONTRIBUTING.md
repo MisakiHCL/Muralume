@@ -148,6 +148,8 @@ store metadata, screenshots, review notes, or final App Review.
 
 - Preserve the existing Domain → Application → Infrastructure / Features
   dependency direction.
+- Preserve the state and lifecycle boundaries documented in the
+  [playback and media-library architecture](Documentation/PLAYBACK_LIBRARY_ARCHITECTURE.md).
 - Route playback through the existing coordinator and engine. Do not create a
   second `AVPlayer`, decoder, queue, or playback clock.
 - Treat media as untrusted input and keep file reads bounded and cancellable.

@@ -34,6 +34,7 @@ struct AppPreferences: Equatable, Sendable {
         audio: .defaultValue,
         playbackRate: PlaybackPolicy.defaultRate,
         playbackOrder: .shuffled,
+        playbackRepeatBehavior: .queue,
         librarySort: MediaLibrarySort(),
         language: .system
     )
@@ -41,6 +42,7 @@ struct AppPreferences: Equatable, Sendable {
     let audio: PlaybackAudioPreferences
     let playbackRate: PlaybackRate
     let playbackOrder: PlaybackOrder
+    let playbackRepeatBehavior: PlaybackRepeatBehavior
     let librarySort: MediaLibrarySort
     let language: AppLanguage
 }
@@ -51,6 +53,7 @@ protocol AppPreferencesStoring: AnyObject {
     func saveAudio(_ audio: PlaybackAudioPreferences)
     func savePlaybackRate(_ rate: PlaybackRate)
     func savePlaybackOrder(_ order: PlaybackOrder)
+    func savePlaybackRepeatBehavior(_ behavior: PlaybackRepeatBehavior)
     func saveLibrarySort(_ sort: MediaLibrarySort)
     func saveLanguage(_ language: AppLanguage)
 }

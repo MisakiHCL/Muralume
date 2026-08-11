@@ -727,7 +727,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         )
         var selectedContentMode: DesktopVideoContentMode?
         var selectedPlaybackRate: PlaybackRate?
-        var selectedPlaybackOrder: PlaybackOrder?
+        var selectedPlaybackMode: PlaybackMode?
         var playNextCount = 0
         var statusState = DesktopStatusState(
             sourceName: "Example",
@@ -745,8 +745,8 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         controller.playNextHandler = {
             playNextCount += 1
         }
-        controller.setPlaybackOrderHandler = {
-            selectedPlaybackOrder = $0
+        controller.setPlaybackModeHandler = {
+            selectedPlaybackMode = $0
         }
         controller.setPlaybackRateHandler = {
             selectedPlaybackRate = $0
@@ -817,13 +817,20 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             videoContentMode: .contain
         )
         controller.menuNeedsUpdate(menu)
-        let playbackOrderItems = try XCTUnwrap(menu.items[3].submenu?.items)
+        let playbackModeItems = try XCTUnwrap(menu.items[3].submenu?.items)
         XCTAssertEqual(
-            playbackOrderItems.compactMap { $0.representedObject as? String },
-            [PlaybackOrder.shuffled.rawValue, PlaybackOrder.ordered.rawValue]
+            playbackModeItems.compactMap { $0.representedObject as? String },
+            PlaybackMode.allCases.map(\.rawValue)
         )
-        XCTAssertEqual(playbackOrderItems.map(\.title), ["Shuffle", "In Order"])
-        XCTAssertEqual(playbackOrderItems.map(\.state), [.off, .on])
+        XCTAssertEqual(
+            playbackModeItems.map(\.title),
+            [
+                "Repeat in Order",
+                "Repeat in Shuffle",
+                "Repeat Current Video"
+            ]
+        )
+        XCTAssertEqual(playbackModeItems.map(\.state), [.on, .off, .off])
 
         let playbackRateItems = try XCTUnwrap(menu.items[4].submenu?.items)
         XCTAssertEqual(
@@ -863,29 +870,32 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             videoContentMode: .blurredBackground
         )
         controller.menuNeedsUpdate(menu)
-        XCTAssertEqual(playbackOrderItems.map(\.state), [.on, .off])
+        XCTAssertEqual(
+            playbackModeItems.map(\.state),
+            [.off, .on, .off]
+        )
         XCTAssertEqual(contentModeItems.map(\.state), [.on, .off, .off])
 
         localization.selectLanguage(.simplifiedChinese)
 
         XCTAssertEqual(menu.items[1].title, "暂停")
         XCTAssertEqual(menu.items[2].title, "播放下一个")
-        XCTAssertEqual(menu.items[3].title, "播放顺序")
+        XCTAssertEqual(menu.items[3].title, "播放模式")
         XCTAssertEqual(menu.items[4].title, "播放速度")
         XCTAssertEqual(menu.items[5].title, "桌面适配")
         XCTAssertEqual(menu.items[6].title, "返回播放器")
         XCTAssertEqual(menu.items[8].title, "退出 Muralume")
         XCTAssertEqual(
             menu.items[3].submenu?.items.map(\.title),
-            ["随机播放", "顺序播放"]
+            ["顺序循环", "随机循环", "循环当前视频"]
         )
         XCTAssertEqual(
             menu.items[5].submenu?.items.map(\.title),
             ["模糊背景", "填满屏幕", "完整显示"]
         )
 
-        menu.items[3].submenu?.performActionForItem(at: 0)
-        XCTAssertEqual(selectedPlaybackOrder, .shuffled)
+        menu.items[3].submenu?.performActionForItem(at: 2)
+        XCTAssertEqual(selectedPlaybackMode, .repeatCurrent)
 
         menu.items[4].submenu?.performActionForItem(at: 5)
         XCTAssertEqual(selectedPlaybackRate, PlaybackRate(rawValue: 2))

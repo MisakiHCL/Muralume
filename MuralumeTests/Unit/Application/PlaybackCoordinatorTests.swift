@@ -13,6 +13,7 @@ final class PlaybackCoordinatorTests: XCTestCase {
             ),
             playbackRate: PlaybackRate(rawValue: 1.5),
             playbackOrder: .shuffled,
+            playbackRepeatBehavior: .queue,
             librarySort: MediaLibrarySort(),
             language: .system
         )
@@ -273,7 +274,7 @@ final class PlaybackCoordinatorTests: XCTestCase {
         var completionCount = 0
         coordinator.itemEndedHandler = {
             completionCount += 1
-            return true
+            return .advanced
         }
         await coordinator.load(
             ResolvedMediaSource(
@@ -296,13 +297,39 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertEqual(completionCount, 1)
     }
 
+    func testRepeatCurrentDispositionSeeksWithoutReloadingQueueItem() async {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        coordinator.itemEndedHandler = {
+            .repeatCurrent
+        }
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/repeat.mp4"),
+                displayName: "Repeat"
+            )
+        )
+
+        engine.emitItemEnded()
+
+        XCTAssertEqual(engine.loadedSources.count, 1)
+        XCTAssertEqual(engine.soughtTimes, [0])
+        XCTAssertEqual(coordinator.currentTime, 0)
+        XCTAssertTrue(coordinator.isPlaybackRequested)
+        XCTAssertTrue(engine.isPlaying)
+
+        engine.emitItemEnded()
+        XCTAssertEqual(engine.loadedSources.count, 1)
+        XCTAssertEqual(engine.soughtTimes, [0, 0])
+    }
+
     func testPausedTimelineSeekKeepsLastFrameUntilPlaybackIsRequested() async {
         let engine = TestPlaybackEngine()
         let coordinator = PlaybackCoordinator(engine: engine)
         var completionCount = 0
         coordinator.itemEndedHandler = {
             completionCount += 1
-            return true
+            return .advanced
         }
         await coordinator.load(
             ResolvedMediaSource(
@@ -336,7 +363,7 @@ final class PlaybackCoordinatorTests: XCTestCase {
         var completionCount = 0
         coordinator.itemEndedHandler = {
             completionCount += 1
-            return true
+            return .advanced
         }
         await coordinator.load(
             ResolvedMediaSource(
@@ -488,7 +515,7 @@ final class PlaybackCoordinatorTests: XCTestCase {
         }
         coordinator.itemEndedHandler = {
             completionCount += 1
-            return true
+            return .advanced
         }
         await coordinator.load(
             ResolvedMediaSource(

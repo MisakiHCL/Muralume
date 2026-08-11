@@ -7,6 +7,7 @@ enum AppPreferencesStorageKey {
     static let restorableVolume = "settings.playback.restorable-volume"
     static let playbackRate = "settings.playback.rate"
     static let playbackOrder = "settings.playback.order"
+    static let playbackRepeatBehavior = "settings.playback.repeat-behavior"
     static let librarySortField = "settings.library.sort-field"
     static let librarySortDirection = "settings.library.sort-direction"
     // Keep the existing key so current installations retain their language.
@@ -19,6 +20,7 @@ private struct UserDefaultsAppPreferencesDTO {
     let restorableVolume: Float?
     let playbackRate: Float?
     let playbackOrder: String?
+    let playbackRepeatBehavior: String?
     let librarySortField: String?
     let librarySortDirection: String?
     let language: String?
@@ -42,6 +44,9 @@ private struct UserDefaultsAppPreferencesDTO {
         )
         playbackOrder = userDefaults.string(
             forKey: AppPreferencesStorageKey.playbackOrder
+        )
+        playbackRepeatBehavior = userDefaults.string(
+            forKey: AppPreferencesStorageKey.playbackRepeatBehavior
         )
         librarySortField = userDefaults.string(
             forKey: AppPreferencesStorageKey.librarySortField
@@ -120,6 +125,10 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
                 stored.playbackOrder,
                 PlaybackOrder.self
             ) ?? defaults.playbackOrder,
+            playbackRepeatBehavior: loadRawRepresentable(
+                stored.playbackRepeatBehavior,
+                PlaybackRepeatBehavior.self
+            ) ?? defaults.playbackRepeatBehavior,
             librarySort: MediaLibrarySort(
                 field: loadRawRepresentable(
                     stored.librarySortField,
@@ -163,6 +172,15 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
         userDefaults.set(
             order.rawValue,
             forKey: AppPreferencesStorageKey.playbackOrder
+        )
+    }
+
+    func savePlaybackRepeatBehavior(
+        _ behavior: PlaybackRepeatBehavior
+    ) {
+        userDefaults.set(
+            behavior.rawValue,
+            forKey: AppPreferencesStorageKey.playbackRepeatBehavior
         )
     }
 

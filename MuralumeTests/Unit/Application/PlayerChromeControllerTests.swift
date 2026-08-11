@@ -70,6 +70,48 @@ final class PlayerChromeControllerTests: XCTestCase {
         XCTAssertFalse(controller.isLibraryEditing)
     }
 
+    func testSelectingPlayQueueExitsLibraryEditingAndRequestsFocus() {
+        let controller = PlayerChromeController()
+        controller.presentLibraryEditor()
+        let initialFocusRequest = controller.playbackQueueFocusRequest
+
+        controller.selectLibrarySidebarSection(.playQueue)
+
+        XCTAssertTrue(controller.isPlaylistPresented)
+        XCTAssertFalse(controller.isLibraryEditing)
+        XCTAssertEqual(controller.librarySidebarSection, .playQueue)
+        XCTAssertEqual(
+            controller.playbackQueueFocusRequest,
+            initialFocusRequest &+ 1
+        )
+    }
+
+    func testSelectingPlayQueuePreservesHiddenPanelAndRefocusesOnRepeat() {
+        let controller = PlayerChromeController()
+        controller.setPlaylistPresented(false)
+
+        controller.selectLibrarySidebarSection(.playQueue)
+        let firstFocusRequest = controller.playbackQueueFocusRequest
+        controller.selectLibrarySidebarSection(.playQueue)
+
+        XCTAssertFalse(controller.isPlaylistPresented)
+        XCTAssertEqual(controller.librarySidebarSection, .playQueue)
+        XCTAssertEqual(
+            controller.playbackQueueFocusRequest,
+            firstFocusRequest &+ 1
+        )
+    }
+
+    func testPresentingLibraryEditorSelectsMediaLibrary() {
+        let controller = PlayerChromeController()
+        controller.selectLibrarySidebarSection(.playQueue)
+
+        controller.presentLibraryEditor()
+
+        XCTAssertEqual(controller.librarySidebarSection, .mediaLibrary)
+        XCTAssertTrue(controller.isLibraryEditing)
+    }
+
     func testTransientMediaSwitchDoesNotRevealHiddenChrome() async {
         let sleeper = ControlledPlayerChromeSleeper()
         let controller = makeController(sleeper: sleeper)

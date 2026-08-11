@@ -62,6 +62,7 @@ enum MuralumeTheme {
         static let emptyMessageMinimumHeight: CGFloat = 64
         static let icon: CGFloat = 16
         static let iconLarge: CGFloat = 20
+        static let sidebarTitleIconWidth: CGFloat = 24
         static let menuIndicator: CGFloat = 12
         static let control: CGFloat = 36
         static let primaryControl: CGFloat = 44
@@ -74,7 +75,6 @@ enum MuralumeTheme {
         static let playlistOverlayWidth: CGFloat = 320
         static let settingsPanelWidth: CGFloat = 400
         static let settingsRowMinimumHeight: CGFloat = 60
-        static let playlistHeaderActionWidth: CGFloat = 68
         static let playlistStatusBarHeight: CGFloat = 40
         static let playlistRefreshActionWidth: CGFloat = 112
         static let playerControlsMaximumWidth: CGFloat = 1_040
@@ -154,16 +154,27 @@ enum MuralumeAccessibilityIdentifier {
     static let volumeSlider = "muralume.volume-slider"
     static let playerControlBar = "muralume.player-control-bar"
     static let playerTransportControls = "muralume.player-transport-controls"
-    static let playlistToggleButton = "muralume.playlist-toggle"
+    static let mediaLibraryToggleButton = "muralume.media-library-toggle"
     static let librarySidebar = "muralume.library-sidebar"
     static let libraryTitle = "muralume.library-title"
+    static let mediaLibrarySectionMenuItem =
+        "muralume.library-section.media-library"
+    static let playQueueSectionMenuItem =
+        "muralume.library-section.play-queue"
     static let editLibraryButton = "muralume.edit-library"
     static let refreshLibraryButton = "muralume.refresh-library"
     static let addMediaButton = "muralume.add-media"
     static let retrySourceAccessButton = "muralume.retry-source-access"
     static let reauthorizeSourcesButton = "muralume.reauthorize-sources"
     static let mediaDropOverlay = "muralume.media-drop-overlay"
-    static let playbackOrderButton = "muralume.playback-order"
+    static let playbackQueue = "muralume.playback-queue"
+    static let nowPlayingSection = "muralume.playback-queue.now-playing"
+    static let upNextSection = "muralume.playback-queue.up-next"
+    static let playbackQueueActionsButton =
+        "muralume.playback-queue.actions"
+    static let temporaryQueueItemBadge =
+        "muralume.playback-queue.temporary-badge"
+    static let playbackModeButton = "muralume.playback-mode"
     static let librarySortButton = "muralume.library-sort"
     static let openSettingsButton = "muralume.open-settings"
     static let closeWindowButton = "muralume.window-close"
@@ -176,6 +187,12 @@ enum MuralumeAccessibilityIdentifier {
     static let settingsLanguageRow = "muralume.settings-row.language"
     static let settingsLaunchAtLoginRow =
         "muralume.settings-row.launch-at-login"
+    static let settingsDefaultVideoPlayerRow =
+        "muralume.settings-row.default-video-player"
+    static let setDefaultVideoPlayerButton =
+        "muralume.settings.set-default-video-player"
+    static let defaultVideoPlayerStatus =
+        "muralume.settings.default-video-player-status"
     static let languagePicker = "muralume.language-picker"
     static let launchAtLoginCheckbox =
         "muralume.launch-at-login.checkbox"

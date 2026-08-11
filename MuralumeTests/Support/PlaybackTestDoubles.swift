@@ -145,6 +145,8 @@ final class TestAppPreferencesStore: AppPreferencesStoring {
     private(set) var savedAudio: [PlaybackAudioPreferences] = []
     private(set) var savedPlaybackRates: [PlaybackRate] = []
     private(set) var savedPlaybackOrders: [PlaybackOrder] = []
+    private(set) var savedPlaybackRepeatBehaviors:
+        [PlaybackRepeatBehavior] = []
     private(set) var savedLibrarySorts: [MediaLibrarySort] = []
     private(set) var savedLanguages: [AppLanguage] = []
 
@@ -169,12 +171,37 @@ final class TestAppPreferencesStore: AppPreferencesStoring {
         savedPlaybackOrders.append(order)
     }
 
+    func savePlaybackRepeatBehavior(
+        _ behavior: PlaybackRepeatBehavior
+    ) {
+        savedPlaybackRepeatBehaviors.append(behavior)
+    }
+
     func saveLibrarySort(_ sort: MediaLibrarySort) {
         savedLibrarySorts.append(sort)
     }
 
     func saveLanguage(_ language: AppLanguage) {
         savedLanguages.append(language)
+    }
+}
+
+@MainActor
+final class TestDefaultVideoPlayerService: DefaultVideoPlayerServicing {
+    var status: DefaultVideoPlayerStatus
+    var setDefaultError: Error?
+    private(set) var setDefaultCount = 0
+
+    init(status: DefaultVideoPlayerStatus = .none) {
+        self.status = status
+    }
+
+    func setAsDefault() async throws {
+        setDefaultCount += 1
+        if let setDefaultError {
+            throw setDefaultError
+        }
+        status = .all
     }
 }
 
@@ -249,6 +276,7 @@ final class TestDesktopStatusPresenter: DesktopStatusPresenting {
     var togglePlaybackHandler: (() -> Void)?
     var playNextHandler: (() -> Void)?
     var setPlaybackOrderHandler: ((PlaybackOrder) -> Void)?
+    var setPlaybackModeHandler: ((PlaybackMode) -> Void)?
     var setPlaybackRateHandler: ((PlaybackRate) -> Void)?
     var returnToPlayerHandler: (() -> Void)?
     var setVideoContentModeHandler: ((DesktopVideoContentMode) -> Void)?

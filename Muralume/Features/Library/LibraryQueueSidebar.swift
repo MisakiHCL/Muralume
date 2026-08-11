@@ -1,19 +1,46 @@
 import Combine
 import SwiftUI
 
+private extension LibrarySidebarSection {
+    var localizedKey: LocalizedStringKey {
+        switch self {
+        case .mediaLibrary:
+            "library.playlist"
+        case .playQueue:
+            "queue.title"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .mediaLibrary:
+            "square.grid.2x2"
+        case .playQueue:
+            "list.bullet.rectangle"
+        }
+    }
+}
+
 struct LibraryQueueSidebar: View {
     @ObservedObject var library: MediaLibraryCoordinator
     let playback: PlaybackCoordinator
     @EnvironmentObject private var localization: AppLocalizationController
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var pendingRootRemoval: MediaLibraryRoot?
+    @State private var isSidebarTitleHovered = false
     @State private var playbackStatus: LibraryPlaybackStatus
+    @Binding private var sidebarSection: LibrarySidebarSection
+    let playbackQueueFocusRequest: UInt64
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let isEditing: Bool
     let setEditing: (Bool) -> Void
     let addMedia: () -> Void
     let retryUnavailableSourceAccess: () -> Void
     let reauthorizeMediaSources: () -> Void
+    let canRestoreDynamicDesktop: Bool
+    let addTemporaryItemsToLibrary: () -> Void
+    let restoreDynamicDesktop: () -> Void
+    let playLibraryItem: (LibraryMediaItem) -> Void
     let revealMediaInFinder: (URL) -> Void
     let dismiss: () -> Void
 
@@ -21,22 +48,34 @@ struct LibraryQueueSidebar: View {
         library: MediaLibraryCoordinator,
         playback: PlaybackCoordinator,
         mediaThumbnailProvider: any MediaThumbnailProviding,
+        sidebarSection: Binding<LibrarySidebarSection>,
+        playbackQueueFocusRequest: UInt64,
         isEditing: Bool,
         setEditing: @escaping (Bool) -> Void,
         addMedia: @escaping () -> Void,
         retryUnavailableSourceAccess: @escaping () -> Void,
         reauthorizeMediaSources: @escaping () -> Void,
+        canRestoreDynamicDesktop: Bool,
+        addTemporaryItemsToLibrary: @escaping () -> Void,
+        restoreDynamicDesktop: @escaping () -> Void,
+        playLibraryItem: @escaping (LibraryMediaItem) -> Void,
         revealMediaInFinder: @escaping (URL) -> Void,
         dismiss: @escaping () -> Void
     ) {
         self.library = library
         self.playback = playback
         self.mediaThumbnailProvider = mediaThumbnailProvider
+        _sidebarSection = sidebarSection
+        self.playbackQueueFocusRequest = playbackQueueFocusRequest
         self.isEditing = isEditing
         self.setEditing = setEditing
         self.addMedia = addMedia
         self.retryUnavailableSourceAccess = retryUnavailableSourceAccess
         self.reauthorizeMediaSources = reauthorizeMediaSources
+        self.canRestoreDynamicDesktop = canRestoreDynamicDesktop
+        self.addTemporaryItemsToLibrary = addTemporaryItemsToLibrary
+        self.restoreDynamicDesktop = restoreDynamicDesktop
+        self.playLibraryItem = playLibraryItem
         self.revealMediaInFinder = revealMediaInFinder
         self.dismiss = dismiss
         _playbackStatus = State(
@@ -101,25 +140,17 @@ struct LibraryQueueSidebar: View {
 
     private var header: some View {
         HStack(spacing: MuralumeTheme.Spacing.small) {
-            Label("library.playlist", systemImage: "list.bullet")
-                .font(.headline)
-                .foregroundStyle(MuralumeTheme.Colors.textPrimary)
-                .accessibilityIdentifier(
-                    MuralumeAccessibilityIdentifier.libraryTitle
-                )
+            sidebarTitle
 
             Spacer(minLength: MuralumeTheme.Spacing.small)
 
-            if !isEditing {
+            if !isEditing, sidebarSection == .mediaLibrary {
                 Button(action: addMedia) {
-                    headerActionLabel(
-                        titleKey: "library.add",
-                        systemImage: "plus"
-                    )
+                    headerActionIcon(systemImage: "plus")
                 }
                 .buttonStyle(
                     MuralumeToolbarButtonStyle(
-                        width: MuralumeTheme.Size.playlistHeaderActionWidth
+                        width: MuralumeTheme.Size.control
                     )
                 )
                 .help(Text("library.add.media"))
@@ -129,23 +160,18 @@ struct LibraryQueueSidebar: View {
                 )
             }
 
-            if !library.roots.isEmpty {
+            if sidebarSection == .mediaLibrary, !library.roots.isEmpty {
                 Button {
                     setEditing(!isEditing)
                 } label: {
-                    headerActionLabel(
-                        titleKey: isEditing
-                            ? "library.done"
-                            : "library.edit",
-                        systemImage: isEditing
-                            ? "checkmark"
-                            : "pencil"
+                    headerActionIcon(
+                        systemImage: isEditing ? "checkmark" : "pencil"
                     )
                 }
                 .buttonStyle(
                     MuralumeToolbarButtonStyle(
                         kind: isEditing ? .selected : .standard,
-                        width: MuralumeTheme.Size.playlistHeaderActionWidth
+                        width: MuralumeTheme.Size.control
                     )
                 )
                 .help(
@@ -167,18 +193,22 @@ struct LibraryQueueSidebar: View {
                 )
             }
 
-            Button(action: dismiss) {
-                Image(systemName: "xmark")
-                    .font(
-                        .system(
-                            size: MuralumeTheme.Size.icon,
-                            weight: .semibold
-                        )
-                    )
+            if sidebarSection == .playQueue, hasQueueActions {
+                queueActionsMenu
             }
-            .buttonStyle(MuralumeToolbarButtonStyle())
-            .help(Text("library.playlist.hide"))
-            .accessibilityLabel(Text("library.playlist.hide"))
+
+            Button(action: dismiss) {
+                headerActionIcon(systemImage: "xmark")
+            }
+            .buttonStyle(
+                MuralumeToolbarButtonStyle(
+                    width: MuralumeTheme.Size.control
+                )
+            )
+            .help(Text(LocalizedStringKey(sidebarHideLabelKey)))
+            .accessibilityLabel(
+                Text(LocalizedStringKey(sidebarHideLabelKey))
+            )
         }
         .frame(
             height: MuralumeTheme.Size.control,
@@ -186,24 +216,191 @@ struct LibraryQueueSidebar: View {
         )
     }
 
-    private func headerActionLabel(
-        titleKey: LocalizedStringKey,
-        systemImage: String
+    @ViewBuilder
+    private var sidebarTitle: some View {
+        if isEditing {
+            sidebarTitleLabel(showsDisclosureIndicator: false)
+                .padding(.horizontal, MuralumeTheme.Spacing.small)
+                .padding(.vertical, MuralumeTheme.Spacing.small)
+                .accessibilityIdentifier(
+                    MuralumeAccessibilityIdentifier.libraryTitle
+                )
+        } else {
+            Menu {
+                ForEach(LibrarySidebarSection.allCases, id: \.self) { section in
+                    Button {
+                        sidebarSection = section
+                    } label: {
+                        if sidebarSection == section {
+                            Label(section.localizedKey, systemImage: "checkmark")
+                        } else {
+                            Text(section.localizedKey)
+                        }
+                    }
+                    .accessibilityAddTraits(
+                        sidebarSection == section ? .isSelected : []
+                    )
+                    .accessibilityIdentifier(
+                        accessibilityIdentifier(for: section)
+                    )
+                }
+            } label: {
+                sidebarTitleLabel(showsDisclosureIndicator: true)
+            }
+            .menuStyle(.button)
+            .buttonStyle(
+                MuralumeToolbarButtonStyle(
+                    kind: isSidebarTitleHovered ? .selected : .standard
+                )
+            )
+            .menuIndicator(.hidden)
+            .onHover { isHovered in
+                isSidebarTitleHovered = isHovered
+            }
+            .onDisappear {
+                isSidebarTitleHovered = false
+            }
+            .help(Text("queue.navigation"))
+            .accessibilityLabel(Text("queue.navigation"))
+            .accessibilityValue(Text(sidebarSection.localizedKey))
+            .accessibilityIdentifier(
+                MuralumeAccessibilityIdentifier.libraryTitle
+            )
+        }
+    }
+
+    private func sidebarTitleLabel(
+        showsDisclosureIndicator: Bool
     ) -> some View {
         HStack(spacing: MuralumeTheme.Spacing.xSmall) {
-            Image(systemName: systemImage)
+            Image(systemName: sidebarSection.systemImage)
                 .font(
                     .system(
                         size: MuralumeTheme.Size.icon,
                         weight: .semibold
                     )
                 )
+                .symbolRenderingMode(.monochrome)
+                .frame(
+                    width: MuralumeTheme.Size.sidebarTitleIconWidth,
+                    height: MuralumeTheme.Size.iconLarge,
+                    alignment: .center
+                )
+                .accessibilityHidden(true)
 
-            Text(titleKey)
-                .font(.system(size: 12, weight: .semibold))
+            Text(sidebarSection.localizedKey)
+                .font(.headline)
                 .lineLimit(1)
+
+            if showsDisclosureIndicator {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(
+                        .system(
+                            size: MuralumeTheme.Size.menuIndicator,
+                            weight: .semibold
+                        )
+                    )
+                    .foregroundStyle(
+                        isSidebarTitleHovered
+                            ? MuralumeTheme.Colors.textPrimary
+                            : MuralumeTheme.Colors.textSecondary
+                    )
+                    .accessibilityHidden(true)
+            }
         }
-        .fixedSize(horizontal: true, vertical: false)
+        .foregroundStyle(MuralumeTheme.Colors.textPrimary)
+        .contentShape(Rectangle())
+    }
+
+    private var sidebarHideLabelKey: String {
+        sidebarSection == .mediaLibrary
+            ? "library.playlist.hide"
+            : "queue.hide"
+    }
+
+    private func accessibilityIdentifier(
+        for section: LibrarySidebarSection
+    ) -> String {
+        switch section {
+        case .mediaLibrary:
+            MuralumeAccessibilityIdentifier.mediaLibrarySectionMenuItem
+        case .playQueue:
+            MuralumeAccessibilityIdentifier.playQueueSectionMenuItem
+        }
+    }
+
+    private var hasQueueActions: Bool {
+        library.isTemporaryPlayback || canRestoreDynamicDesktop
+    }
+
+    private var queueActionsMenu: some View {
+        Menu {
+            if library.isTemporaryPlayback {
+                Button(action: addTemporaryItemsToLibrary) {
+                    Label("queue.addToLibrary", systemImage: "plus")
+                }
+            }
+
+            if canRestoreDynamicDesktop {
+                Button(action: restoreDynamicDesktop) {
+                    Label(
+                        "external.open.restoreDynamicDesktop",
+                        systemImage: "display"
+                    )
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(
+                    .system(
+                        size: MuralumeTheme.Size.icon,
+                        weight: .semibold
+                    )
+                )
+                .foregroundStyle(MuralumeTheme.Colors.textPrimary)
+                .frame(
+                    width: MuralumeTheme.Size.control,
+                    height: MuralumeTheme.Size.control
+                )
+                .background {
+                    RoundedRectangle(
+                        cornerRadius: MuralumeTheme.Radius.medium,
+                        style: .continuous
+                    )
+                    .fill(MuralumeTheme.Colors.controlFill)
+                    .overlay {
+                        RoundedRectangle(
+                            cornerRadius: MuralumeTheme.Radius.medium,
+                            style: .continuous
+                        )
+                        .stroke(MuralumeTheme.Colors.border, lineWidth: 1)
+                    }
+                }
+                .contentShape(
+                    RoundedRectangle(
+                        cornerRadius: MuralumeTheme.Radius.medium,
+                        style: .continuous
+                    )
+                )
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(Text("queue.actions"))
+        .accessibilityLabel(Text("queue.actions"))
+        .accessibilityIdentifier(
+            MuralumeAccessibilityIdentifier.playbackQueueActionsButton
+        )
+    }
+
+    private func headerActionIcon(systemImage: String) -> some View {
+        Image(systemName: systemImage)
+            .font(
+                .system(
+                    size: MuralumeTheme.Size.icon,
+                    weight: .semibold
+                )
+            )
     }
 
     private var refreshActionLabel: some View {
@@ -267,8 +464,52 @@ struct LibraryQueueSidebar: View {
     private var sidebarStatusBar: some View {
         if isEditing {
             editorStatusBar
+        } else if sidebarSection == .playQueue {
+            queueStatusBar
         } else {
             libraryStatusBar
+        }
+    }
+
+    private var queueStatusBar: some View {
+        HStack(spacing: MuralumeTheme.Spacing.small) {
+            if let position = library.currentPosition,
+               library.queueCount > 0 {
+                Text(
+                    verbatim: localization.localizedFormat(
+                        "queue.position",
+                        position,
+                        library.queueCount
+                    )
+                )
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+                .accessibilityLabel(
+                    Text(
+                        verbatim: localization.localizedFormat(
+                            "queue.position.accessibility",
+                            position,
+                            library.queueCount
+                        )
+                    )
+                )
+            } else {
+                Text("queue.empty")
+                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+            }
+
+            Spacer(minLength: MuralumeTheme.Spacing.small)
+
+            if library.upNextItemCount > 0 {
+                Text(
+                    verbatim: localization.localizedFormat(
+                        "queue.upNext.count",
+                        library.upNextItemCount
+                    )
+                )
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(MuralumeTheme.Colors.textTertiary)
+            }
         }
     }
 
@@ -496,38 +737,8 @@ struct LibraryQueueSidebar: View {
             .foregroundStyle(MuralumeTheme.Colors.textSecondary)
         case .ready:
             VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.xSmall) {
-                HStack(
-                    alignment: .firstTextBaseline,
-                    spacing: MuralumeTheme.Spacing.small
-                ) {
-                    Text(videoCountText)
-                        .foregroundStyle(
-                            MuralumeTheme.Colors.textSecondary
-                        )
-
-                    if let position = library.currentPosition {
-                        Text(
-                            verbatim: localization.localizedFormat(
-                                "queue.position",
-                                position,
-                                library.queueCount
-                            )
-                        )
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(
-                            MuralumeTheme.Colors.textTertiary
-                        )
-                        .accessibilityLabel(
-                            Text(
-                                verbatim: localization.localizedFormat(
-                                    "queue.position.accessibility",
-                                    position,
-                                    library.queueCount
-                                )
-                            )
-                        )
-                    }
-                }
+                Text(videoCountText)
+                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
                 if library.sourceAccessState == .partiallyUnavailable {
                     Label(
                         "library.sourceAccess.partial",
@@ -621,7 +832,22 @@ struct LibraryQueueSidebar: View {
 
     @ViewBuilder
     private var playlistContent: some View {
-        if library.items.isEmpty {
+        if sidebarSection == .playQueue {
+            PlaybackQueueSidebarContent(
+                library: library,
+                mediaThumbnailProvider: mediaThumbnailProvider,
+                playbackState: playbackStatus.rowState,
+                focusRequest: playbackQueueFocusRequest,
+                revealMediaInFinder: revealMediaInFinder,
+                addCurrentTemporaryToLibrary: {
+                    _ = library.addCurrentTemporaryItemToLibrary()
+                },
+                play: { item in
+                    library.play(item)
+                    dismiss()
+                }
+            )
+        } else if library.items.isEmpty {
             LibrarySidebarEmptyState(
                 scanState: library.scanState,
                 sourceAccessState: library.sourceAccessState,
@@ -651,7 +877,7 @@ struct LibraryQueueSidebar: View {
                     rowHeight: playlistRowHeight,
                     mediaThumbnailProvider: mediaThumbnailProvider,
                     play: {
-                        library.play(item)
+                        playLibraryItem(item)
                         dismiss()
                     },
                     revealInFinder: {
@@ -819,7 +1045,7 @@ private struct LibraryPlaylistRowContentRevision: Hashable {
     let playbackState: LibraryMediaRowPlaybackState
 }
 
-private enum LibraryMediaRowPlaybackState: Hashable {
+enum LibraryMediaRowPlaybackState: Hashable {
     case available
     case loading
     case playing
@@ -865,7 +1091,6 @@ private struct LibraryMediaRow: View {
 
         Button(action: play) {
             HStack(spacing: MuralumeTheme.Spacing.small) {
-                currentIndicator
                 LibraryMediaThumbnail(
                     item: item,
                     isCurrent: isCurrent,
@@ -931,8 +1156,7 @@ private struct LibraryMediaRow: View {
                     height: MuralumeTheme.Size.iconLarge
                 )
             }
-            .padding(.vertical, MuralumeTheme.Spacing.small)
-            .padding(.trailing, MuralumeTheme.Spacing.small)
+            .padding(MuralumeTheme.Spacing.small)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: rowHeight)
             .background {
@@ -976,19 +1200,6 @@ private struct LibraryMediaRow: View {
                 LocalizedStringKey(playbackState.accessibilityKey)
             )
         )
-    }
-
-    private var currentIndicator: some View {
-        RoundedRectangle(
-            cornerRadius: MuralumeTheme.Radius.small,
-            style: .continuous
-        )
-        .fill(isCurrent ? MuralumeTheme.brandGradient : LinearGradient(
-            colors: [.clear],
-            startPoint: .top,
-            endPoint: .bottom
-        ))
-        .frame(width: MuralumeTheme.Spacing.xSmall)
     }
 
     private var locationText: String {

@@ -14,7 +14,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let playerChrome: PlayerChromeController
     let dynamicDesktopStartup: DynamicDesktopStartupController
+    let defaultVideoPlayer: DefaultVideoPlayerController
     @Published private(set) var isMainWindowFullScreen = false
+    @Published private(set) var canRestoreDynamicDesktop = false
 
     private let mainWindowPresenter: MacMainWindowPresenter
     private let applicationPresence: any ApplicationPresenceControlling
@@ -24,6 +26,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     private var initialRestoreGeneration: UInt64 = 0
     private var hasStarted = false
     private var isShutDown = false
+    private var externalOpenGeneration: UInt64 = 0
+    private var dynamicDesktopReturnContext: MediaLibraryPlaybackContext?
 
     init(
         playback: PlaybackCoordinator,
@@ -33,6 +37,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         mainWindowPresenter: MacMainWindowPresenter,
         applicationPresence: any ApplicationPresenceControlling,
         dynamicDesktopStartup: DynamicDesktopStartupController,
+        defaultVideoPlayer: DefaultVideoPlayerController,
         desktopPreset: DesktopPresetController,
         playbackSession: PlaybackSessionController,
         playerChrome: PlayerChromeController = PlayerChromeController()
@@ -44,6 +49,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         self.mainWindowPresenter = mainWindowPresenter
         self.applicationPresence = applicationPresence
         self.dynamicDesktopStartup = dynamicDesktopStartup
+        self.defaultVideoPlayer = defaultVideoPlayer
         self.desktopPreset = desktopPreset
         self.playbackSession = playbackSession
         self.playerChrome = playerChrome
@@ -52,7 +58,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             self?.requestQuit()
         }
         desktopSession.canPlayNextProvider = { [weak self] in
-            self?.library.hasActiveQueue == true
+            self?.library.canMoveToNext == true
         }
         desktopSession.playNextHandler = { [weak self] in
             self?.library.playNext()
@@ -61,11 +67,25 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             self?.library.playbackOrder
                 ?? AppPreferences.defaultValue.playbackOrder
         }
+        desktopSession.playbackModeProvider = { [weak self] in
+            self?.library.playbackMode
+                ?? PlaybackMode(
+                    order: AppPreferences.defaultValue.playbackOrder,
+                    repeatBehavior:
+                        AppPreferences.defaultValue.playbackRepeatBehavior
+                )
+        }
         desktopSession.canSetPlaybackOrderProvider = { [weak self] in
+            self?.library.hasActiveQueue == true
+        }
+        desktopSession.canSetPlaybackModeProvider = { [weak self] in
             self?.library.hasActiveQueue == true
         }
         desktopSession.playbackOrderChangeHandler = { [weak self] order in
             self?.library.setPlaybackOrder(order)
+        }
+        desktopSession.playbackModeChangeHandler = { [weak self] mode in
+            self?.library.setPlaybackMode(mode)
         }
         desktopSession.didEnterDesktopHandler = { [weak self] in
             self?.desktopPreset.markDesktopActive()
@@ -237,8 +257,20 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     func enterDesktop() {
+        if library.isTemporaryPlayback {
+            guard library.addTemporaryItemsToLibrary() else {
+                return
+            }
+        }
+        library.adoptExternalPlaybackContext()
+        clearDynamicDesktopReturnContext()
         playerChrome.setSettingsPresented(false)
         desktopSession.enterDesktop()
+    }
+
+    func playLibraryItem(_ item: LibraryMediaItem) {
+        clearDynamicDesktopReturnContext()
+        library.playLibraryItem(item)
     }
 
     func returnToPlayer() {
@@ -261,6 +293,10 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     func dismissMainWindow() {
+        if canRestoreDynamicDesktop {
+            restoreDynamicDesktop()
+            return
+        }
         desktopPreset.preserveCurrentPreset()
         playbackSession.preserveCurrentSnapshot()
         playerChrome.setSettingsPresented(false)
@@ -275,6 +311,125 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     func reopenMainWindow() {
         performAfterCancellingInitialRestore { [weak self] in
             self?.revealPlayerWindow()
+        }
+    }
+
+    func handleOpenFiles(_ urls: [URL]) {
+        guard !urls.isEmpty, !isShutDown else {
+            return
+        }
+
+        externalOpenGeneration &+= 1
+        let generation = externalOpenGeneration
+        if dynamicDesktopReturnContext == nil,
+           isUsingDynamicDesktop,
+           let context = library.capturePlaybackContext() {
+            dynamicDesktopReturnContext = context
+            canRestoreDynamicDesktop = true
+            playback.setPlaybackIntent(.paused)
+        }
+        if dynamicDesktopReturnContext != nil {
+            // Freeze persistence and invalidate a concurrent restore before
+            // any transition or library scan can suspend this request.
+            library.beginExternalPlaybackContext()
+        }
+        let pendingInitialRestore = cancelInitialRestore()
+
+        Task { [weak self] in
+            guard let self else {
+                return
+            }
+            if let pendingInitialRestore {
+                await pendingInitialRestore.value
+                guard generation == externalOpenGeneration,
+                      !isShutDown else {
+                    return
+                }
+                await desktopSession.waitForTransitionToSettle()
+                await playbackSession
+                    .adoptPlayerPresentationAfterCancelledRestore()
+            }
+
+            guard generation == externalOpenGeneration,
+                  !isShutDown else {
+                return
+            }
+            playerChrome.setSettingsPresented(false)
+            if desktopSession.isActive || desktopSession.isTransitioning {
+                desktopSession.returnToPlayer()
+                await desktopSession.waitForTransitionToSettle()
+            }
+            guard generation == externalOpenGeneration,
+                  !isShutDown else {
+                return
+            }
+            showMainWindowInStandardMode()
+
+            var libraryItem = singleLibraryItem(forOpenURLs: urls)
+            if urls.count == 1,
+               libraryItem == nil,
+               library.scanState == .scanning {
+                _ = await library.waitForStartupScan(after: .alreadyStarted)
+                guard generation == externalOpenGeneration,
+                      !isShutDown else {
+                    return
+                }
+                libraryItem = singleLibraryItem(forOpenURLs: urls)
+            }
+
+            if let libraryItem {
+                if dynamicDesktopReturnContext != nil {
+                    library.playLibraryItem(
+                        libraryItem,
+                        preservingExternalContext: true
+                    )
+                } else {
+                    playLibraryItem(libraryItem)
+                }
+                playerChrome.selectLibrarySidebarSection(.mediaLibrary)
+                return
+            }
+
+            let didOpen = await library.openFilesTemporarily(urls)
+            guard generation == externalOpenGeneration,
+                  !isShutDown else {
+                return
+            }
+            if didOpen {
+                playerChrome.selectLibrarySidebarSection(.playQueue)
+            } else if dynamicDesktopReturnContext != nil {
+                restoreDynamicDesktop()
+            }
+        }
+    }
+
+    func restoreDynamicDesktop() {
+        guard let context = dynamicDesktopReturnContext,
+              !isShutDown else {
+            return
+        }
+        externalOpenGeneration &+= 1
+        let generation = externalOpenGeneration
+        playerChrome.setSettingsPresented(false)
+        showMainWindowInStandardMode()
+
+        Task { [weak self] in
+            guard let self else {
+                return
+            }
+            let result = await library.restorePlaybackContext(context)
+            guard generation == externalOpenGeneration,
+                  !isShutDown else {
+                return
+            }
+            guard result == .restored else {
+                if result == .permanentlyUnavailable {
+                    clearDynamicDesktopReturnContext()
+                }
+                return
+            }
+            clearDynamicDesktopReturnContext()
+            desktopSession.enterDesktop()
         }
     }
 
@@ -319,6 +474,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             return
         }
         isShutDown = true
+        externalOpenGeneration &+= 1
+        clearDynamicDesktopReturnContext()
 
         let pendingInitialRestore = cancelInitialRestore(
             disposition: .shutdown
@@ -335,6 +492,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
 
     func handleApplicationActivation(hasVisibleWindows: Bool) {
         dynamicDesktopStartup.refresh()
+        defaultVideoPlayer.refresh()
         guard !hasVisibleWindows,
               initialRestoreTask == nil,
               !playbackSession.isRestoring,
@@ -496,6 +654,34 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         playback.restorePlayerWindow()
         mainWindowPresenter.show()
     }
+
+    private var isUsingDynamicDesktop: Bool {
+        if desktopSession.isActive {
+            return true
+        }
+        switch playback.presentation {
+        case .desktop:
+            return true
+        case let .switching(_, destination):
+            return destination == .desktop
+        case .player, .terminating:
+            return false
+        }
+    }
+
+    private func singleLibraryItem(
+        forOpenURLs urls: [URL]
+    ) -> LibraryMediaItem? {
+        guard urls.count == 1, let url = urls.first else {
+            return nil
+        }
+        return library.libraryItem(matching: url)
+    }
+
+    private func clearDynamicDesktopReturnContext() {
+        dynamicDesktopReturnContext = nil
+        canRestoreDynamicDesktop = false
+    }
 }
 
 extension AppCoordinator: MacMainMenuCommandHandling {
@@ -525,7 +711,7 @@ extension AppCoordinator: MacMainMenuCommandHandling {
             canPlayPrevious:
                 canControlPlayback && library.canMoveToPrevious,
             canPlayNext:
-                canControlPlayback && library.hasActiveQueue,
+                canControlPlayback && library.canMoveToNext,
             canIncreaseVolume:
                 canUseWindowActions
                 && playback.settings.volume != .full,

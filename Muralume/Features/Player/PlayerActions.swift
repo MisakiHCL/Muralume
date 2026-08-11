@@ -5,6 +5,9 @@ struct PlayerActions {
     let retryUnavailableSourceAccess: () -> Void
     let reauthorizeMediaSources: () -> Void
     let importDroppedURLs: ([URL]) -> Bool
+    let addTemporaryItemsToLibrary: () -> Void
+    let restoreDynamicDesktop: () -> Void
+    let playLibraryItem: (LibraryMediaItem) -> Void
     let revealMediaInFinder: (URL) -> Void
     let enterDesktop: () -> Void
     let toggleSettings: () -> Void

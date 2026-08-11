@@ -235,15 +235,25 @@ private struct PlayerFailureState: View {
 }
 
 struct PlayerStatusBanner: View {
-    let messageKey: String
+    private let message: Text
     let dismiss: () -> Void
+
+    init(messageKey: String, dismiss: @escaping () -> Void) {
+        message = Text(LocalizedStringKey(messageKey))
+        self.dismiss = dismiss
+    }
+
+    init(message: String, dismiss: @escaping () -> Void) {
+        self.message = Text(verbatim: message)
+        self.dismiss = dismiss
+    }
 
     var body: some View {
         HStack(spacing: MuralumeTheme.Spacing.medium) {
             Image(systemName: "exclamationmark.circle.fill")
                 .foregroundStyle(MuralumeTheme.Colors.error)
 
-            Text(LocalizedStringKey(messageKey))
+            message
                 .font(.body)
                 .foregroundStyle(MuralumeTheme.Colors.textPrimary)
 

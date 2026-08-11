@@ -22,8 +22,11 @@ final class DesktopSessionCoordinator: ObservableObject {
     var canPlayNextProvider: (() -> Bool)?
     var playNextHandler: (() -> Void)?
     var playbackOrderProvider: (() -> PlaybackOrder)?
+    var playbackModeProvider: (() -> PlaybackMode)?
     var canSetPlaybackOrderProvider: (() -> Bool)?
+    var canSetPlaybackModeProvider: (() -> Bool)?
     var playbackOrderChangeHandler: ((PlaybackOrder) -> Void)?
+    var playbackModeChangeHandler: ((PlaybackMode) -> Void)?
     var quitHandler: (() -> Void)?
 
     var isTransitioning: Bool {
@@ -286,25 +289,44 @@ final class DesktopSessionCoordinator: ObservableObject {
     private func configureStatusMenu() {
         statusMenu.stateProvider = { [weak self] in
             guard let self else {
+                let defaultOrder = AppPreferences.defaultValue.playbackOrder
                 return DesktopStatusState(
                     sourceName: "",
                     isPlaying: false,
                     isTransitioning: false,
                     canPlayNext: false,
-                    playbackOrder: AppPreferences.defaultValue.playbackOrder,
+                    playbackOrder: defaultOrder,
+                    playbackRepeatBehavior:
+                        AppPreferences.defaultValue.playbackRepeatBehavior,
                     canSetPlaybackOrder: false,
                     playbackRate: PlaybackPolicy.defaultRate,
                     videoContentMode: .defaultValue
                 )
             }
+            let mode = playbackModeProvider?()
+            let fallbackOrder = playbackOrderProvider?()
+                ?? AppPreferences.defaultValue.playbackOrder
             return DesktopStatusState(
                 sourceName: playback.source?.displayName ?? "",
                 isPlaying: playback.isPlaybackRequested,
                 isTransitioning: isTransitioning,
                 canPlayNext: canPlayNextProvider?() == true,
-                playbackOrder: playbackOrderProvider?()
-                    ?? AppPreferences.defaultValue.playbackOrder,
-                canSetPlaybackOrder: canSetPlaybackOrderProvider?() == true,
+                playbackOrder: mode.flatMap { mode in
+                    switch mode {
+                    case .ordered:
+                        .ordered
+                    case .shuffled:
+                        .shuffled
+                    case .repeatCurrent:
+                        nil
+                    }
+                } ?? fallbackOrder,
+                playbackRepeatBehavior: mode == .repeatCurrent
+                    ? .currentItem
+                    : .queue,
+                canSetPlaybackOrder:
+                    canSetPlaybackModeProvider?()
+                        ?? (canSetPlaybackOrderProvider?() == true),
                 playbackRate: playback.settings.rate,
                 videoContentMode: videoContentMode
             )
@@ -317,6 +339,9 @@ final class DesktopSessionCoordinator: ObservableObject {
         }
         statusMenu.setPlaybackOrderHandler = { [weak self] order in
             self?.setPlaybackOrder(order)
+        }
+        statusMenu.setPlaybackModeHandler = { [weak self] mode in
+            self?.setPlaybackMode(mode)
         }
         statusMenu.setPlaybackRateHandler = { [weak self] rate in
             self?.setPlaybackRate(rate)
@@ -376,6 +401,28 @@ final class DesktopSessionCoordinator: ObservableObject {
             return
         }
         playbackOrderChangeHandler?(order)
+    }
+
+    private func setPlaybackMode(_ mode: PlaybackMode) {
+        guard isActive,
+              !isTransitioning,
+              !isShutDown,
+              canSetPlaybackModeProvider?()
+                ?? (canSetPlaybackOrderProvider?() == true) else {
+            return
+        }
+        if let playbackModeChangeHandler {
+            playbackModeChangeHandler(mode)
+            return
+        }
+        switch mode {
+        case .ordered:
+            playbackOrderChangeHandler?(.ordered)
+        case .shuffled:
+            playbackOrderChangeHandler?(.shuffled)
+        case .repeatCurrent:
+            break
+        }
     }
 
     private func setPlaybackRate(_ rate: PlaybackRate) {

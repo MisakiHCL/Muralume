@@ -3,6 +3,11 @@ enum PlaybackOrder: String, CaseIterable, Codable, Sendable {
     case shuffled
 }
 
+enum PlaybackQueueSelectionHistoryBehavior: Equatable, Sendable {
+    case recordCurrent
+    case skipCurrent
+}
+
 enum PlaybackQueuePolicy {
     static let minimumHistoryCapacity = 64
 
@@ -217,7 +222,19 @@ private struct BoundedHistoryBuffer<Element: Sendable>: Sendable {
     }
 
     var elements: [Element] {
-        (0..<count).map { offset in
+        elements(in: 0..<count)
+    }
+
+    func suffixElements(maximumCount: Int) -> [Element] {
+        guard maximumCount > 0 else {
+            return []
+        }
+        let lowerBound = max(0, count - maximumCount)
+        return elements(in: lowerBound..<count)
+    }
+
+    private func elements(in offsets: Range<Int>) -> [Element] {
+        offsets.map { offset in
             guard let element = storage[storageIndex(for: offset)] else {
                 preconditionFailure("History buffer storage is inconsistent")
             }
@@ -290,6 +307,20 @@ private struct BoundedHistoryBuffer<Element: Sendable>: Sendable {
         replaceElements(with: elements.map(transform))
     }
 
+    mutating func ensureCapacity(_ minimumCapacity: Int) {
+        guard minimumCapacity > storage.count else {
+            return
+        }
+
+        let retainedElements = elements
+        storage = Array(repeating: nil, count: minimumCapacity)
+        startIndex = 0
+        count = 0
+        for element in retainedElements {
+            append(element)
+        }
+    }
+
     private mutating func replaceElements(with elements: [Element]) {
         storage = Array(repeating: nil, count: storage.count)
         startIndex = 0
@@ -315,6 +346,39 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
         historyBuffer.elements.map(\.item)
     }
 
+    var upNextCount: Int {
+        forwardHistory.count + remainingItems.count - remainingIndex
+    }
+
+    var upNextItems: [Item] {
+        upNextItems(limit: .max)
+    }
+
+    func recentHistoryItems(limit: Int) -> [Item] {
+        historyBuffer.suffixElements(maximumCount: limit).map(\.item)
+    }
+
+    func upNextItems(limit: Int) -> [Item] {
+        guard limit > 0 else {
+            return []
+        }
+        let resultCount = min(limit, upNextCount)
+        var result: [Item] = []
+        result.reserveCapacity(resultCount)
+
+        for location in forwardHistory.reversed().prefix(resultCount) {
+            result.append(location.item)
+        }
+        let remainingCapacity = resultCount - result.count
+        if remainingCapacity > 0 {
+            result.append(
+                contentsOf: remainingItems[remainingIndex...]
+                    .prefix(remainingCapacity)
+            )
+        }
+        return result
+    }
+
     private var remainingItems: [Item]
     private var remainingIndex: Int
     private var historyBuffer: BoundedHistoryBuffer<PlaybackQueueLocation<Item>>
@@ -328,8 +392,14 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
         currentItem == nil
     }
 
+    /// Manual navigation requires another item; automatic progression may
+    /// still wrap a single-item queue when the current playback mode allows it.
+    var canMoveToNext: Bool {
+        items.count > 1
+    }
+
     var canMoveToPrevious: Bool {
-        !historyBuffer.isEmpty
+        items.count > 1 && !historyBuffer.isEmpty
     }
 
     var isAtEndOfRound: Bool {
@@ -505,7 +575,10 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
             let nextItem = remainingItems[remainingIndex]
             remainingIndex += 1
             self.currentItem = nextItem
-            currentRoundPosition = currentLocation.position + 1
+            currentRoundPosition = min(
+                currentLocation.position + 1,
+                items.count
+            )
             return nextItem
         }
 
@@ -535,6 +608,107 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
         forwardHistory.append(currentLocation)
         restore(previousLocation)
         return previousLocation.item
+    }
+
+    /// Starts a new navigation branch at an item already owned by the queue.
+    /// Back history is retained, while redo history is discarded. Callers
+    /// that just replaced an invalid current item may skip that transition
+    /// item so a synchronization fallback is not recorded as playback.
+    @discardableResult
+    mutating func select(
+        _ item: Item,
+        historyBehavior: PlaybackQueueSelectionHistoryBehavior = .recordCurrent
+    ) -> Item? {
+        guard let currentLocation, items.contains(item) else {
+            return nil
+        }
+
+        if currentLocation.item != item,
+           historyBehavior == .recordCurrent {
+            recordInHistory(currentLocation)
+        }
+        forwardHistory.removeAll()
+
+        if let selectedScheduleIndex = remainingItems.firstIndex(of: item) {
+            remainingItems.remove(at: selectedScheduleIndex)
+            if selectedScheduleIndex < remainingIndex {
+                remainingIndex -= 1
+            }
+        }
+
+        currentItem = item
+        let pendingItemCount = remainingItems.count - remainingIndex
+        currentRoundPosition = max(1, items.count - pendingItemCount)
+        return item
+    }
+
+    @discardableResult
+    mutating func synchronizeItems(_ synchronizedItems: [Item]) -> Bool {
+        var randomSource = SystemRandomNumberGenerator()
+        return synchronizeItems(
+            synchronizedItems,
+            using: &randomSource
+        )
+    }
+
+    /// Reconciles queue membership without rebuilding navigation state.
+    /// Existing pending items keep their relative order in both playback modes.
+    /// Returns whether the authoritative membership or item order changed.
+    @discardableResult
+    mutating func synchronizeItems<RandomSource: RandomNumberGenerator>(
+        _ synchronizedItems: [Item],
+        using randomSource: inout RandomSource
+    ) -> Bool {
+        let uniqueItems = Self.uniqued(synchronizedItems)
+        guard uniqueItems != items else {
+            return false
+        }
+
+        let previousItemSet = Set(items)
+        let synchronizedItemSet = Set(uniqueItems)
+        let removedItems = previousItemSet.subtracting(synchronizedItemSet)
+        let addedItems = uniqueItems.filter {
+            !previousItemSet.contains($0)
+        }
+        let retainedOrder = order
+
+        if !removedItems.isEmpty {
+            _ = remove(removedItems, using: &randomSource)
+        }
+
+        guard !uniqueItems.isEmpty else {
+            return true
+        }
+        guard !isEmpty else {
+            self = PlaybackQueue(
+                items: uniqueItems,
+                order: retainedOrder,
+                using: &randomSource
+            )
+            return true
+        }
+
+        items = uniqueItems
+        historyBuffer.ensureCapacity(
+            max(
+                uniqueItems.count,
+                PlaybackQueuePolicy.minimumHistoryCapacity
+            )
+        )
+
+        switch order {
+        case .ordered:
+            insertOrderedAdditions(
+                addedItems,
+                authoritativeItems: uniqueItems
+            )
+        case .shuffled:
+            insertShuffledAdditions(
+                addedItems,
+                using: &randomSource
+            )
+        }
+        return true
     }
 
     @discardableResult
@@ -650,7 +824,10 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
 
         guard let previousCurrentItem,
               activeRemovals.contains(previousCurrentItem) else {
-            currentRoundPosition = min(adjustedPosition, items.count)
+            currentRoundPosition = min(
+                adjustedPosition,
+                maximumCurrentPositionPreservingPendingItems
+            )
             return currentItem
         }
 
@@ -658,7 +835,7 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
             restore(nextLocation)
             currentRoundPosition = min(
                 currentRoundPosition ?? 1,
-                items.count
+                maximumCurrentPositionPreservingPendingItems
             )
             return currentItem
         }
@@ -666,7 +843,10 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
         if remainingIndex < remainingItems.count {
             currentItem = remainingItems[remainingIndex]
             remainingIndex += 1
-            currentRoundPosition = min(adjustedPosition, items.count)
+            currentRoundPosition = min(
+                adjustedPosition,
+                maximumCurrentPositionPreservingPendingItems
+            )
             return currentItem
         }
 
@@ -707,6 +887,111 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
         return items.filter { seenItems.insert($0).inserted }
     }
 
+    private var maximumCurrentPositionPreservingPendingItems: Int {
+        guard forwardHistory.isEmpty else {
+            return items.count
+        }
+        let pendingItemCount = remainingItems.count - remainingIndex
+        return max(1, items.count - pendingItemCount)
+    }
+
+    private mutating func insertOrderedAdditions(
+        _ addedItems: [Item],
+        authoritativeItems: [Item]
+    ) {
+        guard let currentItem else {
+            return
+        }
+
+        let authoritativePositions = Dictionary(
+            uniqueKeysWithValues: authoritativeItems.enumerated().map {
+                ($0.element, $0.offset)
+            }
+        )
+        guard let currentAuthoritativePosition = authoritativePositions[
+            currentItem
+        ] else {
+            return
+        }
+
+        let positionedAdditions: [(item: Item, position: Int)] = addedItems
+            .compactMap { addedItem in
+                guard let position = authoritativePositions[addedItem],
+                      position > currentAuthoritativePosition else {
+                    return nil
+                }
+                return (addedItem, position)
+            }
+        let pendingItems = Array(remainingItems[remainingIndex...])
+        var mergedPendingItems: [Item] = []
+        mergedPendingItems.reserveCapacity(
+            pendingItems.count + positionedAdditions.count
+        )
+        var additionIndex = 0
+
+        for pendingItem in pendingItems {
+            let pendingPosition = authoritativePositions[
+                pendingItem,
+                default: .max
+            ]
+            while additionIndex < positionedAdditions.count,
+                  positionedAdditions[additionIndex].position
+                    < pendingPosition {
+                mergedPendingItems.append(
+                    positionedAdditions[additionIndex].item
+                )
+                additionIndex += 1
+            }
+            mergedPendingItems.append(pendingItem)
+        }
+        if additionIndex < positionedAdditions.count {
+            mergedPendingItems.append(
+                contentsOf: positionedAdditions[additionIndex...].map(\.item)
+            )
+        }
+        remainingItems.replaceSubrange(
+            remainingIndex...,
+            with: mergedPendingItems
+        )
+    }
+
+    private mutating func insertShuffledAdditions<
+        RandomSource: RandomNumberGenerator
+    >(
+        _ addedItems: [Item],
+        using randomSource: inout RandomSource
+    ) {
+        let pendingItems = Array(remainingItems[remainingIndex...])
+        var randomizedAdditions = addedItems
+        randomizedAdditions.shuffle(using: &randomSource)
+        var additionsByGap = Array(
+            repeating: [Item](),
+            count: pendingItems.count + 1
+        )
+        for addedItem in randomizedAdditions {
+            let gapIndex = Int.random(
+                in: 0...pendingItems.count,
+                using: &randomSource
+            )
+            additionsByGap[gapIndex].append(addedItem)
+        }
+
+        var mergedPendingItems: [Item] = []
+        mergedPendingItems.reserveCapacity(
+            pendingItems.count + randomizedAdditions.count
+        )
+        for gapIndex in additionsByGap.indices {
+            mergedPendingItems.append(contentsOf: additionsByGap[gapIndex])
+            if gapIndex < pendingItems.count {
+                mergedPendingItems.append(pendingItems[gapIndex])
+            }
+        }
+        remainingItems.replaceSubrange(
+            remainingIndex...,
+            with: mergedPendingItems
+        )
+    }
+
     private var currentLocation: PlaybackQueueLocation<Item>? {
         guard let currentItem, let currentRoundPosition else {
             return nil
@@ -725,7 +1010,7 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
     private mutating func restore(_ location: PlaybackQueueLocation<Item>) {
         currentItem = location.item
         roundNumber = location.roundNumber
-        currentRoundPosition = location.position
+        currentRoundPosition = min(location.position, items.count)
     }
 
     private static func avoidRepeatedBoundary(in items: inout [Item], after previousItem: Item) {

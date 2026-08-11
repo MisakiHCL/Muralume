@@ -596,6 +596,104 @@ final class PlaybackSessionControllerTests: XCTestCase {
         await fixture.library.shutdown()
     }
 
+    func testExternalPlaybackPreservesLastKnownGoodOnExplicitSaveAndShutdown()
+        async throws {
+        let items = makeItems()
+        let lastKnownGood = try makeSnapshot(
+            items: items,
+            currentItem: items[0],
+            currentTime: 11,
+            isPlaying: false,
+            presentation: .player
+        )
+        let store = MemoryPlaybackSessionStore(snapshot: lastKnownGood)
+        let delayedPolicy = PlaybackSessionPersistencePolicy(
+            stateChangeCoalescingDelay: .seconds(3_600),
+            minimumSnapshotSaveInterval: .zero,
+            progressSaveDelay: .seconds(3_600),
+            failureRetryDelay: .seconds(3_600)
+        )
+        let fixture = makeFixture(
+            items: items,
+            store: store,
+            persistencePolicy: delayedPolicy
+        )
+        await prepareActiveQueue(items[0], in: fixture)
+        let initialSaveCount = await waitForPersistenceToSettle(in: store)
+        XCTAssertEqual(initialSaveCount, 0)
+
+        let didOpen = await fixture.library.openFilesTemporarily([
+            items[1].url,
+            items[0].url
+        ])
+        await waitUntil {
+            fixture.library.isExternalPlaybackContext
+                && fixture.playback.readiness == .ready
+        }
+        fixture.playback.seek(to: 37)
+        fixture.controller.preserveCurrentSnapshot()
+        let saveCountAfterExplicitRequest =
+            await waitForPersistenceToSettle(in: store)
+        let snapshotAfterExplicitRequest = await store.value()
+
+        XCTAssertTrue(didOpen)
+        XCTAssertEqual(fixture.library.currentItemID, items[1].id)
+        XCTAssertEqual(saveCountAfterExplicitRequest, initialSaveCount)
+        XCTAssertEqual(snapshotAfterExplicitRequest, lastKnownGood)
+
+        await fixture.controller.prepareForShutdown()
+        let finalSaveCount = await store.saveCount
+        let finalClearCount = await store.clearCount
+        let finalSnapshot = await store.value()
+
+        XCTAssertEqual(finalSaveCount, initialSaveCount)
+        XCTAssertEqual(finalClearCount, 0)
+        XCTAssertEqual(finalSnapshot, lastKnownGood)
+        fixture.desktopSession.shutdown()
+        await fixture.library.shutdown()
+    }
+
+    func testPersistenceResumesAfterRestoringExternalPlaybackContext()
+        async throws {
+        let items = makeItems()
+        let store = MemoryPlaybackSessionStore(snapshot: nil)
+        let fixture = makeFixture(items: items, store: store)
+        await prepareActiveQueue(items[0], in: fixture)
+        _ = await waitForPersistenceToSettle(in: store)
+        let context = try XCTUnwrap(
+            fixture.library.capturePlaybackContext()
+        )
+
+        let didOpen = await fixture.library.openFilesTemporarily([
+            items[1].url,
+            items[0].url
+        ])
+        await waitUntil {
+            fixture.library.isExternalPlaybackContext
+                && fixture.playback.readiness == .ready
+        }
+        XCTAssertTrue(didOpen)
+        let restoreResult = await fixture.library.restorePlaybackContext(
+            context
+        )
+        let saveCountAfterRestore =
+            await waitForPersistenceToSettle(in: store)
+
+        XCTAssertEqual(restoreResult, .restored)
+        XCTAssertFalse(fixture.library.isExternalPlaybackContext)
+        XCTAssertEqual(fixture.library.currentItemID, items[0].id)
+
+        XCTAssertTrue(fixture.library.playNext())
+        await waitForSave(after: saveCountAfterRestore, in: store)
+        let storedSnapshot = await store.value()
+
+        XCTAssertEqual(
+            storedSnapshot?.state.queue.currentItem,
+            items[1].id
+        )
+        await shutdown(fixture)
+    }
+
     func testCoalescedQueueChangesFlushOnlyLatestSnapshotAtShutdown() async {
         let items = makeItems()
         let store = MemoryPlaybackSessionStore(snapshot: nil)

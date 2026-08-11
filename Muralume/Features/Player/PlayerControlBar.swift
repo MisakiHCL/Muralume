@@ -1,6 +1,30 @@
 import Combine
 import SwiftUI
 
+private extension PlaybackMode {
+    var localizedKey: String {
+        switch self {
+        case .ordered:
+            "queue.mode.ordered"
+        case .shuffled:
+            "queue.mode.shuffled"
+        case .repeatCurrent:
+            "queue.mode.repeatCurrent"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .ordered:
+            "list.number"
+        case .shuffled:
+            "shuffle"
+        case .repeatCurrent:
+            "repeat.1"
+        }
+    }
+}
+
 enum PlayerFullScreenIcon {
     static let enterSystemName = "arrow.up.left.and.arrow.down.right"
     static let exitSystemName = "arrow.down.right.and.arrow.up.left"
@@ -179,7 +203,7 @@ struct PlayerControlBar: View {
         .help(Text("player.nextItem"))
         .accessibilityLabel(Text("player.nextItem"))
         .disabled(
-            !globalControlsEnabled || !controlState.hasActiveQueue
+            !globalControlsEnabled || !controlState.canMoveToNext
         )
     }
 
@@ -188,7 +212,7 @@ struct PlayerControlBar: View {
     ) -> some View {
         HStack(spacing: MuralumeTheme.Spacing.small) {
             volumeControls(showsSlider: showsVolumeSlider)
-            playbackOrderButton
+            playbackModeMenu
         }
         .fixedSize()
     }
@@ -243,26 +267,66 @@ struct PlayerControlBar: View {
         .fixedSize()
     }
 
-    private var playbackOrderButton: some View {
-        let isShuffled = controlState.playbackOrder == .shuffled
-
-        return Button {
-            library.setPlaybackOrder(isShuffled ? .ordered : .shuffled)
+    private var playbackModeMenu: some View {
+        Menu {
+            ForEach(PlaybackMode.allCases, id: \.self) { mode in
+                Button {
+                    library.setPlaybackMode(mode)
+                } label: {
+                    if controlState.playbackMode == mode {
+                        Label(
+                            LocalizedStringKey(mode.localizedKey),
+                            systemImage: "checkmark"
+                        )
+                    } else {
+                        Text(LocalizedStringKey(mode.localizedKey))
+                    }
+                }
+            }
         } label: {
-            Image(systemName: isShuffled ? "shuffle" : "list.number")
+            Image(systemName: controlState.playbackMode.systemImage)
+                .font(
+                    .system(
+                        size: MuralumeTheme.Size.icon,
+                        weight: .semibold
+                    )
+                )
+                .foregroundStyle(MuralumeTheme.Colors.controlAccent)
+                .frame(
+                    width: MuralumeTheme.Size.control,
+                    height: MuralumeTheme.Size.control
+                )
+                .background {
+                    RoundedRectangle(
+                        cornerRadius: MuralumeTheme.Radius.medium,
+                        style: .continuous
+                    )
+                    .fill(MuralumeTheme.Colors.controlFill)
+                    .overlay {
+                        RoundedRectangle(
+                            cornerRadius: MuralumeTheme.Radius.medium,
+                            style: .continuous
+                        )
+                        .stroke(MuralumeTheme.Colors.border, lineWidth: 1)
+                    }
+                }
+                .contentShape(
+                    RoundedRectangle(
+                        cornerRadius: MuralumeTheme.Radius.medium,
+                        style: .continuous
+                    )
+                )
         }
-        .buttonStyle(
-            MuralumeControlButtonStyle(
-                kind: isShuffled ? .selected : .standard
-            )
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(Text(LocalizedStringKey(controlState.playbackMode.localizedKey)))
+        .accessibilityLabel(Text("queue.mode"))
+        .accessibilityValue(
+            Text(LocalizedStringKey(controlState.playbackMode.localizedKey))
         )
-        .help(Text(LocalizedStringKey(playbackOrderLabelKey)))
-        .accessibilityLabel(
-            Text(LocalizedStringKey(playbackOrderLabelKey))
-        )
-        .accessibilityAddTraits(isShuffled ? .isSelected : [])
         .accessibilityIdentifier(
-            MuralumeAccessibilityIdentifier.playbackOrderButton
+            MuralumeAccessibilityIdentifier.playbackModeButton
         )
         .disabled(!globalControlsEnabled)
     }
@@ -293,8 +357,10 @@ struct PlayerControlBar: View {
                 Image(systemName: "display")
             }
             .buttonStyle(MuralumeControlButtonStyle(kind: .accent))
-            .help(Text("player.desktop"))
-            .accessibilityLabel(Text("player.desktop"))
+            .help(Text(LocalizedStringKey(desktopActionLabelKey)))
+            .accessibilityLabel(
+                Text(LocalizedStringKey(desktopActionLabelKey))
+            )
             .disabled(!mediaControlsEnabled)
         }
         .fixedSize()
@@ -317,7 +383,7 @@ struct PlayerControlBar: View {
             isPlaylistPresented ? .isSelected : []
         )
         .accessibilityIdentifier(
-            MuralumeAccessibilityIdentifier.playlistToggleButton
+            MuralumeAccessibilityIdentifier.mediaLibraryToggleButton
         )
     }
 
@@ -401,16 +467,16 @@ struct PlayerControlBar: View {
             : "speaker.wave.2.fill"
     }
 
-    private var playbackOrderLabelKey: String {
-        controlState.playbackOrder == .ordered
-            ? "queue.order.ordered"
-            : "queue.order.shuffled"
-    }
-
     private var playlistToggleLabelKey: String {
         isPlaylistPresented
             ? "library.playlist.hide"
             : "library.playlist.show"
+    }
+
+    private var desktopActionLabelKey: String {
+        library.isTemporaryPlayback
+            ? "player.desktop.addTemporary"
+            : "player.desktop"
     }
 
     private var globalControlsEnabled: Bool {
@@ -463,16 +529,16 @@ struct PlayerControlBar: View {
         .receive(on: RunLoop.main)
         .map {
             PlayerLibraryControlState(
-                playbackOrder: library.playbackOrder,
+                playbackMode: library.playbackMode,
                 canMoveToPrevious: library.canMoveToPrevious,
-                hasActiveQueue: library.hasActiveQueue
+                canMoveToNext: library.canMoveToNext
             )
         }
         .prepend(
             PlayerLibraryControlState(
-                playbackOrder: library.playbackOrder,
+                playbackMode: library.playbackMode,
                 canMoveToPrevious: library.canMoveToPrevious,
-                hasActiveQueue: library.hasActiveQueue
+                canMoveToNext: library.canMoveToNext
             )
         )
         .removeDuplicates()
@@ -488,9 +554,9 @@ private struct PlayerPlaybackControlState: Equatable {
 }
 
 private struct PlayerLibraryControlState: Equatable {
-    let playbackOrder: PlaybackOrder
+    let playbackMode: PlaybackMode
     let canMoveToPrevious: Bool
-    let hasActiveQueue: Bool
+    let canMoveToNext: Bool
 }
 
 private struct PlayerControlState: Equatable {
@@ -498,9 +564,9 @@ private struct PlayerControlState: Equatable {
     let presentation: PlaybackPresentation
     let isPlaybackRequested: Bool
     let settings: PlaybackSettings
-    let playbackOrder: PlaybackOrder
+    let playbackMode: PlaybackMode
     let canMoveToPrevious: Bool
-    let hasActiveQueue: Bool
+    let canMoveToNext: Bool
 
     @MainActor
     init(
@@ -515,9 +581,9 @@ private struct PlayerControlState: Equatable {
                 settings: playback.settings
             ),
             library: PlayerLibraryControlState(
-                playbackOrder: library.playbackOrder,
+                playbackMode: library.playbackMode,
                 canMoveToPrevious: library.canMoveToPrevious,
-                hasActiveQueue: library.hasActiveQueue
+                canMoveToNext: library.canMoveToNext
             )
         )
     }
@@ -530,8 +596,8 @@ private struct PlayerControlState: Equatable {
         presentation = playback.presentation
         isPlaybackRequested = playback.isPlaybackRequested
         settings = playback.settings
-        playbackOrder = library.playbackOrder
+        playbackMode = library.playbackMode
         canMoveToPrevious = library.canMoveToPrevious
-        hasActiveQueue = library.hasActiveQueue
+        canMoveToNext = library.canMoveToNext
     }
 }

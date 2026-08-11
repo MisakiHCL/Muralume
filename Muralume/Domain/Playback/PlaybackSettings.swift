@@ -1,5 +1,35 @@
 import Foundation
 
+enum PlaybackRepeatBehavior: String, Codable, Hashable, Sendable {
+    case queue
+    case currentItem
+}
+
+/// The three user-facing playback choices. Queue ordering and repeat behavior
+/// remain separate internally so repeating one item never mutates navigation.
+enum PlaybackMode: String, CaseIterable, Hashable, Sendable {
+    case ordered
+    case shuffled
+    case repeatCurrent
+
+    init(
+        order: PlaybackOrder,
+        repeatBehavior: PlaybackRepeatBehavior
+    ) {
+        if repeatBehavior == .currentItem {
+            self = .repeatCurrent
+        } else {
+            self = order == .ordered ? .ordered : .shuffled
+        }
+    }
+}
+
+enum PlaybackItemEndDisposition: Equatable, Sendable {
+    case unhandled
+    case advanced
+    case repeatCurrent
+}
+
 struct PlaybackVolume: Equatable, Sendable {
     static let muted = PlaybackVolume(rawValue: 0)
     static let full = PlaybackVolume(rawValue: 1)

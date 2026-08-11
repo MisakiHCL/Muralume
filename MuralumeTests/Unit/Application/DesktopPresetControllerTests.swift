@@ -543,6 +543,100 @@ final class DesktopPresetControllerTests: XCTestCase {
         XCTAssertEqual(storedOrder, .ordered)
     }
 
+    func testExternalPlaybackPreservesPresetOnExplicitSaveAndShutdown()
+        async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/ExternalPresetShutdown")
+        let first = makeItem(rootURL: rootURL, name: "First", path: "1.mp4")
+        let second = makeItem(rootURL: rootURL, name: "Second", path: "2.mp4")
+        let lastKnownGood = try makePreset(for: first)
+        let store = MemoryDesktopPresetStore(preset: lastKnownGood)
+        let delayedPolicy = DesktopPresetPersistencePolicy(
+            stateChangeCoalescingDelay: .seconds(3_600),
+            minimumSnapshotSaveInterval: .zero,
+            progressSaveDelay: .seconds(3_600),
+            failureRetryDelay: .seconds(3_600)
+        )
+        let fixture = makeFixture(
+            rootURL: rootURL,
+            items: [first, second],
+            preset: nil,
+            store: store,
+            persistencePolicy: delayedPolicy
+        )
+        fixture.controller.setAutomaticRestorePrepared(true)
+        await prepareActiveQueue(first, in: fixture)
+        let initialSaveCount = await waitForPersistenceToSettle(in: store)
+        XCTAssertEqual(initialSaveCount, 0)
+
+        let didOpen = await fixture.library.openFilesTemporarily([
+            second.url,
+            first.url
+        ])
+        while !fixture.library.isExternalPlaybackContext
+            || fixture.playback.readiness != .ready {
+            await Task.yield()
+        }
+        fixture.playback.seek(to: 37)
+        fixture.controller.preserveCurrentPreset()
+        let saveCountAfterExplicitRequest =
+            await waitForPersistenceToSettle(in: store)
+        let presetAfterExplicitRequest = try await store.load()
+
+        XCTAssertTrue(didOpen)
+        XCTAssertEqual(fixture.library.currentItemID, second.id)
+        XCTAssertEqual(saveCountAfterExplicitRequest, initialSaveCount)
+        XCTAssertEqual(presetAfterExplicitRequest, lastKnownGood)
+
+        await fixture.controller.prepareForShutdown()
+        let finalSaveCount = await store.saveCount
+        let finalClearCount = await store.clearCount
+        let finalPreset = try await store.load()
+
+        XCTAssertEqual(finalSaveCount, initialSaveCount)
+        XCTAssertEqual(finalClearCount, 0)
+        XCTAssertEqual(finalPreset, lastKnownGood)
+        fixture.desktopSession.shutdown()
+        await fixture.library.shutdown()
+    }
+
+    func testAdoptingExternalPlaybackResumesPresetPersistence() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/AdoptedExternalPreset")
+        let first = makeItem(rootURL: rootURL, name: "First", path: "1.mp4")
+        let second = makeItem(rootURL: rootURL, name: "Second", path: "2.mp4")
+        let store = MemoryDesktopPresetStore(preset: nil)
+        let fixture = makeFixture(
+            rootURL: rootURL,
+            items: [first, second],
+            preset: nil,
+            store: store
+        )
+        defer { fixture.desktopSession.shutdown() }
+        await prepareActiveQueue(first, in: fixture)
+        fixture.controller.setAutomaticRestorePrepared(true)
+        let initialSaveCount = await waitForPersistenceToSettle(in: store)
+
+        let didOpen = await fixture.library.openFilesTemporarily([
+            second.url,
+            first.url
+        ])
+        while !fixture.library.isExternalPlaybackContext
+            || fixture.playback.readiness != .ready {
+            await Task.yield()
+        }
+        let saveCountDuringExternalPlayback = await store.saveCount
+        XCTAssertTrue(didOpen)
+        XCTAssertEqual(saveCountDuringExternalPlayback, initialSaveCount)
+
+        fixture.library.adoptExternalPlaybackContext()
+        await waitForSave(after: initialSaveCount, in: store)
+        let storedPreset = try await store.load()
+
+        XCTAssertFalse(fixture.library.isExternalPlaybackContext)
+        XCTAssertEqual(storedPreset?.queue.currentItem, second.id)
+        await fixture.controller.prepareForShutdown()
+        await fixture.library.shutdown()
+    }
+
     func testIdenticalExplicitPresetDoesNotReachStoreTwice() async {
         let rootURL = URL(fileURLWithPath: "/tmp/DeduplicatedDesktopPreset")
         let item = makeItem(rootURL: rootURL, name: "Clip", path: "clip.mp4")

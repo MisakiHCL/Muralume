@@ -4,9 +4,17 @@ struct DesktopStatusState {
     let isTransitioning: Bool
     let canPlayNext: Bool
     let playbackOrder: PlaybackOrder
+    var playbackRepeatBehavior: PlaybackRepeatBehavior = .queue
     let canSetPlaybackOrder: Bool
     let playbackRate: PlaybackRate
     let videoContentMode: DesktopVideoContentMode
+
+    var playbackMode: PlaybackMode {
+        PlaybackMode(
+            order: playbackOrder,
+            repeatBehavior: playbackRepeatBehavior
+        )
+    }
 }
 
 @MainActor
@@ -15,6 +23,7 @@ protocol DesktopStatusPresenting: AnyObject {
     var togglePlaybackHandler: (() -> Void)? { get set }
     var playNextHandler: (() -> Void)? { get set }
     var setPlaybackOrderHandler: ((PlaybackOrder) -> Void)? { get set }
+    var setPlaybackModeHandler: ((PlaybackMode) -> Void)? { get set }
     var setPlaybackRateHandler: ((PlaybackRate) -> Void)? { get set }
     var returnToPlayerHandler: (() -> Void)? { get set }
     var setVideoContentModeHandler: ((DesktopVideoContentMode) -> Void)? {

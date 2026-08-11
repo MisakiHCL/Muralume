@@ -91,6 +91,45 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         XCTAssertNotEqual(resolvedURL, resolvedURL.standardizedFileURL)
     }
 
+    func testCallerManagedScopesRemainCallerOwnedAcrossPartialFailure() {
+        let fixture = makeSessionFixture()
+        defer { fixture.clearDefaults() }
+
+        let selectedURL = URL(
+            fileURLWithPath: "/tmp/Caller Managed \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let resolvedURL = URL(
+            fileURLWithPath: "/tmp/Persisted Scope \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let rejectedURL = URL(
+            fileURLWithPath: "/tmp/Rejected Scope \(UUID().uuidString)",
+            isDirectory: true
+        )
+        fixture.recorder.resolvedURLByBookmark[
+            fixture.recorder.bookmark(for: selectedURL)
+        ] = resolvedURL
+
+        let update = fixture.session.addSources(
+            [selectedURL, rejectedURL],
+            incomingScopePolicy: .callerManaged
+        )
+
+        XCTAssertEqual(
+            update.activeSources,
+            [MediaSource(url: resolvedURL, kind: .folder)]
+        )
+        XCTAssertEqual(update.acceptedRequestCount, 1)
+        XCTAssertEqual(update.rejectedRequestCount, 1)
+        XCTAssertEqual(fixture.recorder.startedURLs, [resolvedURL])
+        XCTAssertTrue(fixture.recorder.stoppedURLs.isEmpty)
+
+        fixture.session.stop()
+
+        XCTAssertEqual(fixture.recorder.stoppedURLs, [resolvedURL])
+    }
+
     func testSingleFileUsesAnExactBookmarkAndReturnsPlaybackIntent() throws {
         let fixture = makeSessionFixture()
         defer { fixture.clearDefaults() }

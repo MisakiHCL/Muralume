@@ -166,6 +166,9 @@ private struct MuralumePlayerRootView: View {
             desktopSession: coordinator.desktopSession,
             library: coordinator.library,
             dynamicDesktopStartup: coordinator.dynamicDesktopStartup,
+            defaultVideoPlayer: coordinator.defaultVideoPlayer,
+            canRestoreDynamicDesktop:
+                coordinator.canRestoreDynamicDesktop,
             mediaThumbnailProvider: coordinator.mediaThumbnailProvider,
             isFullScreen: coordinator.isMainWindowFullScreen,
             chromeController: coordinator.playerChrome,
@@ -181,6 +184,15 @@ private struct MuralumePlayerRootView: View {
                 },
                 importDroppedURLs: { urls in
                     coordinator.importDroppedURLs(urls)
+                },
+                addTemporaryItemsToLibrary: {
+                    _ = coordinator.library.addTemporaryItemsToLibrary()
+                },
+                restoreDynamicDesktop: {
+                    coordinator.restoreDynamicDesktop()
+                },
+                playLibraryItem: { item in
+                    coordinator.playLibraryItem(item)
                 },
                 revealMediaInFinder: { url in
                     NSWorkspace.shared.activateFileViewerSelecting([url])

@@ -11,17 +11,23 @@ private enum DesktopStatusMenuAsset {
     static let menuBarMark = NSImage.Name("MenuBarMark")
 }
 
-private enum DesktopPlaybackOrderMenu {
-    static let displayOrder: [PlaybackOrder] = [.shuffled, .ordered]
+private enum DesktopPlaybackModeMenu {
+    static let displayOrder: [PlaybackMode] = [
+        .ordered,
+        .shuffled,
+        .repeatCurrent
+    ]
 }
 
-private extension PlaybackOrder {
+private extension PlaybackMode {
     var desktopStatusLocalizedKey: String {
         switch self {
         case .ordered:
-            "queue.order.ordered"
+            "queue.mode.ordered"
         case .shuffled:
-            "queue.order.shuffled"
+            "queue.mode.shuffled"
+        case .repeatCurrent:
+            "queue.mode.repeatCurrent"
         }
     }
 }
@@ -32,6 +38,7 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
     var togglePlaybackHandler: (() -> Void)?
     var playNextHandler: (() -> Void)?
     var setPlaybackOrderHandler: ((PlaybackOrder) -> Void)?
+    var setPlaybackModeHandler: ((PlaybackMode) -> Void)?
     var setPlaybackRateHandler: ((PlaybackRate) -> Void)?
     var returnToPlayerHandler: (() -> Void)?
     var setVideoContentModeHandler: ((DesktopVideoContentMode) -> Void)?
@@ -41,12 +48,12 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
     private weak var currentItem: NSMenuItem?
     private weak var togglePlaybackItem: NSMenuItem?
     private weak var playNextItem: NSMenuItem?
-    private weak var playbackOrderItem: NSMenuItem?
+    private weak var playbackModeItem: NSMenuItem?
     private weak var playbackRateItem: NSMenuItem?
     private weak var videoContentModeItem: NSMenuItem?
     private weak var returnItem: NSMenuItem?
     private weak var quitItem: NSMenuItem?
-    private var playbackOrderItems: [PlaybackOrder: NSMenuItem] = [:]
+    private var playbackModeItems: [PlaybackMode: NSMenuItem] = [:]
     private var playbackRateItems: [PlaybackRate: NSMenuItem] = [:]
     private var videoContentModeItems: [DesktopVideoContentMode: NSMenuItem] = [:]
     private let localization: AppLocalizationController
@@ -136,8 +143,8 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         playNextItem.target = self
         menu.addItem(playNextItem)
 
-        let playbackOrderItem = makePlaybackOrderItem()
-        menu.addItem(playbackOrderItem)
+        let playbackModeItem = makePlaybackModeItem()
+        menu.addItem(playbackModeItem)
 
         let playbackRateItem = makePlaybackRateItem()
         menu.addItem(playbackRateItem)
@@ -166,7 +173,7 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         self.currentItem = currentItem
         self.togglePlaybackItem = togglePlaybackItem
         self.playNextItem = playNextItem
-        self.playbackOrderItem = playbackOrderItem
+        self.playbackModeItem = playbackModeItem
         self.playbackRateItem = playbackRateItem
         self.videoContentModeItem = videoContentModeItem
         self.returnItem = returnItem
@@ -182,8 +189,8 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         currentItem = nil
         togglePlaybackItem = nil
         playNextItem = nil
-        playbackOrderItem = nil
-        playbackOrderItems.removeAll()
+        playbackModeItem = nil
+        playbackModeItems.removeAll()
         playbackRateItem = nil
         playbackRateItems.removeAll()
         videoContentModeItem = nil
@@ -209,12 +216,23 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
     }
 
     @objc
-    private func selectPlaybackOrder(_ sender: NSMenuItem) {
+    private func selectPlaybackMode(_ sender: NSMenuItem) {
         guard let rawValue = sender.representedObject as? String,
-              let order = PlaybackOrder(rawValue: rawValue) else {
+              let mode = PlaybackMode(rawValue: rawValue) else {
             return
         }
-        setPlaybackOrderHandler?(order)
+        if let setPlaybackModeHandler {
+            setPlaybackModeHandler(mode)
+        } else {
+            switch mode {
+            case .ordered:
+                setPlaybackOrderHandler?(.ordered)
+            case .shuffled:
+                setPlaybackOrderHandler?(.shuffled)
+            case .repeatCurrent:
+                break
+            }
+        }
         updateMenu()
     }
 
@@ -268,7 +286,7 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
             togglePlaybackItem?.isEnabled = !state.isTransitioning
             playNextItem?.isEnabled = state.canPlayNext
                 && !state.isTransitioning
-            playbackOrderItem?.isEnabled = state.canSetPlaybackOrder
+            playbackModeItem?.isEnabled = state.canSetPlaybackOrder
                 && !state.isTransitioning
             playbackRateItem?.isEnabled = !state.isTransitioning
             videoContentModeItem?.isEnabled = !state.isTransitioning
@@ -276,12 +294,12 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         }
 
         playNextItem?.title = localized("desktop.playNext")
-        playbackOrderItem?.title = localized("queue.order")
-        playbackOrderItem?.submenu?.title = localized("queue.order")
-        for (order, item) in playbackOrderItems {
-            item.title = localized(order.desktopStatusLocalizedKey)
+        playbackModeItem?.title = localized("queue.mode")
+        playbackModeItem?.submenu?.title = localized("queue.mode")
+        for (mode, item) in playbackModeItems {
+            item.title = localized(mode.desktopStatusLocalizedKey)
             if let state {
-                item.state = order == state.playbackOrder ? .on : .off
+                item.state = mode == state.playbackMode ? .on : .off
             }
         }
         playbackRateItem?.title = localized("player.speed")
@@ -409,24 +427,24 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         return item
     }
 
-    private func makePlaybackOrderItem() -> NSMenuItem {
+    private func makePlaybackModeItem() -> NSMenuItem {
         let item = NSMenuItem(
-            title: localized("queue.order"),
+            title: localized("queue.mode"),
             action: nil,
             keyEquivalent: ""
         )
-        let submenu = NSMenu(title: localized("queue.order"))
+        let submenu = NSMenu(title: localized("queue.mode"))
 
-        for order in DesktopPlaybackOrderMenu.displayOrder {
-            let orderItem = NSMenuItem(
-                title: localized(order.desktopStatusLocalizedKey),
-                action: #selector(selectPlaybackOrder(_:)),
+        for mode in DesktopPlaybackModeMenu.displayOrder {
+            let modeItem = NSMenuItem(
+                title: localized(mode.desktopStatusLocalizedKey),
+                action: #selector(selectPlaybackMode(_:)),
                 keyEquivalent: ""
             )
-            orderItem.target = self
-            orderItem.representedObject = order.rawValue
-            submenu.addItem(orderItem)
-            playbackOrderItems[order] = orderItem
+            modeItem.target = self
+            modeItem.representedObject = mode.rawValue
+            submenu.addItem(modeItem)
+            playbackModeItems[mode] = modeItem
         }
 
         item.submenu = submenu

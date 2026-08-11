@@ -28,6 +28,10 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             fixture.coordinator.importNotice,
             .selectedFolderContainsActiveFolder
         )
+        XCTAssertEqual(
+            fixture.session.incomingScopePolicies,
+            [.sessionManaged]
+        )
     }
 
     func testCoveredChildFolderShowsInformationalImportNotice() {
@@ -211,7 +215,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.coordinator.scanState, .ready)
     }
 
-    func testManualRefreshDiscoversNewFolderItemsWithoutRebuildingQueue()
+    func testManualRefreshAddsMembersWithoutResettingPlaybackContext()
         async {
         let rootURL = URL(fileURLWithPath: "/tmp/Refresh Library")
         let existingItem = makeItem(
@@ -273,13 +277,16 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             fixture.coordinator.items.map(\.id),
             [addedItem.id, existingItem.id]
         )
-        XCTAssertEqual(
+        XCTAssertNotEqual(
             fixture.coordinator.makeQueueSnapshot(),
             queueSnapshot
         )
-        XCTAssertEqual(fixture.coordinator.queueRevision, queueRevision)
+        XCTAssertGreaterThan(
+            fixture.coordinator.queueRevision,
+            queueRevision
+        )
         XCTAssertEqual(fixture.coordinator.currentItemID, existingItem.id)
-        XCTAssertEqual(fixture.coordinator.queueCount, 1)
+        XCTAssertEqual(fixture.coordinator.queueCount, 2)
         XCTAssertEqual(fixture.playback.source, playbackSource)
         XCTAssertEqual(fixture.playback.currentTime, playbackTime)
         XCTAssertEqual(
@@ -288,6 +295,924 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         )
         XCTAssertEqual(fixture.engine.loadedSources.count, 1)
         XCTAssertEqual(fixture.scanner.scannedSources.count, 2)
+    }
+
+    func testManualRefreshRemovesDeletedPendingItemFromQueue() async {
+        let rootURL = URL(fileURLWithPath: "/tmp/Refresh Deletion")
+        let current = makeItem(
+            rootURL: rootURL,
+            name: "Current",
+            path: "Current.mov"
+        )
+        let deleted = makeItem(
+            rootURL: rootURL,
+            name: "Deleted",
+            path: "Deleted.mp4"
+        )
+        let root = MediaLibraryRoot(
+            url: rootURL,
+            displayName: "Refresh Deletion"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [root],
+                items: [current, deleted]
+            )
+        )
+
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.play(current)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+        XCTAssertEqual(fixture.coordinator.queueCount, 2)
+
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [root],
+                items: [current]
+            )
+        )
+        fixture.coordinator.refresh()
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(fixture.coordinator.items.map(\.id), [current.id])
+        XCTAssertEqual(fixture.coordinator.queueCount, 1)
+        XCTAssertTrue(fixture.coordinator.upNextItems.isEmpty)
+        XCTAssertEqual(fixture.coordinator.currentItemID, current.id)
+        XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+    }
+
+    func testTemporaryPlaybackSurvivesRefreshAndRestoresPlaybackContext()
+        async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/Temporary Playback Library")
+        let first = makeItem(
+            rootURL: rootURL,
+            name: "First",
+            path: "First.mov"
+        )
+        let second = makeItem(
+            rootURL: rootURL,
+            name: "Second",
+            path: "Second.mov"
+        )
+        let root = MediaLibraryRoot(
+            url: rootURL,
+            displayName: "Temporary Playback Library"
+        )
+        let librarySnapshot = MediaLibrarySnapshot(
+            roots: [root],
+            items: [first, second]
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: librarySnapshot
+        )
+
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.play(first)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+        XCTAssertTrue(fixture.coordinator.playNext())
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+        fixture.playback.seek(to: 37)
+        fixture.playback.setPlaybackIntent(.paused)
+
+        let context = try XCTUnwrap(
+            fixture.coordinator.capturePlaybackContext()
+        )
+        let originalQueueSnapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+        XCTAssertEqual(originalQueueSnapshot.history.map(\.item), [first.id])
+
+        let externalURL = URL(
+            fileURLWithPath: "/tmp/External Temporary Clip.mp4"
+        )
+        let externalItem = makeFileItem(
+            url: externalURL,
+            name: "External Temporary Clip"
+        )
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: externalURL,
+                        displayName: externalURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [externalItem]
+            )
+        )
+
+        let didOpen = await fixture.coordinator.openFilesTemporarily([
+            externalURL
+        ])
+        await waitForLoads(fixture.engine, count: 3)
+        await waitForReady(fixture.playback)
+
+        XCTAssertTrue(didOpen)
+        XCTAssertTrue(fixture.coordinator.isTemporaryPlayback)
+        XCTAssertTrue(fixture.coordinator.currentItemIsTemporary)
+        XCTAssertEqual(fixture.coordinator.temporaryItemIDs, [externalItem.id])
+        XCTAssertEqual(fixture.coordinator.currentItemID, externalItem.id)
+        XCTAssertEqual(fixture.coordinator.queueCount, 1)
+        XCTAssertEqual(fixture.playback.source?.url, externalURL)
+        XCTAssertEqual(Set(fixture.coordinator.items), Set([first, second]))
+
+        let temporaryQueueSnapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+        fixture.scanner.enqueueSnapshot(librarySnapshot)
+        fixture.coordinator.refresh()
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertTrue(fixture.coordinator.isTemporaryPlayback)
+        XCTAssertEqual(
+            fixture.coordinator.makeQueueSnapshot(),
+            temporaryQueueSnapshot
+        )
+        XCTAssertEqual(fixture.coordinator.currentItemID, externalItem.id)
+        XCTAssertEqual(fixture.playback.source?.url, externalURL)
+        XCTAssertEqual(fixture.engine.loadedSources.count, 3)
+
+        let restoreResult = await fixture.coordinator.restorePlaybackContext(
+            context
+        )
+
+        XCTAssertEqual(restoreResult, .restored)
+        XCTAssertFalse(fixture.coordinator.isTemporaryPlayback)
+        XCTAssertFalse(fixture.coordinator.currentItemIsTemporary)
+        XCTAssertTrue(fixture.coordinator.temporaryItemIDs.isEmpty)
+        XCTAssertEqual(
+            fixture.coordinator.makeQueueSnapshot(),
+            originalQueueSnapshot
+        )
+        XCTAssertEqual(fixture.coordinator.currentItemID, second.id)
+        XCTAssertEqual(fixture.playback.source?.url, second.url)
+        XCTAssertEqual(fixture.playback.currentTime, 37)
+        XCTAssertFalse(fixture.playback.isPlaybackRequested)
+        XCTAssertEqual(fixture.engine.soughtTimes.last, 37)
+        XCTAssertEqual(fixture.engine.loadedSources.count, 4)
+    }
+
+    func testSupersededPlaybackContextRestoreCannotOverwriteNewExternalOpen()
+        async throws {
+        let rootURL = URL(
+            fileURLWithPath: "/tmp/Superseded Playback Context Restore"
+        )
+        let libraryItem = makeItem(
+            rootURL: rootURL,
+            name: "Library",
+            path: "Library.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Superseded Playback Context Restore"
+                    )
+                ],
+                items: [libraryItem]
+            )
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.play(libraryItem)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+        fixture.engine.progressHandler?(37)
+        fixture.playback.setPlaybackIntent(.paused)
+        let context = try XCTUnwrap(
+            fixture.coordinator.capturePlaybackContext()
+        )
+
+        let firstExternalURL = URL(
+            fileURLWithPath: "/tmp/First External Restore Race.mp4"
+        )
+        let firstExternalItem = makeFileItem(
+            url: firstExternalURL,
+            name: "First External"
+        )
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: firstExternalURL,
+                        displayName: firstExternalURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [firstExternalItem]
+            )
+        )
+        let didOpenFirstExternal = await fixture.coordinator
+            .openFilesTemporarily([firstExternalURL])
+        XCTAssertTrue(didOpenFirstExternal)
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+
+        fixture.engine.shouldBlockLoads = true
+        let restoreTask = Task {
+            await fixture.coordinator.restorePlaybackContext(context)
+        }
+        while !fixture.engine.didBeginBlockedLoad {
+            await Task.yield()
+        }
+
+        let secondExternalURL = URL(
+            fileURLWithPath: "/tmp/Second External Restore Race.mp4"
+        )
+        let secondExternalItem = makeFileItem(
+            url: secondExternalURL,
+            name: "Second External"
+        )
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: secondExternalURL,
+                        displayName: secondExternalURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [secondExternalItem]
+            )
+        )
+        fixture.engine.shouldBlockLoads = false
+        let didOpenSecondExternal = await fixture.coordinator
+            .openFilesTemporarily([secondExternalURL])
+        XCTAssertTrue(didOpenSecondExternal)
+        await waitForLoads(fixture.engine, count: 4)
+        await waitForReady(fixture.playback)
+        let secondExternalQueue = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+
+        XCTAssertTrue(fixture.coordinator.isExternalPlaybackContext)
+        XCTAssertTrue(fixture.coordinator.isTemporaryPlayback)
+        XCTAssertEqual(
+            fixture.coordinator.currentItemID,
+            secondExternalItem.id
+        )
+        XCTAssertEqual(fixture.playback.source?.url, secondExternalURL)
+        XCTAssertTrue(fixture.playback.isPlaybackRequested)
+
+        fixture.engine.finishBlockedLoad()
+        let restoreResult = await restoreTask.value
+
+        XCTAssertEqual(restoreResult, .cancelled)
+        XCTAssertTrue(fixture.coordinator.isExternalPlaybackContext)
+        XCTAssertTrue(fixture.coordinator.isTemporaryPlayback)
+        XCTAssertEqual(
+            fixture.coordinator.temporaryItemIDs,
+            [secondExternalItem.id]
+        )
+        XCTAssertEqual(
+            fixture.coordinator.makeQueueSnapshot(),
+            secondExternalQueue
+        )
+        XCTAssertEqual(
+            fixture.coordinator.currentItemID,
+            secondExternalItem.id
+        )
+        XCTAssertEqual(fixture.playback.source?.url, secondExternalURL)
+        XCTAssertTrue(fixture.playback.isPlaybackRequested)
+        XCTAssertTrue(fixture.engine.soughtTimes.isEmpty)
+    }
+
+    func testPermanentExternalRestoreFailureEndsExternalContext()
+        async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/Permanent Restore Failure")
+        let libraryItem = makeItem(
+            rootURL: rootURL,
+            name: "Library",
+            path: "Library.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Permanent Restore Failure"
+                    )
+                ],
+                items: [libraryItem]
+            )
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.play(libraryItem)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+        let context = try XCTUnwrap(
+            fixture.coordinator.capturePlaybackContext()
+        )
+
+        let externalURL = URL(
+            fileURLWithPath: "/tmp/Permanent Restore External.mp4"
+        )
+        let externalItem = makeFileItem(
+            url: externalURL,
+            name: "External"
+        )
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: externalURL,
+                        displayName: externalURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [externalItem]
+            )
+        )
+        let didOpen = await fixture.coordinator.openFilesTemporarily([
+            externalURL
+        ])
+        XCTAssertTrue(didOpen)
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+        fixture.engine.loadErrorsByURL[libraryItem.url] = .unsupported
+
+        let result = await fixture.coordinator.restorePlaybackContext(context)
+
+        XCTAssertEqual(result, .permanentlyUnavailable)
+        XCTAssertFalse(fixture.coordinator.isExternalPlaybackContext)
+        XCTAssertFalse(fixture.coordinator.isTemporaryPlayback)
+        XCTAssertFalse(fixture.coordinator.hasActiveQueue)
+        XCTAssertNil(fixture.coordinator.currentItemID)
+    }
+
+    func testKnownExternalBatchRemainsIndependentUntilAdopted() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/Known External Batch")
+        let first = makeItem(
+            rootURL: rootURL,
+            name: "First",
+            path: "First.mov"
+        )
+        let second = makeItem(
+            rootURL: rootURL,
+            name: "Second",
+            path: "Second.mov"
+        )
+        let third = makeItem(
+            rootURL: rootURL,
+            name: "Third",
+            path: "Third.mov"
+        )
+        let root = MediaLibraryRoot(
+            url: rootURL,
+            displayName: "Known External Batch"
+        )
+        let snapshot = MediaLibrarySnapshot(
+            roots: [root],
+            items: [first, second, third]
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: snapshot
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+
+        fixture.scanner.enqueueSnapshot(.empty)
+        let didOpen = await fixture.coordinator.openFilesTemporarily([
+            first.url,
+            second.url,
+        ])
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+
+        XCTAssertTrue(didOpen)
+        XCTAssertTrue(fixture.coordinator.isExternalPlaybackContext)
+        XCTAssertFalse(fixture.coordinator.isTemporaryPlayback)
+        XCTAssertEqual(fixture.coordinator.queueCount, 2)
+        XCTAssertTrue(fixture.coordinator.canMoveToNext)
+        XCTAssertEqual(fixture.coordinator.currentItemID, first.id)
+        XCTAssertEqual(fixture.coordinator.upNextItems.map(\.id), [second.id])
+
+        fixture.scanner.enqueueSnapshot(snapshot)
+        fixture.coordinator.refresh()
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(fixture.coordinator.queueCount, 2)
+        XCTAssertEqual(fixture.coordinator.upNextItems.map(\.id), [second.id])
+
+        fixture.coordinator.adoptExternalPlaybackContext()
+        XCTAssertFalse(fixture.coordinator.isExternalPlaybackContext)
+
+        fixture.scanner.enqueueSnapshot(snapshot)
+        fixture.coordinator.refresh()
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(fixture.coordinator.queueCount, 3)
+        XCTAssertEqual(
+            Set(fixture.coordinator.upNextItems.map(\.id)),
+            Set([second.id, third.id])
+        )
+    }
+
+    func testSingleKnownExternalFileUsesIndependentContext() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/Known External File")
+        let first = makeItem(
+            rootURL: rootURL,
+            name: "First",
+            path: "First.mov"
+        )
+        let second = makeItem(
+            rootURL: rootURL,
+            name: "Second",
+            path: "Second.mov"
+        )
+        let snapshot = MediaLibrarySnapshot(
+            roots: [
+                MediaLibraryRoot(
+                    url: rootURL,
+                    displayName: "Known External File"
+                )
+            ],
+            items: [first, second]
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: snapshot
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+
+        fixture.scanner.enqueueSnapshot(.empty)
+        let didOpen = await fixture.coordinator.openFilesTemporarily([
+            first.url
+        ])
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+
+        XCTAssertTrue(didOpen)
+        XCTAssertTrue(fixture.coordinator.isExternalPlaybackContext)
+        XCTAssertFalse(fixture.coordinator.isTemporaryPlayback)
+        XCTAssertEqual(fixture.coordinator.queueCount, 1)
+        XCTAssertFalse(fixture.coordinator.canMoveToPrevious)
+        XCTAssertFalse(fixture.coordinator.canMoveToNext)
+        XCTAssertEqual(fixture.coordinator.currentItemID, first.id)
+        XCTAssertTrue(fixture.coordinator.upNextItems.isEmpty)
+    }
+
+    func testAddingCurrentTemporaryItemUsesCallerManagedIncomingScope()
+        async {
+        let externalURL = URL(
+            fileURLWithPath: "/tmp/Caller Managed Current.mp4"
+        )
+        let externalItem = makeFileItem(url: externalURL)
+        let snapshot = MediaLibrarySnapshot(
+            roots: [
+                MediaLibraryRoot(
+                    url: externalURL,
+                    displayName: externalURL.lastPathComponent,
+                    kind: .file
+                )
+            ],
+            items: [externalItem]
+        )
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: snapshot
+        )
+
+        let didOpen = await fixture.coordinator.openFilesTemporarily([
+            externalURL
+        ])
+        XCTAssertTrue(didOpen)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+
+        XCTAssertTrue(
+            fixture.coordinator.addCurrentTemporaryItemToLibrary()
+        )
+        XCTAssertEqual(
+            fixture.session.incomingScopePolicies,
+            [.callerManaged]
+        )
+        await waitForScan(fixture.coordinator)
+    }
+
+    func testAddingAllTemporaryItemsUsesCallerManagedIncomingScope()
+        async {
+        let firstURL = URL(
+            fileURLWithPath: "/tmp/Caller Managed First.mp4"
+        )
+        let secondURL = URL(
+            fileURLWithPath: "/tmp/Caller Managed Second.mov"
+        )
+        let items = [firstURL, secondURL].map {
+            makeFileItem(url: $0)
+        }
+        let snapshot = MediaLibrarySnapshot(
+            roots: [firstURL, secondURL].map {
+                MediaLibraryRoot(
+                    url: $0,
+                    displayName: $0.lastPathComponent,
+                    kind: .file
+                )
+            },
+            items: items
+        )
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: snapshot
+        )
+
+        let didOpen = await fixture.coordinator.openFilesTemporarily([
+            firstURL,
+            secondURL,
+        ])
+        XCTAssertTrue(didOpen)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+
+        XCTAssertTrue(fixture.coordinator.addTemporaryItemsToLibrary())
+        XCTAssertEqual(
+            fixture.session.incomingScopePolicies,
+            [.callerManaged]
+        )
+        await waitForScan(fixture.coordinator)
+    }
+
+    func testRestoredExternalReturnContextUsesCurrentPlaybackOrder()
+        async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/External Restore Order")
+        let first = makeItem(
+            rootURL: rootURL,
+            name: "First",
+            path: "First.mov"
+        )
+        let second = makeItem(
+            rootURL: rootURL,
+            name: "Second",
+            path: "Second.mov"
+        )
+        let snapshot = MediaLibrarySnapshot(
+            roots: [
+                MediaLibraryRoot(
+                    url: rootURL,
+                    displayName: "External Restore Order"
+                )
+            ],
+            items: [first, second]
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: snapshot
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.setPlaybackMode(.ordered)
+        fixture.coordinator.play(first)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+        let context = try XCTUnwrap(
+            fixture.coordinator.capturePlaybackContext()
+        )
+
+        fixture.scanner.enqueueSnapshot(.empty)
+        let didOpen = await fixture.coordinator.openFilesTemporarily([
+            second.url
+        ])
+        XCTAssertTrue(didOpen)
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+        fixture.coordinator.setPlaybackMode(.shuffled)
+
+        let result = await fixture.coordinator.restorePlaybackContext(context)
+        await waitForLoads(fixture.engine, count: 3)
+        await waitForReady(fixture.playback)
+
+        XCTAssertEqual(result, .restored)
+        XCTAssertEqual(fixture.coordinator.playbackMode, .shuffled)
+        XCTAssertEqual(
+            fixture.coordinator.makeQueueSnapshot()?.order,
+            .shuffled
+        )
+    }
+
+    func testSelectingFromMediaLibraryEndsExternalContextAndKeepsBackHistory()
+        async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/Exit External Context")
+        let first = makeItem(
+            rootURL: rootURL,
+            name: "First",
+            path: "First.mov"
+        )
+        let second = makeItem(
+            rootURL: rootURL,
+            name: "Second",
+            path: "Second.mov"
+        )
+        let third = makeItem(
+            rootURL: rootURL,
+            name: "Third",
+            path: "Third.mov"
+        )
+        let snapshot = MediaLibrarySnapshot(
+            roots: [
+                MediaLibraryRoot(
+                    url: rootURL,
+                    displayName: "Exit External Context"
+                )
+            ],
+            items: [first, second, third]
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: snapshot
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+
+        fixture.scanner.enqueueSnapshot(.empty)
+        let didOpen = await fixture.coordinator.openFilesTemporarily([
+            first.url,
+            second.url,
+        ])
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+
+        XCTAssertTrue(didOpen)
+        fixture.coordinator.playLibraryItem(third)
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+
+        XCTAssertFalse(fixture.coordinator.isExternalPlaybackContext)
+        XCTAssertEqual(fixture.coordinator.queueCount, 3)
+        XCTAssertEqual(fixture.coordinator.currentItemID, third.id)
+        XCTAssertEqual(fixture.coordinator.recentlyPlayedItems.map(\.id), [
+            first.id
+        ])
+        XCTAssertTrue(fixture.coordinator.canMoveToPrevious)
+
+        fixture.coordinator.playPrevious()
+        await waitForLoads(fixture.engine, count: 3)
+        await waitForReady(fixture.playback)
+
+        XCTAssertEqual(fixture.coordinator.currentItemID, first.id)
+        XCTAssertEqual(fixture.playback.source?.url, first.url)
+        XCTAssertEqual(
+            fixture.engine.loadedSources.map(\.url),
+            [first.url, third.url, first.url]
+        )
+    }
+
+    func testSelectingLibraryItemAfterTemporaryExternalDoesNotCreatePhantomHistory()
+        async throws {
+        let rootURL = URL(
+            fileURLWithPath: "/tmp/Temporary External History Library"
+        )
+        let first = makeItem(
+            rootURL: rootURL,
+            name: "First",
+            path: "First.mov"
+        )
+        let second = makeItem(
+            rootURL: rootURL,
+            name: "Second",
+            path: "Second.mov"
+        )
+        let third = makeItem(
+            rootURL: rootURL,
+            name: "Third",
+            path: "Third.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Temporary External History Library"
+                    )
+                ],
+                items: [first, second, third]
+            )
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+
+        let externalURL = URL(
+            fileURLWithPath: "/tmp/Temporary External History.mp4"
+        )
+        let externalItem = makeFileItem(
+            url: externalURL,
+            name: "Temporary External"
+        )
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: externalURL,
+                        displayName: externalURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [externalItem]
+            )
+        )
+        let didOpen = await fixture.coordinator.openFilesTemporarily([
+            externalURL
+        ])
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+
+        XCTAssertTrue(didOpen)
+        XCTAssertTrue(fixture.coordinator.currentItemIsTemporary)
+        XCTAssertEqual(fixture.coordinator.currentItemID, externalItem.id)
+        XCTAssertEqual(fixture.engine.loadedSources.map(\.url), [externalURL])
+
+        fixture.coordinator.playLibraryItem(third)
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+
+        let queueSnapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+        XCTAssertFalse(fixture.coordinator.isExternalPlaybackContext)
+        XCTAssertFalse(fixture.coordinator.isTemporaryPlayback)
+        XCTAssertEqual(fixture.coordinator.currentItemID, third.id)
+        XCTAssertEqual(fixture.playback.source?.url, third.url)
+        XCTAssertTrue(queueSnapshot.history.isEmpty)
+        XCTAssertTrue(fixture.coordinator.recentlyPlayedItems.isEmpty)
+        XCTAssertFalse(fixture.coordinator.canMoveToPrevious)
+
+        fixture.coordinator.playPrevious()
+        await Task.yield()
+
+        XCTAssertEqual(fixture.coordinator.currentItemID, third.id)
+        XCTAssertEqual(fixture.playback.source?.url, third.url)
+        XCTAssertEqual(
+            fixture.engine.loadedSources.map(\.url),
+            [externalURL, third.url]
+        )
+    }
+
+    func testSelectingLibraryItemAfterMixedExternalQueueDoesNotRecordUnplayedItem()
+        async throws {
+        let rootURL = URL(
+            fileURLWithPath: "/tmp/Mixed External History Library"
+        )
+        let unplayed = makeItem(
+            rootURL: rootURL,
+            name: "Unplayed",
+            path: "Unplayed.mov"
+        )
+        let other = makeItem(
+            rootURL: rootURL,
+            name: "Other",
+            path: "Other.mov"
+        )
+        let selected = makeItem(
+            rootURL: rootURL,
+            name: "Selected",
+            path: "Selected.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Mixed External History Library"
+                    )
+                ],
+                items: [unplayed, other, selected]
+            ),
+            playbackOrder: .shuffled
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+
+        let externalURL = URL(
+            fileURLWithPath: "/tmp/Mixed External History.mp4"
+        )
+        let externalItem = makeFileItem(
+            url: externalURL,
+            name: "Temporary External"
+        )
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: externalURL,
+                        displayName: externalURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [externalItem]
+            )
+        )
+        let didOpen = await fixture.coordinator.openFilesTemporarily([
+            externalURL,
+            unplayed.url,
+        ])
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+
+        XCTAssertTrue(didOpen)
+        XCTAssertEqual(fixture.coordinator.currentItemID, externalItem.id)
+        XCTAssertEqual(
+            fixture.coordinator.upNextItems.map(\.id),
+            [unplayed.id]
+        )
+        XCTAssertEqual(fixture.engine.loadedSources.map(\.url), [externalURL])
+
+        fixture.coordinator.playLibraryItem(selected)
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+
+        let queueSnapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+        XCTAssertEqual(queueSnapshot.order, .shuffled)
+        XCTAssertTrue(queueSnapshot.history.isEmpty)
+        XCTAssertTrue(fixture.coordinator.recentlyPlayedItems.isEmpty)
+        XCTAssertFalse(fixture.coordinator.canMoveToPrevious)
+        XCTAssertEqual(fixture.coordinator.currentItemID, selected.id)
+        XCTAssertEqual(fixture.playback.source?.url, selected.url)
+        XCTAssertEqual(
+            fixture.engine.loadedSources.map(\.url),
+            [externalURL, selected.url]
+        )
+    }
+
+    func testLibraryQueueKeepsSynchronizingWhileExternalPersistenceIsFrozen()
+        async {
+        let rootURL = URL(fileURLWithPath: "/tmp/Frozen Library Queue")
+        let first = makeItem(
+            rootURL: rootURL,
+            name: "First",
+            path: "First.mov"
+        )
+        let second = makeItem(
+            rootURL: rootURL,
+            name: "Second",
+            path: "Second.mov"
+        )
+        let third = makeItem(
+            rootURL: rootURL,
+            name: "Third",
+            path: "Third.mov"
+        )
+        let root = MediaLibraryRoot(
+            url: rootURL,
+            displayName: "Frozen Library Queue"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [root],
+                items: [first, second]
+            )
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.play(first)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+
+        fixture.coordinator.beginExternalPlaybackContext()
+        fixture.coordinator.playLibraryItem(
+            second,
+            preservingExternalContext: true
+        )
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+
+        XCTAssertTrue(fixture.coordinator.isExternalPlaybackContext)
+        XCTAssertEqual(fixture.coordinator.queueCount, 2)
+        XCTAssertEqual(fixture.coordinator.currentItemID, second.id)
+
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [root],
+                items: [first, second, third]
+            )
+        )
+        fixture.coordinator.refresh()
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertTrue(fixture.coordinator.isExternalPlaybackContext)
+        XCTAssertEqual(fixture.coordinator.queueCount, 3)
+        XCTAssertEqual(
+            Set(fixture.coordinator.makeQueueSnapshot()?.items ?? []),
+            Set([first.id, second.id, third.id])
+        )
+        XCTAssertEqual(fixture.coordinator.currentItemID, second.id)
     }
 
     func testAddingVideoSourcesImportsAllAndPlaysFirstExplicitFile() async {
@@ -425,7 +1350,8 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.coordinator.queueRevision, queueRevision)
     }
 
-    func testFolderOnlyImportDoesNotInterruptActiveQueue() async throws {
+    func testFolderOnlyImportExpandsQueueWithoutInterruptingPlayback()
+        async throws {
         let firstRootURL = URL(fileURLWithPath: "/tmp/First Library")
         let secondRootURL = URL(fileURLWithPath: "/tmp/Second Library")
         let first = makeItem(
@@ -459,10 +1385,18 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         await waitForScan(fixture.coordinator)
         fixture.coordinator.play(first)
         await waitForLoads(fixture.engine, count: 1)
-        let queueSnapshot = fixture.coordinator.makeQueueSnapshot()
+        await waitForReady(fixture.playback)
+        fixture.engine.progressHandler?(27)
+        let queueSnapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
+        let playbackTime = fixture.playback.currentTime
 
         fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
+        let expandedQueueSnapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
+        )
 
         XCTAssertEqual(
             fixture.session.addedURLs,
@@ -470,7 +1404,28 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         )
         XCTAssertEqual(fixture.coordinator.items.count, 2)
         XCTAssertEqual(fixture.coordinator.currentItemID, first.id)
-        XCTAssertEqual(fixture.coordinator.makeQueueSnapshot(), queueSnapshot)
+        XCTAssertEqual(
+            expandedQueueSnapshot.items,
+            [first.id, second.id]
+        )
+        XCTAssertEqual(
+            expandedQueueSnapshot.currentItem,
+            queueSnapshot.currentItem
+        )
+        XCTAssertEqual(
+            expandedQueueSnapshot.currentRoundPosition,
+            queueSnapshot.currentRoundPosition
+        )
+        XCTAssertEqual(
+            expandedQueueSnapshot.history,
+            queueSnapshot.history
+        )
+        XCTAssertEqual(
+            expandedQueueSnapshot.forwardHistory,
+            queueSnapshot.forwardHistory
+        )
+        XCTAssertEqual(fixture.coordinator.upNextItems, [second])
+        XCTAssertEqual(fixture.playback.currentTime, playbackTime)
         XCTAssertEqual(fixture.engine.loadedSources.count, 1)
     }
 
@@ -1545,7 +2500,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.engine.loadedSources.count, 1)
     }
 
-    func testClickingVisibleItemRebuildsQueueFromCurrentSortOrder() async {
+    func testClickingVisibleItemBranchesWithoutLosingHistory() async {
         let rootURL = URL(fileURLWithPath: "/tmp/Library")
         let first = makeItem(
             rootURL: rootURL,
@@ -1592,6 +2547,11 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         fixture.coordinator.play(third)
         await waitForLoads(fixture.engine, count: 2)
         await waitForReady(fixture.playback)
+        XCTAssertEqual(
+            fixture.coordinator.makeQueueSnapshot()?.history.last?.item,
+            first.id
+        )
+        XCTAssertTrue(fixture.coordinator.canMoveToPrevious)
         fixture.coordinator.playNext()
         await waitForLoads(fixture.engine, count: 3)
 
@@ -1622,6 +2582,53 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(fixture.engine.loadedSources.last?.displayName, "Second")
         XCTAssertEqual(fixture.coordinator.currentItem?.id, second.id)
+    }
+
+    func testSingleItemCompletionSeeksToStartInEveryPlaybackMode() async {
+        let rootURL = URL(fileURLWithPath: "/tmp/Single Item Loop")
+        let item = makeItem(
+            rootURL: rootURL,
+            name: "Only",
+            path: "Only.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Single Item Loop"
+                    )
+                ],
+                items: [item]
+            )
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.play(item)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+
+        for (index, mode) in PlaybackMode.allCases.enumerated() {
+            fixture.coordinator.setPlaybackMode(mode)
+            let queueSnapshot = fixture.coordinator.makeQueueSnapshot()
+            let queueRevision = fixture.coordinator.queueRevision
+
+            fixture.engine.emitItemEnded()
+
+            XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+            XCTAssertEqual(
+                fixture.engine.soughtTimes,
+                Array(repeating: 0, count: index + 1)
+            )
+            XCTAssertEqual(fixture.coordinator.currentItemID, item.id)
+            XCTAssertEqual(
+                fixture.coordinator.makeQueueSnapshot(),
+                queueSnapshot
+            )
+            XCTAssertEqual(fixture.coordinator.queueRevision, queueRevision)
+            XCTAssertTrue(fixture.playback.isPlaybackRequested)
+        }
     }
 
     func testTimelineSeekToEndAdvancesQueueOnlyAfterRelease() async {
@@ -2552,7 +3559,8 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.coordinator.items, [item])
     }
 
-    func testReauthorizationCancelIsInertAndSuccessPreservesQueue() async {
+    func testReauthorizationCancelIsInertAndSuccessExpandsQueueWithoutReload()
+        async throws {
         let availableRootURL = URL(
             fileURLWithPath: "/tmp/Muralume Existing Library",
             isDirectory: true
@@ -2591,8 +3599,11 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         fixture.coordinator.play(currentItem)
         await waitForLoads(fixture.engine, count: 1)
         await waitForReady(fixture.playback)
-        let queueBeforeReauthorization =
+        fixture.engine.progressHandler?(27)
+        let queueBeforeReauthorization = try XCTUnwrap(
             fixture.coordinator.makeQueueSnapshot()
+        )
+        let playbackTime = fixture.playback.currentTime
         let scanCountBeforeCancel = fixture.scanner.scannedSources.count
 
         fixture.coordinator.reauthorizeMediaSources()
@@ -2640,12 +3651,33 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             Set(fixture.coordinator.items),
             Set([currentItem, recoveredItem])
         )
-        XCTAssertEqual(
-            fixture.coordinator.makeQueueSnapshot(),
-            queueBeforeReauthorization
+        let expandedQueueSnapshot = try XCTUnwrap(
+            fixture.coordinator.makeQueueSnapshot()
         )
+        XCTAssertEqual(
+            expandedQueueSnapshot.items,
+            [currentItem.id, recoveredItem.id]
+        )
+        XCTAssertEqual(
+            expandedQueueSnapshot.currentItem,
+            queueBeforeReauthorization.currentItem
+        )
+        XCTAssertEqual(
+            expandedQueueSnapshot.currentRoundPosition,
+            queueBeforeReauthorization.currentRoundPosition
+        )
+        XCTAssertEqual(
+            expandedQueueSnapshot.history,
+            queueBeforeReauthorization.history
+        )
+        XCTAssertEqual(
+            expandedQueueSnapshot.forwardHistory,
+            queueBeforeReauthorization.forwardHistory
+        )
+        XCTAssertEqual(fixture.coordinator.upNextItems, [recoveredItem])
         XCTAssertEqual(fixture.coordinator.currentItemID, currentItem.id)
         XCTAssertEqual(fixture.playback.source?.url, currentItem.url)
+        XCTAssertEqual(fixture.playback.currentTime, playbackTime)
         XCTAssertEqual(fixture.engine.loadedSources.count, 1)
         XCTAssertEqual(
             fixture.sourceSelector.intents,

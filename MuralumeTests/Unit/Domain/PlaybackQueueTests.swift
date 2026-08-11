@@ -17,6 +17,7 @@ final class PlaybackQueueTests: XCTestCase {
     func testOrderedQueueStartsAtRequestedItemAndWrapsInSnapshotOrder() {
         var queue = PlaybackQueue(items: ["a", "b", "c"], startingAt: "b")
 
+        XCTAssertTrue(queue.canMoveToNext)
         XCTAssertEqual(queue.currentItem, "b")
         XCTAssertEqual(queue.currentRoundPosition, 2)
         XCTAssertEqual(queue.moveToNext(), "c")
@@ -29,6 +30,16 @@ final class PlaybackQueueTests: XCTestCase {
         XCTAssertEqual(queue.currentRoundPosition, 2)
     }
 
+    func testSingleItemQueueDisablesManualNavigationAcrossRounds() {
+        var queue = PlaybackQueue(items: ["a"])
+
+        XCTAssertFalse(queue.canMoveToNext)
+        XCTAssertFalse(queue.canMoveToPrevious)
+        XCTAssertEqual(queue.moveToNext(), "a")
+        XCTAssertFalse(queue.canMoveToNext)
+        XCTAssertFalse(queue.canMoveToPrevious)
+    }
+
     func testNavigationLookaheadMatchesNextMovesWithoutChangingSnapshot()
         throws {
         var queue = PlaybackQueue(items: ["a", "b", "c"])
@@ -36,19 +47,61 @@ final class PlaybackQueueTests: XCTestCase {
 
         XCTAssertEqual(queue.nextItemWithoutAdvancing, "b")
         XCTAssertNil(queue.previousItemWithoutAdvancing)
+        XCTAssertEqual(queue.upNextItems, ["b", "c"])
         XCTAssertEqual(queue.makeSnapshot(), initialSnapshot)
 
         XCTAssertEqual(queue.moveToNext(), "b")
         let secondItemSnapshot = try XCTUnwrap(queue.makeSnapshot())
         XCTAssertEqual(queue.nextItemWithoutAdvancing, "c")
         XCTAssertEqual(queue.previousItemWithoutAdvancing, "a")
+        XCTAssertEqual(queue.upNextItems, ["c"])
         XCTAssertEqual(queue.makeSnapshot(), secondItemSnapshot)
 
         XCTAssertEqual(queue.moveToPrevious(), "a")
         let restoredSnapshot = try XCTUnwrap(queue.makeSnapshot())
         XCTAssertEqual(queue.nextItemWithoutAdvancing, "b")
         XCTAssertNil(queue.previousItemWithoutAdvancing)
+        XCTAssertEqual(queue.upNextItems, ["b", "c"])
         XCTAssertEqual(queue.makeSnapshot(), restoredSnapshot)
+    }
+
+    func testUpNextItemsFollowsForwardHistoryBeforeRemainingSchedule() {
+        var queue = PlaybackQueue(items: ["a", "b", "c", "d", "e"])
+        _ = queue.moveToNext()
+        _ = queue.moveToNext()
+        _ = queue.moveToNext()
+        _ = queue.moveToPrevious()
+        _ = queue.moveToPrevious()
+
+        XCTAssertEqual(queue.currentItem, "b")
+        XCTAssertEqual(queue.upNextItems, ["c", "d", "e"])
+    }
+
+    func testBoundedQueueProjectionsAvoidMaterializingTheWholeQueue() {
+        var queue = PlaybackQueue(items: ["a", "b", "c", "d", "e"])
+        _ = queue.moveToNext()
+        _ = queue.moveToNext()
+        _ = queue.moveToNext()
+        _ = queue.moveToPrevious()
+
+        XCTAssertEqual(queue.upNextCount, 2)
+        XCTAssertEqual(queue.upNextItems(limit: 0), [])
+        XCTAssertEqual(queue.upNextItems(limit: 1), ["d"])
+        XCTAssertEqual(queue.upNextItems(limit: 2), ["d", "e"])
+        XCTAssertEqual(queue.recentHistoryItems(limit: 1), ["b"])
+        XCTAssertEqual(queue.recentHistoryItems(limit: 2), ["a", "b"])
+    }
+
+    func testLargeQueueProjectionReturnsOnlyTheRequestedWindow() {
+        let itemCount = 50_000
+        let windowSize = 40
+        let queue = PlaybackQueue(items: Array(0..<itemCount))
+
+        XCTAssertEqual(queue.upNextCount, itemCount - 1)
+        XCTAssertEqual(
+            queue.upNextItems(limit: windowSize),
+            Array(1...windowSize)
+        )
     }
 
     func testShuffledRoundBoundaryRequiresMutationToChooseNextItem() {
@@ -286,6 +339,241 @@ final class PlaybackQueueTests: XCTestCase {
         XCTAssertEqual(queue.currentItem, "a")
         XCTAssertEqual(queue.moveToNext(), "b")
         XCTAssertEqual(queue.moveToNext(), "c")
+    }
+
+    func testSelectingItemBranchesFromCurrentQueueState() throws {
+        var queue = PlaybackQueue(items: ["a", "b", "c", "d", "e"])
+        XCTAssertEqual(queue.moveToNext(), "b")
+        XCTAssertEqual(queue.moveToNext(), "c")
+        XCTAssertEqual(queue.moveToPrevious(), "b")
+#if DEBUG
+        let historyStorageIdentity = queue.historyStorageIdentityForTesting
+#endif
+
+        XCTAssertEqual(queue.select("d"), "d")
+
+        let snapshot = try XCTUnwrap(queue.makeSnapshot())
+        XCTAssertEqual(queue.currentItem, "d")
+        XCTAssertEqual(queue.currentRoundPosition, 4)
+        XCTAssertEqual(queue.history, ["a", "b"])
+#if DEBUG
+        XCTAssertEqual(
+            queue.historyStorageIdentityForTesting,
+            historyStorageIdentity
+        )
+#endif
+        XCTAssertTrue(snapshot.forwardHistory.isEmpty)
+        XCTAssertEqual(
+            Array(snapshot.remainingItems[snapshot.remainingIndex...]),
+            ["e"]
+        )
+        XCTAssertEqual(queue.upNextItems, ["e"])
+        XCTAssertEqual(queue.nextItemWithoutAdvancing, "e")
+        XCTAssertEqual(queue.moveToPrevious(), "b")
+        XCTAssertEqual(queue.moveToNext(), "d")
+    }
+
+    func testSelectingItemCanSkipOnlyTheTransitionCurrentItem() throws {
+        var queue = PlaybackQueue(items: ["a", "b", "c", "d"])
+        XCTAssertEqual(queue.moveToNext(), "b")
+        XCTAssertEqual(queue.moveToNext(), "c")
+
+        XCTAssertEqual(
+            queue.select("d", historyBehavior: .skipCurrent),
+            "d"
+        )
+
+        let snapshot = try XCTUnwrap(queue.makeSnapshot())
+        XCTAssertEqual(queue.currentItem, "d")
+        XCTAssertEqual(queue.history, ["a", "b"])
+        XCTAssertTrue(snapshot.forwardHistory.isEmpty)
+        XCTAssertEqual(queue.moveToPrevious(), "b")
+    }
+
+    func testSelectingMissingItemLeavesQueueUnchanged() throws {
+        var queue = PlaybackQueue(items: ["a", "b", "c"])
+        _ = queue.moveToNext()
+        let snapshot = try XCTUnwrap(queue.makeSnapshot())
+
+        XCTAssertNil(queue.select("missing"))
+        XCTAssertEqual(queue.makeSnapshot(), snapshot)
+    }
+
+    func testSynchronizingOrderedItemsInsertsOnlyNewItemsAfterCurrent() throws {
+        var queue = PlaybackQueue(items: ["a", "c", "e"])
+        XCTAssertEqual(queue.moveToNext(), "c")
+
+        XCTAssertTrue(
+            queue.synchronizeItems(["before", "a", "c", "d", "e", "f"])
+        )
+
+        let snapshot = try XCTUnwrap(queue.makeSnapshot())
+        XCTAssertEqual(queue.currentItem, "c")
+        XCTAssertEqual(snapshot.items, ["before", "a", "c", "d", "e", "f"])
+        XCTAssertEqual(queue.history, ["a"])
+        XCTAssertEqual(
+            Array(snapshot.remainingItems[snapshot.remainingIndex...]),
+            ["d", "e", "f"]
+        )
+        XCTAssertEqual(queue.moveToNext(), "d")
+        XCTAssertEqual(queue.moveToNext(), "e")
+        XCTAssertEqual(queue.moveToNext(), "f")
+        XCTAssertEqual(queue.moveToNext(), "before")
+        XCTAssertEqual(queue.roundNumber, 2)
+    }
+
+    func testSynchronizingShuffledItemsOnlyInterleavesNewPendingItems()
+        throws {
+        let originalSnapshot = PlaybackQueueSnapshot(
+            items: ["a", "b", "c", "d", "e"],
+            order: .shuffled,
+            currentItem: "b",
+            roundNumber: 2,
+            currentRoundPosition: 2,
+            remainingItems: ["a", "b", "c", "d", "e"],
+            remainingIndex: 2,
+            history: [
+                PlaybackQueueSnapshotLocation(
+                    item: "a",
+                    roundNumber: 2,
+                    position: 1
+                )
+            ],
+            forwardHistory: []
+        )
+        var firstQueue = try XCTUnwrap(
+            PlaybackQueue(snapshot: originalSnapshot)
+        )
+        var secondQueue = try XCTUnwrap(
+            PlaybackQueue(snapshot: originalSnapshot)
+        )
+        var firstRandomSource = SeededRandomNumberGenerator(seed: 77)
+        var secondRandomSource = SeededRandomNumberGenerator(seed: 77)
+        let synchronizedItems = ["a", "b", "c", "x", "e", "y"]
+
+        firstQueue.synchronizeItems(
+            synchronizedItems,
+            using: &firstRandomSource
+        )
+        secondQueue.synchronizeItems(
+            synchronizedItems,
+            using: &secondRandomSource
+        )
+
+        let firstSnapshot = try XCTUnwrap(firstQueue.makeSnapshot())
+        let secondSnapshot = try XCTUnwrap(secondQueue.makeSnapshot())
+        let firstPendingItems = Array(
+            firstSnapshot.remainingItems[firstSnapshot.remainingIndex...]
+        )
+        XCTAssertEqual(firstSnapshot.items, synchronizedItems)
+        XCTAssertEqual(firstQueue.currentItem, "b")
+        XCTAssertEqual(firstQueue.history, ["a"])
+        XCTAssertEqual(
+            firstPendingItems.filter { ["c", "e"].contains($0) },
+            ["c", "e"]
+        )
+        XCTAssertEqual(
+            Set(firstPendingItems),
+            Set(["c", "e", "x", "y"])
+        )
+        XCTAssertEqual(firstSnapshot, secondSnapshot)
+    }
+
+    func testSynchronizingDeletionSafelyAdvancesRemovedCurrentItem() throws {
+        var queue = PlaybackQueue(items: ["a", "b", "c", "d"])
+        XCTAssertEqual(queue.moveToNext(), "b")
+
+        XCTAssertTrue(queue.synchronizeItems(["a", "c", "d", "e"]))
+
+        let snapshot = try XCTUnwrap(queue.makeSnapshot())
+        XCTAssertEqual(queue.currentItem, "c")
+        XCTAssertEqual(queue.history, ["a"])
+        XCTAssertEqual(snapshot.items, ["a", "c", "d", "e"])
+        XCTAssertEqual(
+            Array(snapshot.remainingItems[snapshot.remainingIndex...]),
+            ["d", "e"]
+        )
+        XCTAssertEqual(queue.moveToNext(), "d")
+        XCTAssertEqual(queue.moveToNext(), "e")
+    }
+
+    func testSynchronizingEquivalentMembershipReportsNoStructuralChange()
+        throws {
+        var queue = PlaybackQueue(items: ["a", "b", "c"])
+        _ = queue.moveToNext()
+        let snapshot = try XCTUnwrap(queue.makeSnapshot())
+
+        XCTAssertFalse(queue.synchronizeItems(["a", "b", "a", "c"]))
+        XCTAssertEqual(queue.makeSnapshot(), snapshot)
+        XCTAssertTrue(queue.synchronizeItems(["c", "b", "a"]))
+        XCTAssertEqual(queue.items, ["c", "b", "a"])
+    }
+
+    func testRemovingDeferredOrderedItemKeepsPendingPositionInBounds() throws {
+        var queue = PlaybackQueue(items: ["a", "c"])
+        XCTAssertEqual(queue.moveToNext(), "c")
+        XCTAssertTrue(
+            queue.synchronizeItems(["before", "a", "c", "d"])
+        )
+        XCTAssertEqual(queue.select("c"), "c")
+
+        XCTAssertEqual(queue.remove(["before"]), "c")
+
+        XCTAssertEqual(queue.currentRoundPosition, 2)
+        XCTAssertEqual(queue.moveToNext(), "d")
+        XCTAssertEqual(queue.currentRoundPosition, 3)
+        XCTAssertNotNil(queue.makeSnapshot())
+        XCTAssertNotNil(
+            PlaybackQueue(snapshot: try XCTUnwrap(queue.makeSnapshot()))
+        )
+    }
+
+    func testPendingAdvanceKeepsRecoveredPositionWithinMembershipBounds()
+        throws {
+        let snapshot = PlaybackQueueSnapshot(
+            items: ["a", "b"],
+            order: .ordered,
+            currentItem: "a",
+            roundNumber: 3,
+            currentRoundPosition: 2,
+            remainingItems: ["b"],
+            remainingIndex: 0,
+            history: [],
+            forwardHistory: []
+        )
+        var queue = try XCTUnwrap(PlaybackQueue(snapshot: snapshot))
+
+        XCTAssertEqual(queue.moveToNext(), "b")
+        XCTAssertEqual(queue.currentRoundPosition, 2)
+        XCTAssertNotNil(
+            PlaybackQueue(snapshot: try XCTUnwrap(queue.makeSnapshot()))
+        )
+    }
+
+    func testSynchronizingGrowthExpandsNavigationHistoryCapacity() {
+        var queue = PlaybackQueue(items: [0])
+        let synchronizedItems = Array(0..<100)
+
+        queue.synchronizeItems(synchronizedItems)
+        for _ in 1..<synchronizedItems.count {
+            _ = queue.moveToNext()
+        }
+
+        XCTAssertEqual(queue.history, Array(0..<99))
+    }
+
+    func testSynchronizingCanEmptyAndLaterRepopulateQueue() {
+        var queue = PlaybackQueue(items: ["a", "b"])
+
+        XCTAssertTrue(queue.synchronizeItems([]))
+        XCTAssertTrue(queue.isEmpty)
+        XCTAssertNil(queue.currentItem)
+        XCTAssertFalse(queue.synchronizeItems([]))
+
+        XCTAssertTrue(queue.synchronizeItems(["c", "d"]))
+        XCTAssertEqual(queue.items, ["c", "d"])
+        XCTAssertEqual(queue.currentItem, "c")
+        XCTAssertEqual(queue.upNextItems, ["d"])
     }
 
     func testLongRunningLoopKeepsNewestHistoryInNavigationOrder() throws {

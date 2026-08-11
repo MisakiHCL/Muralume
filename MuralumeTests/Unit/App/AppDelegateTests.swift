@@ -60,6 +60,118 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(coordinator.activationVisibilityStates, [true, false])
     }
 
+    func testColdLaunchBuffersOpenFilesAndRepliesToEveryRequest() {
+        var replies: [NSApplication.DelegateReply] = []
+        let delegate = AppDelegate(
+            allowsRuntimeCreation: false,
+            openFilesReply: { application, reply in
+                XCTAssertTrue(application === NSApp)
+                replies.append(reply)
+            }
+        )
+        let coordinator = TestAppLifecycleCoordinator()
+        delegate.coordinator = coordinator
+
+        delegate.application(
+            NSApp,
+            openFiles: ["/tmp/first.mp4", "/tmp/second.mov"]
+        )
+        delegate.application(
+            NSApp,
+            openFiles: ["/tmp/third.m4v"]
+        )
+
+        XCTAssertTrue(coordinator.openedFileBatches.isEmpty)
+        XCTAssertEqual(replies, [.success, .success])
+
+        delegate.applicationDidFinishLaunching(
+            Notification(name: NSApplication.didFinishLaunchingNotification)
+        )
+
+        XCTAssertEqual(
+            coordinator.openedFileBatches,
+            [[
+                URL(fileURLWithPath: "/tmp/first.mp4"),
+                URL(fileURLWithPath: "/tmp/second.mov"),
+                URL(fileURLWithPath: "/tmp/third.m4v"),
+            ]]
+        )
+    }
+
+    func testHotOpenFilesRoutesImmediatelyWithoutCreatingAnotherWindow() {
+        var replies: [NSApplication.DelegateReply] = []
+        let delegate = AppDelegate(
+            allowsRuntimeCreation: false,
+            openFilesReply: { _, reply in
+                replies.append(reply)
+            }
+        )
+        let coordinator = TestAppLifecycleCoordinator()
+        delegate.coordinator = coordinator
+        delegate.applicationDidFinishLaunching(
+            Notification(name: NSApplication.didFinishLaunchingNotification)
+        )
+
+        delegate.application(
+            NSApp,
+            openFiles: ["/tmp/hot.mp4"]
+        )
+
+        XCTAssertEqual(
+            coordinator.openedFileBatches,
+            [[URL(fileURLWithPath: "/tmp/hot.mp4")]]
+        )
+        XCTAssertEqual(coordinator.reopenMainWindowCount, 0)
+        XCTAssertEqual(replies, [.success])
+    }
+
+    func testOpenFilesWaitsForCoordinatorInstalledAfterLaunch() {
+        var replies: [NSApplication.DelegateReply] = []
+        let delegate = AppDelegate(
+            allowsRuntimeCreation: false,
+            openFilesReply: { _, reply in
+                replies.append(reply)
+            }
+        )
+        delegate.applicationDidFinishLaunching(
+            Notification(name: NSApplication.didFinishLaunchingNotification)
+        )
+
+        delegate.application(
+            NSApp,
+            openFiles: ["/tmp/deferred.mp4"]
+        )
+
+        let coordinator = TestAppLifecycleCoordinator()
+        delegate.coordinator = coordinator
+
+        XCTAssertEqual(
+            coordinator.openedFileBatches,
+            [[URL(fileURLWithPath: "/tmp/deferred.mp4")]]
+        )
+        XCTAssertEqual(replies, [.success])
+    }
+
+    func testEmptyOpenFilesRequestStillReceivesSuccessReply() {
+        var replies: [NSApplication.DelegateReply] = []
+        let delegate = AppDelegate(
+            allowsRuntimeCreation: false,
+            openFilesReply: { _, reply in
+                replies.append(reply)
+            }
+        )
+        let coordinator = TestAppLifecycleCoordinator()
+        delegate.coordinator = coordinator
+        delegate.applicationDidFinishLaunching(
+            Notification(name: NSApplication.didFinishLaunchingNotification)
+        )
+
+        delegate.application(NSApp, openFiles: [])
+
+        XCTAssertTrue(coordinator.openedFileBatches.isEmpty)
+        XCTAssertEqual(replies, [.success])
+    }
+
     func testLaunchSourceDetectorRecognizesLoginItemAppleEvent() {
         let event = NSAppleEventDescriptor(
             eventClass: AEEventClass(kCoreEventClass),
@@ -748,6 +860,7 @@ private final class TestAppLifecycleCoordinator:
 {
     private(set) var reopenMainWindowCount = 0
     private(set) var activationVisibilityStates: [Bool] = []
+    private(set) var openedFileBatches: [[URL]] = []
 
     func reopenMainWindow() {
         reopenMainWindowCount += 1
@@ -759,6 +872,10 @@ private final class TestAppLifecycleCoordinator:
 
     func handleCloseCommand(for window: NSWindow?) -> Bool {
         false
+    }
+
+    func handleOpenFiles(_ urls: [URL]) {
+        openedFileBatches.append(urls)
     }
 
     func shutdown() async {}

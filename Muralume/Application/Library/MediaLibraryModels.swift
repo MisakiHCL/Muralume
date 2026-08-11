@@ -212,6 +212,11 @@ enum MediaLibrarySourceAccessState: Equatable, Sendable {
     }
 }
 
+enum ExternalPlaybackNotice: Equatable, Sendable {
+    case noPlayableFiles
+    case skippedFiles(Int)
+}
+
 enum MediaImportPolicy {
     /// Bounds one picker/drop transaction before any bookmark work begins.
     static let maximumTopLevelSourceCount = 256

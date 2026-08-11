@@ -27,6 +27,11 @@ enum LibraryQueueMode: Equatable {
     case editing
 }
 
+enum LibrarySidebarSection: String, CaseIterable, Hashable {
+    case mediaLibrary
+    case playQueue
+}
+
 @MainActor
 final class PlayerChromeController: ObservableObject {
     typealias Sleep = @Sendable (UInt64) async throws -> Void
@@ -34,6 +39,9 @@ final class PlayerChromeController: ObservableObject {
     @Published private(set) var isVisible = true
     @Published private(set) var presentedPanel: PlayerSidePanel? = .playlist
     @Published private(set) var libraryQueueMode: LibraryQueueMode = .browsing
+    @Published private(set) var librarySidebarSection:
+        LibrarySidebarSection = .mediaLibrary
+    @Published private(set) var playbackQueueFocusRequest: UInt64 = 0
 
     var isPlaylistPresented: Bool {
         presentedPanel == .playlist
@@ -102,6 +110,7 @@ final class PlayerChromeController: ObservableObject {
         setVisible(true)
         presentedPanel = .playlist
         libraryQueueMode = .editing
+        librarySidebarSection = .mediaLibrary
         refreshAutoHideTask()
     }
 
@@ -114,8 +123,23 @@ final class PlayerChromeController: ObservableObject {
             return
         }
         libraryQueueMode = mode
+        if isEditing {
+            librarySidebarSection = .mediaLibrary
+        }
         setVisible(true)
         refreshAutoHideTask()
+    }
+
+    func selectLibrarySidebarSection(_ section: LibrarySidebarSection) {
+        if section == .playQueue {
+            playbackQueueFocusRequest &+= 1
+            libraryQueueMode = .browsing
+        }
+        librarySidebarSection = section
+        if isPlaylistPresented {
+            setVisible(true)
+            refreshAutoHideTask()
+        }
     }
 
     func setSettingsPresented(_ isPresented: Bool) {

@@ -1,10 +1,23 @@
 import XCTest
 
 final class MuralumeLaunchTests: XCTestCase {
+    private enum SidebarAccessibilityIdentifier {
+        static let titleMenu = "muralume.library-title"
+        static let retiredModePicker =
+            "muralume.library-sidebar.mode-picker"
+        static let mediaLibraryMenuItem =
+            "muralume.library-section.media-library"
+        static let playQueueMenuItem =
+            "muralume.library-section.play-queue"
+    }
+
     private enum LayoutExpectation {
         static let maximumSidebarHeaderTopInset: CGFloat = 80
         static let maximumSidebarHeaderTrailingInset: CGFloat = 64
-        static let minimumLabeledHeaderActionWidth: CGFloat = 44
+        static let headerIconActionSize: CGFloat = 36
+        static let minimumSidebarTitleMenuHeight: CGFloat = 36
+        static let sidebarTitleMenuHitInset: CGFloat = 2
+        static let maximumControlSizeOffset: CGFloat = 1
         static let maximumToolbarInset: CGFloat = 64
         static let maximumTransportCenterOffset: CGFloat = 4
         static let maximumControlRowEdgeOffset: CGFloat = 2
@@ -18,6 +31,7 @@ final class MuralumeLaunchTests: XCTestCase {
         static let minimumSidePanelInset: CGFloat = 16
         static let maximumSidePanelInsetOffset: CGFloat = 2
         static let maximumWindowEdgeOffset: CGFloat = 2
+        static let maximumSidebarTitleHorizontalOffset: CGFloat = 1
         static let fullScreenTransitionTimeout: TimeInterval = 5
         static let windowZoomFrameTolerance: CGFloat = 2
     }
@@ -26,6 +40,25 @@ final class MuralumeLaunchTests: XCTestCase {
         static let windowTransitionTimeout: TimeInterval = 5
         static let processTerminationObservationTimeout: TimeInterval = 1
         static let finderBundleIdentifier = "com.apple.finder"
+    }
+
+    @MainActor
+    func testMediaPickerShowsConcisePrompt() {
+        let application = launchEmptyLibrary()
+        let addMediaButton = application
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.add-media")
+            .firstMatch
+
+        XCTAssertTrue(addMediaButton.waitForExistence(timeout: 5))
+        addMediaButton.click()
+
+        let mediaPicker = application.dialogs.firstMatch
+        XCTAssertTrue(mediaPicker.waitForExistence(timeout: 2))
+        XCTAssertTrue(
+            mediaPicker.staticTexts["Choose videos or folders."]
+                .waitForExistence(timeout: 2)
+        )
     }
 
     @MainActor
@@ -47,9 +80,15 @@ final class MuralumeLaunchTests: XCTestCase {
             addMediaButton.waitForExistence(timeout: 5)
         )
         XCTAssertEqual(addMediaButton.label, "Add Media…")
-        XCTAssertGreaterThanOrEqual(
+        XCTAssertEqual(
             addMediaButton.frame.width,
-            LayoutExpectation.minimumLabeledHeaderActionWidth
+            LayoutExpectation.headerIconActionSize,
+            accuracy: LayoutExpectation.maximumControlSizeOffset
+        )
+        XCTAssertEqual(
+            addMediaButton.frame.height,
+            LayoutExpectation.headerIconActionSize,
+            accuracy: LayoutExpectation.maximumControlSizeOffset
         )
         XCTAssertEqual(
             application
@@ -90,19 +129,104 @@ final class MuralumeLaunchTests: XCTestCase {
             settingsButton,
             in: application.windows.firstMatch
         )
-        XCTAssertTrue(application.staticTexts["Playlist"].exists)
+        let sidebarTitleMenu = application
+            .descendants(matching: .any)
+            .matching(
+                identifier: SidebarAccessibilityIdentifier.titleMenu
+            )
+            .firstMatch
+        XCTAssertTrue(sidebarTitleMenu.waitForExistence(timeout: 5))
+        XCTAssertEqual(sidebarTitleMenu.elementType, .menuButton)
+        XCTAssertTrue(sidebarTitleMenu.isHittable)
+        XCTAssertGreaterThanOrEqual(
+            sidebarTitleMenu.frame.height,
+            LayoutExpectation.minimumSidebarTitleMenuHeight
+        )
+        XCTAssertEqual(
+            sidebarTitleMenu.label,
+            "Media Library or Play Queue"
+        )
+        XCTAssertEqual(sidebarTitleMenu.value as? String, "Media Library")
+        XCTAssertEqual(
+            application
+                .descendants(matching: .any)
+                .matching(
+                    identifier: SidebarAccessibilityIdentifier
+                        .retiredModePicker
+                )
+                .count,
+            0
+        )
+        let mediaLibraryTitleX = sidebarTitleMenu.frame.minX
+
+        sidebarTitleMenu
+            .coordinate(
+                withNormalizedOffset: CGVector(dx: 0.5, dy: 0)
+            )
+            .withOffset(
+                CGVector(
+                    dx: 0,
+                    dy: LayoutExpectation.sidebarTitleMenuHitInset
+                )
+            )
+            .click()
+        let mediaLibraryMenuItem = application.menuItems[
+            SidebarAccessibilityIdentifier.mediaLibraryMenuItem
+        ]
+        let playQueueMenuItem = application.menuItems[
+            SidebarAccessibilityIdentifier.playQueueMenuItem
+        ]
+        XCTAssertTrue(mediaLibraryMenuItem.waitForExistence(timeout: 2))
+        XCTAssertTrue(playQueueMenuItem.waitForExistence(timeout: 2))
+        playQueueMenuItem.click()
+
+        XCTAssertEqual(sidebarTitleMenu.value as? String, "Play Queue")
+        XCTAssertEqual(
+            sidebarTitleMenu.frame.minX,
+            mediaLibraryTitleX,
+            accuracy: LayoutExpectation.maximumSidebarTitleHorizontalOffset
+        )
+        XCTAssertTrue(
+            application.staticTexts["The play queue is empty"]
+                .waitForExistence(timeout: 5)
+        )
+
+        sidebarTitleMenu
+            .coordinate(
+                withNormalizedOffset: CGVector(dx: 0.5, dy: 1)
+            )
+            .withOffset(
+                CGVector(
+                    dx: 0,
+                    dy: -LayoutExpectation.sidebarTitleMenuHitInset
+                )
+            )
+            .click()
+        XCTAssertTrue(mediaLibraryMenuItem.waitForExistence(timeout: 2))
+        XCTAssertTrue(playQueueMenuItem.waitForExistence(timeout: 2))
+        mediaLibraryMenuItem.click()
+        XCTAssertEqual(sidebarTitleMenu.value as? String, "Media Library")
         XCTAssertTrue(application.sliders["Playback Position"].exists)
         assertApplicationMenuStructure(application)
 
-        let playbackOrderButton = application.buttons[
-            "muralume.playback-order"
-        ]
-        XCTAssertTrue(playbackOrderButton.waitForExistence(timeout: 5))
-        XCTAssertEqual(playbackOrderButton.label, "Shuffle")
-        XCTAssertTrue(playbackOrderButton.isSelected)
-        playbackOrderButton.click()
-        XCTAssertEqual(playbackOrderButton.label, "In Order")
-        XCTAssertFalse(playbackOrderButton.isSelected)
+        let playbackModeButton = application
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.playback-mode")
+            .firstMatch
+        XCTAssertTrue(playbackModeButton.waitForExistence(timeout: 5))
+        XCTAssertEqual(playbackModeButton.label, "Playback Mode")
+        XCTAssertEqual(
+            playbackModeButton.value as? String,
+            "Repeat in Shuffle"
+        )
+        playbackModeButton.click()
+        let orderedPlaybackMode = application.menuItems["Repeat in Order"]
+        XCTAssertTrue(orderedPlaybackMode.waitForExistence(timeout: 2))
+        orderedPlaybackMode.click()
+        XCTAssertEqual(
+            playbackModeButton.value as? String,
+            "Repeat in Order"
+        )
 
         let videoViewport = application
             .descendants(matching: .any)
@@ -151,16 +275,16 @@ final class MuralumeLaunchTests: XCTestCase {
             accuracy: LayoutExpectation.maximumControlRowSpacingOffset
         )
 
-        let playlistToggle = application.buttons[
-            "muralume.playlist-toggle"
+        let mediaLibraryToggle = application.buttons[
+            "muralume.media-library-toggle"
         ]
-        XCTAssertTrue(playlistToggle.waitForExistence(timeout: 5))
-        XCTAssertTrue(playlistToggle.isSelected)
-        XCTAssertEqual(playlistToggle.label, "Hide Playlist")
-        playlistToggle.click()
+        XCTAssertTrue(mediaLibraryToggle.waitForExistence(timeout: 5))
+        XCTAssertTrue(mediaLibraryToggle.isSelected)
+        XCTAssertEqual(mediaLibraryToggle.label, "Hide Media Library")
+        mediaLibraryToggle.click()
         XCTAssertTrue(sidebar.waitForNonExistence(timeout: 2))
-        XCTAssertEqual(playlistToggle.label, "Show Playlist")
-        playlistToggle.click()
+        XCTAssertEqual(mediaLibraryToggle.label, "Show Media Library")
+        mediaLibraryToggle.click()
         XCTAssertTrue(sidebar.waitForExistence(timeout: 2))
         XCTAssertEqual(
             application
@@ -373,29 +497,39 @@ final class MuralumeLaunchTests: XCTestCase {
         let launchedApplicationState = application.state
         XCTAssertNotEqual(launchedApplicationState, .notRunning)
 
-        let playbackOrderButton = application.buttons[
-            "muralume.playback-order"
-        ]
+        let playbackModeButton = application
+            .descendants(matching: .any)
+            .matching(identifier: "muralume.playback-mode")
+            .firstMatch
         XCTAssertTrue(
-            playbackOrderButton.waitForExistence(
+            playbackModeButton.waitForExistence(
                 timeout: LifecycleExpectation.windowTransitionTimeout
             )
         )
-        playbackOrderButton.click()
-        XCTAssertEqual(playbackOrderButton.label, "In Order")
-        XCTAssertFalse(playbackOrderButton.isSelected)
+        playbackModeButton.click()
+        let orderedPlaybackMode = application.menuItems["Repeat in Order"]
+        XCTAssertTrue(
+            orderedPlaybackMode.waitForExistence(
+                timeout: LifecycleExpectation.windowTransitionTimeout
+            )
+        )
+        orderedPlaybackMode.click()
+        XCTAssertEqual(
+            playbackModeButton.value as? String,
+            "Repeat in Order"
+        )
 
-        let playlistToggle = application.buttons[
-            "muralume.playlist-toggle"
+        let mediaLibraryToggle = application.buttons[
+            "muralume.media-library-toggle"
         ]
         XCTAssertTrue(
-            playlistToggle.waitForExistence(
+            mediaLibraryToggle.waitForExistence(
                 timeout: LifecycleExpectation.windowTransitionTimeout
             )
         )
-        playlistToggle.click()
-        XCTAssertEqual(playlistToggle.label, "Show Playlist")
-        XCTAssertFalse(playlistToggle.isSelected)
+        mediaLibraryToggle.click()
+        XCTAssertEqual(mediaLibraryToggle.label, "Show Media Library")
+        XCTAssertFalse(mediaLibraryToggle.isSelected)
 
         application.typeKey("w", modifierFlags: .command)
 
@@ -465,10 +599,12 @@ final class MuralumeLaunchTests: XCTestCase {
         }
         XCTAssertEqual(application.windows.count, 1)
         XCTAssertEqual(mainWindow.frame, initialWindowFrame)
-        XCTAssertEqual(playbackOrderButton.label, "In Order")
-        XCTAssertFalse(playbackOrderButton.isSelected)
-        XCTAssertEqual(playlistToggle.label, "Show Playlist")
-        XCTAssertFalse(playlistToggle.isSelected)
+        XCTAssertEqual(
+            playbackModeButton.value as? String,
+            "Repeat in Order"
+        )
+        XCTAssertEqual(mediaLibraryToggle.label, "Show Media Library")
+        XCTAssertFalse(mediaLibraryToggle.isSelected)
 
         let closeWindowButton = application.buttons[
             "muralume.window-close"
@@ -512,8 +648,11 @@ final class MuralumeLaunchTests: XCTestCase {
             )
         )
         XCTAssertEqual(application.windows.count, 1)
-        XCTAssertEqual(playbackOrderButton.label, "In Order")
-        XCTAssertFalse(playlistToggle.isSelected)
+        XCTAssertEqual(
+            playbackModeButton.value as? String,
+            "Repeat in Order"
+        )
+        XCTAssertFalse(mediaLibraryToggle.isSelected)
     }
 
     @MainActor
@@ -740,6 +879,7 @@ final class MuralumeLaunchTests: XCTestCase {
         return application
     }
 
+    @MainActor
     private func assertTopTrailing(
         _ element: XCUIElement,
         in window: XCUIElement,
@@ -760,6 +900,7 @@ final class MuralumeLaunchTests: XCTestCase {
         )
     }
 
+    @MainActor
     private func assertSidePanelSpacing(
         _ panelContent: XCUIElement,
         in application: XCUIApplication,
@@ -969,6 +1110,7 @@ final class MuralumeLaunchTests: XCTestCase {
         )
     }
 
+    @MainActor
     private func assertWindowControlsAlignWithBrand(
         closeButton: XCUIElement,
         fullScreenButton: XCUIElement,

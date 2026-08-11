@@ -4,7 +4,7 @@ import Foundation
 @MainActor
 final class PlaybackCoordinator: ObservableObject {
     var playbackFailureHandler: ((PlaybackFailure) -> Void)?
-    var itemEndedHandler: (() -> Bool)?
+    var itemEndedHandler: (() -> PlaybackItemEndDisposition)?
     var itemFailureHandler: ((PlaybackFailure) -> Bool)?
 
     @Published private(set) var source: ResolvedMediaSource?
@@ -50,6 +50,7 @@ final class PlaybackCoordinator: ObservableObject {
     private var pendingAudioPreferences: PlaybackAudioPreferences?
     private var savedPlayerSettings: PlaybackSettings?
     private var transitionGeneration: UInt64 = 0
+    private var mediaLoadGeneration: UInt64 = 0
     private var timelineSeekTarget: TimeInterval?
     private var hasHandledCurrentItemEnd = false
     private var appliedProgressCadence: PlaybackProgressCadence?
@@ -150,7 +151,9 @@ final class PlaybackCoordinator: ObservableObject {
         cancelTimelineSeek()
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
-        let loadGeneration = transitionGeneration
+        mediaLoadGeneration &+= 1
+        let loadGeneration = mediaLoadGeneration
+        let presentationGeneration = transitionGeneration
         let canAutoplayWhenLoaded = !isPlayerWindowDismissed
         self.source = source
         readiness = .loading
@@ -162,12 +165,21 @@ final class PlaybackCoordinator: ObservableObject {
             loadedDuration = try await engine.load(source)
             try Task.checkCancellation()
         } catch let error as PlaybackEngineError {
+            guard loadGeneration == mediaLoadGeneration else {
+                return .cancelled
+            }
             return handleLoadFailure(error)
         } catch is CancellationError {
             return .cancelled
         } catch {
+            guard loadGeneration == mediaLoadGeneration else {
+                return .cancelled
+            }
             failLoading(with: .cannotOpen)
             return .mediaFailure(.cannotOpen)
+        }
+        guard loadGeneration == mediaLoadGeneration else {
+            return .cancelled
         }
 
         duration = loadedDuration
@@ -178,6 +190,9 @@ final class PlaybackCoordinator: ObservableObject {
             do {
                 try await engine.attach(to: playerSurface)
                 try Task.checkCancellation()
+                guard loadGeneration == mediaLoadGeneration else {
+                    return .cancelled
+                }
                 if isPlayerWindowDismissed {
                     engine.detachAll()
                 }
@@ -187,8 +202,14 @@ final class PlaybackCoordinator: ObservableObject {
             } catch is CancellationError {
                 return .cancelled
             } catch let error as PlaybackEngineError {
+                guard loadGeneration == mediaLoadGeneration else {
+                    return .cancelled
+                }
                 return handleGlobalLoadFailure(mapFailure(error))
             } catch {
+                guard loadGeneration == mediaLoadGeneration else {
+                    return .cancelled
+                }
                 return handleGlobalLoadFailure(.surfaceTimeout)
             }
         }
@@ -197,7 +218,7 @@ final class PlaybackCoordinator: ObservableObject {
         readiness = .ready
         let canBeginNewPlayback =
             canAutoplayWhenLoaded
-            && loadGeneration == transitionGeneration
+            && presentationGeneration == transitionGeneration
             && !isPlayerWindowDismissed
         let shouldRequestPlayback = autoplay
             && (isPlaybackRequested || canBeginNewPlayback)
@@ -468,6 +489,7 @@ final class PlaybackCoordinator: ObservableObject {
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
         transitionGeneration &+= 1
+        mediaLoadGeneration &+= 1
         gate.setIntent(.paused)
         restorePlayerSettings()
         engine.stop()
@@ -491,6 +513,7 @@ final class PlaybackCoordinator: ObservableObject {
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
         transitionGeneration &+= 1
+        mediaLoadGeneration &+= 1
         presentation = .terminating
         gate.terminate()
         isSystemSuspended = false
@@ -612,7 +635,13 @@ final class PlaybackCoordinator: ObservableObject {
         }
         hasHandledCurrentItemEnd = true
 
-        if itemEndedHandler?() == true {
+        let disposition = itemEndedHandler?() ?? .unhandled
+        if disposition == .advanced {
+            return
+        }
+
+        if disposition == .repeatCurrent {
+            restartCurrentItemAfterCompletion()
             return
         }
 
@@ -632,11 +661,19 @@ final class PlaybackCoordinator: ObservableObject {
         applyPlaybackGate()
     }
 
+    private func restartCurrentItemAfterCompletion() {
+        engine.seek(to: 0)
+        currentTime = 0
+        hasHandledCurrentItemEnd = false
+        applyPlaybackGate()
+    }
+
     private func fail(with failure: PlaybackFailure) {
         cancelTimelineSeek()
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
         transitionGeneration &+= 1
+        mediaLoadGeneration &+= 1
         gate.setIntent(.paused)
         restorePlayerSettings()
         engine.stop()

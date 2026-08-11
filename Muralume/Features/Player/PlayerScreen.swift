@@ -7,6 +7,8 @@ struct PlayerScreen<PlayerSurface: View>: View {
     @ObservedObject var library: MediaLibraryCoordinator
     @ObservedObject var dynamicDesktopStartup:
         DynamicDesktopStartupController
+    @ObservedObject var defaultVideoPlayer: DefaultVideoPlayerController
+    let canRestoreDynamicDesktop: Bool
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let isFullScreen: Bool
     @ObservedObject var chromeController: PlayerChromeController
@@ -16,6 +18,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
     @State private var isMediaDropTargeted = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
+    @EnvironmentObject private var localization: AppLocalizationController
 
     var body: some View {
         ZStack {
@@ -36,6 +39,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
             .zIndex(PlayerLayer.pointerActivity)
 
             if library.importNotice != nil
+                || library.externalPlaybackNotice != nil
                 || desktopSession.transientFailure != nil {
                 VStack(spacing: MuralumeTheme.Spacing.small) {
                     if let notice = library.importNotice {
@@ -43,6 +47,15 @@ struct PlayerScreen<PlayerSurface: View>: View {
                             messageKey: notice.localizedKey,
                             dismiss: {
                                 library.dismissImportNotice()
+                            }
+                        )
+                    }
+
+                    if let notice = library.externalPlaybackNotice {
+                        PlayerStatusBanner(
+                            message: externalPlaybackMessage(notice),
+                            dismiss: {
+                                library.dismissExternalPlaybackNotice()
                             }
                         )
                     }
@@ -112,6 +125,23 @@ struct PlayerScreen<PlayerSurface: View>: View {
             chromeController.updateFullScreen(isFullScreen)
         }
         .foregroundStyle(MuralumeTheme.Colors.textPrimary)
+    }
+
+    private func externalPlaybackMessage(
+        _ notice: ExternalPlaybackNotice
+    ) -> String {
+        switch notice {
+        case .noPlayableFiles:
+            return localization.localized("external.open.none")
+        case let .skippedFiles(count):
+            let key = count == 1
+                ? "external.open.skipped.one"
+                : "external.open.skipped"
+            return localization.localizedFormat(
+                key,
+                count
+            )
+        }
     }
 
     private var playerTopContentInset: CGFloat {
@@ -220,6 +250,14 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 library: library,
                 playback: playback,
                 mediaThumbnailProvider: mediaThumbnailProvider,
+                sidebarSection: Binding(
+                    get: { chromeController.librarySidebarSection },
+                    set: { section in
+                        chromeController.selectLibrarySidebarSection(section)
+                    }
+                ),
+                playbackQueueFocusRequest:
+                    chromeController.playbackQueueFocusRequest,
                 isEditing: chromeController.isLibraryEditing,
                 setEditing: { isEditing in
                     chromeController.setLibraryEditing(isEditing)
@@ -228,13 +266,21 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 retryUnavailableSourceAccess:
                     actions.retryUnavailableSourceAccess,
                 reauthorizeMediaSources: actions.reauthorizeMediaSources,
+                canRestoreDynamicDesktop: canRestoreDynamicDesktop,
+                addTemporaryItemsToLibrary:
+                    actions.addTemporaryItemsToLibrary,
+                restoreDynamicDesktop: actions.restoreDynamicDesktop,
+                playLibraryItem: actions.playLibraryItem,
                 revealMediaInFinder: actions.revealMediaInFinder,
                 dismiss: {
                     chromeController.setPlaylistPresented(false)
                 }
             )
         case .settings:
-            SettingsView(dynamicDesktopStartup: dynamicDesktopStartup) {
+            SettingsView(
+                dynamicDesktopStartup: dynamicDesktopStartup,
+                defaultVideoPlayer: defaultVideoPlayer
+            ) {
                 chromeController.setSettingsPresented(false)
             }
         }

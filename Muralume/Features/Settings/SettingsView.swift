@@ -27,6 +27,7 @@ struct SettingsView: View {
     @State private var selectedCategory = SettingsCategory.general
     @ObservedObject var dynamicDesktopStartup:
         DynamicDesktopStartupController
+    @ObservedObject var defaultVideoPlayer: DefaultVideoPlayerController
 
     let dismiss: () -> Void
 
@@ -55,6 +56,7 @@ struct SettingsView: View {
         )
         .onAppear {
             dynamicDesktopStartup.refresh()
+            defaultVideoPlayer.refresh()
         }
     }
 
@@ -169,7 +171,97 @@ struct SettingsView: View {
                 ) {
                     launchAtLoginControl
                 }
+
+                SettingsRow(
+                    title: "settings.defaultVideoPlayer",
+                    accessibilityIdentifier:
+                        MuralumeAccessibilityIdentifier
+                            .settingsDefaultVideoPlayerRow
+                ) {
+                    defaultVideoPlayerControl
+                }
             }
+        }
+    }
+
+    private var defaultVideoPlayerControl: some View {
+        VStack(alignment: .trailing, spacing: MuralumeTheme.Spacing.small) {
+            HStack(spacing: MuralumeTheme.Spacing.small) {
+                if defaultVideoPlayer.isUpdating {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityHidden(true)
+
+                    Text("settings.defaultVideoPlayer.action.updating")
+                        .foregroundStyle(
+                            MuralumeTheme.Colors.textSecondary
+                        )
+                        .accessibilityLabel(
+                            Text(
+                                "settings.defaultVideoPlayer.accessibility.updating"
+                            )
+                        )
+                } else if defaultVideoPlayer.isDefault {
+                    Label(
+                        "settings.defaultVideoPlayer.action.complete",
+                        systemImage: "checkmark.circle.fill"
+                    )
+                    .foregroundStyle(MuralumeTheme.Colors.controlAccent)
+                    .accessibilityLabel(
+                        Text(
+                            "settings.defaultVideoPlayer.accessibility.complete"
+                        )
+                    )
+                } else {
+                    Button(defaultVideoPlayerActionKey) {
+                        Task {
+                            await defaultVideoPlayer.setAsDefault()
+                        }
+                    }
+                    .accessibilityLabel(
+                        Text(
+                            "settings.defaultVideoPlayer.accessibility.action"
+                        )
+                    )
+                    .accessibilityIdentifier(
+                        MuralumeAccessibilityIdentifier
+                            .setDefaultVideoPlayerButton
+                    )
+                }
+            }
+
+            Text("settings.defaultVideoPlayer.formats")
+                .font(.caption)
+                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+                .multilineTextAlignment(.trailing)
+                .accessibilityIdentifier(
+                    MuralumeAccessibilityIdentifier
+                        .defaultVideoPlayerStatus
+                )
+                .accessibilityLabel(
+                    Text(
+                        "settings.defaultVideoPlayer.accessibility.formats"
+                    )
+                )
+
+            if defaultVideoPlayer.operationFailure != nil {
+                Text("settings.defaultVideoPlayer.failure")
+                    .font(.caption)
+                    .foregroundStyle(MuralumeTheme.Colors.error)
+                    .multilineTextAlignment(.trailing)
+            }
+        }
+    }
+
+    private var defaultVideoPlayerActionKey: LocalizedStringKey {
+        if defaultVideoPlayer.operationFailure != nil {
+            return "settings.defaultVideoPlayer.action.retry"
+        }
+        switch defaultVideoPlayer.status {
+        case .partial:
+            return "settings.defaultVideoPlayer.action.partial"
+        case .none, .all:
+            return "settings.defaultVideoPlayer.action"
         }
     }
 

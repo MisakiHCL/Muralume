@@ -436,6 +436,13 @@ final class AppCoordinatorTests: XCTestCase {
         fixture.coordinator.start(source: .interactive)
         await prepareActiveQueue(in: fixture)
 
+        XCTAssertFalse(
+            fixture.coordinator.mainMenuCommandState.canPlayPrevious
+        )
+        XCTAssertFalse(
+            fixture.coordinator.mainMenuCommandState.canPlayNext
+        )
+
         fixture.statusMenu.setPlaybackOrderHandler?(.shuffled)
         XCTAssertEqual(fixture.library.playbackOrder, .ordered)
 
@@ -451,6 +458,9 @@ final class AppCoordinatorTests: XCTestCase {
         )
         XCTAssertTrue(
             fixture.statusMenu.stateProvider?().canSetPlaybackOrder == true
+        )
+        XCTAssertFalse(
+            fixture.statusMenu.stateProvider?().canPlayNext == true
         )
 
         fixture.statusMenu.setPlaybackOrderHandler?(.shuffled)
@@ -494,6 +504,358 @@ final class AppCoordinatorTests: XCTestCase {
         XCTAssertEqual(
             fixture.thumbnailProvider.purgeMemoryCacheCount,
             2
+        )
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testOpeningFileFromDynamicDesktopUsesPlayerThenRestoresOnClose()
+        async {
+        let fixture = makeFixture(launchStatus: .disabled)
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+        }
+        await prepareActiveQueue(in: fixture)
+        fixture.coordinator.enterDesktop()
+        await waitUntil {
+            fixture.desktopSession.isActive
+                && fixture.playback.presentation == .desktop
+        }
+
+        let externalURL = URL(
+            fileURLWithPath: "/tmp/AppCoordinatorTests/External Open.mp4"
+        )
+        let externalItem = LibraryMediaItem(
+            rootURL: externalURL,
+            rootName: externalURL.lastPathComponent,
+            kind: .file,
+            url: externalURL,
+            displayName: "External Open",
+            relativePath: "",
+            relativeDirectory: "",
+            creationDate: nil,
+            fileSize: 1
+        )
+        fixture.scanner.replaceSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: externalURL,
+                        displayName: externalURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [externalItem]
+            )
+        )
+        let initialQueueFocusRequest = fixture.coordinator.playerChrome
+            .playbackQueueFocusRequest
+
+        fixture.coordinator.handleOpenFiles([externalURL])
+        XCTAssertTrue(fixture.library.isExternalPlaybackContext)
+        XCTAssertFalse(fixture.playback.isPlaybackRequested)
+        await waitUntil {
+            fixture.window.isVisible
+                && !fixture.desktopSession.isActive
+                && fixture.playback.presentation == .player
+                && fixture.library.currentItemID == externalItem.id
+                && fixture.engine.loadedSources.last?.url == externalURL
+        }
+
+        XCTAssertTrue(fixture.coordinator.canRestoreDynamicDesktop)
+        XCTAssertTrue(fixture.library.isExternalPlaybackContext)
+        XCTAssertTrue(fixture.library.currentItemIsTemporary)
+        XCTAssertEqual(fixture.engine.loadedSources.last?.url, externalURL)
+        XCTAssertEqual(
+            fixture.coordinator.playerChrome.librarySidebarSection,
+            .playQueue
+        )
+        XCTAssertEqual(
+            fixture.coordinator.playerChrome.playbackQueueFocusRequest,
+            initialQueueFocusRequest &+ 1
+        )
+
+        fixture.coordinator.dismissMainWindow()
+        await waitUntil {
+            fixture.desktopSession.isActive
+                && fixture.playback.presentation == .desktop
+                && fixture.library.currentItemID == fixture.item.id
+        }
+
+        XCTAssertFalse(fixture.coordinator.canRestoreDynamicDesktop)
+        XCTAssertFalse(fixture.library.isExternalPlaybackContext)
+        XCTAssertFalse(fixture.window.isVisible)
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testFailedExternalOpenRestoresDynamicDesktopAutomatically() async {
+        let fixture = makeFixture(launchStatus: .disabled)
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+        }
+        await prepareActiveQueue(in: fixture)
+        fixture.coordinator.enterDesktop()
+        await waitUntil {
+            fixture.desktopSession.isActive
+                && fixture.playback.presentation == .desktop
+        }
+
+        fixture.scanner.replaceSnapshot(.empty)
+        let unavailableURL = URL(
+            fileURLWithPath: "/tmp/AppCoordinatorTests/Unavailable.mp4"
+        )
+        fixture.coordinator.handleOpenFiles([unavailableURL])
+
+        XCTAssertTrue(fixture.library.isExternalPlaybackContext)
+        await waitUntil {
+            fixture.desktopSession.isActive
+                && fixture.playback.presentation == .desktop
+                && !fixture.coordinator.canRestoreDynamicDesktop
+                && !fixture.library.isExternalPlaybackContext
+        }
+
+        XCTAssertEqual(fixture.library.currentItemID, fixture.item.id)
+        XCTAssertFalse(fixture.window.isVisible)
+        XCTAssertEqual(
+            fixture.coordinator.playerChrome.librarySidebarSection,
+            .mediaLibrary
+        )
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testFinderOpeningKnownLibraryItemDuringStartupScanUsesLibraryQueue()
+        async {
+        let fixture = makeFixture(launchStatus: .disabled)
+        fixture.scanner.blockNextScan(matching: [fixture.item.rootURL])
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.scanner.didBeginBlockedScan
+        }
+
+        XCTAssertEqual(fixture.library.scanState, .scanning)
+        fixture.coordinator.handleOpenFiles([fixture.item.url])
+        fixture.scanner.finishBlockedScan()
+
+        await waitUntil {
+            fixture.scanner.didFinishBlockedScan
+                && fixture.window.isVisible
+                && fixture.playback.presentation == .player
+                && fixture.library.currentItemID == fixture.item.id
+                && fixture.playback.source?.url == fixture.item.url
+                && fixture.playback.readiness == .ready
+                && fixture.playback.isPlaybackRequested
+                && !fixture.library.isExternalPlaybackContext
+                && !fixture.library.isTemporaryPlayback
+                && fixture.coordinator.playerChrome.librarySidebarSection
+                    == .mediaLibrary
+        }
+
+        XCTAssertEqual(fixture.library.queueCount, 1)
+        XCTAssertEqual(
+            fixture.library.makeQueueSnapshot()?.items,
+            [fixture.item.id]
+        )
+        XCTAssertFalse(
+            fixture.scanner.scannedRootURLs.contains {
+                $0 == [fixture.item.url]
+            }
+        )
+        XCTAssertFalse(fixture.coordinator.canRestoreDynamicDesktop)
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testFinderOpeningKnownLibraryItemUsesFullLibraryQueue() async {
+        let fixture = makeFixture(launchStatus: .disabled)
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+        }
+        await prepareActiveQueue(in: fixture)
+        let secondItem = await addSecondItemToLibrary(in: fixture)
+        fixture.coordinator.playerChrome.selectLibrarySidebarSection(
+            .playQueue
+        )
+        let initialQueueFocusRequest = fixture.coordinator.playerChrome
+            .playbackQueueFocusRequest
+        let initialScanCount = fixture.scanner.scannedRootURLs.count
+
+        fixture.coordinator.handleOpenFiles([secondItem.url])
+        await waitUntil {
+            fixture.library.currentItemID == secondItem.id
+                && fixture.playback.source?.url == secondItem.url
+                && fixture.playback.readiness == .ready
+                && fixture.playback.isPlaybackRequested
+                && !fixture.library.isExternalPlaybackContext
+                && fixture.coordinator.playerChrome.librarySidebarSection
+                    == .mediaLibrary
+        }
+
+        XCTAssertFalse(fixture.coordinator.canRestoreDynamicDesktop)
+        XCTAssertFalse(fixture.library.isTemporaryPlayback)
+        XCTAssertEqual(fixture.library.currentItemID, secondItem.id)
+        XCTAssertEqual(fixture.library.queueCount, 2)
+        XCTAssertEqual(
+            Set(fixture.library.makeQueueSnapshot()?.items ?? []),
+            Set([fixture.item.id, secondItem.id])
+        )
+        XCTAssertEqual(
+            fixture.library.recentlyPlayedItems.map(\.id),
+            [fixture.item.id]
+        )
+        XCTAssertTrue(fixture.library.canMoveToPrevious)
+        XCTAssertTrue(fixture.playback.isPlaybackRequested)
+        XCTAssertEqual(
+            fixture.coordinator.playerChrome.playbackQueueFocusRequest,
+            initialQueueFocusRequest
+        )
+        XCTAssertEqual(
+            fixture.scanner.scannedRootURLs.count,
+            initialScanCount
+        )
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testFinderOpeningKnownLibraryItemFromDesktopRestoresOnClose()
+        async {
+        let fixture = makeFixture(launchStatus: .disabled)
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+        }
+        await prepareActiveQueue(in: fixture)
+        let secondItem = await addSecondItemToLibrary(in: fixture)
+        fixture.playback.seek(to: 31)
+        fixture.coordinator.enterDesktop()
+        await waitUntil {
+            fixture.desktopSession.isActive
+                && fixture.playback.presentation == .desktop
+        }
+        fixture.coordinator.playerChrome.selectLibrarySidebarSection(
+            .playQueue
+        )
+        let initialQueueFocusRequest = fixture.coordinator.playerChrome
+            .playbackQueueFocusRequest
+
+        fixture.coordinator.handleOpenFiles([secondItem.url])
+        await waitUntil {
+            fixture.window.isVisible
+                && fixture.playback.presentation == .player
+                && !fixture.desktopSession.isActive
+                && fixture.library.currentItemID == secondItem.id
+                && fixture.playback.source?.url == secondItem.url
+                && fixture.playback.readiness == .ready
+                && fixture.playback.isPlaybackRequested
+                && fixture.library.isExternalPlaybackContext
+                && fixture.coordinator.canRestoreDynamicDesktop
+                && fixture.coordinator.playerChrome.librarySidebarSection
+                    == .mediaLibrary
+        }
+
+        XCTAssertFalse(fixture.library.isTemporaryPlayback)
+        // The library queue is active, while this flag keeps durable
+        // session/preset state frozen until the desktop context is restored.
+        XCTAssertTrue(fixture.library.isExternalPlaybackContext)
+        XCTAssertEqual(fixture.library.queueCount, 2)
+        XCTAssertEqual(
+            Set(fixture.library.makeQueueSnapshot()?.items ?? []),
+            Set([fixture.item.id, secondItem.id])
+        )
+        XCTAssertEqual(
+            fixture.coordinator.playerChrome.playbackQueueFocusRequest,
+            initialQueueFocusRequest
+        )
+
+        fixture.coordinator.dismissMainWindow()
+        await waitUntil {
+            fixture.desktopSession.isActive
+                && fixture.playback.presentation == .desktop
+                && fixture.library.currentItemID == fixture.item.id
+                && fixture.playback.source?.url == fixture.item.url
+                && fixture.playback.currentTime == 31
+                && fixture.playback.isPlaybackRequested
+                && !fixture.coordinator.canRestoreDynamicDesktop
+        }
+
+        XCTAssertFalse(fixture.window.isVisible)
+        XCTAssertFalse(fixture.library.isExternalPlaybackContext)
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testFinderKnownLibraryItemSupersedesPendingExternalOpen() async {
+        let fixture = makeFixture(launchStatus: .disabled)
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+        }
+        await prepareActiveQueue(in: fixture)
+        let secondItem = await addSecondItemToLibrary(in: fixture)
+        let externalURL = URL(
+            fileURLWithPath:
+                "/tmp/AppCoordinatorTests/Pending External.mp4"
+        )
+        let externalItem = LibraryMediaItem(
+            rootURL: externalURL,
+            rootName: externalURL.lastPathComponent,
+            kind: .file,
+            url: externalURL,
+            displayName: "Pending External",
+            relativePath: "",
+            relativeDirectory: "",
+            creationDate: nil,
+            fileSize: 1
+        )
+        fixture.scanner.replaceSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: externalURL,
+                        displayName: externalURL.lastPathComponent,
+                        kind: .file
+                    )
+                ],
+                items: [externalItem]
+            )
+        )
+        fixture.scanner.blockNextScan(matching: [externalURL])
+
+        fixture.coordinator.handleOpenFiles([externalURL])
+        await waitUntil {
+            fixture.scanner.didBeginBlockedScan
+        }
+
+        fixture.coordinator.handleOpenFiles([secondItem.url])
+        await waitUntil {
+            fixture.library.currentItemID == secondItem.id
+                && fixture.playback.source?.url == secondItem.url
+                && fixture.playback.readiness == .ready
+                && fixture.playback.isPlaybackRequested
+                && !fixture.library.isExternalPlaybackContext
+                && fixture.coordinator.playerChrome.librarySidebarSection
+                    == .mediaLibrary
+        }
+
+        fixture.scanner.finishBlockedScan()
+        await waitUntil {
+            fixture.scanner.didFinishBlockedScan
+        }
+        await Task.yield()
+
+        XCTAssertEqual(fixture.library.currentItemID, secondItem.id)
+        XCTAssertEqual(fixture.playback.source?.url, secondItem.url)
+        XCTAssertEqual(fixture.library.queueCount, 2)
+        XCTAssertFalse(fixture.library.isExternalPlaybackContext)
+        XCTAssertFalse(fixture.library.isTemporaryPlayback)
+        XCTAssertFalse(
+            fixture.engine.loadedSources.contains {
+                $0.url == externalURL
+            }
         )
 
         await fixture.coordinator.shutdown()
@@ -711,6 +1073,39 @@ final class AppCoordinatorTests: XCTestCase {
         }
     }
 
+    private func addSecondItemToLibrary(
+        in fixture: AppCoordinatorFixture
+    ) async -> LibraryMediaItem {
+        let secondItem = LibraryMediaItem(
+            rootURL: fixture.item.rootURL,
+            rootName: "Library",
+            url: fixture.item.rootURL.appendingPathComponent("second.mp4"),
+            displayName: "Second",
+            relativePath: "second.mp4",
+            relativeDirectory: "",
+            creationDate: nil,
+            fileSize: 1
+        )
+        fixture.scanner.replaceSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: fixture.item.rootURL,
+                        displayName: "Library"
+                    )
+                ],
+                items: [fixture.item, secondItem]
+            )
+        )
+        fixture.library.refresh()
+        await waitUntil {
+            Set(fixture.library.items.map(\.id))
+                == Set([fixture.item.id, secondItem.id])
+                && fixture.library.queueCount == 2
+        }
+        return secondItem
+    }
+
     private func makeFixture(
         launchStatus: LaunchAtLoginStatus,
         blockPresetLoad: Bool = false,
@@ -827,6 +1222,9 @@ final class AppCoordinatorTests: XCTestCase {
             mainWindowPresenter: windowPresenter,
             applicationPresence: applicationPresence,
             dynamicDesktopStartup: startup,
+            defaultVideoPlayer: DefaultVideoPlayerController(
+                service: TestDefaultVideoPlayerService()
+            ),
             desktopPreset: desktopPreset,
             playbackSession: playbackSession
         )
@@ -1088,9 +1486,22 @@ private final class AppCoordinatorMediaScanner:
     private var snapshot: MediaLibrarySnapshot
     private let lock = NSLock()
     private var storedScannedRootURLs: [[URL]] = []
+    private var shouldBlockNextScan = false
+    private var blockedScanSourcePaths: Set<String>?
+    private var blockedScanDidBegin = false
+    private var blockedScanDidFinish = false
+    private var blockedScanContinuation: CheckedContinuation<Void, Never>?
 
     var scannedRootURLs: [[URL]] {
         lock.withLock { storedScannedRootURLs }
+    }
+
+    var didBeginBlockedScan: Bool {
+        lock.withLock { blockedScanDidBegin }
+    }
+
+    var didFinishBlockedScan: Bool {
+        lock.withLock { blockedScanDidFinish }
     }
 
     init(snapshot: MediaLibrarySnapshot) {
@@ -1098,16 +1509,60 @@ private final class AppCoordinatorMediaScanner:
     }
 
     func scan(rootURLs: [URL]) async throws -> MediaLibrarySnapshot {
-        lock.withLock {
+        let plan = lock.withLock {
             storedScannedRootURLs.append(rootURLs)
-            return snapshot
+            let sourcePaths = Set(
+                rootURLs.map { $0.standardizedFileURL.path }
+            )
+            let shouldBlock = shouldBlockNextScan
+                && (
+                    blockedScanSourcePaths == nil
+                        || blockedScanSourcePaths == sourcePaths
+                )
+            if shouldBlock {
+                shouldBlockNextScan = false
+                blockedScanSourcePaths = nil
+            }
+            return (snapshot: snapshot, shouldBlock: shouldBlock)
         }
+        if plan.shouldBlock {
+            await withCheckedContinuation { continuation in
+                lock.withLock {
+                    blockedScanContinuation = continuation
+                    blockedScanDidBegin = true
+                }
+            }
+            lock.withLock {
+                blockedScanDidFinish = true
+            }
+        }
+        return plan.snapshot
     }
 
     func replaceSnapshot(_ snapshot: MediaLibrarySnapshot) {
         lock.withLock {
             self.snapshot = snapshot
         }
+    }
+
+    func blockNextScan(matching rootURLs: [URL]? = nil) {
+        lock.withLock {
+            shouldBlockNextScan = true
+            blockedScanSourcePaths = rootURLs.map { urls in
+                Set(urls.map { $0.standardizedFileURL.path })
+            }
+            blockedScanDidBegin = false
+            blockedScanDidFinish = false
+        }
+    }
+
+    func finishBlockedScan() {
+        let continuation = lock.withLock {
+            let continuation = blockedScanContinuation
+            blockedScanContinuation = nil
+            return continuation
+        }
+        continuation?.resume()
     }
 
     func availability(

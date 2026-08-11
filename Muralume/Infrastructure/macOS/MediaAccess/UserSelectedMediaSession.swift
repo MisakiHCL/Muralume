@@ -280,6 +280,13 @@ final class UserSelectedMediaSession: MediaAccessSession {
     }
 
     func addSources(_ urls: [URL]) -> MediaAccessUpdate {
+        addSources(urls, incomingScopePolicy: .sessionManaged)
+    }
+
+    func addSources(
+        _ urls: [URL],
+        incomingScopePolicy: MediaAccessIncomingScopePolicy
+    ) -> MediaAccessUpdate {
         _ = restoreSources()
         var requestedFileURLs: [URL] = []
         var requestedFileIDs: Set<LibraryMediaItem.ID> = []
@@ -300,10 +307,12 @@ final class UserSelectedMediaSession: MediaAccessSession {
 
         for (requestIndex, selectedURL) in urls.enumerated() {
             // URLs returned by NSOpenPanel already hold an implicit Powerbox
-            // security scope. Always relinquish that grant after converting it
-            // into the persistent bookmark used by this session.
+            // security scope. The default policy relinquishes that grant after
+            // converting it into the persistent bookmark used by this session.
             defer {
-                securityAccess.stopAccess(selectedURL)
+                if incomingScopePolicy == .sessionManaged {
+                    securityAccess.stopAccess(selectedURL)
+                }
             }
 
             guard requestIndex < MediaImportPolicy.maximumTopLevelSourceCount else {

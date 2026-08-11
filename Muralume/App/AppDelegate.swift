@@ -62,21 +62,41 @@ protocol AppLifecycleCoordinating: AnyObject {
     func reopenMainWindow()
     func handleApplicationActivation(hasVisibleWindows: Bool)
     func handleCloseCommand(for window: NSWindow?) -> Bool
+    func handleOpenFiles(_ urls: [URL])
     func shutdown() async
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    var coordinator: (any AppLifecycleCoordinating)?
+    var coordinator: (any AppLifecycleCoordinating)? {
+        didSet {
+            flushPendingOpenFilesIfPossible()
+        }
+    }
 
     private let allowsRuntimeCreation: Bool
+    private let openFilesReply: @MainActor (
+        NSApplication,
+        NSApplication.DelegateReply
+    ) -> Void
     private var runtime: MacApplicationRuntime?
     private var terminationTask: Task<Void, Never>?
     private var didReplyToTermination = false
+    private var hasFinishedLaunching = false
+    private var pendingOpenFileURLs: [URL] = []
     private let launchSourceDetector = MacApplicationLaunchSourceDetector()
 
-    init(allowsRuntimeCreation: Bool = true) {
+    init(
+        allowsRuntimeCreation: Bool = true,
+        openFilesReply: @escaping @MainActor (
+            NSApplication,
+            NSApplication.DelegateReply
+        ) -> Void = { application, reply in
+            application.reply(toOpenOrPrint: reply)
+        }
+    ) {
         self.allowsRuntimeCreation = allowsRuntimeCreation
+        self.openFilesReply = openFilesReply
         super.init()
     }
 
@@ -97,20 +117,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        guard allowsRuntimeCreation else {
+        if !allowsRuntimeCreation {
             _ = NSApp.setActivationPolicy(.accessory)
-            return
+        } else {
+            if runtime == nil {
+                prepareForRun(NSApp)
+            }
+            let launchSource = launchSourceDetector.detect(
+                event: NSAppleEventManager.shared().currentAppleEvent
+            )
+            // Keep the initial accessory presentation until the persisted
+            // session decides whether this process should reveal the player
+            // or resume the desktop. This prevents a Dock icon flash before
+            // desktop restoration.
+            runtime?.launch(source: launchSource)
         }
-        if runtime == nil {
-            prepareForRun(NSApp)
-        }
-        let launchSource = launchSourceDetector.detect(
-            event: NSAppleEventManager.shared().currentAppleEvent
+
+        hasFinishedLaunching = true
+        flushPendingOpenFilesIfPossible()
+    }
+
+    func application(
+        _ sender: NSApplication,
+        openFiles filenames: [String]
+    ) {
+        pendingOpenFileURLs.append(
+            contentsOf: filenames.map(URL.init(fileURLWithPath:))
         )
-        // Keep the initial accessory presentation until the persisted session
-        // decides whether this process should reveal the player or resume the
-        // desktop. This prevents a Dock icon flash before desktop restoration.
-        runtime?.launch(source: launchSource)
+        flushPendingOpenFilesIfPossible()
+
+        // Accepting the URLs into the launch buffer completes AppKit's open
+        // request even when the coordinator is not ready to consume them yet.
+        openFilesReply(sender, .success)
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -165,6 +203,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         runtime?.applicationDockMenu
+    }
+
+    private func flushPendingOpenFilesIfPossible() {
+        guard hasFinishedLaunching,
+              let coordinator,
+              !pendingOpenFileURLs.isEmpty else {
+            return
+        }
+
+        let urls = pendingOpenFileURLs
+        pendingOpenFileURLs.removeAll(keepingCapacity: false)
+        coordinator.handleOpenFiles(urls)
     }
 
     private func finishTermination(for application: NSApplication) {

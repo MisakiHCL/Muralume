@@ -41,9 +41,10 @@ Muralume is a private, native macOS Dynamic Desktop app that turns the videos an
 
 ## How it works
 
-1. Use the single Add Media picker to choose videos, folders, or both, or drop them into Muralume from Finder.
-2. Choose ordered playback or shuffle and preview the queue in the built-in player.
-3. Press `⌘D` to place the same queue behind your files and widgets as a Dynamic Desktop.
+1. Use the single Add Media picker to build a lasting library from videos, folders, or both, or drop them into Muralume from Finder.
+2. Open a supported video from Finder for a temporary viewing session, or play it directly from the library when it is already there.
+3. Choose ordered playback, shuffle, or Repeat Current and preview the real upcoming queue in the built-in player.
+4. Press `⌘D` to place the same queue behind your files and widgets as a Dynamic Desktop.
 
 ## Highlights
 
@@ -61,9 +62,17 @@ By default, Muralume keeps the full video sharp and fills any remaining space wi
 
 Use one Add Media picker to choose individual videos, folders from your Mac or an external drive, or both in the same selection; you can also drop the same mix from Finder. Muralume recursively discovers MP4, MOV, and M4V videos in folders, generates local thumbnails, and sorts everything by name, creation date, or file size—without reorganizing anything on disk. If a folder changes in Finder, use **Edit → Refresh Data** in the playlist to rescan the access you already granted.
 
+Muralume also appears in Finder’s **Open With** menu for MP4, MOV, and M4V files. A file already in the library plays from the library queue; other files open in a temporary queue and are saved only if you explicitly add them. Settings shows whether Muralume is the default player for all, some, or none of these formats and lets you set it explicitly.
+
+### A library and queue with different jobs
+
+The Media Library is your complete, persistent, sortable collection. The Play Queue shows the actual playback sequence, including shuffle order and temporary Finder items. Selecting another library video preserves valid Previous navigation, and refreshing the library reconciles additions and confirmed deletions without discarding the active queue.
+
+Large queues stay responsive: Now Playing is followed by a bounded upcoming window, with more loaded only when requested. The library itself continues to use a native virtualized table for full-collection browsing.
+
 ### Focused native playback
 
-Seek, change volume or speed, enter fullscreen, and choose ordered playback or shuffle. Shuffle visits every available video once before starting a new round. Controls stay out of the way while you watch, and global playback preferences return on the next launch.
+Seek, change volume or speed, enter fullscreen, and choose ordered playback, shuffle, or Repeat Current. Shuffle visits every available video once before starting a new round. A one-video queue loops efficiently by seeking the existing player item back to the beginning, while manual Previous and Next remain disabled. Controls stay out of the way while you watch, and global playback preferences return on the next launch.
 
 Quit and reopen Muralume to continue from the same video, position, play or pause state, and presentation. If you were using the Dynamic Desktop, Muralume restores it directly without briefly opening the player window.
 
@@ -83,7 +92,7 @@ The latest release includes a Developer ID–signed and Apple-notarized DMG plus
 
 To restore the current queue automatically after login, open Settings and enable **Start Dynamic Desktop at Login** while a video queue is active. macOS may ask you to approve Muralume in Login Items.
 
-The menu bar item lets you pause, skip, choose ordered playback or shuffle, change playback speed or desktop fit, return to the player, and quit Muralume.
+The menu bar item lets you pause, skip, choose a playback mode, change playback speed or desktop fit, return to the player, and quit Muralume.
 
 ## Keyboard shortcuts
 
@@ -123,4 +132,4 @@ make package-macos
 
 ## Open source
 
-Source code is available under the [MIT License](LICENSE). See [Contributing](CONTRIBUTING.md), the [Security Policy](SECURITY.md), and the [Community Code of Conduct](CODE_OF_CONDUCT.md) before participating. Vendored build-tool components retain their licenses in [Third-Party Notices](THIRD_PARTY_NOTICES.md). The Muralume name, logo, app icon, and menu bar icon are excluded from the MIT grant; see the [Brand Assets Notice](BRAND_ASSETS.md).
+Source code is available under the [MIT License](LICENSE). See [Contributing](CONTRIBUTING.md), the [Playback and Media Library architecture](Documentation/PLAYBACK_LIBRARY_ARCHITECTURE.md), the [Security Policy](SECURITY.md), and the [Community Code of Conduct](CODE_OF_CONDUCT.md) before participating. Vendored build-tool components retain their licenses in [Third-Party Notices](THIRD_PARTY_NOTICES.md). The Muralume name, logo, app icon, and menu bar icon are excluded from the MIT grant; see the [Brand Assets Notice](BRAND_ASSETS.md).

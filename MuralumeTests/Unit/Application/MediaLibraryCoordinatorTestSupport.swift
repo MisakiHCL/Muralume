@@ -317,6 +317,8 @@ final class TestMediaSourceSelector: MediaSourceSelecting {
 @MainActor
 final class TestMediaAccessSession: MediaAccessSession {
     private(set) var addedURLs: [URL] = []
+    private(set) var incomingScopePolicies:
+        [MediaAccessIncomingScopePolicy] = []
     private(set) var preparedRemovalURLs: [URL] = []
     private(set) var removedURLs: [URL] = []
     var restoredURLs: [URL] = []
@@ -334,6 +336,14 @@ final class TestMediaAccessSession: MediaAccessSession {
     }
 
     func addSources(_ urls: [URL]) -> MediaAccessUpdate {
+        addSources(urls, incomingScopePolicy: .sessionManaged)
+    }
+
+    func addSources(
+        _ urls: [URL],
+        incomingScopePolicy: MediaAccessIncomingScopePolicy
+    ) -> MediaAccessUpdate {
+        incomingScopePolicies.append(incomingScopePolicy)
         if let nextAddSourcesUpdate {
             self.nextAddSourcesUpdate = nil
             return nextAddSourcesUpdate

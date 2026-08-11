@@ -33,6 +33,8 @@ enum AppCompositionRoot {
             scanner: FileSystemMediaLibraryScanner(),
             mediaThumbnailProvider: mediaThumbnailProvider,
             playbackOrder: initialPreferences.playbackOrder,
+            playbackRepeatBehavior:
+                initialPreferences.playbackRepeatBehavior,
             sort: initialPreferences.librarySort,
             preferencesStore: preferencesStore
         )
@@ -55,6 +57,9 @@ enum AppCompositionRoot {
             launchAtLogin: launchAtLogin,
             desktopPreset: desktopPreset
         )
+        let defaultVideoPlayer = DefaultVideoPlayerController(
+            service: MacDefaultVideoPlayerService()
+        )
 
         return AppCoordinator(
             playback: playback,
@@ -64,6 +69,7 @@ enum AppCompositionRoot {
             mainWindowPresenter: mainWindowPresenter,
             applicationPresence: applicationPresence,
             dynamicDesktopStartup: dynamicDesktopStartup,
+            defaultVideoPlayer: defaultVideoPlayer,
             desktopPreset: desktopPreset,
             playbackSession: playbackSession
         )

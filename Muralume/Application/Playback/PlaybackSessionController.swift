@@ -278,14 +278,18 @@ final class PlaybackSessionController: ObservableObject {
     }
 
     func preserveCurrentSnapshot() {
-        guard !restoreInProgress, !shouldPreserveStoredSnapshot else {
+        guard !restoreInProgress,
+              !shouldPreserveStoredSnapshot,
+              !library.isExternalPlaybackContext else {
             return
         }
         scheduleSave(urgency: .immediate)
     }
 
     func adoptPlayerPresentationAfterCancelledRestore() async {
-        guard !isShuttingDown, !restoreInProgress else {
+        guard !isShuttingDown,
+              !restoreInProgress,
+              !library.isExternalPlaybackContext else {
             return
         }
         deferredRestorePlan = nil
@@ -327,7 +331,8 @@ final class PlaybackSessionController: ObservableObject {
         isShuttingDown = true
         await cancelPendingPersistence()
 
-        guard !restoreInProgress,
+        guard !library.isExternalPlaybackContext,
+              !restoreInProgress,
               !shouldPreserveStoredSnapshot else {
             return
         }
@@ -339,6 +344,16 @@ final class PlaybackSessionController: ObservableObject {
     }
 
     private func observeSessionChanges() {
+        library.$isExternalPlaybackContext
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] isExternalPlaybackContext in
+                self?.handleExternalPlaybackContextChange(
+                    isExternalPlaybackContext
+                )
+            }
+            .store(in: &cancellables)
+
         library.$queueRevision
             .dropFirst()
             .sink { [weak self] _ in
@@ -393,7 +408,9 @@ final class PlaybackSessionController: ObservableObject {
     }
 
     private func handleQueueRevision() {
-        guard !isShuttingDown, !restoreInProgress else {
+        guard !isShuttingDown,
+              !restoreInProgress,
+              !library.isExternalPlaybackContext else {
             return
         }
         // A real queue mutation means the current process has replaced any
@@ -409,7 +426,8 @@ final class PlaybackSessionController: ObservableObject {
     ) {
         guard !isShuttingDown,
               !restoreInProgress,
-              !shouldPreserveStoredSnapshot else {
+              !shouldPreserveStoredSnapshot,
+              !library.isExternalPlaybackContext else {
             return
         }
         guard library.hasActiveQueue else {
@@ -426,7 +444,8 @@ final class PlaybackSessionController: ObservableObject {
     private func scheduleProgressSaveIfNeeded() {
         guard !isShuttingDown,
               !restoreInProgress,
-              !shouldPreserveStoredSnapshot else {
+              !shouldPreserveStoredSnapshot,
+              !library.isExternalPlaybackContext else {
             return
         }
         scheduleSave(urgency: .progress)
@@ -438,6 +457,7 @@ final class PlaybackSessionController: ObservableObject {
     ) {
         guard !isShuttingDown,
               !restoreInProgress,
+              !library.isExternalPlaybackContext,
               library.hasActiveQueue else {
             return
         }
@@ -473,7 +493,8 @@ final class PlaybackSessionController: ObservableObject {
                 try? await Task.sleep(for: delay)
             }
             guard !Task.isCancelled,
-                  generation == persistenceGeneration else {
+                  generation == persistenceGeneration,
+                  !library.isExternalPlaybackContext else {
                 return
             }
             pendingPersistenceUrgency = nil
@@ -492,7 +513,8 @@ final class PlaybackSessionController: ObservableObject {
     }
 
     private func scheduleClear() {
-        guard !isShuttingDown else {
+        guard !isShuttingDown,
+              !library.isExternalPlaybackContext else {
             return
         }
 
@@ -512,7 +534,8 @@ final class PlaybackSessionController: ObservableObject {
             }
             await previousTask?.value
             guard !Task.isCancelled,
-                  generation == persistenceGeneration else {
+                  generation == persistenceGeneration,
+                  !library.isExternalPlaybackContext else {
                 return
             }
             await clearStoredSnapshot(expectedGeneration: generation)
@@ -554,6 +577,21 @@ final class PlaybackSessionController: ObservableObject {
         pendingPersistenceUrgency = urgency
     }
 
+    private func handleExternalPlaybackContextChange(
+        _ isExternalPlaybackContext: Bool
+    ) {
+        guard isExternalPlaybackContext, !isShuttingDown else {
+            return
+        }
+        shouldPreserveStoredSnapshot = true
+        persistenceGeneration &+= 1
+        persistenceTask?.cancel()
+        persistenceTask = nil
+        persistenceTaskGeneration = nil
+        persistenceTaskUrgency = nil
+        pendingPersistenceUrgency = nil
+    }
+
     @discardableResult
     private func save(
         _ snapshot: PlaybackSessionSnapshot,
@@ -561,6 +599,9 @@ final class PlaybackSessionController: ObservableObject {
         expectedGeneration: UInt64? = nil,
         forceWrite: Bool = false
     ) async -> Bool {
+        guard !library.isExternalPlaybackContext else {
+            return false
+        }
         let attemptedQueueStructureRevision =
             queueStructureRevisionAtSnapshot ?? library.queueStructureRevision
         if !forceWrite, snapshot == restorationSourceSnapshot {
@@ -634,6 +675,9 @@ final class PlaybackSessionController: ObservableObject {
     }
 
     private func makeSnapshot() -> PlaybackSessionSnapshot? {
+        guard !library.isExternalPlaybackContext else {
+            return nil
+        }
 #if DEBUG
         queueSnapshotConstructionCount += 1
 #endif
