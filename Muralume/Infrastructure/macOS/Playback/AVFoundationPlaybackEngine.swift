@@ -109,6 +109,9 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
                     throw PlaybackEngineError.superseded
                 }
             } catch {
+                guard generation == surfaceGeneration else {
+                    throw PlaybackEngineError.superseded
+                }
                 player.cancelPendingPrerolls()
                 throw error
             }
@@ -116,11 +119,13 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         }
 
         previousSurface?.connect(to: nil)
-        attachedSurface = nil
         surface.connect(to: player)
+        // Treat the connected surface as current while readiness is pending.
+        // A newer attachment must be able to supersede and disconnect it even
+        // before the first rendered frame arrives.
+        attachedSurface = surface
 
         guard player.currentItem != nil else {
-            attachedSurface = surface
             return
         }
 
@@ -132,20 +137,24 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             guard generation == surfaceGeneration else {
                 throw PlaybackEngineError.superseded
             }
-            attachedSurface = surface
         } catch {
+            // A stale task no longer owns either the render connection or the
+            // player's shared preroll state. In particular, it must not tear
+            // down a newer attachment to the same surface instance.
+            guard generation == surfaceGeneration else {
+                throw PlaybackEngineError.superseded
+            }
             surface.connect(to: nil)
             player.cancelPendingPrerolls()
-            if generation == surfaceGeneration {
-                previousSurface?.connect(to: player)
-                attachedSurface = previousSurface
-            }
+            previousSurface?.connect(to: player)
+            attachedSurface = previousSurface
             throw error
         }
     }
 
     func detachAll() {
         surfaceGeneration &+= 1
+        player.cancelPendingPrerolls()
         attachedSurface?.connect(to: nil)
         attachedSurface = nil
     }
@@ -221,6 +230,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         surfaceGeneration &+= 1
         seekCoalescer.invalidate()
         player.currentItem?.cancelPendingSeeks()
+        player.cancelPendingPrerolls()
         player.pause()
         player.replaceCurrentItem(with: nil)
         removeItemObservers()

@@ -215,6 +215,177 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.coordinator.scanState, .ready)
     }
 
+    func testCanonicalItemLookupIndexIsReusedUntilItemsChange()
+        async throws {
+        let fileManager = FileManager.default
+        let testDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("MuralumeLookup-\(UUID().uuidString)")
+        let realRootURL = testDirectory.appendingPathComponent("Real")
+        let linkedRootURL = testDirectory.appendingPathComponent("Linked")
+        let firstRealURL = realRootURL.appendingPathComponent("First.mov")
+        let secondRealURL = realRootURL.appendingPathComponent("Second.mov")
+        try fileManager.createDirectory(
+            at: realRootURL,
+            withIntermediateDirectories: true
+        )
+        try fileManager.createSymbolicLink(
+            at: linkedRootURL,
+            withDestinationURL: realRootURL
+        )
+        XCTAssertTrue(
+            fileManager.createFile(
+                atPath: firstRealURL.path,
+                contents: Data()
+            )
+        )
+        XCTAssertTrue(
+            fileManager.createFile(
+                atPath: secondRealURL.path,
+                contents: Data()
+            )
+        )
+        defer { try? fileManager.removeItem(at: testDirectory) }
+
+        let firstItem = makeItem(
+            rootURL: linkedRootURL,
+            name: "First",
+            path: "First.mov"
+        )
+        let secondItem = makeItem(
+            rootURL: linkedRootURL,
+            name: "Second",
+            path: "Second.mov"
+        )
+        let root = MediaLibraryRoot(
+            url: linkedRootURL,
+            displayName: "Linked"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [linkedRootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [root],
+                items: [firstItem]
+            )
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+
+        for _ in 0..<50 {
+            XCTAssertEqual(
+                fixture.coordinator.libraryItem(matching: firstRealURL),
+                firstItem
+            )
+        }
+        XCTAssertEqual(
+            fixture.coordinator
+                .canonicalItemLookupIndexBuildCountForTesting,
+            1
+        )
+
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [root],
+                items: [firstItem, secondItem]
+            )
+        )
+        fixture.coordinator.refresh()
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(
+            fixture.coordinator.libraryItem(matching: secondRealURL),
+            secondItem
+        )
+        XCTAssertEqual(
+            fixture.coordinator
+                .canonicalItemLookupIndexBuildCountForTesting,
+            2
+        )
+    }
+
+    func testCanonicalItemLookupIndexRebuildsWhenSymlinkRootRetargets()
+        async throws {
+        let fileManager = FileManager.default
+        let testDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("MuralumeRetarget-\(UUID().uuidString)")
+        let firstRealRootURL = testDirectory.appendingPathComponent("First")
+        let secondRealRootURL = testDirectory.appendingPathComponent("Second")
+        let linkedRootURL = testDirectory.appendingPathComponent("Linked")
+        try fileManager.createDirectory(
+            at: firstRealRootURL,
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: secondRealRootURL,
+            withIntermediateDirectories: true
+        )
+        try fileManager.createSymbolicLink(
+            at: linkedRootURL,
+            withDestinationURL: firstRealRootURL
+        )
+        defer { try? fileManager.removeItem(at: testDirectory) }
+
+        let firstRealURL = firstRealRootURL.appendingPathComponent("Clip.mov")
+        let secondRealURL = secondRealRootURL.appendingPathComponent("Clip.mov")
+        XCTAssertTrue(
+            fileManager.createFile(
+                atPath: firstRealURL.path,
+                contents: Data()
+            )
+        )
+        XCTAssertTrue(
+            fileManager.createFile(
+                atPath: secondRealURL.path,
+                contents: Data()
+            )
+        )
+        let item = makeItem(
+            rootURL: linkedRootURL,
+            name: "Clip",
+            path: "Clip.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [linkedRootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: linkedRootURL,
+                        displayName: "Linked"
+                    )
+                ],
+                items: [item]
+            )
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(
+            fixture.coordinator.libraryItem(matching: firstRealURL),
+            item
+        )
+        XCTAssertEqual(
+            fixture.coordinator
+                .canonicalItemLookupIndexBuildCountForTesting,
+            1
+        )
+
+        try fileManager.removeItem(at: linkedRootURL)
+        try fileManager.createSymbolicLink(
+            at: linkedRootURL,
+            withDestinationURL: secondRealRootURL
+        )
+
+        XCTAssertEqual(
+            fixture.coordinator.libraryItem(matching: secondRealURL),
+            item
+        )
+        XCTAssertNil(fixture.coordinator.libraryItem(matching: firstRealURL))
+        XCTAssertEqual(
+            fixture.coordinator
+                .canonicalItemLookupIndexBuildCountForTesting,
+            2
+        )
+    }
+
     func testManualRefreshAddsMembersWithoutResettingPlaybackContext()
         async {
         let rootURL = URL(fileURLWithPath: "/tmp/Refresh Library")
@@ -3398,6 +3569,223 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         )
     }
 
+    func testCancelledAsyncSourceAccessRetryCannotPublishOrStartScan()
+        async
+    {
+        let staleRootURL = URL(
+            fileURLWithPath: "/Volumes/Stale/Muralume Library",
+            isDirectory: true
+        )
+        let fixture = makeControlledRetryFixture(snapshot: .empty)
+        _ = fixture.coordinator.start()
+
+        let retryTask = Task {
+            await fixture.coordinator.retryUnavailableSourceAccessAsync()
+        }
+        for _ in 0..<1_000 where !fixture.session.asyncRetryDidBegin {
+            await Task.yield()
+        }
+        XCTAssertTrue(fixture.session.asyncRetryDidBegin)
+
+        retryTask.cancel()
+        fixture.session.completeAsyncRetry(
+            with: [MediaSource(url: staleRootURL, kind: .folder)]
+        )
+
+        let retryDisposition = await retryTask.value
+        XCTAssertEqual(retryDisposition, .alreadyStarted)
+        XCTAssertEqual(
+            fixture.coordinator.sourceAccessState,
+            .temporarilyUnavailable
+        )
+        XCTAssertEqual(fixture.coordinator.scanState, .idle)
+        XCTAssertTrue(fixture.coordinator.roots.isEmpty)
+        XCTAssertTrue(fixture.scanner.scannedSources.isEmpty)
+    }
+
+    func testManualRefreshDoesNotDiscardInFlightSourceRetryResult() async {
+        let availableRootURL = URL(
+            fileURLWithPath: "/Volumes/Available/Muralume Library",
+            isDirectory: true
+        )
+        let recoveredRootURL = URL(
+            fileURLWithPath: "/Volumes/Recovered/Muralume Library",
+            isDirectory: true
+        )
+        let availableSource = MediaSource(
+            url: availableRootURL,
+            kind: .folder
+        )
+        let recoveredSource = MediaSource(
+            url: recoveredRootURL,
+            kind: .folder
+        )
+        let fixture = makeControlledRetryFixture(snapshot: .empty)
+        _ = fixture.coordinator.start()
+        fixture.session.synchronousRetrySources = [availableSource]
+        XCTAssertEqual(
+            fixture.coordinator.retryUnavailableSourceAccess(),
+            .scanStarted
+        )
+        await waitForScan(fixture.coordinator)
+
+        let retryTask = Task {
+            await fixture.coordinator.retryUnavailableSourceAccessAsync()
+        }
+        for _ in 0..<1_000 where !fixture.session.asyncRetryDidBegin {
+            await Task.yield()
+        }
+        XCTAssertTrue(fixture.session.asyncRetryDidBegin)
+
+        fixture.coordinator.refresh()
+        fixture.session.hasUnavailablePersistedSources = false
+        fixture.session.completeAsyncRetry(
+            with: [availableSource, recoveredSource]
+        )
+
+        let retryDisposition = await retryTask.value
+        XCTAssertEqual(retryDisposition, .scanStarted)
+        await waitForScan(fixture.coordinator)
+        XCTAssertEqual(
+            fixture.scanner.scannedSources.last,
+            [availableSource, recoveredSource]
+        )
+        XCTAssertEqual(fixture.coordinator.sourceAccessState, .available)
+    }
+
+    func testCancelledAsyncStartupKeepsUnavailableSourcesRetryableWithoutScan()
+        async
+    {
+        let fixture = makeControlledRetryFixture(snapshot: .empty)
+
+        let startupTask = Task {
+            await fixture.coordinator.startAsync()
+        }
+        for _ in 0..<1_000 where !fixture.session.asyncRestoreDidBegin {
+            await Task.yield()
+        }
+        XCTAssertTrue(fixture.session.asyncRestoreDidBegin)
+
+        startupTask.cancel()
+        fixture.session.completeAsyncRestore(with: [])
+
+        let startupDisposition = await startupTask.value
+        XCTAssertEqual(startupDisposition, .alreadyStarted)
+        XCTAssertEqual(
+            fixture.coordinator.sourceAccessState,
+            .temporarilyUnavailable
+        )
+        XCTAssertTrue(fixture.coordinator.canRetrySourceAccess)
+        XCTAssertEqual(fixture.coordinator.scanState, .idle)
+        XCTAssertTrue(fixture.coordinator.roots.isEmpty)
+        XCTAssertTrue(fixture.coordinator.items.isEmpty)
+        XCTAssertTrue(fixture.scanner.scannedSources.isEmpty)
+    }
+
+    func testCancelledAsyncStartupDefersAccessibleSourcesWithoutScan()
+        async
+    {
+        let rootURL = URL(
+            fileURLWithPath: "/Volumes/Deferred/Muralume Library",
+            isDirectory: true
+        )
+        let fixture = makeControlledRetryFixture(snapshot: .empty)
+        fixture.session.hasUnavailablePersistedSources = false
+
+        let startupTask = Task {
+            await fixture.coordinator.startAsync()
+        }
+        for _ in 0..<1_000 where !fixture.session.asyncRestoreDidBegin {
+            await Task.yield()
+        }
+        XCTAssertTrue(fixture.session.asyncRestoreDidBegin)
+
+        startupTask.cancel()
+        fixture.session.completeAsyncRestore(
+            with: [MediaSource(url: rootURL, kind: .folder)]
+        )
+
+        let startupDisposition = await startupTask.value
+        XCTAssertEqual(startupDisposition, .alreadyStarted)
+        XCTAssertEqual(fixture.coordinator.sourceAccessState, .available)
+        XCTAssertTrue(fixture.coordinator.canRefresh)
+        XCTAssertEqual(fixture.coordinator.scanState, .idle)
+        XCTAssertTrue(fixture.coordinator.roots.isEmpty)
+        XCTAssertTrue(fixture.coordinator.items.isEmpty)
+        XCTAssertTrue(fixture.scanner.scannedSources.isEmpty)
+
+        XCTAssertTrue(
+            fixture.coordinator.refreshDeferredSourcesIfNeeded()
+        )
+        await waitForScan(fixture.coordinator)
+        XCTAssertEqual(
+            fixture.scanner.scannedSources,
+            [[MediaSource(url: rootURL, kind: .folder)]]
+        )
+        XCTAssertFalse(
+            fixture.coordinator.refreshDeferredSourcesIfNeeded()
+        )
+    }
+
+    func testSyncRetrySupersedesOlderAsyncRetryResult() async {
+        let staleRootURL = URL(
+            fileURLWithPath: "/Volumes/Stale/Muralume Library",
+            isDirectory: true
+        )
+        let currentRootURL = URL(
+            fileURLWithPath: "/Volumes/Current/Muralume Library",
+            isDirectory: true
+        )
+        let currentItem = makeItem(
+            rootURL: currentRootURL,
+            name: "Current",
+            path: "Current.mov"
+        )
+        let fixture = makeControlledRetryFixture(
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: currentRootURL,
+                        displayName: "Current Library"
+                    )
+                ],
+                items: [currentItem]
+            )
+        )
+        _ = fixture.coordinator.start()
+
+        let staleRetryTask = Task {
+            await fixture.coordinator.retryUnavailableSourceAccessAsync()
+        }
+        for _ in 0..<1_000 where !fixture.session.asyncRetryDidBegin {
+            await Task.yield()
+        }
+        XCTAssertTrue(fixture.session.asyncRetryDidBegin)
+
+        let currentSource = MediaSource(
+            url: currentRootURL,
+            kind: .folder
+        )
+        fixture.session.synchronousRetrySources = [currentSource]
+        fixture.session.hasUnavailablePersistedSources = false
+        XCTAssertEqual(
+            fixture.coordinator.retryUnavailableSourceAccess(),
+            .scanStarted
+        )
+
+        fixture.session.completeAsyncRetry(
+            with: [MediaSource(url: staleRootURL, kind: .folder)]
+        )
+        let staleRetryDisposition = await staleRetryTask.value
+        XCTAssertEqual(staleRetryDisposition, .alreadyStarted)
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(fixture.coordinator.sourceAccessState, .available)
+        XCTAssertEqual(fixture.coordinator.roots.map(\.url), [currentRootURL])
+        XCTAssertEqual(fixture.coordinator.items, [currentItem])
+        XCTAssertEqual(fixture.scanner.scannedSources, [[currentSource]])
+    }
+
     func testRetryParentTakeoverDrainsSupersededExactThumbnailRoot()
         async throws
     {
@@ -3701,6 +4089,86 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         )
     }
 
+}
+
+@MainActor
+private struct ControlledRetryFixture {
+    let coordinator: MediaLibraryCoordinator
+    let session: ControlledRetryMediaAccessSession
+    let scanner: TestMediaLibraryScanner
+}
+
+@MainActor
+private func makeControlledRetryFixture(
+    snapshot: MediaLibrarySnapshot
+) -> ControlledRetryFixture {
+    let playback = PlaybackCoordinator(engine: TestPlaybackEngine())
+    let session = ControlledRetryMediaAccessSession()
+    let scanner = TestMediaLibraryScanner(snapshot: snapshot)
+    let coordinator = MediaLibraryCoordinator(
+        playback: playback,
+        sourceSelector: TestMediaSourceSelector(selections: [[]]),
+        mediaSession: session,
+        scanner: scanner,
+        mediaThumbnailProvider: TestMediaThumbnailProvider(),
+        playbackOrder: .ordered
+    )
+    return ControlledRetryFixture(
+        coordinator: coordinator,
+        session: session,
+        scanner: scanner
+    )
+}
+
+@MainActor
+private final class ControlledRetryMediaAccessSession: MediaAccessSession {
+    var hasUnavailablePersistedSources = true
+    var synchronousRetrySources: [MediaSource] = []
+    private(set) var asyncRestoreDidBegin = false
+    private(set) var asyncRetryDidBegin = false
+    private var asyncRestoreContinuation:
+        CheckedContinuation<[MediaSource], Never>?
+    private var asyncRetryContinuation:
+        CheckedContinuation<[MediaSource], Never>?
+
+    func restoreSources() -> [MediaSource] {
+        []
+    }
+
+    func restoreSourcesAsync() async -> [MediaSource] {
+        asyncRestoreDidBegin = true
+        return await withCheckedContinuation { continuation in
+            asyncRestoreContinuation = continuation
+        }
+    }
+
+    func retryUnavailableSources() -> [MediaSource] {
+        synchronousRetrySources
+    }
+
+    func retryUnavailableSourcesAsync() async -> [MediaSource] {
+        asyncRetryDidBegin = true
+        return await withCheckedContinuation { continuation in
+            asyncRetryContinuation = continuation
+        }
+    }
+
+    func completeAsyncRestore(with sources: [MediaSource]) {
+        let continuation = asyncRestoreContinuation
+        asyncRestoreContinuation = nil
+        continuation?.resume(returning: sources)
+    }
+
+    func completeAsyncRetry(with sources: [MediaSource]) {
+        let continuation = asyncRetryContinuation
+        asyncRetryContinuation = nil
+        continuation?.resume(returning: sources)
+    }
+
+    func stop() {
+        completeAsyncRestore(with: [])
+        completeAsyncRetry(with: [])
+    }
 }
 
 private func storageIdentity<Element>(of values: [Element]) -> UInt {

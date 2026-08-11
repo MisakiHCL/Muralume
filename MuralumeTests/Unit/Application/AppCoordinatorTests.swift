@@ -73,6 +73,35 @@ final class AppCoordinatorTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
+    func testDockReopenResumesScanDeferredBySourceRestoreCancellation()
+        async {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            blockSourceRestore: true
+        )
+
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.mediaSession.didBeginBlockedAsyncRestore
+        }
+
+        fixture.coordinator.reopenMainWindow()
+        fixture.mediaSession.finishBlockedAsyncRestore()
+        await waitUntil {
+            fixture.window.isVisible
+                && fixture.library.scanState == .ready
+                && fixture.library.items == [fixture.item]
+        }
+
+        XCTAssertEqual(
+            fixture.scanner.scannedRootURLs,
+            [[fixture.item.rootURL]]
+        )
+        XCTAssertFalse(fixture.library.refreshDeferredSourcesIfNeeded())
+
+        await fixture.coordinator.shutdown()
+    }
+
     func testSettingsSupersedesPreparedVideoDropAutoplayButStillRefreshes()
         async {
         let fixture = makeFixture(
@@ -375,6 +404,42 @@ final class AppCoordinatorTests: XCTestCase {
         XCTAssertEqual(snapshot?.state.isPlaybackRequested, true)
     }
 
+    func testDockReopenAndActivationCoalesceTheSamePlayerAttachment() async {
+        let fixture = makeFixture(launchStatus: .disabled)
+        fixture.coordinator.start(source: .interactive)
+        await prepareActiveQueue(in: fixture)
+        let attachmentCountBeforeReopen =
+            fixture.engine.playerAttachmentCount
+
+        fixture.coordinator.dismissMainWindow()
+        fixture.engine.blockPlayerAttachment()
+        fixture.coordinator.reopenMainWindow()
+        await waitUntil {
+            fixture.engine.didBeginBlockedPlayerAttachment
+        }
+
+        // AppKit can deliver activation and Dock-reopen callbacks for the
+        // same user action. The second path must reuse the pending attach.
+        fixture.coordinator.handleApplicationActivation(
+            hasVisibleWindows: false
+        )
+        for _ in 0..<TestPolicy.propagationAttempts {
+            await Task.yield()
+        }
+
+        XCTAssertTrue(fixture.window.isVisible)
+        XCTAssertEqual(
+            fixture.engine.playerAttachmentCount,
+            attachmentCountBeforeReopen + 1
+        )
+
+        fixture.engine.finishBlockedPlayerAttachment()
+        await waitUntil {
+            fixture.engine.isPlaying
+        }
+        await fixture.coordinator.shutdown()
+    }
+
     func testMiniaturizingPlayerSuspendsDecodeAndRestoresIntent() async {
         let fixture = makeFixture(launchStatus: .disabled)
         fixture.coordinator.start(source: .interactive)
@@ -669,6 +734,45 @@ final class AppCoordinatorTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
+    func testFinderOpenResumesScanDeferredBySourceRestoreCancellation()
+        async {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            blockSourceRestore: true
+        )
+
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.mediaSession.didBeginBlockedAsyncRestore
+        }
+
+        fixture.coordinator.handleOpenFiles([fixture.item.url])
+        fixture.mediaSession.finishBlockedAsyncRestore()
+        await waitUntil {
+            fixture.window.isVisible
+                && fixture.playback.source?.url == fixture.item.url
+                && fixture.playback.readiness == .ready
+                && fixture.library.scanState == .ready
+                && fixture.library.items == [fixture.item]
+        }
+
+        // The deferred persistent-source scan discovers the same item that
+        // Finder initially had to open through a temporary file scope. Once
+        // reconciled, the library owns that item and the temporary scope must
+        // be released.
+        XCTAssertFalse(fixture.library.isTemporaryPlayback)
+        XCTAssertFalse(fixture.library.currentItemIsTemporary)
+        XCTAssertTrue(
+            fixture.scanner.scannedRootURLs.contains([fixture.item.url])
+        )
+        XCTAssertTrue(
+            fixture.scanner.scannedRootURLs.contains([fixture.item.rootURL])
+        )
+        XCTAssertFalse(fixture.library.refreshDeferredSourcesIfNeeded())
+
+        await fixture.coordinator.shutdown()
+    }
+
     func testFinderOpeningKnownLibraryItemUsesFullLibraryQueue() async {
         let fixture = makeFixture(launchStatus: .disabled)
         fixture.coordinator.start(source: .interactive)
@@ -959,6 +1063,84 @@ final class AppCoordinatorTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
+    func testClosingDuringSourceAccessRetryDoesNotResumeDeferredSession()
+        async {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            sessionPresentation: .desktop,
+            sourceInitiallyAvailable: false
+        )
+
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+                && !fixture.playbackSession.isRestoring
+        }
+        fixture.mediaSession.makePersistedSourceAvailable()
+        fixture.mediaSession.blockNextAsyncRetry()
+
+        fixture.coordinator.retryUnavailableSourceAccess()
+        await waitUntil {
+            fixture.mediaSession.didBeginBlockedAsyncRetry
+        }
+
+        fixture.coordinator.dismissMainWindow()
+        XCTAssertFalse(fixture.window.isVisible)
+        fixture.mediaSession.finishBlockedAsyncRetry()
+        await waitUntil {
+            fixture.mediaSession.asyncRetryReturnCount == 1
+        }
+        for _ in 0..<TestPolicy.propagationAttempts {
+            await Task.yield()
+        }
+
+        XCTAssertFalse(fixture.window.isVisible)
+        XCTAssertTrue(fixture.playback.isPlayerWindowDismissed)
+        XCTAssertTrue(fixture.engine.loadedSources.isEmpty)
+        XCTAssertTrue(fixture.playbackSession.hasDeferredRestorePlan)
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testMinimizingDuringSourceAccessRetryDoesNotReopenWindow() async {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            sessionPresentation: .desktop,
+            sourceInitiallyAvailable: false
+        )
+
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+                && !fixture.playbackSession.isRestoring
+        }
+        fixture.mediaSession.makePersistedSourceAvailable()
+        fixture.mediaSession.blockNextAsyncRetry()
+
+        fixture.coordinator.retryUnavailableSourceAccess()
+        await waitUntil {
+            fixture.mediaSession.didBeginBlockedAsyncRetry
+        }
+
+        fixture.coordinator.minimizeMainWindow()
+        await waitUntil {
+            fixture.window.isMiniaturized
+        }
+        fixture.mediaSession.finishBlockedAsyncRetry()
+        await waitUntil {
+            fixture.mediaSession.asyncRetryReturnCount == 1
+        }
+        for _ in 0..<TestPolicy.propagationAttempts {
+            await Task.yield()
+        }
+
+        XCTAssertTrue(fixture.window.isMiniaturized)
+        XCTAssertTrue(fixture.engine.loadedSources.isEmpty)
+        XCTAssertTrue(fixture.playbackSession.hasDeferredRestorePlan)
+
+        await fixture.coordinator.shutdown()
+    }
+
     func testReauthorizationCancelPreservesDeferredSession() async {
         let fixture = makeFixture(
             launchStatus: .disabled,
@@ -1111,6 +1293,7 @@ final class AppCoordinatorTests: XCTestCase {
         blockPresetLoad: Bool = false,
         blockDesktopAttachment: Bool = false,
         blockSessionLoad: Bool = false,
+        blockSourceRestore: Bool = false,
         sessionPresentation: PlaybackSessionPresentation? = nil,
         sourceInitiallyAvailable: Bool = true,
         selectedSources: [[URL]]? = nil
@@ -1144,7 +1327,8 @@ final class AppCoordinatorTests: XCTestCase {
         playback.registerPlayerSurface(playerSurface)
         let mediaSession = AppCoordinatorMediaSession(
             rootURL: rootURL,
-            initiallyAvailable: sourceInitiallyAvailable
+            initiallyAvailable: sourceInitiallyAvailable,
+            blocksAsyncRestore: blockSourceRestore
         )
         let sourceSelector = AppCoordinatorSourceSelector(
             selections: selectedSources ?? []
@@ -1230,7 +1414,7 @@ final class AppCoordinatorTests: XCTestCase {
         )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-            styleMask: [.titled, .closable],
+            styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
@@ -1304,6 +1488,7 @@ private final class AppCoordinatorPlaybackEngine: PlaybackEngine {
 
     private(set) var didBeginBlockedDesktopAttachment = false
     private(set) var didBeginBlockedPlayerAttachment = false
+    private(set) var playerAttachmentCount = 0
     private(set) var isPlaying = false
     private(set) var isMuted = false
     private(set) var stopCount = 0
@@ -1330,10 +1515,13 @@ private final class AppCoordinatorPlaybackEngine: PlaybackEngine {
             try await withCheckedThrowingContinuation { continuation in
                 desktopAttachmentContinuation = continuation
             }
-        } else if surface.id == .player, shouldBlockPlayerAttachment {
-            didBeginBlockedPlayerAttachment = true
-            await withCheckedContinuation { continuation in
-                playerAttachmentContinuation = continuation
+        } else if surface.id == .player {
+            playerAttachmentCount += 1
+            if shouldBlockPlayerAttachment {
+                didBeginBlockedPlayerAttachment = true
+                await withCheckedContinuation { continuation in
+                    playerAttachmentContinuation = continuation
+                }
             }
         }
     }
@@ -1413,19 +1601,49 @@ private final class AppCoordinatorMediaSession: MediaAccessSession {
     private(set) var stopCount = 0
     private let persistedSource: MediaSource
     private var persistedSourceIsAvailable: Bool
+    private let blocksAsyncRestore: Bool
+    private var blockedAsyncRestoreContinuation:
+        CheckedContinuation<Void, Never>?
+    private var shouldBlockNextAsyncRetry = false
+    private var blockedAsyncRetryContinuation:
+        CheckedContinuation<Void, Never>?
+    private(set) var didBeginBlockedAsyncRetry = false
+    private(set) var didBeginBlockedAsyncRestore = false
+    private(set) var asyncRetryReturnCount = 0
 
     var hasUnavailablePersistedSources: Bool {
         !persistedSourceIsAvailable
     }
 
-    init(rootURL: URL, initiallyAvailable: Bool) {
+    init(
+        rootURL: URL,
+        initiallyAvailable: Bool,
+        blocksAsyncRestore: Bool = false
+    ) {
         persistedSource = MediaSource(url: rootURL, kind: .folder)
         persistedSourceIsAvailable = initiallyAvailable
+        self.blocksAsyncRestore = blocksAsyncRestore
         activeSources = initiallyAvailable ? [persistedSource] : []
     }
 
     func restoreSources() -> [MediaSource] {
         activeSources
+    }
+
+    func restoreSourcesAsync() async -> [MediaSource] {
+        if blocksAsyncRestore {
+            didBeginBlockedAsyncRestore = true
+            await withCheckedContinuation { continuation in
+                blockedAsyncRestoreContinuation = continuation
+            }
+        }
+        return restoreSources()
+    }
+
+    func finishBlockedAsyncRestore() {
+        let continuation = blockedAsyncRestoreContinuation
+        blockedAsyncRestoreContinuation = nil
+        continuation?.resume()
     }
 
     func retryUnavailableSources() -> [MediaSource] {
@@ -1434,6 +1652,29 @@ private final class AppCoordinatorMediaSession: MediaAccessSession {
             activeSources.append(persistedSource)
         }
         return activeSources
+    }
+
+    func retryUnavailableSourcesAsync() async -> [MediaSource] {
+        if shouldBlockNextAsyncRetry {
+            shouldBlockNextAsyncRetry = false
+            didBeginBlockedAsyncRetry = true
+            await withCheckedContinuation { continuation in
+                blockedAsyncRetryContinuation = continuation
+            }
+        }
+        asyncRetryReturnCount += 1
+        return retryUnavailableSources()
+    }
+
+    func blockNextAsyncRetry() {
+        shouldBlockNextAsyncRetry = true
+        didBeginBlockedAsyncRetry = false
+    }
+
+    func finishBlockedAsyncRetry() {
+        let continuation = blockedAsyncRetryContinuation
+        blockedAsyncRetryContinuation = nil
+        continuation?.resume()
     }
 
     func makePersistedSourceAvailable() {

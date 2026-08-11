@@ -29,7 +29,9 @@ enum AppCompositionRoot {
             sourceSelector: MacMediaSourcePicker(
                 localization: localization
             ),
-            mediaSession: UserSelectedMediaSession(),
+            mediaSession: UserSelectedMediaSession(
+                restoreExecutor: .live
+            ),
             scanner: FileSystemMediaLibraryScanner(),
             mediaThumbnailProvider: mediaThumbnailProvider,
             playbackOrder: initialPreferences.playbackOrder,

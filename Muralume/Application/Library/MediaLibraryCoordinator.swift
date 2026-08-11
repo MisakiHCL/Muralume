@@ -129,6 +129,37 @@ final class MediaLibraryCoordinator: ObservableObject {
         let mediaPathComponents: [String]
     }
 
+    private struct LexicalPathCoverageIndex {
+        private let sourcePathComponents: [[String]]
+
+        init<S: Sequence>(sourcePaths: S) where S.Element == String {
+            sourcePathComponents = sourcePaths.map {
+                Self.pathComponents(for: $0)
+            }
+        }
+
+        func covers(mediaPathComponents: [String]) -> Bool {
+            sourcePathComponents.contains {
+                mediaPathComponents.starts(with: $0)
+            }
+        }
+
+        static func pathComponents(for path: String) -> [String] {
+            URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+        }
+    }
+
+    private struct CanonicalItemLookupIndex {
+        struct RootResolution {
+            let rootURL: URL
+            let canonicalPath: String
+        }
+
+        let itemsRevision: UInt64
+        let itemIDsByCanonicalPath: [String: LibraryMediaItem.ID]
+        let rootResolutions: [RootResolution]
+    }
+
     @Published private(set) var scanState: MediaLibraryScanState = .idle
     @Published private(set) var roots: [MediaLibraryRoot] = []
     @Published private(set) var items: [LibraryMediaItem] = []
@@ -225,6 +256,8 @@ final class MediaLibraryCoordinator: ObservableObject {
     var queueHistoryStorageIdentityForTesting: UInt? {
         queue?.historyStorageIdentityForTesting
     }
+
+    private(set) var canonicalItemLookupIndexBuildCountForTesting = 0
 #endif
 
     var canRefresh: Bool {
@@ -264,6 +297,7 @@ final class MediaLibraryCoordinator: ObservableObject {
     private var visibleItemsByID: [
         LibraryMediaItem.ID: LibraryMediaItem
     ] = [:]
+    private var canonicalItemLookupIndex: CanonicalItemLookupIndex?
     private var cachedQueueSnapshot:
         PlaybackQueueSnapshot<LibraryMediaItem.ID>?
     private var queue: PlaybackQueue<LibraryMediaItem.ID>? {
@@ -301,6 +335,7 @@ final class MediaLibraryCoordinator: ObservableObject {
     private var hasStarted = false
     private var isShutDown = false
     private var temporaryPlaybackGeneration: UInt64 = 0
+    private var sourceAccessOperationGeneration: UInt64 = 0
 
     init(
         playback: PlaybackCoordinator,
@@ -343,12 +378,49 @@ final class MediaLibraryCoordinator: ObservableObject {
 
     @discardableResult
     func start() -> MediaLibraryStartDisposition {
-        guard !hasStarted, !isShutDown else {
+        guard let operationGeneration = beginStartup() else {
             return .alreadyStarted
         }
-        hasStarted = true
+        return finishStartup(
+            with: mediaSession.restoreSources(),
+            operationGeneration: operationGeneration
+        )
+    }
 
-        let restoredSources = mediaSession.restoreSources()
+    @discardableResult
+    func startAsync() async -> MediaLibraryStartDisposition {
+        guard let operationGeneration = beginStartup() else {
+            return .alreadyStarted
+        }
+        let restoredSources = await mediaSession.restoreSourcesAsync()
+        guard isCurrentSourceAccessOperation(operationGeneration) else {
+            return .alreadyStarted
+        }
+        if Task.isCancelled {
+            recordDeferredStartupSources(restoredSources)
+            return .alreadyStarted
+        }
+        return finishStartup(
+            with: restoredSources,
+            operationGeneration: operationGeneration
+        )
+    }
+
+    private func beginStartup() -> UInt64? {
+        guard !hasStarted, !isShutDown else {
+            return nil
+        }
+        hasStarted = true
+        return beginSourceAccessOperation()
+    }
+
+    private func finishStartup(
+        with restoredSources: [MediaSource],
+        operationGeneration: UInt64
+    ) -> MediaLibraryStartDisposition {
+        guard isCurrentSourceAccessOperation(operationGeneration) else {
+            return .alreadyStarted
+        }
         updateSourceAccessState(using: restoredSources)
         guard !restoredSources.isEmpty else {
             scanState = .idle
@@ -360,6 +432,19 @@ final class MediaLibraryCoordinator: ObservableObject {
         latestPreparedSources = restoredSources
         refresh(using: restoredSources)
         return .scanStarted
+    }
+
+    private func recordDeferredStartupSources(
+        _ restoredSources: [MediaSource]
+    ) {
+        // Cancellation suppresses publication and scanning so a close or
+        // external-open intent stays authoritative. Keep only source-access
+        // bookkeeping: start is one-shot, and dropping this state would make
+        // unavailable bookmarks impossible to retry after reopening.
+        activeSources = restoredSources
+        latestPreparedSources = restoredSources
+        preparedSourcesNeedRefresh = !restoredSources.isEmpty
+        updateSourceAccessState(using: restoredSources)
     }
 
     func waitForStartupScan(
@@ -425,9 +510,13 @@ final class MediaLibraryCoordinator: ObservableObject {
             return .alreadyStarted
         }
 
+        let operationGeneration = beginSourceAccessOperation()
         let previousSources = activeSources
         let previousSourcePaths = sourcePathSet(previousSources)
         let restoredSources = mediaSession.retryUnavailableSources()
+        guard isCurrentSourceAccessOperation(operationGeneration) else {
+            return .alreadyStarted
+        }
         recordSupersededThumbnailRoots(
             previousSources: previousSources,
             activeSources: restoredSources
@@ -450,6 +539,44 @@ final class MediaLibraryCoordinator: ObservableObject {
         return .scanStarted
     }
 
+    @discardableResult
+    func retryUnavailableSourceAccessAsync() async
+        -> MediaLibraryStartDisposition {
+        guard canRetrySourceAccess else {
+            return .alreadyStarted
+        }
+
+        let operationGeneration = beginSourceAccessOperation()
+        let previousSources = activeSources
+        let previousSourcePaths = sourcePathSet(previousSources)
+        let restoredSources = await mediaSession.retryUnavailableSourcesAsync()
+        guard !Task.isCancelled,
+              isCurrentSourceAccessOperation(operationGeneration) else {
+            return .alreadyStarted
+        }
+        recordSupersededThumbnailRoots(
+            previousSources: previousSources,
+            activeSources: restoredSources
+        )
+        latestPreparedSources = restoredSources
+        updateSourceAccessState(using: restoredSources)
+
+        guard sourcePathSet(restoredSources) != previousSourcePaths,
+              !restoredSources.isEmpty else {
+            if restoredSources.isEmpty {
+                return .noRestorableRoots(
+                    hasTemporarilyUnavailableRoots:
+                        mediaSession.hasUnavailablePersistedSources
+                )
+            }
+            return .alreadyStarted
+        }
+
+        preparedSourcesNeedRefresh = true
+        refresh(using: restoredSources)
+        return .scanStarted
+    }
+
     func prepareImport(
         _ selectedURLs: [URL],
         incomingScopePolicy: MediaAccessIncomingScopePolicy = .sessionManaged
@@ -459,6 +586,7 @@ final class MediaLibraryCoordinator: ObservableObject {
               !selectedURLs.isEmpty else {
             return nil
         }
+        invalidateSourceAccessOperation()
 
         let previouslyPreparedSources = latestPreparedSources.isEmpty
             ? activeSources
@@ -838,6 +966,7 @@ final class MediaLibraryCoordinator: ObservableObject {
               rootIDsPendingRemoval.insert(root.id).inserted else {
             return
         }
+        invalidateSourceAccessOperation()
         invalidatePendingImport()
         defer {
             rootIDsPendingRemoval.remove(root.id)
@@ -1014,6 +1143,17 @@ final class MediaLibraryCoordinator: ObservableObject {
                 pendingExplicitImportNeedsQueueExpansion,
             importGeneration: importGeneration
         )
+    }
+
+    /// Resumes the scan deliberately deferred when startup source restoration
+    /// was cancelled to honor a newer window or file-open intent.
+    @discardableResult
+    func refreshDeferredSourcesIfNeeded() -> Bool {
+        guard preparedSourcesNeedRefresh, canRefresh else {
+            return false
+        }
+        refresh()
+        return true
     }
 
     func play(_ item: LibraryMediaItem) {
@@ -1355,43 +1495,44 @@ final class MediaLibraryCoordinator: ObservableObject {
         for itemID in snapshot.items where visibleItemsByID[itemID] == nil {
             missingItemIDs.insert(itemID)
         }
-        let requestedRootPaths = Set(
-            activeSources.map { $0.id.standardizedPath }
-        )
-        let missingMediaPaths = Set(
-            missingItemIDs.map(\.standardizedMediaPath)
-        )
-        let hasIncompleteRoot = missingMediaPaths.contains { mediaPath in
-            incompleteRootPaths.contains {
-                sourcePath($0, coversMediaPath: mediaPath)
+        if !missingItemIDs.isEmpty {
+            let requestedRootPaths = Set(
+                activeSources.map { $0.id.standardizedPath }
+            )
+            let missingMediaPathComponents = Set(
+                missingItemIDs.map(\.standardizedMediaPath)
+            ).map {
+                LexicalPathCoverageIndex.pathComponents(for: $0)
             }
-        }
-        let hasUnavailableRequestedRoot = missingMediaPaths.contains {
-            mediaPath in
-            requestedRootPaths.contains {
-                sourcePath($0, coversMediaPath: mediaPath)
+            let incompleteRootCoverage = LexicalPathCoverageIndex(
+                sourcePaths: incompleteRootPaths
+            )
+            let requestedRootCoverage = LexicalPathCoverageIndex(
+                sourcePaths: requestedRootPaths
+            )
+            let visibleRootCoverage = LexicalPathCoverageIndex(
+                sourcePaths: roots.map(\.id.standardizedPath)
+            )
+            let hasIncompleteRoot = missingMediaPathComponents.contains {
+                incompleteRootCoverage.covers(mediaPathComponents: $0)
             }
-                && !roots.contains {
-                    sourcePath(
-                        $0.id.standardizedPath,
-                        coversMediaPath: mediaPath
-                    )
-                }
-        }
-        let hasPossiblyUnavailableUnresolvedRoot =
-            mediaSession.hasUnavailablePersistedSources
-                && missingMediaPaths.contains { mediaPath in
-                    !roots.contains {
-                        sourcePath(
-                            $0.id.standardizedPath,
-                            coversMediaPath: mediaPath
+            let hasUnavailableRequestedRoot = missingMediaPathComponents
+                .contains {
+                    requestedRootCoverage.covers(mediaPathComponents: $0)
+                        && !visibleRootCoverage.covers(
+                            mediaPathComponents: $0
                         )
-                    }
                 }
-        if hasIncompleteRoot
-            || hasUnavailableRequestedRoot
-            || hasPossiblyUnavailableUnresolvedRoot {
-            return .temporarilyUnavailable
+            let hasPossiblyUnavailableUnresolvedRoot =
+                mediaSession.hasUnavailablePersistedSources
+                    && missingMediaPathComponents.contains {
+                        !visibleRootCoverage.covers(mediaPathComponents: $0)
+                    }
+            if hasIncompleteRoot
+                || hasUnavailableRequestedRoot
+                || hasPossiblyUnavailableUnresolvedRoot {
+                return .temporarilyUnavailable
+            }
         }
 
         invalidateLoad()
@@ -1436,6 +1577,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             return
         }
         isShutDown = true
+        invalidateSourceAccessOperation()
         temporaryPlaybackGeneration &+= 1
         temporaryPlaybackSession.end()
         isExternalPlaybackContext = false
@@ -1472,6 +1614,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         loadedItemID = nil
         queueItemsByID.removeAll()
         visibleItemsByID.removeAll()
+        canonicalItemLookupIndex = nil
     }
 
     private func refresh(
@@ -1757,15 +1900,20 @@ final class MediaLibraryCoordinator: ObservableObject {
         let completeRootPaths = roots.lazy
             .map(\.id.standardizedPath)
             .filter { !incompleteRootPaths.contains($0) }
+        let completeRootCoverage = LexicalPathCoverageIndex(
+            sourcePaths: completeRootPaths
+        )
         let retainedMissingItemIDs = queue.items.filter { itemID in
             guard availableItemsByID[itemID] == nil,
                   let queuedItem = queueItemsByID[itemID] else {
                 return false
             }
-            let mediaPath = queuedItem.id.standardizedMediaPath
-            return !completeRootPaths.contains { rootPath in
-                sourcePath(rootPath, coversMediaPath: mediaPath)
-            }
+            let mediaPathComponents = LexicalPathCoverageIndex.pathComponents(
+                for: queuedItem.id.standardizedMediaPath
+            )
+            return !completeRootCoverage.covers(
+                mediaPathComponents: mediaPathComponents
+            )
         }
         return availableItems.map(\.id) + retainedMissingItemIDs
     }
@@ -1830,6 +1978,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             return false
         }
         visibleItemsByID = prepared.itemsByID
+        canonicalItemLookupIndex = nil
         itemsRevision &+= 1
         items = prepared.items
         return true
@@ -1957,9 +2106,58 @@ final class MediaLibraryCoordinator: ObservableObject {
             return matches
         }
 
-        var candidatesByCanonicalPath: [String: LibraryMediaItem] = [:]
+        let canonicalIndex = if candidates == nil {
+            canonicalItemLookupIndexForVisibleItems()
+        } else {
+            makeCanonicalItemLookupIndex(
+                for: candidateItems,
+                itemsRevision: itemsRevision
+            )
+        }
+        for index in fileURLs.indices where matches[index] == nil {
+            let comparisonPath = canonicalComparisonURL(
+                fileURLs[index]
+            ).path
+            if let itemID = canonicalIndex
+                .itemIDsByCanonicalPath[comparisonPath] {
+                matches[index] = candidatesByID[itemID]
+            }
+        }
+        return matches
+    }
+
+    private func canonicalItemLookupIndexForVisibleItems()
+        -> CanonicalItemLookupIndex {
+        // A root symlink can be retargeted without publishing new items.
+        // Revalidate only the roots before reusing the large item index.
+        if let canonicalItemLookupIndex,
+           canonicalItemLookupIndex.itemsRevision == itemsRevision,
+           canonicalItemLookupIndex.rootResolutions.allSatisfy({ resolution in
+               canonicalComparisonURL(resolution.rootURL).path
+                   == resolution.canonicalPath
+           }) {
+            return canonicalItemLookupIndex
+        }
+
+        let index = makeCanonicalItemLookupIndex(
+            for: items,
+            itemsRevision: itemsRevision
+        )
+        canonicalItemLookupIndex = index
+#if DEBUG
+        canonicalItemLookupIndexBuildCountForTesting += 1
+#endif
+        return index
+    }
+
+    private func makeCanonicalItemLookupIndex(
+        for candidateItems: [LibraryMediaItem],
+        itemsRevision: UInt64
+    ) -> CanonicalItemLookupIndex {
+        var itemIDsByCanonicalPath: [String: LibraryMediaItem.ID] = [:]
         var canonicalRootURLsByPath: [String: URL] = [:]
-        candidatesByCanonicalPath.reserveCapacity(candidateItems.count)
+        var rootResolutions: [CanonicalItemLookupIndex.RootResolution] = []
+        itemIDsByCanonicalPath.reserveCapacity(candidateItems.count)
         for item in candidateItems {
             let rootPath = item.rootURL.standardizedFileURL.path
             let canonicalRootURL: URL
@@ -1968,25 +2166,27 @@ final class MediaLibraryCoordinator: ObservableObject {
             } else {
                 canonicalRootURL = canonicalComparisonURL(item.rootURL)
                 canonicalRootURLsByPath[rootPath] = canonicalRootURL
+                rootResolutions.append(
+                    CanonicalItemLookupIndex.RootResolution(
+                        rootURL: item.rootURL,
+                        canonicalPath: canonicalRootURL.path
+                    )
+                )
             }
             let canonicalItemURL = if item.relativePath.isEmpty {
                 canonicalRootURL
             } else {
                 canonicalRootURL.appendingPathComponent(item.relativePath)
             }
-            candidatesByCanonicalPath[
+            itemIDsByCanonicalPath[
                 canonicalItemURL.standardizedFileURL.path
-            ] = item
+            ] = item.id
         }
-        for index in fileURLs.indices where matches[index] == nil {
-            let comparisonPath = canonicalComparisonURL(
-                fileURLs[index]
-            ).path
-            if let item = candidatesByCanonicalPath[comparisonPath] {
-                matches[index] = item
-            }
-        }
-        return matches
+        return CanonicalItemLookupIndex(
+            itemsRevision: itemsRevision,
+            itemIDsByCanonicalPath: itemIDsByCanonicalPath,
+            rootResolutions: rootResolutions
+        )
     }
 
     private func activateImportedItem(
@@ -2157,6 +2357,22 @@ final class MediaLibraryCoordinator: ObservableObject {
         Set(sources.map { $0.id.standardizedPath })
     }
 
+    @discardableResult
+    private func beginSourceAccessOperation() -> UInt64 {
+        sourceAccessOperationGeneration &+= 1
+        return sourceAccessOperationGeneration
+    }
+
+    private func invalidateSourceAccessOperation() {
+        sourceAccessOperationGeneration &+= 1
+    }
+
+    private func isCurrentSourceAccessOperation(
+        _ generation: UInt64
+    ) -> Bool {
+        !isShutDown && generation == sourceAccessOperationGeneration
+    }
+
     private func updateSourceAccessState(using sources: [MediaSource]) {
         if mediaSession.hasUnavailablePersistedSources {
             sourceAccessState = sources.isEmpty
@@ -2215,19 +2431,6 @@ final class MediaLibraryCoordinator: ObservableObject {
 
     private func canonicalComparisonURL(_ url: URL) -> URL {
         url.resolvingSymlinksInPath().standardizedFileURL
-    }
-
-    private func sourcePath(
-        _ sourcePath: String,
-        coversMediaPath mediaPath: String
-    ) -> Bool {
-        let sourceComponents = URL(
-            fileURLWithPath: sourcePath
-        ).standardizedFileURL.pathComponents
-        let mediaComponents = URL(
-            fileURLWithPath: mediaPath
-        ).standardizedFileURL.pathComponents
-        return mediaComponents.starts(with: sourceComponents)
     }
 
     @discardableResult

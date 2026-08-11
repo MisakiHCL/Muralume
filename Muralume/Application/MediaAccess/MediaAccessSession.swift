@@ -67,9 +67,13 @@ protocol MediaAccessSession: AnyObject {
     func restoreFolders() -> [URL]
     /// Restores persisted file and folder grants and keeps their scopes active.
     func restoreSources() -> [MediaSource]
+    /// Asynchronous startup variant for implementations that resolve bookmarks
+    /// or inspect unavailable volumes away from the main actor.
+    func restoreSourcesAsync() async -> [MediaSource]
     /// Re-attempts only persisted grants that were unavailable during the
     /// initial restore. Existing active scopes remain open.
     func retryUnavailableSources() -> [MediaSource]
+    func retryUnavailableSourcesAsync() async -> [MediaSource]
 
     /// Legacy folder-only add API.
     func addFolders(_ urls: [URL]) -> [URL]
@@ -117,6 +121,14 @@ extension MediaAccessSession {
 
     func retryUnavailableSources() -> [MediaSource] {
         restoreSources()
+    }
+
+    func restoreSourcesAsync() async -> [MediaSource] {
+        restoreSources()
+    }
+
+    func retryUnavailableSourcesAsync() async -> [MediaSource] {
+        retryUnavailableSources()
     }
 
     func addSources(_ urls: [URL]) -> MediaAccessUpdate {

@@ -48,9 +48,12 @@ final class TestPlaybackEngine: PlaybackEngine {
     private(set) var seekModes: [PlaybackSeekMode] = []
     private(set) var progressCadence: PlaybackProgressCadence = .inactive
     private(set) var progressCadenceChanges: [PlaybackProgressCadence] = []
+    private(set) var stopCount = 0
     var loadErrorsByURL: [URL: PlaybackEngineError] = [:]
+    var attachmentErrorsBySurfaceID: [PlaybackSurfaceID: PlaybackEngineError] = [:]
     var shouldBlockLoads = false
     var shouldBlockAttachments = false
+    var blockedAttachmentError: PlaybackEngineError?
     private(set) var didBeginBlockedLoad = false
     private(set) var didBeginBlockedAttachment = false
     private var blockedLoadContinuation:
@@ -77,12 +80,22 @@ final class TestPlaybackEngine: PlaybackEngine {
 
     func attach(to surface: any PlaybackRenderSurface) async throws {
         attachedSurfaceIDs.append(surface.id)
+        if let error = attachmentErrorsBySurfaceID[surface.id] {
+            attachedSurfaceID = nil
+            throw error
+        }
         attachedSurfaceID = surface.id
         if shouldBlockAttachments {
             didBeginBlockedAttachment = true
             try await Task.sleep(
                 nanoseconds: TestPolicy.blockedAttachmentNanoseconds
             )
+            if let blockedAttachmentError {
+                self.blockedAttachmentError = nil
+                shouldBlockAttachments = false
+                attachedSurfaceID = nil
+                throw blockedAttachmentError
+            }
         }
     }
 
@@ -124,6 +137,7 @@ final class TestPlaybackEngine: PlaybackEngine {
     }
 
     func stop() {
+        stopCount += 1
         attachedSurfaceID = nil
         isPlaying = false
         playbackActivityHandler?(false)

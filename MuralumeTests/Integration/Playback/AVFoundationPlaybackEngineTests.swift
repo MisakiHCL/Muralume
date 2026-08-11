@@ -9,6 +9,7 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
     private enum ThumbnailExpectation {
         static let pointSize = CGSize(width: 84, height: 48)
         static let scale: CGFloat = 2
+        static let drainDeadline: Duration = .milliseconds(20)
     }
 
     private enum PlaybackExpectation {
@@ -777,6 +778,75 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
         XCTAssertEqual(generator.cancellationCount, 1)
     }
 
+    func testShutdownDeadlineAbandonsNonCooperativeGeneration() async throws {
+        let url = try TestMediaFixture.h264URL(for: Self.self)
+        let item = try makeLibraryItem(for: url)
+        let generator = BlockingQuickLookThumbnailGenerator(
+            image: try makeTestThumbnail()
+        )
+        let drainDeadlineGate = DrainDeadlineGate()
+        let provider = QuickLookMediaThumbnailProvider(
+            generator: generator,
+            cacheMissDelay: .zero,
+            drainDeadline: ThumbnailExpectation.drainDeadline,
+            drainDelayer: drainDeadlineGate.wait
+        )
+        let request = Task {
+            await provider.thumbnail(
+                for: item,
+                size: ThumbnailExpectation.pointSize,
+                scale: ThumbnailExpectation.scale
+            )
+        }
+        guard await waitForGenerationCount(1, generator: generator) else {
+            request.cancel()
+            return
+        }
+
+        let shutdownFinished = TestFlag()
+        let shutdown = Task {
+            await provider.shutdown()
+            shutdownFinished.value = true
+        }
+        await waitForCancellationCount(1, generator: generator)
+        let requestImage = await request.value
+        guard await waitForDrainDeadlineCount(
+            1,
+            gate: drainDeadlineGate
+        ) else {
+            generator.finishAllRequests()
+            await shutdown.value
+            return
+        }
+        XCTAssertFalse(shutdownFinished.value)
+        drainDeadlineGate.openNext()
+        await waitForFlag(shutdownFinished)
+        let finishedBeforeGeneratorReturned = shutdownFinished.value
+        if !finishedBeforeGeneratorReturned {
+            generator.finishNextRequest()
+        }
+        await shutdown.value
+
+        XCTAssertNil(requestImage)
+        XCTAssertTrue(finishedBeforeGeneratorReturned)
+        XCTAssertEqual(generator.activeGenerationCount, 1)
+        XCTAssertEqual(
+            drainDeadlineGate.requestedDeadlines,
+            [ThumbnailExpectation.drainDeadline]
+        )
+
+        // A system callback arriving after shutdown must be inert.
+        generator.finishAllRequests()
+        await allowPendingTasksToRegister()
+        let rejectedImage = await provider.thumbnail(
+            for: item,
+            size: ThumbnailExpectation.pointSize,
+            scale: ThumbnailExpectation.scale
+        )
+        XCTAssertNil(rejectedImage)
+        XCTAssertEqual(generator.generationCount, 1)
+    }
+
     func testInvalidatingRootDrainsOnlyItsRequestsAndAllowsReadding()
         async throws {
         let url = try TestMediaFixture.h264URL(for: Self.self)
@@ -870,6 +940,241 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
         generator.finishNextRequest()
         let readdedImage = await readdedRequest.value
         XCTAssertTrue(readdedImage === thumbnail)
+        await provider.shutdown()
+    }
+
+    func testRootDrainDeadlineIsolatesLateCompletionFromReaddedRoot()
+        async throws {
+        let url = try TestMediaFixture.h264URL(for: Self.self)
+        let scannedItem = try makeLibraryItem(for: url)
+        let rootURL = URL(fileURLWithPath: "/tmp/ThumbnailDrainDeadline")
+        let item = replacingRoot(in: scannedItem, with: rootURL)
+        let thumbnail = try makeTestThumbnail()
+        let generator = BlockingQuickLookThumbnailGenerator(image: thumbnail)
+        let drainDeadlineGate = DrainDeadlineGate()
+        let provider = QuickLookMediaThumbnailProvider(
+            generator: generator,
+            cacheMissDelay: .zero,
+            maximumConcurrentRequestCount: 1,
+            drainDeadline: ThumbnailExpectation.drainDeadline,
+            drainDelayer: drainDeadlineGate.wait
+        )
+        let staleRequest = Task {
+            await provider.thumbnail(
+                for: item,
+                size: ThumbnailExpectation.pointSize,
+                scale: ThumbnailExpectation.scale
+            )
+        }
+        guard await waitForGenerationCount(1, generator: generator) else {
+            staleRequest.cancel()
+            return
+        }
+
+        let invalidationFinished = TestFlag()
+        let invalidation = Task {
+            await provider.invalidateThumbnails(
+                forRootID: MediaLibraryRoot.ID(
+                    standardizedPath: rootURL.path
+                )
+            )
+            invalidationFinished.value = true
+        }
+        await waitForCancellationCount(1, generator: generator)
+        let staleImage = await staleRequest.value
+        guard await waitForDrainDeadlineCount(
+            1,
+            gate: drainDeadlineGate
+        ) else {
+            generator.finishAllRequests()
+            await invalidation.value
+            return
+        }
+        XCTAssertFalse(invalidationFinished.value)
+        drainDeadlineGate.openNext()
+        await waitForFlag(invalidationFinished)
+        let finishedBeforeGeneratorReturned = invalidationFinished.value
+        if !finishedBeforeGeneratorReturned {
+            generator.finishNextRequest()
+        }
+        await invalidation.value
+
+        XCTAssertNil(staleImage)
+        XCTAssertTrue(finishedBeforeGeneratorReturned)
+        XCTAssertEqual(generator.activeGenerationCount, 1)
+        XCTAssertEqual(
+            drainDeadlineGate.requestedDeadlines,
+            [ThumbnailExpectation.drainDeadline]
+        )
+
+        provider.allowThumbnails(
+            forRootIDs: [
+                MediaLibraryRoot.ID(standardizedPath: rootURL.path)
+            ]
+        )
+        let freshRequestFinished = TestFlag()
+        let freshRequest = Task {
+            let image = await provider.thumbnail(
+                for: item,
+                size: ThumbnailExpectation.pointSize,
+                scale: ThumbnailExpectation.scale
+            )
+            freshRequestFinished.value = true
+            return image
+        }
+        guard await waitForGenerationCount(2, generator: generator) else {
+            freshRequest.cancel()
+            generator.finishAllRequests()
+            return
+        }
+
+        // The first completion belongs to the timed-out request and must not
+        // fulfill or cache on behalf of the new request for the reauthorized root.
+        generator.finishNextRequest()
+        await allowPendingTasksToRegister()
+        XCTAssertFalse(freshRequestFinished.value)
+
+        let joinedRequestFinished = TestFlag()
+        let joinedRequest = Task {
+            let image = await provider.thumbnail(
+                for: item,
+                size: ThumbnailExpectation.pointSize,
+                scale: ThumbnailExpectation.scale
+            )
+            joinedRequestFinished.value = true
+            return image
+        }
+        await allowPendingTasksToRegister()
+        XCTAssertFalse(joinedRequestFinished.value)
+        XCTAssertEqual(generator.generationCount, 2)
+
+        generator.finishNextRequest()
+        let freshImage = await freshRequest.value
+        let joinedImage = await joinedRequest.value
+        XCTAssertTrue(freshImage === thumbnail)
+        XCTAssertTrue(joinedImage === thumbnail)
+        XCTAssertEqual(generator.activeGenerationCount, 0)
+        await provider.shutdown()
+    }
+
+    func testRepeatedRootDrainDeadlinesRespectActualInFlightBudget()
+        async throws {
+        let url = try TestMediaFixture.h264URL(for: Self.self)
+        let scannedItem = try makeLibraryItem(for: url)
+        let rootURL = URL(
+            fileURLWithPath: "/tmp/ThumbnailRepeatedDrainDeadline"
+        )
+        let rootID = MediaLibraryRoot.ID(standardizedPath: rootURL.path)
+        let item = replacingRoot(in: scannedItem, with: rootURL)
+        let thumbnail = try makeTestThumbnail()
+        let generator = BlockingQuickLookThumbnailGenerator(image: thumbnail)
+        let drainDeadlineGate = DrainDeadlineGate()
+        let provider = QuickLookMediaThumbnailProvider(
+            generator: generator,
+            cacheMissDelay: .zero,
+            maximumConcurrentRequestCount: 1,
+            drainDeadline: ThumbnailExpectation.drainDeadline,
+            drainDelayer: drainDeadlineGate.wait
+        )
+
+        let firstRequest = Task {
+            await provider.thumbnail(
+                for: item,
+                size: ThumbnailExpectation.pointSize,
+                scale: ThumbnailExpectation.scale
+            )
+        }
+        guard await waitForGenerationCount(1, generator: generator) else {
+            firstRequest.cancel()
+            return
+        }
+        let firstInvalidation = Task {
+            await provider.invalidateThumbnails(forRootID: rootID)
+        }
+        await waitForCancellationCount(1, generator: generator)
+        let firstImage = await firstRequest.value
+        XCTAssertNil(firstImage)
+        guard await waitForDrainDeadlineCount(
+            1,
+            gate: drainDeadlineGate
+        ) else {
+            generator.finishAllRequests()
+            return
+        }
+        drainDeadlineGate.openNext()
+        await firstInvalidation.value
+
+        provider.allowThumbnails(forRootIDs: [rootID])
+        let secondRequest = Task {
+            await provider.thumbnail(
+                for: item,
+                size: ThumbnailExpectation.pointSize,
+                scale: ThumbnailExpectation.scale
+            )
+        }
+        guard await waitForGenerationCount(2, generator: generator) else {
+            secondRequest.cancel()
+            generator.finishAllRequests()
+            return
+        }
+        let secondInvalidation = Task {
+            await provider.invalidateThumbnails(forRootID: rootID)
+        }
+        await waitForCancellationCount(2, generator: generator)
+        let secondImage = await secondRequest.value
+        XCTAssertNil(secondImage)
+        guard await waitForDrainDeadlineCount(
+            2,
+            gate: drainDeadlineGate
+        ) else {
+            generator.finishAllRequests()
+            return
+        }
+        drainDeadlineGate.openNext()
+        await secondInvalidation.value
+
+        XCTAssertEqual(generator.activeGenerationCount, 2)
+        XCTAssertEqual(generator.maximumActiveGenerationCount, 2)
+
+        provider.allowThumbnails(forRootIDs: [rootID])
+        let thirdRequestFinished = TestFlag()
+        let thirdRequest = Task {
+            let image = await provider.thumbnail(
+                for: item,
+                size: ThumbnailExpectation.pointSize,
+                scale: ThumbnailExpectation.scale
+            )
+            thirdRequestFinished.value = true
+            return image
+        }
+        await allowPendingTasksToRegister()
+
+        // Both real Quick Look slots are occupied by generations that ignored
+        // cancellation, so a third replacement must remain queued.
+        XCTAssertEqual(generator.generationCount, 2)
+        XCTAssertEqual(generator.activeGenerationCount, 2)
+        XCTAssertFalse(thirdRequestFinished.value)
+
+        // A real late callback frees the hard-budget slot. It must only start
+        // the queued generation, never publish its own stale result.
+        generator.finishNextRequest()
+        guard await waitForGenerationCount(3, generator: generator) else {
+            thirdRequest.cancel()
+            generator.finishAllRequests()
+            return
+        }
+        XCTAssertFalse(thirdRequestFinished.value)
+        XCTAssertEqual(generator.activeGenerationCount, 2)
+        XCTAssertEqual(generator.maximumActiveGenerationCount, 2)
+
+        generator.finishNextRequest()
+        await allowPendingTasksToRegister()
+        XCTAssertFalse(thirdRequestFinished.value)
+
+        generator.finishNextRequest()
+        let thirdImage = await thirdRequest.value
+        XCTAssertTrue(thirdImage === thumbnail)
+        XCTAssertEqual(generator.activeGenerationCount, 0)
         await provider.shutdown()
     }
 
@@ -1250,6 +1555,50 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
         engine.stop()
     }
 
+    func testSupersededAttachmentCannotDisconnectNewerSameSurfaceAttachment()
+        async throws
+    {
+        let engine = AVFoundationPlaybackEngine()
+        let surface = TestAVPlayerSurface(id: .player)
+        defer { engine.stop() }
+
+        _ = try await engine.load(
+            ResolvedMediaSource(
+                url: try TestMediaFixture.h264URL(for: Self.self),
+                displayName: "Sample"
+            )
+        )
+        surface.isReadyForDisplay = false
+
+        let firstAttachment = Task {
+            try await engine.attach(to: surface)
+        }
+        for _ in 0..<1_000 where !surface.isConnected {
+            await Task.yield()
+        }
+        guard surface.isConnected else {
+            firstAttachment.cancel()
+            XCTFail("The first attachment never connected its surface")
+            return
+        }
+
+        let newerAttachment = Task {
+            try await engine.attach(to: surface)
+        }
+
+        do {
+            try await firstAttachment.value
+            XCTFail("Expected the older attachment to be superseded")
+        } catch let error as PlaybackEngineError {
+            XCTAssertEqual(error, .superseded)
+        }
+
+        surface.isReadyForDisplay = true
+        try await newerAttachment.value
+
+        XCTAssertTrue(surface.isConnected)
+    }
+
     func testReplacingASurfaceWithTheSameIDDisconnectsTheOldInstance() async throws {
         let engine = AVFoundationPlaybackEngine()
         let firstSurface = TestAVPlayerSurface(id: .player)
@@ -1418,6 +1767,17 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
         return gate.waitCount == expectedCount
     }
 
+    private func waitForDrainDeadlineCount(
+        _ expectedCount: Int,
+        gate: DrainDeadlineGate
+    ) async -> Bool {
+        for _ in 0..<100 where gate.waitCount < expectedCount {
+            await Task.yield()
+        }
+        XCTAssertEqual(gate.waitCount, expectedCount)
+        return gate.waitCount == expectedCount
+    }
+
     private func allowPendingTasksToRegister() async {
         for _ in 0..<20 {
             await Task.yield()
@@ -1448,6 +1808,30 @@ private final class FirstCacheMissGate {
     func open() {
         continuation?.resume()
         continuation = nil
+    }
+}
+
+@MainActor
+private final class DrainDeadlineGate {
+    private var continuations: [CheckedContinuation<Void, Error>] = []
+    private(set) var requestedDeadlines: [Duration] = []
+
+    var waitCount: Int {
+        requestedDeadlines.count
+    }
+
+    func wait(for deadline: Duration) async throws {
+        requestedDeadlines.append(deadline)
+        try await withCheckedThrowingContinuation { continuation in
+            continuations.append(continuation)
+        }
+    }
+
+    func openNext() {
+        guard !continuations.isEmpty else {
+            return
+        }
+        continuations.removeFirst().resume()
     }
 }
 

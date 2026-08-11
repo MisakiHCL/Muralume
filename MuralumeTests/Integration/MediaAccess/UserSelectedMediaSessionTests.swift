@@ -198,6 +198,595 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         restoredSession.stop()
     }
 
+    func testAsyncRestoreAppliesPreparedScopeAndPersistsRecord() async {
+        let bookmark = Data("async-restore".utf8)
+        let resolvedURL = URL(
+            fileURLWithPath: "/tmp/Async Restore \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let restoreExecutor = UserSelectedMediaRestoreExecutor {
+            kind,
+            preparedBookmark in
+            XCTAssertEqual(kind, .folder)
+            XCTAssertEqual(preparedBookmark, bookmark)
+            return .resolved(
+                ExecutorOwnedPreparedMediaSourceRestore(
+                    restore: PreparedMediaSourceRestore(
+                        resolvedURL: resolvedURL,
+                        linkResolution: MediaSourceURLInspector.LinkResolution(
+                            targetURL: resolvedURL.standardizedFileURL,
+                            didResolveLink: false
+                        ),
+                        refreshedBookmark: nil,
+                        resourceIdentifier: nil
+                    ),
+                    stopAccess: { _ in }
+                )
+            )
+        }
+        let fixture = makeSessionFixture(
+            restoreExecutor: restoreExecutor
+        )
+        defer { fixture.clearDefaults() }
+        fixture.defaults.set(
+            [
+                StoredSourceRecord(
+                    kind: .folder,
+                    bookmark: bookmark
+                ).storedValue
+            ],
+            forKey: TestStorage.sourceRecordKey
+        )
+
+        let restoredSources = await fixture.session.restoreSourcesAsync()
+
+        XCTAssertEqual(
+            restoredSources,
+            [MediaSource(url: resolvedURL, kind: .folder)]
+        )
+        XCTAssertEqual(
+            storedSourceRecords(in: fixture.defaults),
+            [StoredSourceRecord(kind: .folder, bookmark: bookmark)]
+        )
+        fixture.session.stop()
+        XCTAssertEqual(fixture.recorder.stoppedURLs, [resolvedURL])
+    }
+
+    func testAsyncRestoreCancellationStopsBeforeNextCandidateAndClosesScope()
+        async
+    {
+        let firstBookmark = Data("cancel-first".utf8)
+        let secondBookmark = Data("cancel-second".utf8)
+        let resolvedURL = URL(
+            fileURLWithPath: "/tmp/Cancelled Restore \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let controller = RestorePreparationController()
+        let scopeCloseRecorder = ThreadSafeURLRecorder()
+        let restoreExecutor = UserSelectedMediaRestoreExecutor {
+            kind,
+            bookmark in
+            await controller.prepare(kind: kind, bookmark: bookmark)
+        }
+        let fixture = makeSessionFixture(restoreExecutor: restoreExecutor)
+        defer { fixture.clearDefaults() }
+        let storedRecords = [firstBookmark, secondBookmark].map {
+            StoredSourceRecord(kind: .folder, bookmark: $0).storedValue
+        }
+        fixture.defaults.set(
+            storedRecords,
+            forKey: TestStorage.sourceRecordKey
+        )
+
+        let restoreTask = Task { @MainActor in
+            await fixture.session.restoreSourcesAsync()
+        }
+        await controller.waitForCallCount(1)
+        restoreTask.cancel()
+        await controller.resolveNext(
+            with: .resolved(
+                makeExecutorOwnedRestore(
+                    resolvedURL: resolvedURL,
+                    scopeCloseRecorder: scopeCloseRecorder
+                )
+            )
+        )
+
+        let restoredSources = await restoreTask.value
+        let callCount = await controller.callCount
+        let preparedBookmarks = await controller.bookmarks
+        XCTAssertTrue(restoredSources.isEmpty)
+        XCTAssertEqual(callCount, 1)
+        XCTAssertEqual(preparedBookmarks, [firstBookmark])
+        XCTAssertEqual(scopeCloseRecorder.urls, [resolvedURL])
+        XCTAssertTrue(fixture.session.hasUnavailablePersistedSources)
+        XCTAssertEqual(
+            storedSourceRecords(in: fixture.defaults),
+            [
+                StoredSourceRecord(kind: .folder, bookmark: firstBookmark),
+                StoredSourceRecord(kind: .folder, bookmark: secondBookmark)
+            ]
+        )
+    }
+
+    func testDetachedRestoreCancellationReturnsBeforeNonCooperativeResolver()
+        async
+    {
+        let resolvedURL = URL(
+            fileURLWithPath: "/tmp/Late Detached Restore \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let scopeCloseRecorder = ThreadSafeURLRecorder()
+        let resolver = NonCooperativeRestoreResolver(
+            resolvedURL: resolvedURL,
+            scopeCloseRecorder: scopeCloseRecorder
+        )
+        let restoreExecutor = UserSelectedMediaRestoreExecutor.detached {
+            kind,
+            bookmark in
+            resolver.prepare(kind: kind, bookmark: bookmark)
+        }
+        let returnedPromptly = expectation(
+            description: "cancelled detached restore returned promptly"
+        )
+        let preparationTask = Task { @MainActor in
+            let result = await restoreExecutor.prepare(
+                kind: .folder,
+                bookmark: Data("blocked-resolver".utf8)
+            )
+            returnedPromptly.fulfill()
+            return result
+        }
+        await Task.detached {
+            resolver.waitUntilStarted()
+        }.value
+
+        preparationTask.cancel()
+        await fulfillment(of: [returnedPromptly], timeout: 0.5)
+        resolver.release()
+        let result = await preparationTask.value
+        guard case .unavailable = result else {
+            if case let .resolved(preparedRestore) = result {
+                preparedRestore.closeScopeIfOwned()
+            }
+            XCTFail("A cancelled detached restore must not publish a result")
+            return
+        }
+
+        for _ in 0..<100 where scopeCloseRecorder.urls.isEmpty {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(scopeCloseRecorder.urls, [resolvedURL])
+    }
+
+    func testStopDuringAsyncPreparationClosesLateScopeWithoutRevivingSource()
+        async
+    {
+        let bookmark = Data("stop-during-restore".utf8)
+        let resolvedURL = URL(
+            fileURLWithPath: "/tmp/Stopped Restore \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let controller = RestorePreparationController()
+        let scopeCloseRecorder = ThreadSafeURLRecorder()
+        let restoreExecutor = UserSelectedMediaRestoreExecutor {
+            kind,
+            preparedBookmark in
+            await controller.prepare(
+                kind: kind,
+                bookmark: preparedBookmark
+            )
+        }
+        let fixture = makeSessionFixture(restoreExecutor: restoreExecutor)
+        defer { fixture.clearDefaults() }
+        fixture.defaults.set(
+            [
+                StoredSourceRecord(
+                    kind: .folder,
+                    bookmark: bookmark
+                ).storedValue
+            ],
+            forKey: TestStorage.sourceRecordKey
+        )
+
+        let restoreTask = Task { @MainActor in
+            await fixture.session.restoreSourcesAsync()
+        }
+        await controller.waitForCallCount(1)
+        fixture.session.stop()
+        await controller.resolveNext(
+            with: .resolved(
+                makeExecutorOwnedRestore(
+                    resolvedURL: resolvedURL,
+                    scopeCloseRecorder: scopeCloseRecorder
+                )
+            )
+        )
+
+        let restoredSources = await restoreTask.value
+        XCTAssertTrue(restoredSources.isEmpty)
+        XCTAssertEqual(scopeCloseRecorder.urls, [resolvedURL])
+        XCTAssertTrue(fixture.recorder.stoppedURLs.isEmpty)
+        XCTAssertFalse(fixture.session.hasUnavailablePersistedSources)
+        XCTAssertEqual(
+            storedSourceRecords(in: fixture.defaults),
+            [StoredSourceRecord(kind: .folder, bookmark: bookmark)]
+        )
+    }
+
+    func testAsyncRetryAdoptsPreviouslyUnavailableScope() async {
+        let bookmark = Data("async-retry".utf8)
+        let resolvedURL = URL(
+            fileURLWithPath: "/tmp/Async Retry \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let controller = RestorePreparationController()
+        let scopeCloseRecorder = ThreadSafeURLRecorder()
+        let restoreExecutor = UserSelectedMediaRestoreExecutor {
+            kind,
+            preparedBookmark in
+            await controller.prepare(
+                kind: kind,
+                bookmark: preparedBookmark
+            )
+        }
+        let fixture = makeSessionFixture(restoreExecutor: restoreExecutor)
+        defer { fixture.clearDefaults() }
+        fixture.defaults.set(
+            [
+                StoredSourceRecord(
+                    kind: .folder,
+                    bookmark: bookmark
+                ).storedValue
+            ],
+            forKey: TestStorage.sourceRecordKey
+        )
+
+        let initialRestoreTask = Task { @MainActor in
+            await fixture.session.restoreSourcesAsync()
+        }
+        await controller.waitForCallCount(1)
+        await controller.resolveNext(with: .unavailable)
+        let initiallyRestoredSources = await initialRestoreTask.value
+        XCTAssertTrue(initiallyRestoredSources.isEmpty)
+        XCTAssertTrue(fixture.session.hasUnavailablePersistedSources)
+
+        let retryTask = Task { @MainActor in
+            await fixture.session.retryUnavailableSourcesAsync()
+        }
+        await controller.waitForCallCount(2)
+        await controller.resolveNext(
+            with: .resolved(
+                makeExecutorOwnedRestore(
+                    resolvedURL: resolvedURL,
+                    scopeCloseRecorder: scopeCloseRecorder
+                )
+            )
+        )
+
+        let retriedSources = await retryTask.value
+        XCTAssertEqual(
+            retriedSources,
+            [MediaSource(url: resolvedURL, kind: .folder)]
+        )
+        XCTAssertFalse(fixture.session.hasUnavailablePersistedSources)
+        XCTAssertTrue(scopeCloseRecorder.urls.isEmpty)
+
+        fixture.session.stop()
+        XCTAssertEqual(fixture.recorder.stoppedURLs, [resolvedURL])
+        XCTAssertTrue(scopeCloseRecorder.urls.isEmpty)
+    }
+
+    func testAsyncRetryCancellationAfterFirstAdoptionPreservesRemainingSource()
+        async
+    {
+        let firstBookmark = Data("partial-retry-first".utf8)
+        let secondBookmark = Data("partial-retry-second".utf8)
+        let firstURL = URL(
+            fileURLWithPath: "/tmp/Partial Retry A \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let secondURL = URL(
+            fileURLWithPath: "/tmp/Partial Retry B \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let controller = RestorePreparationController()
+        let scopeCloseRecorder = ThreadSafeURLRecorder()
+        let restoreExecutor = UserSelectedMediaRestoreExecutor {
+            kind,
+            bookmark in
+            await controller.prepare(kind: kind, bookmark: bookmark)
+        }
+        let fixture = makeSessionFixture(restoreExecutor: restoreExecutor)
+        defer { fixture.clearDefaults() }
+        fixture.defaults.set(
+            [firstBookmark, secondBookmark].map {
+                StoredSourceRecord(kind: .folder, bookmark: $0).storedValue
+            },
+            forKey: TestStorage.sourceRecordKey
+        )
+
+        let initialRestoreTask = Task { @MainActor in
+            await fixture.session.restoreSourcesAsync()
+        }
+        await controller.waitForCallCount(1)
+        await controller.resolveNext(with: .unavailable)
+        await controller.waitForCallCount(2)
+        await controller.resolveNext(with: .unavailable)
+        let initiallyRestoredSources = await initialRestoreTask.value
+        XCTAssertTrue(initiallyRestoredSources.isEmpty)
+        XCTAssertTrue(fixture.session.hasUnavailablePersistedSources)
+
+        let cancelledRetryTask = Task { @MainActor in
+            await fixture.session.retryUnavailableSourcesAsync()
+        }
+        await controller.waitForCallCount(3)
+        await controller.resolveNext(
+            with: .resolved(
+                makeExecutorOwnedRestore(
+                    resolvedURL: firstURL,
+                    scopeCloseRecorder: scopeCloseRecorder
+                )
+            )
+        )
+        await controller.waitForCallCount(4)
+        XCTAssertTrue(fixture.session.hasUnavailablePersistedSources)
+        let concurrentRetrySources = await fixture.session
+            .retryUnavailableSourcesAsync()
+        let callCountBeforeCancellation = await controller.callCount
+        XCTAssertEqual(
+            concurrentRetrySources,
+            [MediaSource(url: firstURL, kind: .folder)]
+        )
+        XCTAssertEqual(callCountBeforeCancellation, 4)
+        cancelledRetryTask.cancel()
+        await controller.resolveNext(
+            with: .resolved(
+                makeExecutorOwnedRestore(
+                    resolvedURL: secondURL,
+                    scopeCloseRecorder: scopeCloseRecorder
+                )
+            )
+        )
+
+        let partiallyRestoredSources = await cancelledRetryTask.value
+        XCTAssertEqual(
+            partiallyRestoredSources,
+            [MediaSource(url: firstURL, kind: .folder)]
+        )
+        XCTAssertTrue(fixture.session.hasUnavailablePersistedSources)
+        XCTAssertEqual(scopeCloseRecorder.urls, [secondURL])
+        XCTAssertEqual(
+            Set(storedSourceRecords(in: fixture.defaults)),
+            Set([
+                StoredSourceRecord(kind: .folder, bookmark: firstBookmark),
+                StoredSourceRecord(kind: .folder, bookmark: secondBookmark)
+            ])
+        )
+
+        let completingRetryTask = Task { @MainActor in
+            await fixture.session.retryUnavailableSourcesAsync()
+        }
+        await controller.waitForCallCount(5)
+        await controller.resolveNext(
+            with: .resolved(
+                makeExecutorOwnedRestore(
+                    resolvedURL: secondURL,
+                    scopeCloseRecorder: scopeCloseRecorder
+                )
+            )
+        )
+
+        let completelyRestoredSources = await completingRetryTask.value
+        XCTAssertEqual(
+            Set(completelyRestoredSources),
+            Set([
+                MediaSource(url: firstURL, kind: .folder),
+                MediaSource(url: secondURL, kind: .folder)
+            ])
+        )
+        XCTAssertFalse(fixture.session.hasUnavailablePersistedSources)
+        XCTAssertEqual(scopeCloseRecorder.urls, [secondURL])
+
+        fixture.session.stop()
+        XCTAssertEqual(
+            Set(fixture.recorder.stoppedURLs),
+            Set([firstURL, secondURL])
+        )
+        XCTAssertEqual(fixture.recorder.stoppedURLs.count, 2)
+    }
+
+    func testRemovingAdoptedSourceDuringNextPreparationDoesNotReviveIt()
+        async
+    {
+        let firstBookmark = Data("remove-during-retry-first".utf8)
+        let secondBookmark = Data("remove-during-retry-second".utf8)
+        let firstURL = URL(
+            fileURLWithPath: "/tmp/Remove During Retry A \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let secondURL = URL(
+            fileURLWithPath: "/tmp/Remove During Retry B \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let controller = RestorePreparationController()
+        let scopeCloseRecorder = ThreadSafeURLRecorder()
+        let restoreExecutor = UserSelectedMediaRestoreExecutor {
+            kind,
+            bookmark in
+            await controller.prepare(kind: kind, bookmark: bookmark)
+        }
+        let fixture = makeSessionFixture(restoreExecutor: restoreExecutor)
+        defer { fixture.clearDefaults() }
+        fixture.defaults.set(
+            [firstBookmark, secondBookmark].map {
+                StoredSourceRecord(kind: .folder, bookmark: $0).storedValue
+            },
+            forKey: TestStorage.sourceRecordKey
+        )
+
+        let initialRestoreTask = Task { @MainActor in
+            await fixture.session.restoreSourcesAsync()
+        }
+        await controller.waitForCallCount(1)
+        await controller.resolveNext(with: .unavailable)
+        await controller.waitForCallCount(2)
+        await controller.resolveNext(with: .unavailable)
+        _ = await initialRestoreTask.value
+
+        let retryTask = Task { @MainActor in
+            await fixture.session.retryUnavailableSourcesAsync()
+        }
+        await controller.waitForCallCount(3)
+        await controller.resolveNext(
+            with: .resolved(
+                makeExecutorOwnedRestore(
+                    resolvedURL: firstURL,
+                    scopeCloseRecorder: scopeCloseRecorder
+                )
+            )
+        )
+        await controller.waitForCallCount(4)
+
+        XCTAssertTrue(
+            fixture.session.removeSource(
+                MediaSource(url: firstURL, kind: .folder)
+            ).isEmpty
+        )
+        await controller.resolveNext(
+            with: .resolved(
+                makeExecutorOwnedRestore(
+                    resolvedURL: secondURL,
+                    scopeCloseRecorder: scopeCloseRecorder
+                )
+            )
+        )
+
+        let restoredSources = await retryTask.value
+        XCTAssertEqual(
+            restoredSources,
+            [MediaSource(url: secondURL, kind: .folder)]
+        )
+        XCTAssertEqual(
+            storedSourceRecords(in: fixture.defaults),
+            [StoredSourceRecord(kind: .folder, bookmark: secondBookmark)]
+        )
+        XCTAssertEqual(fixture.recorder.stoppedURLs, [firstURL])
+        XCTAssertTrue(scopeCloseRecorder.urls.isEmpty)
+
+        fixture.session.stop()
+        XCTAssertEqual(fixture.recorder.stoppedURLs, [firstURL, secondURL])
+    }
+
+    func testStopAfterRemovingAdoptedSourcePreservesUnprocessedCandidate()
+        async
+    {
+        let firstBookmark = Data("remove-stop-first".utf8)
+        let secondBookmark = Data("remove-stop-second".utf8)
+        let firstURL = URL(
+            fileURLWithPath: "/tmp/Remove Stop A \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let secondURL = URL(
+            fileURLWithPath: "/tmp/Remove Stop B \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let controller = RestorePreparationController()
+        let scopeCloseRecorder = ThreadSafeURLRecorder()
+        let restoreExecutor = UserSelectedMediaRestoreExecutor {
+            kind,
+            bookmark in
+            await controller.prepare(kind: kind, bookmark: bookmark)
+        }
+        let fixture = makeSessionFixture(restoreExecutor: restoreExecutor)
+        defer { fixture.clearDefaults() }
+        fixture.defaults.set(
+            [firstBookmark, secondBookmark].map {
+                StoredSourceRecord(kind: .folder, bookmark: $0).storedValue
+            },
+            forKey: TestStorage.sourceRecordKey
+        )
+
+        let initialRestoreTask = Task { @MainActor in
+            await fixture.session.restoreSourcesAsync()
+        }
+        await controller.waitForCallCount(1)
+        await controller.resolveNext(with: .unavailable)
+        await controller.waitForCallCount(2)
+        await controller.resolveNext(with: .unavailable)
+        _ = await initialRestoreTask.value
+
+        let retryTask = Task { @MainActor in
+            await fixture.session.retryUnavailableSourcesAsync()
+        }
+        await controller.waitForCallCount(3)
+        await controller.resolveNext(
+            with: .resolved(
+                makeExecutorOwnedRestore(
+                    resolvedURL: firstURL,
+                    scopeCloseRecorder: scopeCloseRecorder
+                )
+            )
+        )
+        await controller.waitForCallCount(4)
+
+        _ = fixture.session.removeSource(
+            MediaSource(url: firstURL, kind: .folder)
+        )
+        XCTAssertEqual(
+            storedSourceRecords(in: fixture.defaults),
+            [StoredSourceRecord(kind: .folder, bookmark: secondBookmark)]
+        )
+        fixture.session.stop()
+        await controller.resolveNext(
+            with: .resolved(
+                makeExecutorOwnedRestore(
+                    resolvedURL: secondURL,
+                    scopeCloseRecorder: scopeCloseRecorder
+                )
+            )
+        )
+
+        let stoppedRetrySources = await retryTask.value
+        XCTAssertTrue(stoppedRetrySources.isEmpty)
+        XCTAssertEqual(scopeCloseRecorder.urls, [secondURL])
+        XCTAssertEqual(fixture.recorder.stoppedURLs, [firstURL])
+        XCTAssertEqual(
+            storedSourceRecords(in: fixture.defaults),
+            [StoredSourceRecord(kind: .folder, bookmark: secondBookmark)]
+        )
+
+        let nextSession = UserSelectedMediaSession(
+            defaults: fixture.defaults,
+            securityAccess: fixture.recorder.makeAccess(),
+            sourceKindResolver: {
+                $0.hasDirectoryPath ? .folder : .file
+            },
+            restoreExecutor: restoreExecutor
+        )
+        let nextRestoreTask = Task { @MainActor in
+            await nextSession.restoreSourcesAsync()
+        }
+        await controller.waitForCallCount(5)
+        await controller.resolveNext(
+            with: .resolved(
+                makeExecutorOwnedRestore(
+                    resolvedURL: secondURL,
+                    scopeCloseRecorder: scopeCloseRecorder
+                )
+            )
+        )
+
+        let nextRestoredSources = await nextRestoreTask.value
+        XCTAssertEqual(
+            nextRestoredSources,
+            [MediaSource(url: secondURL, kind: .folder)]
+        )
+        XCTAssertEqual(scopeCloseRecorder.urls, [secondURL])
+        nextSession.stop()
+        XCTAssertEqual(fixture.recorder.stoppedURLs, [firstURL, secondURL])
+    }
+
     func testFolderCoversFileRequestWithoutAddingADuplicateGrant() throws {
         let fixture = makeSessionFixture()
         defer { fixture.clearDefaults() }
@@ -2002,7 +2591,8 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         sourceKindResolver: @escaping (URL) -> MediaSourceKind? = {
             $0.hasDirectoryPath ? .folder : .file
         },
-        sourceRecordStoreObserver: (([Any]) -> Void)? = nil
+        sourceRecordStoreObserver: (([Any]) -> Void)? = nil,
+        restoreExecutor: UserSelectedMediaRestoreExecutor? = nil
     ) -> MediaSessionFixture {
         let suiteName = TestStorage.suiteName
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -2024,7 +2614,8 @@ final class UserSelectedMediaSessionTests: XCTestCase {
             defaults: defaults,
             securityAccess: recorder.makeAccess(),
             sourceKindResolver: sourceKindResolver,
-            sourceRecordStore: sourceRecordStore
+            sourceRecordStore: sourceRecordStore,
+            restoreExecutor: restoreExecutor
         )
         return MediaSessionFixture(
             suiteName: suiteName,
@@ -2055,6 +2646,26 @@ final class UserSelectedMediaSessionTests: XCTestCase {
             .compactMap(StoredSourceRecord.init(storedValue:))
     }
 
+    private func makeExecutorOwnedRestore(
+        resolvedURL: URL,
+        scopeCloseRecorder: ThreadSafeURLRecorder
+    ) -> ExecutorOwnedPreparedMediaSourceRestore {
+        ExecutorOwnedPreparedMediaSourceRestore(
+            restore: PreparedMediaSourceRestore(
+                resolvedURL: resolvedURL,
+                linkResolution: MediaSourceURLInspector.LinkResolution(
+                    targetURL: resolvedURL.standardizedFileURL,
+                    didResolveLink: false
+                ),
+                refreshedBookmark: nil,
+                resourceIdentifier: nil
+            ),
+            stopAccess: { url in
+                scopeCloseRecorder.append(url)
+            }
+        )
+    }
+
     nonisolated private static func liveSourceKind(
         at url: URL
     ) -> MediaSourceKind? {
@@ -2080,6 +2691,132 @@ final class UserSelectedMediaSessionTests: XCTestCase {
             withIntermediateDirectories: true
         )
         return sandboxURL
+    }
+}
+
+private actor RestorePreparationController {
+    private struct CallCountWaiter {
+        let expectedCount: Int
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
+    private var pendingPreparations: [
+        CheckedContinuation<MediaSourceRestorePreparation, Never>
+    ] = []
+    private var callCountWaiters: [CallCountWaiter] = []
+    private(set) var bookmarks: [Data] = []
+
+    var callCount: Int {
+        bookmarks.count
+    }
+
+    func prepare(
+        kind: MediaSourceKind,
+        bookmark: Data
+    ) async -> MediaSourceRestorePreparation {
+        _ = kind
+        bookmarks.append(bookmark)
+        resumeSatisfiedCallCountWaiters()
+        return await withCheckedContinuation { continuation in
+            pendingPreparations.append(continuation)
+        }
+    }
+
+    func waitForCallCount(_ expectedCount: Int) async {
+        guard callCount < expectedCount else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            callCountWaiters.append(
+                CallCountWaiter(
+                    expectedCount: expectedCount,
+                    continuation: continuation
+                )
+            )
+        }
+    }
+
+    func resolveNext(with preparation: MediaSourceRestorePreparation) {
+        precondition(!pendingPreparations.isEmpty)
+        pendingPreparations.removeFirst().resume(returning: preparation)
+    }
+
+    private func resumeSatisfiedCallCountWaiters() {
+        let satisfiedWaiters = callCountWaiters.filter {
+            callCount >= $0.expectedCount
+        }
+        callCountWaiters.removeAll {
+            callCount >= $0.expectedCount
+        }
+        for waiter in satisfiedWaiters {
+            waiter.continuation.resume()
+        }
+    }
+}
+
+private final class ThreadSafeURLRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedURLs: [URL] = []
+
+    var urls: [URL] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedURLs
+    }
+
+    func append(_ url: URL) {
+        lock.lock()
+        storedURLs.append(url)
+        lock.unlock()
+    }
+}
+
+private final class NonCooperativeRestoreResolver: @unchecked Sendable {
+    private let started = DispatchSemaphore(value: 0)
+    private let releaseGate = DispatchSemaphore(value: 0)
+    private let resolvedURL: URL
+    private let scopeCloseRecorder: ThreadSafeURLRecorder
+
+    init(
+        resolvedURL: URL,
+        scopeCloseRecorder: ThreadSafeURLRecorder
+    ) {
+        self.resolvedURL = resolvedURL
+        self.scopeCloseRecorder = scopeCloseRecorder
+    }
+
+    func prepare(
+        kind: MediaSourceKind,
+        bookmark: Data
+    ) -> MediaSourceRestorePreparation {
+        _ = kind
+        _ = bookmark
+        started.signal()
+        releaseGate.wait()
+        return .resolved(
+            ExecutorOwnedPreparedMediaSourceRestore(
+                restore: PreparedMediaSourceRestore(
+                    resolvedURL: resolvedURL,
+                    linkResolution: MediaSourceURLInspector.LinkResolution(
+                        targetURL: resolvedURL.standardizedFileURL,
+                        didResolveLink: false
+                    ),
+                    refreshedBookmark: nil,
+                    resourceIdentifier: nil
+                ),
+                stopAccess: { [scopeCloseRecorder] url in
+                    scopeCloseRecorder.append(url)
+                }
+            )
+        )
+    }
+
+    func waitUntilStarted() {
+        started.wait()
+    }
+
+    func release() {
+        releaseGate.signal()
     }
 }
 

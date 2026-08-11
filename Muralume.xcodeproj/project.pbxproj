@@ -16,6 +16,7 @@
 		182D5E7F31454B528EE8290F /* MuralumeSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C36D0D2427B94B699973E4B1 /* MuralumeSlider.swift */; };
 		1927ADD01DEB7CE72C348E6F /* AppConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D32A61D760BE7B80916FCEB /* AppConfiguration.swift */; };
 		19C57C0C558AA0B34670E630 /* UserSelectedMediaSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBDE8DA0223CDA8FF84002AF /* UserSelectedMediaSession.swift */; };
+		D7A2E5C01A2B3C4D5E6F7001 /* UserSelectedMediaRestoreExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A2E5C01A2B3C4D5E6F7002 /* UserSelectedMediaRestoreExecutor.swift */; };
 		1A41224B6558161C908C5C93 /* MacLaunchAtLoginService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E98BC00EC9360641F76960D /* MacLaunchAtLoginService.swift */; };
 		1C30BD5F8F7F1CABEF883DCB /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80A4C361A03E9F2F46155A6C /* AppDelegate.swift */; };
 		2471A0C9790F4BD3A0BF8A31 /* DesktopSessionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25C19E5FB9B403F8E1080FB /* DesktopSessionCoordinatorTests.swift */; };
@@ -233,6 +234,7 @@
 		B7A3F1C8282945F09D215A01 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BB72BF1D775C4A099B2A2552 /* MediaAccessSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaAccessSession.swift; sourceTree = "<group>"; };
 		BBDE8DA0223CDA8FF84002AF /* UserSelectedMediaSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserSelectedMediaSession.swift; sourceTree = "<group>"; };
+		D7A2E5C01A2B3C4D5E6F7002 /* UserSelectedMediaRestoreExecutor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserSelectedMediaRestoreExecutor.swift; sourceTree = "<group>"; };
 		C29C21DB3FE1DEF3EE73B56A /* DesktopStatusMenuController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopStatusMenuController.swift; sourceTree = "<group>"; };
 		C36D0D2427B94B699973E4B1 /* MuralumeSlider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MuralumeSlider.swift; sourceTree = "<group>"; };
 		C68D1172DDA349E29EDAE7B2 /* PlayerActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerActions.swift; sourceTree = "<group>"; };
@@ -469,6 +471,7 @@
 			isa = PBXGroup;
 			children = (
 				C73D7A7472A543B7BDA43C33 /* MacMediaSourcePicker.swift */,
+				D7A2E5C01A2B3C4D5E6F7002 /* UserSelectedMediaRestoreExecutor.swift */,
 				BBDE8DA0223CDA8FF84002AF /* UserSelectedMediaSession.swift */,
 			);
 			name = MediaAccess;
@@ -1011,6 +1014,7 @@
 				91DA9116CF36487AAF9244F6 /* VideoViewport.swift in Sources */,
 				38DAF1886E669E9AD8629B01 /* MacDesktopHost.swift in Sources */,
 				61F9D4963CFD4D2B81DF24E5 /* MacMediaSourcePicker.swift in Sources */,
+				D7A2E5C01A2B3C4D5E6F7001 /* UserSelectedMediaRestoreExecutor.swift in Sources */,
 				19C57C0C558AA0B34670E630 /* UserSelectedMediaSession.swift in Sources */,
 				AA0000000000000000000016 /* FileSystemMediaLibraryScanner.swift in Sources */,
 				AF1000000000000000000012 /* QuickLookMediaThumbnailProvider.swift in Sources */,

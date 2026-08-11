@@ -1,54 +1,6 @@
 import Foundation
 
 @MainActor
-struct SecurityScopedMediaAccess {
-    struct ResolvedBookmark {
-        let url: URL
-        let isStale: Bool
-    }
-
-    let makeBookmark: (URL) -> Data?
-    let resolveBookmark: (Data) -> ResolvedBookmark?
-    let startAccess: (URL) -> Bool
-    let stopAccess: (URL) -> Void
-
-    static let live = SecurityScopedMediaAccess(
-        makeBookmark: { url in
-            try? url.bookmarkData(
-                options: [
-                    .withSecurityScope,
-                    .securityScopeAllowOnlyReadAccess
-                ],
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil
-            )
-        },
-        resolveBookmark: { bookmark in
-            var isStale = false
-            guard let url = try? URL(
-                resolvingBookmarkData: bookmark,
-                options: [
-                    .withSecurityScope,
-                    .withoutUI,
-                    .withoutMounting
-                ],
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) else {
-                return nil
-            }
-            return ResolvedBookmark(url: url, isStale: isStale)
-        },
-        startAccess: { url in
-            url.startAccessingSecurityScopedResource()
-        },
-        stopAccess: { url in
-            url.stopAccessingSecurityScopedResource()
-        }
-    )
-}
-
-@MainActor
 final class UserSelectedMediaSession: MediaAccessSession {
     typealias SourceRecordStore = @MainActor ([Any]) -> Void
 
@@ -121,6 +73,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
     private let securityAccess: SecurityScopedMediaAccess
     private let sourceKindResolver: (URL) -> MediaSourceKind?
     private let sourceRecordStore: SourceRecordStore
+    private let restoreExecutor: UserSelectedMediaRestoreExecutor?
     private var activeSourcesByKey: [String: MediaSource] = [:]
     private var activeRecordsByKey: [String: PersistedSourceRecord] = [:]
     private var activeResourceIdentifiersByKey: [String: NSObject] = [:]
@@ -130,16 +83,23 @@ final class UserSelectedMediaSession: MediaAccessSession {
     private var unavailableLegacyBookmarks: [Data] = []
     private var deferredStoredRecordValues: ArraySlice<Any> = []
     private var deferredLegacyBookmarks: ArraySlice<Data> = []
+    private var asyncInFlightStoredRecordValues: ArraySlice<Any> = []
+    private var asyncInFlightLegacyBookmarks: ArraySlice<Data> = []
+    private var asyncPendingLinkedStoredRecordValues: [Any] = []
+    private var asyncPendingLinkedLegacyBookmarks: [Data] = []
+    private var asyncRestoreGeneration: UInt?
     private var didAttemptRestore = false
+    private var lifecycleGeneration: UInt = 0
     private(set) var hasUnavailablePersistedSources = false
 
     init(
         defaults: UserDefaults = .standard,
         securityAccess: SecurityScopedMediaAccess = .live,
         sourceKindResolver: @escaping (URL) -> MediaSourceKind? = {
-            UserSelectedMediaSession.liveSourceKind(at: $0)
+            MediaSourceURLInspector.liveSourceKind(at: $0)
         },
-        sourceRecordStore: SourceRecordStore? = nil
+        sourceRecordStore: SourceRecordStore? = nil,
+        restoreExecutor: UserSelectedMediaRestoreExecutor? = nil
     ) {
         self.defaults = defaults
         self.securityAccess = securityAccess
@@ -147,6 +107,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
         self.sourceRecordStore = sourceRecordStore ?? { storedValues in
             defaults.set(storedValues, forKey: Storage.sourceRecordKey)
         }
+        self.restoreExecutor = restoreExecutor
     }
 
     func restoreSources() -> [MediaSource] {
@@ -177,9 +138,44 @@ final class UserSelectedMediaSession: MediaAccessSession {
         return activeSources
     }
 
+    func restoreSourcesAsync() async -> [MediaSource] {
+        guard restoreExecutor != nil else {
+            return restoreSources()
+        }
+        guard !didAttemptRestore else {
+            return activeSources
+        }
+        didAttemptRestore = true
+
+        let storedRecordValues = storedSourceRecordValues
+        let legacyBookmarks = storedLegacyBookmarks
+        let hasPersistedSourcePayload =
+            defaults.object(forKey: Storage.sourceRecordKey) != nil
+                || defaults.object(forKey: Storage.legacyBookmarkKey) != nil
+        guard hasPersistedSourcePayload else {
+            return activeSources
+        }
+
+        let restoreGeneration = lifecycleGeneration
+        await restoreCandidatesAsync(
+            storedRecordValues: storedRecordValues,
+            legacyBookmarks: legacyBookmarks,
+            generation: restoreGeneration
+        )
+        guard restoreGeneration == lifecycleGeneration else {
+            return activeSources
+        }
+        storeSourceRecords(currentStoredRecordValues)
+        storeLegacyBookmarks(currentLegacyBookmarks)
+        return activeSources
+    }
+
     func retryUnavailableSources() -> [MediaSource] {
         guard didAttemptRestore else {
             return restoreSources()
+        }
+        guard asyncRestoreGeneration == nil else {
+            return activeSources
         }
         guard hasUnavailablePersistedSources else {
             return activeSources
@@ -194,6 +190,39 @@ final class UserSelectedMediaSession: MediaAccessSession {
             storedRecordValues: storedRecordValues,
             legacyBookmarks: legacyBookmarks
         )
+        storeSourceRecords(currentStoredRecordValues)
+        storeLegacyBookmarks(currentLegacyBookmarks)
+        return activeSources
+    }
+
+    func retryUnavailableSourcesAsync() async -> [MediaSource] {
+        guard restoreExecutor != nil else {
+            return retryUnavailableSources()
+        }
+        guard didAttemptRestore else {
+            return await restoreSourcesAsync()
+        }
+        guard asyncRestoreGeneration == nil else {
+            return activeSources
+        }
+        guard hasUnavailablePersistedSources else {
+            return activeSources
+        }
+
+        let storedRecordValues = Array(deferredStoredRecordValues)
+            + unavailableStoredRecordValues
+        let legacyBookmarks = Array(deferredLegacyBookmarks)
+            + unavailableLegacyBookmarks
+
+        let restoreGeneration = lifecycleGeneration
+        await restoreCandidatesAsync(
+            storedRecordValues: storedRecordValues,
+            legacyBookmarks: legacyBookmarks,
+            generation: restoreGeneration
+        )
+        guard restoreGeneration == lifecycleGeneration else {
+            return activeSources
+        }
         storeSourceRecords(currentStoredRecordValues)
         storeLegacyBookmarks(currentLegacyBookmarks)
         return activeSources
@@ -273,6 +302,244 @@ final class UserSelectedMediaSession: MediaAccessSession {
         }
     }
 
+    private func restoreCandidatesAsync(
+        storedRecordValues: [Any],
+        legacyBookmarks: [Data],
+        generation: UInt
+    ) async {
+        guard generation == lifecycleGeneration else {
+            return
+        }
+        guard asyncRestoreGeneration == nil else {
+            return
+        }
+        asyncRestoreGeneration = generation
+        asyncInFlightStoredRecordValues = storedRecordValues[...]
+        asyncInFlightLegacyBookmarks = legacyBookmarks[...]
+        asyncPendingLinkedStoredRecordValues = []
+        asyncPendingLinkedLegacyBookmarks = []
+        unavailableStoredRecordValues = []
+        unavailableLegacyBookmarks = []
+        deferredStoredRecordValues = []
+        deferredLegacyBookmarks = []
+        refreshHasUnavailablePersistedSources()
+        var pendingLinkedCandidates: [PendingLinkedCandidate] = []
+        var remainingRestoreCandidateCount =
+            MediaImportPolicy.maximumRestoredSourceRecordCount
+
+        for storedValue in storedRecordValues {
+            guard generation == lifecycleGeneration else {
+                return
+            }
+            guard !Task.isCancelled else {
+                interruptAsyncRestore(
+                    pendingLinkedCandidates: pendingLinkedCandidates,
+                    generation: generation
+                )
+                return
+            }
+            let shouldReserveLegacyCandidate =
+                !legacyBookmarks.isEmpty
+                && activeSourcesByKey.count
+                    < MediaImportPolicy.maximumActiveSourceCount
+                && remainingRestoreCandidateCount
+                    == MediaImportPolicy.reservedLegacyRestoreCandidateCount
+            guard !shouldReserveLegacyCandidate else {
+                deferAsyncInFlightStoredCandidates()
+                hasUnavailablePersistedSources = true
+                break
+            }
+            guard remainingRestoreCandidateCount > 0 else {
+                deferAsyncInFlightStoredCandidates()
+                hasUnavailablePersistedSources = true
+                break
+            }
+            remainingRestoreCandidateCount -= 1
+            guard let record = PersistedSourceRecord(
+                storedValue: storedValue
+            ) else {
+                preserveUnavailableStoredRecord(storedValue)
+                advanceAsyncInFlightStoredCandidate()
+                continue
+            }
+            let pendingLinkedCandidateCount = pendingLinkedCandidates.count
+            let didProcessCandidate = await restoreAsync(
+                RestoreCandidate(
+                    record: record,
+                    origin: .typed(storedValue: storedValue)
+                ),
+                pendingLinkedCandidates: &pendingLinkedCandidates,
+                generation: generation
+            )
+            guard generation == lifecycleGeneration else {
+                return
+            }
+            guard didProcessCandidate else {
+                interruptAsyncRestore(
+                    pendingLinkedCandidates: pendingLinkedCandidates,
+                    generation: generation
+                )
+                return
+            }
+            registerAsyncPendingLinkedCandidates(
+                pendingLinkedCandidates.dropFirst(pendingLinkedCandidateCount)
+            )
+            advanceAsyncInFlightStoredCandidate()
+        }
+
+        for bookmark in legacyBookmarks {
+            guard generation == lifecycleGeneration else {
+                return
+            }
+            guard !Task.isCancelled else {
+                interruptAsyncRestore(
+                    pendingLinkedCandidates: pendingLinkedCandidates,
+                    generation: generation
+                )
+                return
+            }
+            guard remainingRestoreCandidateCount > 0 else {
+                deferAsyncInFlightLegacyCandidates()
+                hasUnavailablePersistedSources = true
+                break
+            }
+            remainingRestoreCandidateCount -= 1
+            let pendingLinkedCandidateCount = pendingLinkedCandidates.count
+            let didProcessCandidate = await restoreAsync(
+                RestoreCandidate(
+                    record: PersistedSourceRecord(
+                        kind: .folder,
+                        bookmark: bookmark
+                    ),
+                    origin: .legacy(bookmark: bookmark)
+                ),
+                pendingLinkedCandidates: &pendingLinkedCandidates,
+                generation: generation
+            )
+            guard generation == lifecycleGeneration else {
+                return
+            }
+            guard didProcessCandidate else {
+                interruptAsyncRestore(
+                    pendingLinkedCandidates: pendingLinkedCandidates,
+                    generation: generation
+                )
+                return
+            }
+            registerAsyncPendingLinkedCandidates(
+                pendingLinkedCandidates.dropFirst(pendingLinkedCandidateCount)
+            )
+            advanceAsyncInFlightLegacyCandidate()
+        }
+
+        preserveUncoveredLinkedCandidates(pendingLinkedCandidates)
+        finishAsyncRestore(generation: generation)
+    }
+
+    private func interruptAsyncRestore(
+        pendingLinkedCandidates: [PendingLinkedCandidate],
+        generation: UInt
+    ) {
+        guard asyncRestoreGeneration == generation else {
+            return
+        }
+        deferAsyncInFlightStoredCandidates()
+        deferAsyncInFlightLegacyCandidates()
+        if !deferredStoredRecordValues.isEmpty
+            || !deferredLegacyBookmarks.isEmpty {
+            hasUnavailablePersistedSources = true
+        }
+        preserveUncoveredLinkedCandidates(pendingLinkedCandidates)
+        finishAsyncRestore(generation: generation)
+    }
+
+    private func registerAsyncPendingLinkedCandidates(
+        _ candidates: ArraySlice<PendingLinkedCandidate>
+    ) {
+        for pending in candidates {
+            switch pending.candidate.origin {
+            case let .typed(storedValue):
+                asyncPendingLinkedStoredRecordValues.append(storedValue)
+            case let .legacy(bookmark):
+                asyncPendingLinkedLegacyBookmarks.append(bookmark)
+            }
+        }
+    }
+
+    private func advanceAsyncInFlightStoredCandidate() {
+        precondition(!asyncInFlightStoredRecordValues.isEmpty)
+        asyncInFlightStoredRecordValues =
+            asyncInFlightStoredRecordValues.dropFirst()
+        refreshHasUnavailablePersistedSources()
+    }
+
+    private func advanceAsyncInFlightLegacyCandidate() {
+        precondition(!asyncInFlightLegacyBookmarks.isEmpty)
+        asyncInFlightLegacyBookmarks =
+            asyncInFlightLegacyBookmarks.dropFirst()
+        refreshHasUnavailablePersistedSources()
+    }
+
+    private func deferAsyncInFlightStoredCandidates() {
+        guard !asyncInFlightStoredRecordValues.isEmpty else {
+            return
+        }
+        deferredStoredRecordValues = ArraySlice(
+            Array(deferredStoredRecordValues)
+                + Array(asyncInFlightStoredRecordValues)
+        )
+        asyncInFlightStoredRecordValues = []
+        refreshHasUnavailablePersistedSources()
+    }
+
+    private func deferAsyncInFlightLegacyCandidates() {
+        guard !asyncInFlightLegacyBookmarks.isEmpty else {
+            return
+        }
+        deferredLegacyBookmarks = ArraySlice(
+            Array(deferredLegacyBookmarks)
+                + Array(asyncInFlightLegacyBookmarks)
+        )
+        asyncInFlightLegacyBookmarks = []
+        refreshHasUnavailablePersistedSources()
+    }
+
+    private func finishAsyncRestore(generation: UInt) {
+        guard asyncRestoreGeneration == generation else {
+            return
+        }
+        precondition(asyncInFlightStoredRecordValues.isEmpty)
+        precondition(asyncInFlightLegacyBookmarks.isEmpty)
+        asyncPendingLinkedStoredRecordValues.removeAll()
+        asyncPendingLinkedLegacyBookmarks.removeAll()
+        asyncRestoreGeneration = nil
+        refreshHasUnavailablePersistedSources()
+    }
+
+    private func refreshHasUnavailablePersistedSources() {
+        hasUnavailablePersistedSources =
+            !unavailableStoredRecordValues.isEmpty
+                || !unavailableLegacyBookmarks.isEmpty
+                || !deferredStoredRecordValues.isEmpty
+                || !deferredLegacyBookmarks.isEmpty
+                || !asyncInFlightStoredRecordValues.isEmpty
+                || !asyncInFlightLegacyBookmarks.isEmpty
+                || !asyncPendingLinkedStoredRecordValues.isEmpty
+                || !asyncPendingLinkedLegacyBookmarks.isEmpty
+    }
+
+    private func preserveUncoveredLinkedCandidates(
+        _ pendingLinkedCandidates: [PendingLinkedCandidate]
+    ) {
+        for pending in pendingLinkedCandidates {
+            guard let targetSource = pending.targetSource,
+                  case .covered = disposition(for: targetSource) else {
+                preserveUnavailable(pending.candidate)
+                continue
+            }
+        }
+    }
+
     func restoreFolders() -> [URL] {
         restoreSources().compactMap { source in
             source.kind == .folder ? source.url : nil
@@ -320,10 +587,12 @@ final class UserSelectedMediaSession: MediaAccessSession {
                 continue
             }
 
-            let selectedLinkResolution = Self.linkResolution(for: selectedURL)
+            let selectedLinkResolution = MediaSourceURLInspector.linkResolution(
+                for: selectedURL
+            )
             guard let selectedKind = sourceKindResolver(
                 selectedLinkResolution.targetURL
-            ), Self.isSupported(
+            ), MediaSourceURLInspector.isSupported(
                 kind: selectedKind,
                 url: selectedLinkResolution.targetURL
             ) else {
@@ -341,7 +610,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
             let selectedDisposition = disposition(
                 for: selectedSource,
                 comparisonURL: selectedComparisonURL,
-                resourceIdentifier: Self.resourceIdentifier(
+                resourceIdentifier: MediaSourceURLInspector.resourceIdentifier(
                     for: selectedComparisonURL
                 )
             )
@@ -390,10 +659,12 @@ final class UserSelectedMediaSession: MediaAccessSession {
             }
 
             let resolvedURL = resolvedBookmark.url
-            let resolvedLinkResolution = Self.linkResolution(for: resolvedURL)
+            let resolvedLinkResolution = MediaSourceURLInspector.linkResolution(
+                for: resolvedURL
+            )
             guard let resolvedKind = sourceKindResolver(
                 resolvedLinkResolution.targetURL
-            ), Self.isSupported(
+            ), MediaSourceURLInspector.isSupported(
                 kind: resolvedKind,
                 url: resolvedLinkResolution.targetURL
             ) else {
@@ -409,7 +680,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
             )
             let resolvedComparisonURL = resolvedLinkResolution.targetURL
                 .standardizedFileURL
-            let resolvedResourceIdentifier = Self.resourceIdentifier(
+            let resolvedResourceIdentifier = MediaSourceURLInspector
+                .resourceIdentifier(
                 for: resolvedComparisonURL
             )
             if resolvedLinkResolution.didResolveLink {
@@ -558,6 +830,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
     }
 
     func stop() {
+        lifecycleGeneration &+= 1
         for source in activeSourcesByKey.values {
             securityAccess.stopAccess(source.url)
         }
@@ -570,6 +843,11 @@ final class UserSelectedMediaSession: MediaAccessSession {
         unavailableLegacyBookmarks.removeAll()
         deferredStoredRecordValues.removeAll()
         deferredLegacyBookmarks.removeAll()
+        asyncInFlightStoredRecordValues.removeAll()
+        asyncInFlightLegacyBookmarks.removeAll()
+        asyncPendingLinkedStoredRecordValues.removeAll()
+        asyncPendingLinkedLegacyBookmarks.removeAll()
+        asyncRestoreGeneration = nil
         hasUnavailablePersistedSources = false
         didAttemptRestore = false
     }
@@ -595,6 +873,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
         storedValues.reserveCapacity(
             activeRecordsByKey.count
                 + deferredStoredRecordValues.count
+                + asyncInFlightStoredRecordValues.count
+                + asyncPendingLinkedStoredRecordValues.count
                 + unavailableStoredRecordValues.count
         )
         for key in activeSourcesByKey.keys.sorted() {
@@ -606,6 +886,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
         // unavailable so a bad/offline prefix cannot consume every future
         // restore budget. No value is discarded or rewritten.
         storedValues.append(contentsOf: deferredStoredRecordValues)
+        storedValues.append(contentsOf: asyncInFlightStoredRecordValues)
+        storedValues.append(contentsOf: asyncPendingLinkedStoredRecordValues)
         storedValues.append(contentsOf: unavailableStoredRecordValues)
         return storedValues
     }
@@ -613,9 +895,14 @@ final class UserSelectedMediaSession: MediaAccessSession {
     private var currentLegacyBookmarks: [Data] {
         var bookmarks: [Data] = []
         bookmarks.reserveCapacity(
-            deferredLegacyBookmarks.count + unavailableLegacyBookmarks.count
+            deferredLegacyBookmarks.count
+                + asyncInFlightLegacyBookmarks.count
+                + asyncPendingLinkedLegacyBookmarks.count
+                + unavailableLegacyBookmarks.count
         )
         bookmarks.append(contentsOf: deferredLegacyBookmarks)
+        bookmarks.append(contentsOf: asyncInFlightLegacyBookmarks)
+        bookmarks.append(contentsOf: asyncPendingLinkedLegacyBookmarks)
         bookmarks.append(contentsOf: unavailableLegacyBookmarks)
         return bookmarks
     }
@@ -661,7 +948,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
         return disposition(
             for: candidate,
             comparisonURL: candidateComparisonURL,
-            resourceIdentifier: Self.resourceIdentifier(
+            resourceIdentifier: MediaSourceURLInspector.resourceIdentifier(
                 for: candidateComparisonURL
             )
         )
@@ -764,7 +1051,9 @@ final class UserSelectedMediaSession: MediaAccessSession {
         if activeSourcesByKey[comparisonURL.path] != nil {
             return comparisonURL.path
         }
-        guard let identifier = Self.resourceIdentifier(for: comparisonURL) else {
+        guard let identifier = MediaSourceURLInspector.resourceIdentifier(
+            for: comparisonURL
+        ) else {
             return nil
         }
         return activeKeyByResourceIdentifier[identifier]
@@ -787,9 +1076,11 @@ final class UserSelectedMediaSession: MediaAccessSession {
         }
 
         let resolvedURL = resolvedBookmark.url
-        let linkResolution = Self.linkResolution(for: resolvedURL)
+        let linkResolution = MediaSourceURLInspector.linkResolution(
+            for: resolvedURL
+        )
         guard sourceKindResolver(linkResolution.targetURL) == record.kind,
-              Self.isSupported(
+              MediaSourceURLInspector.isSupported(
                   kind: record.kind,
                   url: linkResolution.targetURL
               ) else {
@@ -798,13 +1089,85 @@ final class UserSelectedMediaSession: MediaAccessSession {
             return
         }
 
-        let refreshedCandidate = candidateByRefreshingBookmark(
+        let refreshedBookmark = securityAccess.makeBookmark(resolvedURL)
+            .flatMap { bookmark in
+                Self.bookmarkIsWithinPersistenceLimit(bookmark)
+                    ? bookmark
+                    : nil
+            }
+        applyPreparedRestore(
+            PreparedMediaSourceRestore(
+                resolvedURL: resolvedURL,
+                linkResolution: linkResolution,
+                refreshedBookmark: refreshedBookmark,
+                resourceIdentifier: MediaSourceURLInspector.resourceIdentifier(
+                    for: linkResolution.targetURL.standardizedFileURL
+                )
+            ),
+            to: candidate,
+            pendingLinkedCandidates: &pendingLinkedCandidates
+        )
+    }
+
+    private func restoreAsync(
+        _ candidate: RestoreCandidate,
+        pendingLinkedCandidates: inout [PendingLinkedCandidate],
+        generation: UInt
+    ) async -> Bool {
+        let record = candidate.record
+        guard Self.bookmarkIsWithinPersistenceLimit(record.bookmark),
+              let restoreExecutor else {
+            preserveUnavailable(candidate)
+            return true
+        }
+
+        guard generation == lifecycleGeneration, !Task.isCancelled else {
+            return false
+        }
+        let preparation = await restoreExecutor.prepare(
+            kind: record.kind,
+            bookmark: record.bookmark
+        )
+        guard generation == lifecycleGeneration, !Task.isCancelled else {
+            if case let .resolved(preparedRestore) = preparation {
+                preparedRestore.closeScopeIfOwned()
+            }
+            return false
+        }
+
+        switch preparation {
+        case .unavailable:
+            preserveUnavailable(candidate)
+        case let .resolved(executorOwnedRestore):
+            applyPreparedRestore(
+                executorOwnedRestore.restore,
+                to: candidate,
+                pendingLinkedCandidates: &pendingLinkedCandidates,
+                executorOwnedRestore: executorOwnedRestore
+            )
+        }
+        return true
+    }
+
+    private func applyPreparedRestore(
+        _ preparedRestore: PreparedMediaSourceRestore,
+        to candidate: RestoreCandidate,
+        pendingLinkedCandidates: inout [PendingLinkedCandidate],
+        executorOwnedRestore: ExecutorOwnedPreparedMediaSourceRestore? = nil
+    ) {
+        let record = candidate.record
+        let resolvedURL = preparedRestore.resolvedURL
+        let linkResolution = preparedRestore.linkResolution
+        let refreshedCandidate = candidateByReplacingBookmark(
             candidate,
-            resolvedURL: resolvedURL
+            replacingBookmarkWith: preparedRestore.refreshedBookmark
         )
 
         if linkResolution.didResolveLink {
-            securityAccess.stopAccess(resolvedURL)
+            closePreparedScope(
+                at: resolvedURL,
+                executorOwnedRestore: executorOwnedRestore
+            )
             pendingLinkedCandidates.append(
                 PendingLinkedCandidate(
                     candidate: refreshedCandidate,
@@ -819,20 +1182,28 @@ final class UserSelectedMediaSession: MediaAccessSession {
 
         let source = MediaSource(url: resolvedURL, kind: record.kind)
         let comparisonURL = linkResolution.targetURL.standardizedFileURL
-        let resourceIdentifier = Self.resourceIdentifier(for: comparisonURL)
         switch disposition(
             for: source,
             comparisonURL: comparisonURL,
-            resourceIdentifier: resourceIdentifier
+            resourceIdentifier: preparedRestore.resourceIdentifier
         ) {
         case .covered:
-            securityAccess.stopAccess(resolvedURL)
+            closePreparedScope(
+                at: resolvedURL,
+                executorOwnedRestore: executorOwnedRestore
+            )
         case .rejected:
-            securityAccess.stopAccess(resolvedURL)
+            closePreparedScope(
+                at: resolvedURL,
+                executorOwnedRestore: executorOwnedRestore
+            )
             preserveUnavailable(refreshedCandidate)
         case let .insert(replacingKeys):
             guard canInstallSource(replacingKeys: replacingKeys) else {
-                securityAccess.stopAccess(resolvedURL)
+                closePreparedScope(
+                    at: resolvedURL,
+                    executorOwnedRestore: executorOwnedRestore
+                )
                 preserveUnavailable(refreshedCandidate)
                 return
             }
@@ -840,23 +1211,34 @@ final class UserSelectedMediaSession: MediaAccessSession {
                 source,
                 bookmark: refreshedCandidate.record.bookmark,
                 replacingKeys: replacingKeys,
-                resourceIdentifier: resourceIdentifier
+                resourceIdentifier: preparedRestore.resourceIdentifier
             )
+            executorOwnedRestore?.transferScopeToSession()
             for replacedURL in replacedURLs {
                 securityAccess.stopAccess(replacedURL)
             }
         }
     }
 
-    private func candidateByRefreshingBookmark(
+    private func closePreparedScope(
+        at resolvedURL: URL,
+        executorOwnedRestore: ExecutorOwnedPreparedMediaSourceRestore?
+    ) {
+        if let executorOwnedRestore {
+            executorOwnedRestore.closeScopeIfOwned()
+        } else {
+            securityAccess.stopAccess(resolvedURL)
+        }
+    }
+
+    private func candidateByReplacingBookmark(
         _ candidate: RestoreCandidate,
-        resolvedURL: URL
+        replacingBookmarkWith refreshedBookmark: Data?
     ) -> RestoreCandidate {
         // Refresh every successfully resolved persisted grant when the
         // current signing identity can create a replacement. A failed or
         // oversized refresh must not discard the still-working bookmark.
-        guard let refreshedBookmark = securityAccess.makeBookmark(resolvedURL),
-              Self.bookmarkIsWithinPersistenceLimit(refreshedBookmark) else {
+        guard let refreshedBookmark else {
             return candidate
         }
         let refreshedRecord = PersistedSourceRecord(
@@ -881,7 +1263,9 @@ final class UserSelectedMediaSession: MediaAccessSession {
            exactSource.kind == .file {
             return exactSource.url
         }
-        if let identifier = Self.resourceIdentifier(for: comparisonURL),
+        if let identifier = MediaSourceURLInspector.resourceIdentifier(
+            for: comparisonURL
+        ),
            let matchingKey = activeKeyByResourceIdentifier[identifier],
            let matchingSource = activeSourcesByKey[matchingKey],
            matchingSource.kind == .file {
@@ -916,31 +1300,6 @@ final class UserSelectedMediaSession: MediaAccessSession {
         }
     }
 
-    private static func liveSourceKind(at url: URL) -> MediaSourceKind? {
-        guard let values = try? url.resourceValues(
-            forKeys: [.isDirectoryKey, .isRegularFileKey]
-        ) else {
-            return nil
-        }
-        if values.isDirectory == true {
-            return .folder
-        }
-        if values.isRegularFile == true {
-            return .file
-        }
-        return nil
-    }
-
-    private static func isSupported(
-        kind: MediaSourceKind,
-        url: URL
-    ) -> Bool {
-        kind == .folder
-            || MediaLibraryFilePolicy.supportedVideoExtensions.contains(
-                url.pathExtension.lowercased()
-            )
-    }
-
     private static func bookmarkIsWithinPersistenceLimit(
         _ bookmark: Data
     ) -> Bool {
@@ -958,47 +1317,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
     }
 
     private static func comparisonURL(for url: URL) -> URL {
-        linkResolution(for: url).targetURL
-    }
-
-    private struct LinkResolution {
-        let targetURL: URL
-        let didResolveLink: Bool
-    }
-
-    private static func linkResolution(for url: URL) -> LinkResolution {
-        let values = try? url.resourceValues(
-            forKeys: [.isAliasFileKey, .isSymbolicLinkKey]
-        )
-        let isAlias = values?.isAliasFile == true
-        let isSymbolicLink = values?.isSymbolicLink == true
-        let aliasResolvedURL = if isAlias {
-            (
-                try? URL(
-                    resolvingAliasFileAt: url,
-                    options: [.withoutUI, .withoutMounting]
-                )
-            ) ?? url
-        } else {
-            url
-        }
-
-        return LinkResolution(
-            targetURL: aliasResolvedURL
-                .resolvingSymlinksInPath()
-                .standardizedFileURL,
-            didResolveLink: isAlias || isSymbolicLink
-        )
-    }
-
-    private static func resourceIdentifier(for url: URL) -> NSObject? {
-        do {
-            return try url.resourceValues(
-                forKeys: [.fileResourceIdentifierKey]
-            ).fileResourceIdentifier as? NSObject
-        } catch {
-            return nil
-        }
+        MediaSourceURLInspector.linkResolution(for: url).targetURL
     }
 
     private static func relationship(

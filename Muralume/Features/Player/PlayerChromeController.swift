@@ -33,9 +33,68 @@ enum LibrarySidebarSection: String, CaseIterable, Hashable {
 }
 
 @MainActor
-final class PlayerChromeController: ObservableObject {
-    typealias Sleep = @Sendable (UInt64) async throws -> Void
+protocol PlayerChromeAutoHideScheduling: AnyObject, Sendable {
+    func schedule(
+        afterNanoseconds delayNanoseconds: UInt64,
+        action: @escaping @MainActor () -> Void
+    )
+    func cancel()
+}
 
+@MainActor
+final class RunLoopPlayerChromeAutoHideScheduler:
+    NSObject,
+    PlayerChromeAutoHideScheduling {
+    private var timer: Timer?
+    private var scheduledAction: (@MainActor () -> Void)?
+
+#if DEBUG
+    private(set) var timerCreationCountForTesting = 0
+#endif
+
+    func schedule(
+        afterNanoseconds delayNanoseconds: UInt64,
+        action: @escaping @MainActor () -> Void
+    ) {
+        scheduledAction = action
+        let interval = TimeInterval(delayNanoseconds)
+            / TimeInterval(NSEC_PER_SEC)
+        if let timer, timer.isValid {
+            timer.fireDate = Date(timeIntervalSinceNow: interval)
+            return
+        }
+
+        let timer = Timer(
+            timeInterval: interval,
+            target: self,
+            selector: #selector(timerDidFire),
+            userInfo: nil,
+            repeats: false
+        )
+        self.timer = timer
+#if DEBUG
+        timerCreationCountForTesting += 1
+#endif
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    func cancel() {
+        timer?.invalidate()
+        timer = nil
+        scheduledAction = nil
+    }
+
+    @objc
+    private func timerDidFire() {
+        timer = nil
+        let action = scheduledAction
+        scheduledAction = nil
+        action?()
+    }
+}
+
+@MainActor
+final class PlayerChromeController: ObservableObject {
     @Published private(set) var isVisible = true
     @Published private(set) var presentedPanel: PlayerSidePanel? = .playlist
     @Published private(set) var libraryQueueMode: LibraryQueueMode = .browsing
@@ -56,32 +115,30 @@ final class PlayerChromeController: ObservableObject {
     }
 
     private let autoHideDelayNanoseconds: UInt64
-    private let sleep: Sleep
+    private let autoHideScheduler: any PlayerChromeAutoHideScheduling
 
     private var playbackState = PlayerChromePlaybackState.empty
     private var isFullScreen = false
     private var restoresPlaylistAfterFullScreen = false
     private var restoresPlaylistAfterSettings = false
-    private var autoHideTask: Task<Void, Never>?
 
     init(
         autoHideDelayNanoseconds: UInt64 = MuralumeTheme.Motion
             .playerChromeAutoHideNanoseconds,
-        sleep: @escaping Sleep = { nanoseconds in
-            try await Task.sleep(nanoseconds: nanoseconds)
-        }
+        autoHideScheduler: any PlayerChromeAutoHideScheduling =
+            RunLoopPlayerChromeAutoHideScheduler()
     ) {
         self.autoHideDelayNanoseconds = autoHideDelayNanoseconds
-        self.sleep = sleep
+        self.autoHideScheduler = autoHideScheduler
     }
 
-    deinit {
-        autoHideTask?.cancel()
+    isolated deinit {
+        autoHideScheduler.cancel()
     }
 
     func recordPointerActivity() {
         setVisible(true)
-        refreshAutoHideTask()
+        refreshAutoHideSchedule()
     }
 
     func setPlaylistPresented(_ isPresented: Bool) {
@@ -97,7 +154,7 @@ final class PlayerChromeController: ObservableObject {
         if !isPresented || !wasPlaylistPresented {
             libraryQueueMode = .browsing
         }
-        refreshAutoHideTask()
+        refreshAutoHideSchedule()
     }
 
     func togglePlaylist() {
@@ -111,7 +168,7 @@ final class PlayerChromeController: ObservableObject {
         presentedPanel = .playlist
         libraryQueueMode = .editing
         librarySidebarSection = .mediaLibrary
-        refreshAutoHideTask()
+        refreshAutoHideSchedule()
     }
 
     func setLibraryEditing(_ isEditing: Bool) {
@@ -127,7 +184,7 @@ final class PlayerChromeController: ObservableObject {
             librarySidebarSection = .mediaLibrary
         }
         setVisible(true)
-        refreshAutoHideTask()
+        refreshAutoHideSchedule()
     }
 
     func selectLibrarySidebarSection(_ section: LibrarySidebarSection) {
@@ -138,7 +195,7 @@ final class PlayerChromeController: ObservableObject {
         librarySidebarSection = section
         if isPlaylistPresented {
             setVisible(true)
-            refreshAutoHideTask()
+            refreshAutoHideSchedule()
         }
     }
 
@@ -151,7 +208,7 @@ final class PlayerChromeController: ObservableObject {
             setVisible(true)
             libraryQueueMode = .browsing
             presentedPanel = .settings
-            refreshAutoHideTask()
+            refreshAutoHideSchedule()
             return
         }
 
@@ -161,7 +218,7 @@ final class PlayerChromeController: ObservableObject {
 
         presentedPanel = nil
         restorePlaylistAfterSettingsIfNeeded()
-        refreshAutoHideTask()
+        refreshAutoHideSchedule()
     }
 
     func toggleSettings() {
@@ -191,7 +248,7 @@ final class PlayerChromeController: ObservableObject {
             setVisible(true)
         }
         applyFullScreenPlaylistPolicy()
-        refreshAutoHideTask()
+        refreshAutoHideSchedule()
     }
 
     func updateFullScreen(_ isFullScreen: Bool) {
@@ -212,7 +269,7 @@ final class PlayerChromeController: ObservableObject {
             }
         }
 
-        refreshAutoHideTask()
+        refreshAutoHideSchedule()
     }
 
     private func applyFullScreenPlaylistPolicy() {
@@ -244,39 +301,24 @@ final class PlayerChromeController: ObservableObject {
         applyFullScreenPlaylistPolicy()
     }
 
-    private func refreshAutoHideTask() {
-        cancelAutoHideTask()
+    private func refreshAutoHideSchedule() {
         guard isVisible, shouldAutoHide else {
+            autoHideScheduler.cancel()
             return
         }
 
-        let delay = autoHideDelayNanoseconds
-        let sleep = sleep
-        autoHideTask = Task { [weak self, sleep] in
-            do {
-                try await sleep(delay)
-            } catch {
-                return
-            }
-
-            guard !Task.isCancelled, let self else {
-                return
-            }
-            completeAutoHide()
+        autoHideScheduler.schedule(
+            afterNanoseconds: autoHideDelayNanoseconds
+        ) { [weak self] in
+            self?.completeAutoHide()
         }
     }
 
     private func completeAutoHide() {
-        autoHideTask = nil
         guard shouldAutoHide else {
             return
         }
         setVisible(false)
-    }
-
-    private func cancelAutoHideTask() {
-        autoHideTask?.cancel()
-        autoHideTask = nil
     }
 
     private func setVisible(_ isVisible: Bool) {

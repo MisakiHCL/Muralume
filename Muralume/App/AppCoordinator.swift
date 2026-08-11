@@ -23,6 +23,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     private let desktopPreset: DesktopPresetController
     private let playbackSession: PlaybackSessionController
     private var initialRestoreTask: Task<Void, Never>?
+    private var sourceAccessRetryTask: Task<Void, Never>?
+    private var sourceAccessRetryGeneration: UInt64 = 0
     private var initialRestoreGeneration: UInt64 = 0
     private var hasStarted = false
     private var isShutDown = false
@@ -120,7 +122,6 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         }
         hasStarted = true
         dynamicDesktopStartup.refresh()
-        let libraryStart = library.start()
         initialRestoreGeneration &+= 1
         let generation = initialRestoreGeneration
         initialRestoreTask = Task { [weak self] in
@@ -133,6 +134,12 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                     commitCurrentState: false
                 )
                 initialRestoreTask = nil
+            }
+
+            let libraryStart = await library.startAsync()
+            guard generation == initialRestoreGeneration,
+                  !isShutDown else {
+                return
             }
 
             if source == .loginItem,
@@ -231,15 +238,32 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     func retryUnavailableSourceAccess() {
         guard canImportMedia,
               initialRestoreTask == nil,
+              sourceAccessRetryTask == nil,
               !playbackSession.isRestoring,
               library.canRetrySourceAccess else {
             return
         }
-        let libraryStart = library.retryUnavailableSourceAccess()
-        resumeDeferredPlaybackSession(
-            after: libraryStart,
-            overridingPresentation: .player
-        )
+        sourceAccessRetryGeneration &+= 1
+        let generation = sourceAccessRetryGeneration
+        sourceAccessRetryTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            defer {
+                sourceAccessRetryTask = nil
+            }
+            let libraryStart = await library
+                .retryUnavailableSourceAccessAsync()
+            guard !Task.isCancelled,
+                  generation == sourceAccessRetryGeneration,
+                  !isShutDown else {
+                return
+            }
+            resumeDeferredPlaybackSession(
+                after: libraryStart,
+                overridingPresentation: .player
+            )
+        }
     }
 
     @discardableResult
@@ -257,6 +281,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     func enterDesktop() {
+        cancelSourceAccessRetry()
         if library.isTemporaryPlayback {
             guard library.addTemporaryItemsToLibrary() else {
                 return
@@ -269,6 +294,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     func playLibraryItem(_ item: LibraryMediaItem) {
+        cancelSourceAccessRetry()
         clearDynamicDesktopReturnContext()
         library.playLibraryItem(item)
     }
@@ -287,12 +313,14 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     private var canImportMedia: Bool {
         !desktopSession.isActive
             && !desktopSession.isTransitioning
+            && sourceAccessRetryTask == nil
             && !playback.isPlayerWindowDismissed
             && !playerChrome.isSettingsPresented
             && !isShutDown
     }
 
     func dismissMainWindow() {
+        cancelSourceAccessRetry()
         if canRestoreDynamicDesktop {
             restoreDynamicDesktop()
             return
@@ -305,10 +333,12 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     func minimizeMainWindow() {
+        cancelSourceAccessRetry()
         mainWindowPresenter.minimize()
     }
 
     func reopenMainWindow() {
+        cancelSourceAccessRetry()
         performAfterCancellingInitialRestore { [weak self] in
             self?.revealPlayerWindow()
         }
@@ -319,6 +349,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             return
         }
 
+        cancelSourceAccessRetry()
         externalOpenGeneration &+= 1
         let generation = externalOpenGeneration
         if dynamicDesktopReturnContext == nil,
@@ -387,6 +418,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                     playLibraryItem(libraryItem)
                 }
                 playerChrome.selectLibrarySidebarSection(.mediaLibrary)
+                library.refreshDeferredSourcesIfNeeded()
                 return
             }
 
@@ -400,6 +432,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             } else if dynamicDesktopReturnContext != nil {
                 restoreDynamicDesktop()
             }
+            library.refreshDeferredSourcesIfNeeded()
         }
     }
 
@@ -408,6 +441,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
               !isShutDown else {
             return
         }
+        cancelSourceAccessRetry()
         externalOpenGeneration &+= 1
         let generation = externalOpenGeneration
         playerChrome.setSettingsPresented(false)
@@ -440,8 +474,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         }
 
         _ = applicationPresence.setMode(.standard)
-        playback.restorePlayerWindow()
+        mainWindowPresenter.prepareForReturn()
         mainWindowPresenter.show()
+        playback.restorePlayerWindow()
     }
 
     func handleCloseCommand(for window: NSWindow?) -> Bool {
@@ -480,12 +515,15 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         let pendingInitialRestore = cancelInitialRestore(
             disposition: .shutdown
         )
+        let pendingSourceAccessRetry = cancelSourceAccessRetry()
+        sourceAccessRetryTask = nil
         await dynamicDesktopStartup.prepareForShutdown()
         await playbackSession.prepareForShutdown()
         await desktopPreset.prepareForShutdown()
         dynamicDesktopStartup.freezeAfterPresetFinalization()
         desktopSession.shutdown()
         await pendingInitialRestore?.value
+        await pendingSourceAccessRetry?.value
         await mediaThumbnailProvider.shutdown()
         await library.shutdown()
     }
@@ -529,11 +567,22 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         return pendingTask
     }
 
+    @discardableResult
+    private func cancelSourceAccessRetry() -> Task<Void, Never>? {
+        guard let sourceAccessRetryTask else {
+            return nil
+        }
+        sourceAccessRetryGeneration &+= 1
+        sourceAccessRetryTask.cancel()
+        return sourceAccessRetryTask
+    }
+
     private func performAfterCancellingInitialRestore(
         _ action: @escaping @MainActor () -> Void
     ) {
         guard let pendingTask = cancelInitialRestore() else {
             action()
+            library.refreshDeferredSourcesIfNeeded()
             return
         }
         let generation = initialRestoreGeneration
@@ -556,6 +605,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                 return
             }
             action()
+            library.refreshDeferredSourcesIfNeeded()
         }
     }
 
@@ -651,8 +701,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             return
         }
         _ = applicationPresence.setMode(.standard)
-        playback.restorePlayerWindow()
+        mainWindowPresenter.prepareForReturn()
         mainWindowPresenter.show()
+        playback.restorePlayerWindow()
     }
 
     private var isUsingDynamicDesktop: Bool {
@@ -762,6 +813,7 @@ extension AppCoordinator: MacMainMenuCommandHandling {
     }
 
     func openSettings() {
+        cancelSourceAccessRetry()
         performAfterCancellingInitialRestore { [weak self] in
             self?.openSettingsAfterInitialRestore()
         }
@@ -784,7 +836,10 @@ extension AppCoordinator: MacMainMenuCommandHandling {
             return
         }
         if playback.isPlayerWindowDismissed {
+            mainWindowPresenter.prepareForReturn()
+            mainWindowPresenter.show()
             playback.restorePlayerWindow()
+            return
         }
         mainWindowPresenter.show()
     }

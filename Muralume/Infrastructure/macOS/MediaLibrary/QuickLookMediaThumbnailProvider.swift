@@ -33,13 +33,20 @@ final class SystemQuickLookThumbnailGenerator: QuickLookThumbnailGenerating {
 @MainActor
 final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
     typealias CacheMissDelayer = @MainActor (Duration) async throws -> Void
+    typealias DrainDelayer = @MainActor (Duration) async throws -> Void
 
     private enum Policy {
         static let generatorVersion = 1
         // Quick Look cancellation is cooperative, so bound actual in-flight work.
         static let maximumConcurrentRequestCount = 4
+        // Allow one replacement wave after a drain deadline. If Quick Look also
+        // stalls that wave, stop dispatching until a real callback frees capacity.
+        static let maximumInFlightRequestMultiplier = 2
         // Avoid starting video decoding for rows only crossed while scrolling.
         static let cacheMissDelay: Duration = .milliseconds(80)
+        // Quick Look may never acknowledge cancellation. Keep source removal and
+        // application termination bounded even when the system service stalls.
+        static let drainDeadline: Duration = .seconds(2)
     }
 
     private final class CacheKey: NSObject {
@@ -158,6 +165,12 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
 
     private struct RootDrainWaiter {
         let rootPath: String
+        let deadlineTask: Task<Void, Never>
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
+    private struct ShutdownDrainWaiter {
+        let deadlineTask: Task<Void, Never>
         let continuation: CheckedContinuation<Void, Never>
     }
 
@@ -170,15 +183,23 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
     private let cacheMissDelay: Duration
     private let cacheMissDelayer: CacheMissDelayer
     private let maximumConcurrentRequestCount: Int
+    private let maximumInFlightRequestCount: Int
+    private let drainDeadline: Duration
+    private let drainDelayer: DrainDelayer
     private let cache = NSCache<CacheKey, ImageBox>()
     private var attachableRequests: [CacheKey: ActiveRequest] = [:]
     private var firstQueuedRequest: ActiveRequest?
     private var lastQueuedRequest: ActiveRequest?
-    // A cancelled request remains here until Quick Look actually returns.
+    // A cancelled request remains here until Quick Look returns. Source drain
+    // and shutdown may abandon it when their bounded deadline expires.
     private var runningRequests: [ObjectIdentifier: ActiveRequest] = [:]
+    // Includes logically abandoned requests whose Quick Look generation has not
+    // actually returned. This hard budget prevents repeated invalidation from
+    // bypassing the logical concurrency limit with non-cooperative work.
+    private var inFlightGenerationIDs: Set<UUID> = []
     private var requestByWaiterID: [UUID: ActiveRequest] = [:]
-    private var rootDrainWaiters: [RootDrainWaiter] = []
-    private var shutdownWaiters: [CheckedContinuation<Void, Never>] = []
+    private var rootDrainWaiters: [UUID: RootDrainWaiter] = [:]
+    private var shutdownDrainWaiters: [UUID: ShutdownDrainWaiter] = [:]
     private var invalidatedRootPaths: Set<String> = []
     private var cacheGeneration: UInt64 = 0
     private var isShutDown = false
@@ -188,20 +209,37 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             SystemQuickLookThumbnailGenerator(),
         cacheMissDelay: Duration? = nil,
         maximumConcurrentRequestCount: Int? = nil,
+        drainDeadline: Duration? = nil,
         cacheMissDelayer: @escaping CacheMissDelayer = { duration in
+            try await Task.sleep(for: duration)
+        },
+        drainDelayer: @escaping DrainDelayer = { duration in
             try await Task.sleep(for: duration)
         }
     ) {
         let effectiveMaximumConcurrentRequestCount =
             maximumConcurrentRequestCount
             ?? Policy.maximumConcurrentRequestCount
+        let effectiveDrainDeadline = drainDeadline ?? Policy.drainDeadline
+        let (
+            effectiveMaximumInFlightRequestCount,
+            maximumInFlightRequestCountOverflowed
+        ) = effectiveMaximumConcurrentRequestCount.multipliedReportingOverflow(
+            by: Policy.maximumInFlightRequestMultiplier
+        )
         precondition(effectiveMaximumConcurrentRequestCount > 0)
+        precondition(!maximumInFlightRequestCountOverflowed)
+        precondition(effectiveDrainDeadline > .zero)
 
         self.generator = generator
         self.cacheMissDelay = cacheMissDelay ?? Policy.cacheMissDelay
         self.maximumConcurrentRequestCount =
             effectiveMaximumConcurrentRequestCount
+        self.maximumInFlightRequestCount =
+            effectiveMaximumInFlightRequestCount
+        self.drainDeadline = effectiveDrainDeadline
         self.cacheMissDelayer = cacheMissDelayer
+        self.drainDelayer = drainDelayer
         cache.countLimit = AppConfiguration.mediaThumbnailCacheCountLimit
         cache.totalCostLimit = AppConfiguration.mediaThumbnailCacheByteLimit
     }
@@ -359,11 +397,14 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             return
         }
         await withCheckedContinuation { continuation in
-            rootDrainWaiters.append(
-                RootDrainWaiter(
-                    rootPath: rootPath,
-                    continuation: continuation
-                )
+            let waiterID = UUID()
+            rootDrainWaiters[waiterID] = RootDrainWaiter(
+                rootPath: rootPath,
+                deadlineTask: makeRootDrainDeadlineTask(
+                    waiterID: waiterID,
+                    rootPath: rootPath
+                ),
+                continuation: continuation
             )
         }
     }
@@ -379,6 +420,10 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             }
 
             runningRequests.values.forEach { activeRequest in
+                detachWaiters(from: activeRequest)
+                if attachableRequests[activeRequest.cacheKey] === activeRequest {
+                    attachableRequests[activeRequest.cacheKey] = nil
+                }
                 activeRequest.task?.cancel()
                 activeRequest.cancellation?.cancel()
             }
@@ -386,7 +431,13 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
 
         if !runningRequests.isEmpty {
             await withCheckedContinuation { continuation in
-                shutdownWaiters.append(continuation)
+                let waiterID = UUID()
+                shutdownDrainWaiters[waiterID] = ShutdownDrainWaiter(
+                    deadlineTask: makeShutdownDrainDeadlineTask(
+                        waiterID: waiterID
+                    ),
+                    continuation: continuation
+                )
             }
         }
 
@@ -486,6 +537,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         }
 
         while runningRequests.count < maximumConcurrentRequestCount,
+              inFlightGenerationIDs.count < maximumInFlightRequestCount,
               let activeRequest = firstQueuedRequest {
             guard !activeRequest.waiters.isEmpty,
                   !invalidatedRootPaths.contains(
@@ -507,30 +559,56 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             )
             request.iconMode = false
             activeRequest.state = .running
-            activeRequest.cancellation = CancellationBox(
+            let cancellation = CancellationBox(
                 generator: generator,
                 request: request
             )
+            activeRequest.cancellation = cancellation
             runningRequests[ObjectIdentifier(activeRequest)] = activeRequest
-            activeRequest.task = Task { [weak self, weak activeRequest] in
-                guard let self, let activeRequest else {
+            let generationID = UUID()
+            inFlightGenerationIDs.insert(generationID)
+            let generator = generator
+            activeRequest.task = Task {
+                @MainActor [weak self, weak activeRequest] in
+                let image = await Self.generateThumbnail(
+                    generator: generator,
+                    cancellation: cancellation
+                )
+                guard let self else {
                     return
                 }
-                await generateThumbnail(for: activeRequest)
+                generationDidFinish(
+                    generationID,
+                    activeRequest: activeRequest,
+                    image: image
+                )
             }
         }
     }
 
-    private func generateThumbnail(for activeRequest: ActiveRequest) async {
-        guard !Task.isCancelled else {
-            finishRequest(activeRequest, image: nil)
+    private func generationDidFinish(
+        _ generationID: UUID,
+        activeRequest: ActiveRequest?,
+        image: CGImage?
+    ) {
+        guard inFlightGenerationIDs.remove(generationID) != nil else {
             return
         }
-        guard let cancellation = activeRequest.cancellation else {
-            finishRequest(activeRequest, image: nil)
+        guard let activeRequest,
+              activeRequest.state == .running else {
+            startQueuedRequestsIfPossible()
             return
         }
+        finishRequest(activeRequest, image: image)
+    }
 
+    private static func generateThumbnail(
+        generator: any QuickLookThumbnailGenerating,
+        cancellation: CancellationBox
+    ) async -> CGImage? {
+        guard !Task.isCancelled else {
+            return nil
+        }
         let image: CGImage?
         do {
             let generatedImage = try await withTaskCancellationHandler {
@@ -547,7 +625,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         } catch {
             image = nil
         }
-        finishRequest(activeRequest, image: image)
+        return image
     }
 
     private func cancelWaiter(_ waiterID: UUID) {
@@ -631,20 +709,120 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
     }
 
     private func resumeDrainWaitersIfNeeded() {
-        var pendingRootWaiters: [RootDrainWaiter] = []
-        for waiter in rootDrainWaiters {
-            if hasRunningRequest(forRootPath: waiter.rootPath) {
-                pendingRootWaiters.append(waiter)
-            } else {
-                waiter.continuation.resume()
-            }
+        let completedRootWaiterIDs = rootDrainWaiters.compactMap {
+            waiterID, waiter in
+            hasRunningRequest(forRootPath: waiter.rootPath) ? nil : waiterID
         }
-        rootDrainWaiters = pendingRootWaiters
+        for waiterID in completedRootWaiterIDs {
+            resumeRootDrainWaiter(waiterID)
+        }
 
         if runningRequests.isEmpty {
-            let waiters = shutdownWaiters
-            shutdownWaiters.removeAll()
-            waiters.forEach { $0.resume() }
+            let waiterIDs = Array(shutdownDrainWaiters.keys)
+            for waiterID in waiterIDs {
+                resumeShutdownDrainWaiter(waiterID)
+            }
         }
+    }
+
+    private func makeRootDrainDeadlineTask(
+        waiterID: UUID,
+        rootPath: String
+    ) -> Task<Void, Never> {
+        let drainDeadline = drainDeadline
+        let drainDelayer = drainDelayer
+        return Task { @MainActor [weak self] in
+            do {
+                try await drainDelayer(drainDeadline)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else {
+                return
+            }
+            self?.rootDrainDeadlineReached(
+                waiterID: waiterID,
+                rootPath: rootPath
+            )
+        }
+    }
+
+    private func makeShutdownDrainDeadlineTask(
+        waiterID: UUID
+    ) -> Task<Void, Never> {
+        let drainDeadline = drainDeadline
+        let drainDelayer = drainDelayer
+        return Task { @MainActor [weak self] in
+            do {
+                try await drainDelayer(drainDeadline)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else {
+                return
+            }
+            self?.shutdownDrainDeadlineReached(waiterID: waiterID)
+        }
+    }
+
+    private func rootDrainDeadlineReached(
+        waiterID: UUID,
+        rootPath: String
+    ) {
+        guard rootDrainWaiters[waiterID]?.rootPath == rootPath else {
+            return
+        }
+        abandonRunningRequests { activeRequest in
+            activeRequest.cacheKey.itemID.rootPath == rootPath
+        }
+        resumeDrainWaitersIfNeeded()
+    }
+
+    private func shutdownDrainDeadlineReached(waiterID: UUID) {
+        guard shutdownDrainWaiters[waiterID] != nil else {
+            return
+        }
+        abandonRunningRequests { _ in true }
+        resumeDrainWaitersIfNeeded()
+    }
+
+    private func abandonRunningRequests(
+        where shouldAbandon: (ActiveRequest) -> Bool
+    ) {
+        let abandonedRequests = runningRequests.values.filter(shouldAbandon)
+        for activeRequest in abandonedRequests {
+            guard activeRequest.state == .running else {
+                continue
+            }
+            activeRequest.task?.cancel()
+            activeRequest.cancellation?.cancel()
+            detachWaiters(from: activeRequest)
+            runningRequests[ObjectIdentifier(activeRequest)] = nil
+            if attachableRequests[activeRequest.cacheKey] === activeRequest {
+                attachableRequests[activeRequest.cacheKey] = nil
+            }
+            activeRequest.state = .finished
+            activeRequest.task = nil
+            activeRequest.cancellation = nil
+        }
+        startQueuedRequestsIfPossible()
+    }
+
+    private func resumeRootDrainWaiter(_ waiterID: UUID) {
+        guard let waiter = rootDrainWaiters.removeValue(forKey: waiterID) else {
+            return
+        }
+        waiter.deadlineTask.cancel()
+        waiter.continuation.resume()
+    }
+
+    private func resumeShutdownDrainWaiter(_ waiterID: UUID) {
+        guard let waiter = shutdownDrainWaiters.removeValue(
+            forKey: waiterID
+        ) else {
+            return
+        }
+        waiter.deadlineTask.cancel()
+        waiter.continuation.resume()
     }
 }

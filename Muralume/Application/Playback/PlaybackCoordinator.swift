@@ -46,6 +46,9 @@ final class PlaybackCoordinator: ObservableObject {
     private var gate = PlaybackGate()
     private weak var playerSurface: (any PlaybackRenderSurface)?
     private var playerSurfaceAttachmentTask: Task<Void, Never>?
+    private var playerSurfaceAttachmentGeneration: UInt64 = 0
+    private weak var attachingPlayerSurface: (any PlaybackRenderSurface)?
+    private weak var attachedPlayerSurface: (any PlaybackRenderSurface)?
     private var audioPreferencesSaveTask: Task<Void, Never>?
     private var pendingAudioPreferences: PlaybackAudioPreferences?
     private var savedPlayerSettings: PlaybackSettings?
@@ -89,18 +92,31 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     deinit {
+        playerSurfaceAttachmentTask?.cancel()
         audioPreferencesSaveTask?.cancel()
     }
 
     func registerPlayerSurface(_ surface: any PlaybackRenderSurface) {
-        cancelPlayerSurfaceAttachment()
         playerSurface = surface
         guard presentation == .player,
               readiness == .ready,
               !isPlayerWindowDismissed else {
             return
         }
+        if isSameSurface(attachedPlayerSurface, surface) {
+            applyPlaybackGate()
+            return
+        }
+        if playerSurfaceAttachmentTask != nil,
+           isSameSurface(attachingPlayerSurface, surface) {
+            return
+        }
+
+        cancelPlayerSurfaceAttachment()
+        attachedPlayerSurface = nil
         let expectedGeneration = transitionGeneration
+        let attachmentGeneration = playerSurfaceAttachmentGeneration
+        attachingPlayerSurface = surface
 
         playerSurfaceAttachmentTask = Task { [weak self] in
             guard let self,
@@ -108,7 +124,9 @@ final class PlaybackCoordinator: ObservableObject {
                   readiness == .ready,
                   !isPlayerWindowDismissed,
                   isCurrentPlayerSurface(surface),
-                  transitionGeneration == expectedGeneration else {
+                  transitionGeneration == expectedGeneration,
+                  playerSurfaceAttachmentGeneration
+                    == attachmentGeneration else {
                 return
             }
             do {
@@ -118,22 +136,41 @@ final class PlaybackCoordinator: ObservableObject {
                       readiness == .ready,
                       !isPlayerWindowDismissed,
                       isCurrentPlayerSurface(surface),
-                      transitionGeneration == expectedGeneration else {
+                      transitionGeneration == expectedGeneration,
+                      playerSurfaceAttachmentGeneration
+                        == attachmentGeneration else {
                     return
                 }
+                attachedPlayerSurface = surface
+                finishPlayerSurfaceAttachment(
+                    generation: attachmentGeneration
+                )
+                applyPlaybackGate()
             } catch is CancellationError {
+                finishPlayerSurfaceAttachment(
+                    generation: attachmentGeneration
+                )
                 return
-            } catch let error as PlaybackEngineError where error == .superseded {
+            } catch let error as PlaybackEngineError
+                where error == .superseded {
+                finishPlayerSurfaceAttachment(
+                    generation: attachmentGeneration
+                )
                 return
             } catch {
                 guard presentation == .player,
                       transitionGeneration == expectedGeneration,
                       readiness == .ready,
-                      !isPlayerWindowDismissed else {
+                      !isPlayerWindowDismissed,
+                      isCurrentPlayerSurface(surface),
+                      playerSurfaceAttachmentGeneration
+                        == attachmentGeneration else {
                     return
                 }
-                fail(with: .surfaceTimeout)
-                playbackFailureHandler?(.surfaceTimeout)
+                finishPlayerSurfaceAttachment(
+                    generation: attachmentGeneration
+                )
+                handleRecoverablePlayerSurfaceFailure()
             }
         }
     }
@@ -151,6 +188,7 @@ final class PlaybackCoordinator: ObservableObject {
         cancelTimelineSeek()
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
+        attachedPlayerSurface = nil
         mediaLoadGeneration &+= 1
         let loadGeneration = mediaLoadGeneration
         let presentationGeneration = transitionGeneration
@@ -183,6 +221,16 @@ final class PlaybackCoordinator: ObservableObject {
         }
 
         duration = loadedDuration
+        let canBeginNewPlayback =
+            canAutoplayWhenLoaded
+            && presentationGeneration == transitionGeneration
+            && !isPlayerWindowDismissed
+        let shouldRequestPlayback = autoplay
+            && (isPlaybackRequested || canBeginNewPlayback)
+        gate.setIntent(shouldRequestPlayback ? .playing : .paused)
+        isPlaybackRequested = shouldRequestPlayback
+        hasPlayableMedia = true
+
         if attachToPlayerSurface,
            presentation == .player,
            !isPlayerWindowDismissed,
@@ -195,35 +243,56 @@ final class PlaybackCoordinator: ObservableObject {
                 }
                 if isPlayerWindowDismissed {
                     engine.detachAll()
+                    attachedPlayerSurface = nil
+                } else if isCurrentPlayerSurface(playerSurface) {
+                    attachedPlayerSurface = playerSurface
                 }
             } catch let error as PlaybackEngineError
                 where error == .superseded {
-                return .cancelled
+                guard loadGeneration == mediaLoadGeneration else {
+                    return .cancelled
+                }
+                // Window dismissal intentionally detaches a surface that may
+                // still be waiting for its first frame. A reopen can arrive
+                // before that stale attach reports `.superseded`; treat the
+                // media load as successful and attach the current surface
+                // again instead of leaving readiness stuck at `.loading`.
+                readiness = .ready
+                if presentation == .player,
+                   !isPlayerWindowDismissed,
+                   let currentPlayerSurface = self.playerSurface {
+                    registerPlayerSurface(currentPlayerSurface)
+                }
+                applyPlaybackGate()
+                return .loaded
             } catch is CancellationError {
                 return .cancelled
             } catch let error as PlaybackEngineError {
                 guard loadGeneration == mediaLoadGeneration else {
                     return .cancelled
                 }
+                if error == .surfaceTimeout {
+                    handleRecoverablePlayerSurfaceFailure()
+                    return .loaded
+                }
                 return handleGlobalLoadFailure(mapFailure(error))
             } catch {
                 guard loadGeneration == mediaLoadGeneration else {
                     return .cancelled
                 }
-                return handleGlobalLoadFailure(.surfaceTimeout)
+                handleRecoverablePlayerSurfaceFailure()
+                return .loaded
             }
         }
 
-        hasPlayableMedia = true
         readiness = .ready
-        let canBeginNewPlayback =
-            canAutoplayWhenLoaded
-            && presentationGeneration == transitionGeneration
-            && !isPlayerWindowDismissed
-        let shouldRequestPlayback = autoplay
-            && (isPlaybackRequested || canBeginNewPlayback)
-        gate.setIntent(shouldRequestPlayback ? .playing : .paused)
-        isPlaybackRequested = shouldRequestPlayback
+        if attachToPlayerSurface,
+           presentation == .player,
+           !isPlayerWindowDismissed,
+           !isCurrentPlayerSurfaceAttached,
+           let playerSurface {
+            registerPlayerSurface(playerSurface)
+        }
         applyPlaybackGate()
         return .loaded
     }
@@ -370,6 +439,7 @@ final class PlaybackCoordinator: ObservableObject {
 
         cancelTimelineSeek()
         cancelPlayerSurfaceAttachment()
+        attachedPlayerSurface = nil
         transitionGeneration &+= 1
         let generation = transitionGeneration
         presentation = .switching(generation: generation, destination: .desktop)
@@ -398,7 +468,12 @@ final class PlaybackCoordinator: ObservableObject {
             restorePlayerSettings()
             presentation = .player
             if let playerSurface, !isPlayerWindowDismissed {
-                try? await engine.attach(to: playerSurface)
+                do {
+                    try await engine.attach(to: playerSurface)
+                    attachedPlayerSurface = playerSurface
+                } catch {
+                    attachedPlayerSurface = nil
+                }
             }
             applyPlaybackGate()
             throw error
@@ -424,6 +499,7 @@ final class PlaybackCoordinator: ObservableObject {
             guard generation == transitionGeneration else {
                 throw PlaybackEngineError.superseded
             }
+            attachedPlayerSurface = playerSurface
             restorePlayerSettings()
             presentation = .player
             applyPlaybackGate()
@@ -460,6 +536,7 @@ final class PlaybackCoordinator: ObservableObject {
         cancelPlayerSurfaceAttachment()
         transitionGeneration &+= 1
         isPlayerWindowDismissed = true
+        attachedPlayerSurface = nil
         restorePlayerSettings()
         presentation = .player
         engine.pause()
@@ -473,21 +550,30 @@ final class PlaybackCoordinator: ObservableObject {
         }
 
         isPlayerWindowDismissed = false
-        guard presentation == .player,
-              readiness == .ready,
+        guard presentation == .player else {
+            applyPlaybackGate()
+            return
+        }
+
+        if case .failed(.surfaceTimeout) = readiness,
+           source != nil,
+           hasPlayableMedia {
+            readiness = .ready
+        }
+        guard readiness == .ready,
               let playerSurface else {
             applyPlaybackGate()
             return
         }
 
         registerPlayerSurface(playerSurface)
-        applyPlaybackGate()
     }
 
     func stop() {
         cancelTimelineSeek()
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
+        attachedPlayerSurface = nil
         transitionGeneration &+= 1
         mediaLoadGeneration &+= 1
         gate.setIntent(.paused)
@@ -512,6 +598,7 @@ final class PlaybackCoordinator: ObservableObject {
         cancelTimelineSeek()
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
+        attachedPlayerSurface = nil
         transitionGeneration &+= 1
         mediaLoadGeneration &+= 1
         presentation = .terminating
@@ -534,7 +621,8 @@ final class PlaybackCoordinator: ObservableObject {
     private func applyPlaybackGate() {
         guard readiness == .ready,
               !isPlayerWindowDismissed,
-              timelineSeekTarget == nil else {
+              timelineSeekTarget == nil,
+              !isWaitingForPlayerSurface else {
             engine.pause()
             isActuallyPlaying = false
             return
@@ -672,6 +760,7 @@ final class PlaybackCoordinator: ObservableObject {
         cancelTimelineSeek()
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
+        attachedPlayerSurface = nil
         transitionGeneration &+= 1
         mediaLoadGeneration &+= 1
         gate.setIntent(.paused)
@@ -731,6 +820,14 @@ final class PlaybackCoordinator: ObservableObject {
         return .globalFailure(failure)
     }
 
+    private func handleRecoverablePlayerSurfaceFailure() {
+        attachedPlayerSurface = nil
+        engine.pause()
+        readiness = .failed(.surfaceTimeout)
+        isActuallyPlaying = false
+        playbackFailureHandler?(.surfaceTimeout)
+    }
+
     private func mapFailure(_ error: PlaybackEngineError) -> PlaybackFailure {
         switch error {
         case .unsupported:
@@ -750,8 +847,18 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     private func cancelPlayerSurfaceAttachment() {
+        playerSurfaceAttachmentGeneration &+= 1
         playerSurfaceAttachmentTask?.cancel()
         playerSurfaceAttachmentTask = nil
+        attachingPlayerSurface = nil
+    }
+
+    private func finishPlayerSurfaceAttachment(generation: UInt64) {
+        guard generation == playerSurfaceAttachmentGeneration else {
+            return
+        }
+        playerSurfaceAttachmentTask = nil
+        attachingPlayerSurface = nil
     }
 
     private func cancelTimelineSeek() {
@@ -791,6 +898,26 @@ final class PlaybackCoordinator: ObservableObject {
         return gate.shouldPlay
     }
 
+    private var isWaitingForPlayerSurface: Bool {
+        guard playerSurface != nil else {
+            return false
+        }
+        switch presentation {
+        case .player, .switching(_, .player):
+            return !isCurrentPlayerSurfaceAttached
+        case .switching(_, .desktop), .desktop, .terminating:
+            return false
+        }
+    }
+
+    private var isCurrentPlayerSurfaceAttached: Bool {
+        guard let playerSurface,
+              let attachedPlayerSurface else {
+            return false
+        }
+        return attachedPlayerSurface === playerSurface
+    }
+
     private var hasBlockingSuspensionForCurrentPresentation: Bool {
         if ignoresPlayerWindowSuspension {
             return gate.suspensionReasons.contains {
@@ -821,6 +948,16 @@ final class PlaybackCoordinator: ObservableObject {
         guard let playerSurface else {
             return false
         }
-        return ObjectIdentifier(playerSurface) == ObjectIdentifier(surface)
+        return playerSurface === surface
+    }
+
+    private func isSameSurface(
+        _ lhs: (any PlaybackRenderSurface)?,
+        _ rhs: any PlaybackRenderSurface
+    ) -> Bool {
+        guard let lhs else {
+            return false
+        }
+        return lhs === rhs
     }
 }

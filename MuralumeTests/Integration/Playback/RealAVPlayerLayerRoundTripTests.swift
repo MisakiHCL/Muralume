@@ -113,6 +113,73 @@ final class RealAVPlayerLayerRoundTripTests: XCTestCase {
         XCTAssertFalse(playerSurface.displayedVideoRect.isEmpty)
     }
 
+    func testCoordinatorReattachesRealPlayerLayerAfterWindowOrderOut()
+        async throws
+    {
+        let engine = AVFoundationPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let playerSurface = PlayerLayerSurfaceView(
+            id: .player,
+            videoGravity: .resizeAspect
+        )
+        let window = makeWindow(
+            for: playerSurface,
+            originX: TestConfiguration.playerWindowOriginX
+        )
+        let source = ResolvedMediaSource(
+            url: try TestMediaFixture.h264URL(for: Self.self),
+            displayName: "Sample"
+        )
+        defer {
+            coordinator.shutdown()
+            close([window])
+        }
+
+        coordinator.registerPlayerSurface(playerSurface)
+        await coordinator.load(source)
+        try await Task.sleep(
+            nanoseconds: TestConfiguration.renderingSettleNanoseconds
+        )
+        var timeBeforeDismissal = coordinator.currentTime
+
+        for reopenAttempt in 1...3 {
+            coordinator.dismissPlayerWindow()
+            window.orderOut(nil)
+
+            XCTAssertNil(playerSurface.connectedPlayerIdentity)
+            XCTAssertEqual(coordinator.source, source)
+            XCTAssertTrue(coordinator.isPlaybackRequested)
+
+            // Mirror the production reopen order: make the layer tree
+            // renderable and lay it out before starting a fresh attachment.
+            window.alphaValue = 0.01
+            window.orderBack(nil)
+            playerSurface.layoutSubtreeIfNeeded()
+            window.alphaValue = 1
+            window.makeKeyAndOrderFront(nil)
+            playerSurface.layoutSubtreeIfNeeded()
+            coordinator.restorePlayerWindow()
+
+            try await waitForCondition(
+                "player reattachment \(reopenAttempt) after orderOut"
+            ) {
+                playerSurface.connectedPlayerIdentity != nil
+                    && playerSurface.isReadyForDisplay
+                    && coordinator.isActuallyPlaying
+            }
+
+            XCTAssertEqual(coordinator.readiness, .ready)
+            XCTAssertEqual(coordinator.source, source)
+            XCTAssertGreaterThanOrEqual(
+                coordinator.currentTime,
+                timeBeforeDismissal
+            )
+            XCTAssertTrue(coordinator.isPlaybackRequested)
+            XCTAssertFalse(playerSurface.displayedVideoRect.isEmpty)
+            timeBeforeDismissal = coordinator.currentTime
+        }
+    }
+
     func testCoordinatorCanRoundTripBetweenRealPlayerLayers() async throws {
         let engine = AVFoundationPlaybackEngine()
         let coordinator = PlaybackCoordinator(engine: engine)

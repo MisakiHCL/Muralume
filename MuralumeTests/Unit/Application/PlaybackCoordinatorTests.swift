@@ -549,6 +549,30 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.isPlaybackRequested)
     }
 
+    func testReopenDoesNotReviveMediaAfterGlobalSurfaceTimeout() async {
+        let engine = TestPlaybackEngine()
+        let source = ResolvedMediaSource(
+            url: URL(fileURLWithPath: "/tmp/global-surface-timeout.mp4"),
+            displayName: "Global Surface Timeout"
+        )
+        engine.loadErrorsByURL[source.url] = .surfaceTimeout
+        let coordinator = PlaybackCoordinator(engine: engine)
+        coordinator.registerPlayerSurface(TestPlaybackSurface(id: .player))
+
+        let result = await coordinator.load(source)
+        coordinator.dismissPlayerWindow()
+        coordinator.restorePlayerWindow()
+        await Task.yield()
+
+        XCTAssertEqual(result, .globalFailure(.surfaceTimeout))
+        XCTAssertEqual(coordinator.readiness, .failed(.surfaceTimeout))
+        XCTAssertFalse(coordinator.hasPlayableMedia)
+        XCTAssertFalse(coordinator.isPlaybackRequested)
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertNil(engine.attachedSurfaceID)
+        XCTAssertEqual(engine.stopCount, 1)
+    }
+
     func testTerminalPlaybackPathsClearPlayableMedia() async {
         let engine = TestPlaybackEngine()
         let coordinator = PlaybackCoordinator(engine: engine)
@@ -1028,6 +1052,97 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.isPlaybackRequested)
         XCTAssertFalse(engine.isPlaying)
         XCTAssertEqual(engine.attachedSurfaceID, .player)
+    }
+
+    func testSurfaceTimeoutPreservesPlaybackAndCanRetryWithoutStoppingEngine()
+        async
+    {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        let source = ResolvedMediaSource(
+            url: URL(fileURLWithPath: "/tmp/example.mp4"),
+            displayName: "Example"
+        )
+        var reportedFailures: [PlaybackFailure] = []
+        coordinator.playbackFailureHandler = {
+            reportedFailures.append($0)
+        }
+
+        coordinator.registerPlayerSurface(playerSurface)
+        await coordinator.load(source)
+        engine.progressHandler?(42)
+        coordinator.dismissPlayerWindow()
+        engine.attachmentErrorsBySurfaceID[.player] = .surfaceTimeout
+
+        coordinator.restorePlayerWindow()
+        for _ in 0..<1_000
+            where coordinator.readiness != .failed(.surfaceTimeout) {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(coordinator.readiness, .failed(.surfaceTimeout))
+        XCTAssertEqual(coordinator.source, source)
+        XCTAssertEqual(coordinator.currentTime, 42)
+        XCTAssertEqual(coordinator.duration, 120)
+        XCTAssertTrue(coordinator.hasPlayableMedia)
+        XCTAssertTrue(coordinator.isPlaybackRequested)
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertEqual(engine.stopCount, 0)
+        XCTAssertEqual(reportedFailures, [.surfaceTimeout])
+
+        engine.attachmentErrorsBySurfaceID[.player] = nil
+        coordinator.restorePlayerWindow()
+        for _ in 0..<1_000
+            where coordinator.readiness != .ready || !engine.isPlaying {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(coordinator.readiness, .ready)
+        XCTAssertEqual(coordinator.currentTime, 42)
+        XCTAssertTrue(coordinator.isPlaybackRequested)
+        XCTAssertTrue(engine.isPlaying)
+        XCTAssertEqual(engine.attachedSurfaceID, .player)
+        XCTAssertEqual(engine.stopCount, 0)
+    }
+
+    func testReopenDuringSupersededLoadAttachmentRetriesCurrentSurface()
+        async {
+        let engine = TestPlaybackEngine()
+        engine.shouldBlockAttachments = true
+        engine.blockedAttachmentError = .superseded
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        let source = ResolvedMediaSource(
+            url: URL(fileURLWithPath: "/tmp/reopen-during-attach.mp4"),
+            displayName: "Reopen During Attach"
+        )
+        coordinator.registerPlayerSurface(playerSurface)
+
+        let loadTask = Task {
+            await coordinator.load(source)
+        }
+        for _ in 0..<1_000 where !engine.didBeginBlockedAttachment {
+            await Task.yield()
+        }
+        XCTAssertTrue(engine.didBeginBlockedAttachment)
+
+        coordinator.dismissPlayerWindow()
+        coordinator.restorePlayerWindow()
+
+        let loadResult = await loadTask.value
+        XCTAssertEqual(loadResult, .loaded)
+        for _ in 0..<1_000
+            where coordinator.readiness != .ready || !engine.isPlaying {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(coordinator.readiness, .ready)
+        XCTAssertEqual(coordinator.source, source)
+        XCTAssertTrue(coordinator.isPlaybackRequested)
+        XCTAssertTrue(engine.isPlaying)
+        XCTAssertEqual(engine.attachedSurfaceID, .player)
+        XCTAssertGreaterThanOrEqual(engine.attachedSurfaceIDs.count, 2)
     }
 
     func testDismissDuringLoadRevokesAutoplayAfterImmediateReopen() async {

@@ -112,10 +112,10 @@ final class PlayerChromeControllerTests: XCTestCase {
         XCTAssertTrue(controller.isLibraryEditing)
     }
 
-    func testTransientMediaSwitchDoesNotRevealHiddenChrome() async {
-        let sleeper = ControlledPlayerChromeSleeper()
-        let controller = makeController(sleeper: sleeper)
-        await hideChrome(controller, sleeper: sleeper)
+    func testTransientMediaSwitchDoesNotRevealHiddenChrome() {
+        let scheduler = ControlledPlayerChromeAutoHideScheduler()
+        let controller = makeController(scheduler: scheduler)
+        hideChrome(controller, scheduler: scheduler)
 
         controller.updatePlaybackState(
             PlayerChromePlaybackState(
@@ -152,14 +152,13 @@ final class PlayerChromeControllerTests: XCTestCase {
 
         controller.updatePlaybackState(.playing)
         XCTAssertFalse(controller.isVisible)
-        let pendingSleepCount = await sleeper.pendingCount
-        XCTAssertEqual(pendingSleepCount, 0)
+        XCTAssertFalse(scheduler.hasScheduledAction)
     }
 
-    func testSkippableFailureDoesNotRevealHiddenChrome() async {
-        let sleeper = ControlledPlayerChromeSleeper()
-        let controller = makeController(sleeper: sleeper)
-        await hideChrome(controller, sleeper: sleeper)
+    func testSkippableFailureDoesNotRevealHiddenChrome() {
+        let scheduler = ControlledPlayerChromeAutoHideScheduler()
+        let controller = makeController(scheduler: scheduler)
+        hideChrome(controller, scheduler: scheduler)
 
         controller.updatePlaybackState(
             PlayerChromePlaybackState(
@@ -187,26 +186,24 @@ final class PlayerChromeControllerTests: XCTestCase {
         XCTAssertFalse(controller.isVisible)
     }
 
-    func testPointerActivityIsTheOnlyTransientEventThatRevealsChrome() async {
-        let sleeper = ControlledPlayerChromeSleeper()
-        let controller = makeController(sleeper: sleeper)
-        await hideChrome(controller, sleeper: sleeper)
+    func testPointerActivityIsTheOnlyTransientEventThatRevealsChrome() {
+        let scheduler = ControlledPlayerChromeAutoHideScheduler()
+        let controller = makeController(scheduler: scheduler)
+        hideChrome(controller, scheduler: scheduler)
 
         controller.recordPointerActivity()
 
         XCTAssertTrue(controller.isVisible)
-        await waitForPendingSleep(in: sleeper)
+        XCTAssertTrue(scheduler.hasScheduledAction)
 
-        await sleeper.resumeNext()
-        await waitUntil {
-            !controller.isVisible
-        }
+        scheduler.fire()
+        XCTAssertFalse(controller.isVisible)
     }
 
-    func testPausedPlaybackRevealsChrome() async {
-        let sleeper = ControlledPlayerChromeSleeper()
-        let controller = makeController(sleeper: sleeper)
-        await hideChrome(controller, sleeper: sleeper)
+    func testPausedPlaybackRevealsChrome() {
+        let scheduler = ControlledPlayerChromeAutoHideScheduler()
+        let controller = makeController(scheduler: scheduler)
+        hideChrome(controller, scheduler: scheduler)
 
         controller.updatePlaybackState(
             PlayerChromePlaybackState(
@@ -219,14 +216,13 @@ final class PlayerChromeControllerTests: XCTestCase {
         )
 
         XCTAssertTrue(controller.isVisible)
-        let pendingSleepCount = await sleeper.pendingCount
-        XCTAssertEqual(pendingSleepCount, 0)
+        XCTAssertFalse(scheduler.hasScheduledAction)
     }
 
-    func testFailureAndEmptyPlaybackRevealChrome() async {
-        let failureSleeper = ControlledPlayerChromeSleeper()
-        let failureController = makeController(sleeper: failureSleeper)
-        await hideChrome(failureController, sleeper: failureSleeper)
+    func testFailureAndEmptyPlaybackRevealChrome() {
+        let failureScheduler = ControlledPlayerChromeAutoHideScheduler()
+        let failureController = makeController(scheduler: failureScheduler)
+        hideChrome(failureController, scheduler: failureScheduler)
 
         failureController.updatePlaybackState(
             PlayerChromePlaybackState(
@@ -240,19 +236,19 @@ final class PlayerChromeControllerTests: XCTestCase {
 
         XCTAssertTrue(failureController.isVisible)
 
-        let emptySleeper = ControlledPlayerChromeSleeper()
-        let emptyController = makeController(sleeper: emptySleeper)
-        await hideChrome(emptyController, sleeper: emptySleeper)
+        let emptyScheduler = ControlledPlayerChromeAutoHideScheduler()
+        let emptyController = makeController(scheduler: emptyScheduler)
+        hideChrome(emptyController, scheduler: emptyScheduler)
 
         emptyController.updatePlaybackState(.empty)
 
         XCTAssertTrue(emptyController.isVisible)
     }
 
-    func testDismissedWindowSuppressesPauseRevealUntilRestore() async {
-        let sleeper = ControlledPlayerChromeSleeper()
-        let controller = makeController(sleeper: sleeper)
-        await hideChrome(controller, sleeper: sleeper)
+    func testDismissedWindowSuppressesPauseRevealUntilRestore() {
+        let scheduler = ControlledPlayerChromeAutoHideScheduler()
+        let controller = makeController(scheduler: scheduler)
+        hideChrome(controller, scheduler: scheduler)
 
         controller.updatePlaybackState(
             PlayerChromePlaybackState(
@@ -288,19 +284,18 @@ final class PlayerChromeControllerTests: XCTestCase {
         XCTAssertTrue(controller.isVisible)
     }
 
-    func testOpeningPlaylistCancelsPendingAutoHide() async {
-        let sleeper = ControlledPlayerChromeSleeper()
-        let controller = makeController(sleeper: sleeper)
+    func testOpeningPlaylistCancelsPendingAutoHide() {
+        let scheduler = ControlledPlayerChromeAutoHideScheduler()
+        let controller = makeController(scheduler: scheduler)
         controller.setPlaylistPresented(false)
         controller.updatePlaybackState(.playing)
-        await waitForPendingSleep(in: sleeper)
+        XCTAssertTrue(scheduler.hasScheduledAction)
 
         controller.setPlaylistPresented(true)
-        await sleeper.resumeAll()
-        await yieldSeveralTimes()
 
         XCTAssertTrue(controller.isVisible)
         XCTAssertTrue(controller.isPlaylistPresented)
+        XCTAssertFalse(scheduler.hasScheduledAction)
     }
 
     func testSettingsReplacesPlaylistAndRestoresItWhenClosed() {
@@ -341,26 +336,23 @@ final class PlayerChromeControllerTests: XCTestCase {
         XCTAssertNil(controller.presentedPanel)
     }
 
-    func testSettingsKeepsChromeVisibleAndCancelsAutoHide() async {
-        let sleeper = ControlledPlayerChromeSleeper()
-        let controller = makeController(sleeper: sleeper)
+    func testSettingsKeepsChromeVisibleAndCancelsAutoHide() {
+        let scheduler = ControlledPlayerChromeAutoHideScheduler()
+        let controller = makeController(scheduler: scheduler)
         controller.setPlaylistPresented(false)
         controller.updatePlaybackState(.playing)
-        await waitForPendingSleep(in: sleeper)
+        XCTAssertTrue(scheduler.hasScheduledAction)
 
         controller.setSettingsPresented(true)
-        await sleeper.resumeAll()
-        await yieldSeveralTimes()
 
         XCTAssertTrue(controller.isVisible)
         XCTAssertTrue(controller.isSettingsPresented)
-        let pendingSleepCount = await sleeper.pendingCount
-        XCTAssertEqual(pendingSleepCount, 0)
+        XCTAssertFalse(scheduler.hasScheduledAction)
     }
 
-    func testFullScreenAutoDismissedPlaylistIsRestoredOnExit() async {
-        let sleeper = ControlledPlayerChromeSleeper()
-        let controller = makeController(sleeper: sleeper)
+    func testFullScreenAutoDismissedPlaylistIsRestoredOnExit() {
+        let scheduler = ControlledPlayerChromeAutoHideScheduler()
+        let controller = makeController(scheduler: scheduler)
         controller.updatePlaybackState(.playing)
         controller.presentLibraryEditor()
 
@@ -369,20 +361,19 @@ final class PlayerChromeControllerTests: XCTestCase {
         XCTAssertTrue(controller.isVisible)
         XCTAssertFalse(controller.isPlaylistPresented)
         XCTAssertFalse(controller.isLibraryEditing)
-        await waitForPendingSleep(in: sleeper)
+        XCTAssertTrue(scheduler.hasScheduledAction)
 
         controller.updateFullScreen(false)
-        await sleeper.resumeAll()
-        await yieldSeveralTimes()
 
         XCTAssertTrue(controller.isVisible)
         XCTAssertTrue(controller.isPlaylistPresented)
         XCTAssertFalse(controller.isLibraryEditing)
+        XCTAssertFalse(scheduler.hasScheduledAction)
     }
 
-    func testFullScreenPlaylistOverrideIsNotRestoredOnExit() async {
-        let sleeper = ControlledPlayerChromeSleeper()
-        let controller = makeController(sleeper: sleeper)
+    func testFullScreenPlaylistOverrideIsNotRestoredOnExit() {
+        let scheduler = ControlledPlayerChromeAutoHideScheduler()
+        let controller = makeController(scheduler: scheduler)
         controller.updatePlaybackState(.playing)
         controller.updateFullScreen(true)
         XCTAssertFalse(controller.isPlaylistPresented)
@@ -418,64 +409,60 @@ final class PlayerChromeControllerTests: XCTestCase {
         XCTAssertFalse(controller.isSettingsPresented)
     }
 
+    func testPointerActivityResetsOneScheduleWithoutCancellingIt() {
+        let scheduler = ControlledPlayerChromeAutoHideScheduler()
+        let controller = makeController(scheduler: scheduler)
+        controller.setPlaylistPresented(false)
+        controller.updatePlaybackState(.playing)
+        let cancellationCount = scheduler.cancellationCount
+
+        for _ in 0..<100 {
+            controller.recordPointerActivity()
+        }
+
+        XCTAssertTrue(scheduler.hasScheduledAction)
+        XCTAssertEqual(scheduler.cancellationCount, cancellationCount)
+        XCTAssertEqual(scheduler.maximumPendingActionCount, 1)
+
+        scheduler.fire()
+
+        XCTAssertFalse(controller.isVisible)
+    }
+
+    func testRunLoopSchedulerReusesTimerWhenDeadlineIsReset() {
+        let scheduler = RunLoopPlayerChromeAutoHideScheduler()
+
+        for _ in 0..<100 {
+            scheduler.schedule(afterNanoseconds: NSEC_PER_SEC) {}
+        }
+
+        XCTAssertEqual(scheduler.timerCreationCountForTesting, 1)
+        scheduler.cancel()
+    }
+
     private func makeController(
-        sleeper: ControlledPlayerChromeSleeper
+        scheduler: ControlledPlayerChromeAutoHideScheduler
     ) -> PlayerChromeController {
         PlayerChromeController(
             autoHideDelayNanoseconds: 1,
-            sleep: { _ in
-                try await sleeper.sleep()
-            }
+            autoHideScheduler: scheduler
         )
     }
 
     private func hideChrome(
         _ controller: PlayerChromeController,
-        sleeper: ControlledPlayerChromeSleeper,
+        scheduler: ControlledPlayerChromeAutoHideScheduler,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) async {
+    ) {
         controller.setPlaylistPresented(false)
         controller.updatePlaybackState(.playing)
-        await waitForPendingSleep(in: sleeper, file: file, line: line)
-        await sleeper.resumeNext()
-        await waitUntil(file: file, line: line) {
-            !controller.isVisible
+        guard scheduler.hasScheduledAction else {
+            XCTFail("Expected an auto-hide schedule", file: file, line: line)
+            return
         }
-    }
-
-    private func waitForPendingSleep(
-        in sleeper: ControlledPlayerChromeSleeper,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) async {
-        for _ in 0..<100 {
-            if await sleeper.pendingCount > 0 {
-                return
-            }
-            await Task.yield()
-        }
-        XCTFail("Expected an auto-hide sleep task", file: file, line: line)
-    }
-
-    private func waitUntil(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ condition: () -> Bool
-    ) async {
-        for _ in 0..<100 {
-            if condition() {
-                return
-            }
-            await Task.yield()
-        }
-        XCTFail("Condition was not met", file: file, line: line)
-    }
-
-    private func yieldSeveralTimes() async {
-        for _ in 0..<10 {
-            await Task.yield()
-        }
+        scheduler.fire()
+        XCTAssertFalse(controller.isVisible, file: file, line: line)
     }
 }
 
@@ -489,32 +476,33 @@ private extension PlayerChromePlaybackState {
     )
 }
 
-private actor ControlledPlayerChromeSleeper {
-    private var pendingContinuations: [CheckedContinuation<Void, Never>] = []
+@MainActor
+private final class ControlledPlayerChromeAutoHideScheduler:
+    PlayerChromeAutoHideScheduling {
+    private var scheduledAction: (@MainActor () -> Void)?
+    private(set) var cancellationCount = 0
+    private(set) var maximumPendingActionCount = 0
 
-    var pendingCount: Int {
-        pendingContinuations.count
+    var hasScheduledAction: Bool {
+        scheduledAction != nil
     }
 
-    func sleep() async throws {
-        await withCheckedContinuation { continuation in
-            pendingContinuations.append(continuation)
-        }
-        try Task.checkCancellation()
+    func schedule(
+        afterNanoseconds _: UInt64,
+        action: @escaping @MainActor () -> Void
+    ) {
+        scheduledAction = action
+        maximumPendingActionCount = max(maximumPendingActionCount, 1)
     }
 
-    func resumeNext() {
-        guard !pendingContinuations.isEmpty else {
-            return
-        }
-        pendingContinuations.removeFirst().resume()
+    func cancel() {
+        cancellationCount += 1
+        scheduledAction = nil
     }
 
-    func resumeAll() {
-        let continuations = pendingContinuations
-        pendingContinuations.removeAll()
-        for continuation in continuations {
-            continuation.resume()
-        }
+    func fire() {
+        let action = scheduledAction
+        scheduledAction = nil
+        action?()
     }
 }
