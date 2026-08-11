@@ -359,6 +359,192 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         XCTAssertEqual(scopeCloseRecorder.urls, [resolvedURL])
     }
 
+    func testDetachedRestoreRetryJoinsCancelledWorkerForSameBookmark()
+        async
+    {
+        let bookmark = Data("coalesced-blocked-resolver".utf8)
+        let resolvedURL = URL(
+            fileURLWithPath: "/tmp/Coalesced Detached Restore \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let scopeCloseRecorder = ThreadSafeURLRecorder()
+        let resolver = NonCooperativeRestoreResolver(
+            resolvedURL: resolvedURL,
+            scopeCloseRecorder: scopeCloseRecorder
+        )
+        let restoreExecutor = UserSelectedMediaRestoreExecutor.detached {
+            kind,
+            preparedBookmark in
+            resolver.prepare(kind: kind, bookmark: preparedBookmark)
+        }
+        let cancelledPreparation = Task { @MainActor in
+            await restoreExecutor.prepare(kind: .folder, bookmark: bookmark)
+        }
+        await Task.detached {
+            resolver.waitUntilStarted()
+        }.value
+
+        cancelledPreparation.cancel()
+        guard case .unavailable = await cancelledPreparation.value else {
+            XCTFail("A cancelled preparation must return unavailable")
+            resolver.release()
+            return
+        }
+
+        let joinedPreparation = Task { @MainActor in
+            await restoreExecutor.prepare(kind: .folder, bookmark: bookmark)
+        }
+        for _ in 0..<100 {
+            await Task.yield()
+        }
+        XCTAssertEqual(resolver.startedCount, 1)
+
+        resolver.release()
+        let joinedResult = await joinedPreparation.value
+        guard case let .resolved(preparedRestore) = joinedResult else {
+            XCTFail("The joined retry must receive the existing worker result")
+            return
+        }
+        preparedRestore.closeScopeIfOwned()
+
+        XCTAssertEqual(resolver.startedCount, 1)
+        XCTAssertEqual(scopeCloseRecorder.urls, [resolvedURL])
+    }
+
+    func testDetachedRestoreRetryDoesNotInheritWorkerCancellation()
+        async
+    {
+        let bookmark = Data("cancelled-worker-retry".utf8)
+        let resolvedURL = URL(
+            fileURLWithPath: "/tmp/Detached Retry \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let scopeCloseRecorder = ThreadSafeURLRecorder()
+        let resolver = CancelledThenResolvedRestoreResolver(
+            resolvedURL: resolvedURL,
+            scopeCloseRecorder: scopeCloseRecorder
+        )
+        let restoreExecutor = UserSelectedMediaRestoreExecutor.detached {
+            kind,
+            preparedBookmark in
+            resolver.prepare(kind: kind, bookmark: preparedBookmark)
+        }
+        let cancelledPreparation = Task { @MainActor in
+            await restoreExecutor.prepare(kind: .folder, bookmark: bookmark)
+        }
+        await Task.detached {
+            resolver.waitUntilFirstPreparationStarted()
+        }.value
+
+        cancelledPreparation.cancel()
+        guard case .unavailable = await cancelledPreparation.value else {
+            XCTFail("A cancelled preparation must return unavailable")
+            resolver.finishFirstPreparation()
+            return
+        }
+
+        let retryPreparation = Task { @MainActor in
+            await restoreExecutor.prepare(kind: .folder, bookmark: bookmark)
+        }
+        for _ in 0..<100 {
+            await Task.yield()
+        }
+        XCTAssertEqual(resolver.startedCount, 1)
+
+        resolver.finishFirstPreparation()
+        let retryResult = await retryPreparation.value
+        guard case let .resolved(preparedRestore) = retryResult else {
+            XCTFail("The retry must receive a fresh, uncancelled preparation")
+            return
+        }
+        preparedRestore.closeScopeIfOwned()
+
+        XCTAssertEqual(resolver.startedCount, 2)
+        XCTAssertEqual(scopeCloseRecorder.urls, [resolvedURL])
+    }
+
+    func testDetachedRestoreHardLimitDropsRepeatedCancelledQueuedWork()
+        async
+    {
+        let resolvedURL = URL(
+            fileURLWithPath: "/tmp/Bounded Detached Restore \(UUID().uuidString)",
+            isDirectory: true
+        )
+        let scopeCloseRecorder = ThreadSafeURLRecorder()
+        let resolver = NonCooperativeRestoreResolver(
+            resolvedURL: resolvedURL,
+            scopeCloseRecorder: scopeCloseRecorder
+        )
+        let restoreExecutor = UserSelectedMediaRestoreExecutor.detached {
+            kind,
+            bookmark in
+            resolver.prepare(kind: kind, bookmark: bookmark)
+        }
+        let copiedExecutor = restoreExecutor
+        let firstPreparation = Task { @MainActor in
+            await restoreExecutor.prepare(
+                kind: .folder,
+                bookmark: Data("hard-limit-first".utf8)
+            )
+        }
+        let secondPreparation = Task { @MainActor in
+            await copiedExecutor.prepare(
+                kind: .folder,
+                bookmark: Data("hard-limit-second".utf8)
+            )
+        }
+        await Task.detached {
+            resolver.waitUntilStarted()
+            resolver.waitUntilStarted()
+        }.value
+        XCTAssertEqual(resolver.startedCount, 2)
+
+        var cancelledPreparations: [
+            Task<MediaSourceRestorePreparation, Never>
+        ] = []
+        for index in 0..<32 {
+            let preparation = Task { @MainActor in
+                await restoreExecutor.prepare(
+                    kind: .folder,
+                    bookmark: Data("hard-limit-queued-\(index)".utf8)
+                )
+            }
+            cancelledPreparations.append(preparation)
+        }
+        for _ in 0..<100 {
+            await Task.yield()
+        }
+        cancelledPreparations.forEach { $0.cancel() }
+        for preparation in cancelledPreparations {
+            guard case .unavailable = await preparation.value else {
+                XCTFail("Cancelled queued work must return unavailable")
+                continue
+            }
+        }
+
+        XCTAssertEqual(resolver.startedCount, 2)
+        resolver.release()
+        resolver.release()
+
+        let runningResults = await (
+            firstPreparation.value,
+            secondPreparation.value
+        )
+        for result in [runningResults.0, runningResults.1] {
+            guard case let .resolved(preparedRestore) = result else {
+                XCTFail("The two admitted workers must finish normally")
+                continue
+            }
+            preparedRestore.closeScopeIfOwned()
+        }
+        for _ in 0..<100 {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(resolver.startedCount, 2)
+        XCTAssertEqual(scopeCloseRecorder.urls.count, 2)
+    }
+
     func testStopDuringAsyncPreparationClosesLateScopeWithoutRevivingSource()
         async
     {
@@ -2774,8 +2960,16 @@ private final class ThreadSafeURLRecorder: @unchecked Sendable {
 private final class NonCooperativeRestoreResolver: @unchecked Sendable {
     private let started = DispatchSemaphore(value: 0)
     private let releaseGate = DispatchSemaphore(value: 0)
+    private let stateLock = NSLock()
     private let resolvedURL: URL
     private let scopeCloseRecorder: ThreadSafeURLRecorder
+    private var startedCountStorage = 0
+
+    var startedCount: Int {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return startedCountStorage
+    }
 
     init(
         resolvedURL: URL,
@@ -2791,6 +2985,9 @@ private final class NonCooperativeRestoreResolver: @unchecked Sendable {
     ) -> MediaSourceRestorePreparation {
         _ = kind
         _ = bookmark
+        stateLock.lock()
+        startedCountStorage += 1
+        stateLock.unlock()
         started.signal()
         releaseGate.wait()
         return .resolved(
@@ -2817,6 +3014,74 @@ private final class NonCooperativeRestoreResolver: @unchecked Sendable {
 
     func release() {
         releaseGate.signal()
+    }
+}
+
+private final class CancelledThenResolvedRestoreResolver:
+    @unchecked Sendable {
+    private let firstPreparationStarted = DispatchSemaphore(value: 0)
+    private let firstPreparationGate = DispatchSemaphore(value: 0)
+    private let stateLock = NSLock()
+    private let resolvedURL: URL
+    private let scopeCloseRecorder: ThreadSafeURLRecorder
+    private var startedCountStorage = 0
+
+    var startedCount: Int {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return startedCountStorage
+    }
+
+    init(
+        resolvedURL: URL,
+        scopeCloseRecorder: ThreadSafeURLRecorder
+    ) {
+        self.resolvedURL = resolvedURL
+        self.scopeCloseRecorder = scopeCloseRecorder
+    }
+
+    func prepare(
+        kind: MediaSourceKind,
+        bookmark: Data
+    ) -> MediaSourceRestorePreparation {
+        _ = kind
+        _ = bookmark
+        let callCount: Int
+        stateLock.lock()
+        startedCountStorage += 1
+        callCount = startedCountStorage
+        stateLock.unlock()
+
+        if callCount == 1 {
+            firstPreparationStarted.signal()
+            firstPreparationGate.wait()
+            return .unavailable
+        }
+
+        return .resolved(
+            ExecutorOwnedPreparedMediaSourceRestore(
+                restore: PreparedMediaSourceRestore(
+                    resolvedURL: resolvedURL,
+                    linkResolution: MediaSourceURLInspector.LinkResolution(
+                        targetURL: resolvedURL.standardizedFileURL,
+                        didResolveLink: false
+                    ),
+                    refreshedBookmark: nil,
+                    resourceIdentifier: nil
+                ),
+                stopAccess: { [scopeCloseRecorder] url in
+                    scopeCloseRecorder.append(url)
+                }
+            )
+        )
+    }
+
+    func waitUntilFirstPreparationStarted() {
+        firstPreparationStarted.wait()
+    }
+
+    func finishFirstPreparation() {
+        firstPreparationGate.signal()
     }
 }
 

@@ -165,113 +165,347 @@ enum MediaSourceRestorePreparation: @unchecked Sendable {
     case resolved(ExecutorOwnedPreparedMediaSourceRestore)
 }
 
-private final class RestorePreparationBridge: @unchecked Sendable {
-    private enum State {
-        case pending
-        case completed(MediaSourceRestorePreparation)
-        case cancelled
-        case delivered
+/// Bounds synchronous bookmark work that may ignore Swift task cancellation.
+/// A running worker remains charged against the hard limit until the resolver
+/// actually returns. A later request for the same bookmark joins that worker,
+/// while cancelled queued requests are removed before they can consume a slot.
+private final class DetachedRestorePreparationCoordinator:
+    @unchecked Sendable {
+    private enum Policy {
+        // One stalled volume must not prevent every other persisted source from
+        // being inspected, while repeated retries must remain tightly bounded.
+        static let maximumConcurrentPreparationCount = 2
+    }
+
+    private struct WorkKey: Hashable, Sendable {
+        let kind: MediaSourceKind
+        let bookmark: Data
+    }
+
+    private final class RequestToken: @unchecked Sendable {
+        private let lock = NSLock()
+        private var isCancelledStorage = false
+
+        var isCancelled: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return isCancelledStorage
+        }
+
+        func cancel() {
+            lock.lock()
+            isCancelledStorage = true
+            lock.unlock()
+        }
+    }
+
+    private final class WorkItem {
+        enum State: Equatable {
+            case queued
+            case running
+        }
+
+        let key: WorkKey
+        var state: State = .queued
+        var requestIDs: [ObjectIdentifier] = []
+        var task: Task<Void, Never>?
+        var didRequestCancellation = false
+
+        init(key: WorkKey) {
+            self.key = key
+        }
+    }
+
+    private struct RequestRecord {
+        let token: RequestToken
+        var key: WorkKey?
+        var isCancelled = false
+        var continuation: CheckedContinuation<
+            MediaSourceRestorePreparation,
+            Never
+        >?
+        var completedResult: MediaSourceRestorePreparation?
+    }
+
+    private struct Delivery {
+        let continuation: CheckedContinuation<
+            MediaSourceRestorePreparation,
+            Never
+        >
+        let result: MediaSourceRestorePreparation
     }
 
     private let lock = NSLock()
-    private var state = State.pending
-    private var continuation: CheckedContinuation<
-        MediaSourceRestorePreparation,
-        Never
-    >?
-    private var preparationTask: Task<Void, Never>?
+    private let synchronousPreparation: @Sendable (
+        MediaSourceKind,
+        Data
+    ) -> MediaSourceRestorePreparation
+    private var requests: [ObjectIdentifier: RequestRecord] = [:]
+    private var workItemsByKey: [WorkKey: WorkItem] = [:]
+    private var queuedWorkKeys: [WorkKey] = []
+    private var runningPreparationCount = 0
 
-    func install(
-        preparationTask: Task<Void, Never>
+    init(
+        synchronousPreparation: @escaping @Sendable (
+            MediaSourceKind,
+            Data
+        ) -> MediaSourceRestorePreparation
     ) {
-        let shouldCancel: Bool
-        lock.lock()
-        shouldCancel = if case .cancelled = state { true } else { false }
-        if case .pending = state {
-            self.preparationTask = preparationTask
-        }
-        lock.unlock()
+        self.synchronousPreparation = synchronousPreparation
+    }
 
-        if shouldCancel {
-            preparationTask.cancel()
+    func prepare(
+        kind: MediaSourceKind,
+        bookmark: Data
+    ) async -> MediaSourceRestorePreparation {
+        let token = RequestToken()
+        let requestID = ObjectIdentifier(token)
+        let key = WorkKey(kind: kind, bookmark: bookmark)
+
+        return await withTaskCancellationHandler {
+            guard register(token, requestID: requestID, key: key) else {
+                return .unavailable
+            }
+            return await value(for: requestID)
+        } onCancel: {
+            token.cancel()
+            cancel(requestID: requestID)
         }
     }
 
-    func value() async -> MediaSourceRestorePreparation {
+    private func register(
+        _ token: RequestToken,
+        requestID: ObjectIdentifier,
+        key: WorkKey
+    ) -> Bool {
+        lock.lock()
+        guard !token.isCancelled else {
+            lock.unlock()
+            return false
+        }
+
+        requests[requestID] = RequestRecord(token: token, key: key)
+        if let existingWorkItem = workItemsByKey[key] {
+            existingWorkItem.requestIDs.append(requestID)
+        } else {
+            let workItem = WorkItem(key: key)
+            workItem.requestIDs.append(requestID)
+            workItemsByKey[key] = workItem
+            queuedWorkKeys.append(key)
+        }
+        startQueuedWorkIfPossibleLocked()
+        lock.unlock()
+        return true
+    }
+
+    private func value(
+        for requestID: ObjectIdentifier
+    ) async -> MediaSourceRestorePreparation {
         await withCheckedContinuation { continuation in
-            let immediatelyAvailableResult: MediaSourceRestorePreparation?
+            let immediateResult: MediaSourceRestorePreparation?
             lock.lock()
-            switch state {
-            case .pending:
-                self.continuation = continuation
-                immediatelyAvailableResult = nil
-            case let .completed(result):
-                state = .delivered
-                immediatelyAvailableResult = result
-            case .cancelled:
-                immediatelyAvailableResult = .unavailable
-            case .delivered:
-                assertionFailure("Restore preparation result delivered twice")
-                immediatelyAvailableResult = .unavailable
+            guard var request = requests[requestID] else {
+                lock.unlock()
+                continuation.resume(returning: .unavailable)
+                return
+            }
+
+            if request.isCancelled {
+                requests[requestID] = nil
+                immediateResult = .unavailable
+            } else if let completedResult = request.completedResult {
+                requests[requestID] = nil
+                immediateResult = completedResult
+            } else {
+                request.continuation = continuation
+                requests[requestID] = request
+                immediateResult = nil
             }
             lock.unlock()
 
-            if let immediatelyAvailableResult {
-                continuation.resume(returning: immediatelyAvailableResult)
+            if let immediateResult {
+                continuation.resume(returning: immediateResult)
             }
         }
     }
 
-    func complete(with result: MediaSourceRestorePreparation) {
+    private func cancel(requestID: ObjectIdentifier) {
         let waitingContinuation: CheckedContinuation<
             MediaSourceRestorePreparation,
             Never
         >?
+        var completedResultToRelease: MediaSourceRestorePreparation?
+
         lock.lock()
-        preparationTask = nil
-        switch state {
-        case .pending:
-            waitingContinuation = continuation
-            continuation = nil
-            state = waitingContinuation == nil ? .completed(result) : .delivered
-        case .cancelled, .delivered:
-            waitingContinuation = nil
-        case .completed:
-            assertionFailure("Restore preparation completed twice")
-            waitingContinuation = nil
+        guard var request = requests[requestID] else {
+            lock.unlock()
+            return
         }
+        request.isCancelled = true
+        completedResultToRelease = request.completedResult
+        request.completedResult = nil
+
+        if let key = request.key,
+           let workItem = workItemsByKey[key] {
+            workItem.requestIDs.removeAll { $0 == requestID }
+            if workItem.requestIDs.isEmpty {
+                switch workItem.state {
+                case .queued:
+                    removeQueuedWorkItemLocked(workItem)
+                case .running:
+                    // Cancellation is still useful for cooperative resolvers,
+                    // but this worker remains charged until it really returns.
+                    workItem.didRequestCancellation = true
+                    workItem.task?.cancel()
+                }
+            }
+        }
+        request.key = nil
+
+        waitingContinuation = request.continuation
+        request.continuation = nil
+        if waitingContinuation == nil {
+            // `value(for:)` has not installed its continuation yet. Preserve a
+            // small tombstone so it can observe cancellation and return.
+            requests[requestID] = request
+        } else {
+            requests[requestID] = nil
+        }
+        startQueuedWorkIfPossibleLocked()
         lock.unlock()
 
-        // When cancellation won the race, `result` is released here. A
-        // resolved result consequently closes its executor-owned scope.
-        waitingContinuation?.resume(returning: result)
+        _ = completedResultToRelease
+        waitingContinuation?.resume(returning: .unavailable)
     }
 
-    func cancel() {
-        let waitingContinuation: CheckedContinuation<
-            MediaSourceRestorePreparation,
-            Never
-        >?
-        let taskToCancel: Task<Void, Never>?
+    private func complete(
+        workKey: WorkKey,
+        workItemID: ObjectIdentifier,
+        result: MediaSourceRestorePreparation
+    ) {
+        var deliveries: [Delivery] = []
+
         lock.lock()
-        taskToCancel = preparationTask
-        preparationTask = nil
-        switch state {
-        case .pending:
-            state = .cancelled
-            waitingContinuation = continuation
-            continuation = nil
-        case .completed:
-            // Releasing the completed result closes any unadopted scope.
-            state = .cancelled
-            waitingContinuation = nil
-        case .cancelled, .delivered:
-            waitingContinuation = nil
+        guard let workItem = workItemsByKey[workKey],
+              ObjectIdentifier(workItem) == workItemID,
+              workItem.state == .running else {
+            lock.unlock()
+            return
         }
+
+        workItem.task = nil
+        runningPreparationCount -= 1
+        workItem.requestIDs.removeAll { requestID in
+            guard let request = requests[requestID] else {
+                return true
+            }
+            return request.isCancelled
+        }
+
+        switch result {
+        case .unavailable:
+            if workItem.didRequestCancellation,
+               !workItem.requestIDs.isEmpty {
+                // A retry may have joined after the previous caller cancelled
+                // this worker. Do not publish inherited cancellation as a real
+                // bookmark failure; give the remaining callers a fresh run.
+                workItem.state = .queued
+                queuedWorkKeys.append(workItem.key)
+            } else {
+                let requestIDs = workItem.requestIDs
+                removeWorkItemLocked(workItem)
+                for requestID in requestIDs {
+                    if let delivery = completeRequestLocked(
+                        requestID,
+                        with: .unavailable
+                    ) {
+                        deliveries.append(delivery)
+                    }
+                }
+            }
+        case .resolved:
+            if let requestID = workItem.requestIDs.first {
+                workItem.requestIDs.removeFirst()
+                if let delivery = completeRequestLocked(
+                    requestID,
+                    with: result
+                ) {
+                    deliveries.append(delivery)
+                }
+            }
+
+            if workItem.requestIDs.isEmpty {
+                removeWorkItemLocked(workItem)
+            } else {
+                workItem.state = .queued
+                queuedWorkKeys.append(workItem.key)
+            }
+        }
+
+        startQueuedWorkIfPossibleLocked()
         lock.unlock()
 
-        taskToCancel?.cancel()
-        waitingContinuation?.resume(returning: .unavailable)
+        for delivery in deliveries {
+            delivery.continuation.resume(returning: delivery.result)
+        }
+    }
+
+    private func completeRequestLocked(
+        _ requestID: ObjectIdentifier,
+        with result: MediaSourceRestorePreparation
+    ) -> Delivery? {
+        guard var request = requests[requestID],
+              !request.isCancelled else {
+            return nil
+        }
+        request.key = nil
+        if let continuation = request.continuation {
+            requests[requestID] = nil
+            return Delivery(continuation: continuation, result: result)
+        }
+        request.completedResult = result
+        requests[requestID] = request
+        return nil
+    }
+
+    private func startQueuedWorkIfPossibleLocked() {
+        while runningPreparationCount
+                < Policy.maximumConcurrentPreparationCount,
+              !queuedWorkKeys.isEmpty {
+            let key = queuedWorkKeys.removeFirst()
+            guard let workItem = workItemsByKey[key],
+                  workItem.state == .queued,
+                  !workItem.requestIDs.isEmpty else {
+                continue
+            }
+
+            workItem.state = .running
+            workItem.didRequestCancellation = false
+            runningPreparationCount += 1
+            let workItemID = ObjectIdentifier(workItem)
+            let synchronousPreparation = synchronousPreparation
+            workItem.task = Task.detached(priority: .userInitiated) {
+                [weak self] in
+                let result = synchronousPreparation(key.kind, key.bookmark)
+                self?.complete(
+                    workKey: key,
+                    workItemID: workItemID,
+                    result: result
+                )
+            }
+        }
+    }
+
+    private func removeQueuedWorkItemLocked(_ workItem: WorkItem) {
+        queuedWorkKeys.removeAll { $0 == workItem.key }
+        removeWorkItemLocked(workItem)
+    }
+
+    private func removeWorkItemLocked(_ workItem: WorkItem) {
+        guard workItemsByKey[workItem.key] === workItem else {
+            return
+        }
+        workItemsByKey[workItem.key] = nil
     }
 }
 
@@ -309,23 +543,11 @@ struct UserSelectedMediaRestoreExecutor: Sendable {
             Data
         ) -> MediaSourceRestorePreparation
     ) -> UserSelectedMediaRestoreExecutor {
-        UserSelectedMediaRestoreExecutor { kind, bookmark in
-            let bridge = RestorePreparationBridge()
-            return await withTaskCancellationHandler {
-                guard !Task.isCancelled else {
-                    return .unavailable
-                }
-                let preparationTask = Task.detached(
-                    priority: .userInitiated
-                ) {
-                    let result = synchronousPreparation(kind, bookmark)
-                    bridge.complete(with: result)
-                }
-                bridge.install(preparationTask: preparationTask)
-                return await bridge.value()
-            } onCancel: {
-                bridge.cancel()
-            }
+        let coordinator = DetachedRestorePreparationCoordinator(
+            synchronousPreparation: synchronousPreparation
+        )
+        return UserSelectedMediaRestoreExecutor { kind, bookmark in
+            await coordinator.prepare(kind: kind, bookmark: bookmark)
         }
     }
 

@@ -729,6 +729,167 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
         XCTAssertTrue(shutdownFinished.value)
     }
 
+    func testCancelledNonCooperativeGenerationsYieldSlotsWithinHardBudget()
+        async throws {
+        let url = try TestMediaFixture.h264URL(for: Self.self)
+        let scannedItem = try makeLibraryItem(for: url)
+        let items = (0..<5).map { index in
+            replacingRoot(
+                in: scannedItem,
+                with: URL(
+                    fileURLWithPath: "/tmp/ThumbnailCancellation-\(index)"
+                )
+            )
+        }
+        let thumbnail = try makeTestThumbnail()
+        let generator = BlockingQuickLookThumbnailGenerator(image: thumbnail)
+        let cancellationDeadlineGate = DrainDeadlineGate()
+        let logicalConcurrencyLimit = 2
+        let hardInFlightLimit = logicalConcurrencyLimit * 2
+        let provider = QuickLookMediaThumbnailProvider(
+            generator: generator,
+            cacheMissDelay: .zero,
+            maximumConcurrentRequestCount: logicalConcurrencyLimit,
+            drainDeadline: ThumbnailExpectation.drainDeadline,
+            drainDelayer: cancellationDeadlineGate.wait
+        )
+
+        let firstRequest = Task {
+            await provider.thumbnail(
+                for: items[0],
+                size: ThumbnailExpectation.pointSize,
+                scale: ThumbnailExpectation.scale
+            )
+        }
+        guard await waitForGenerationCount(1, generator: generator) else {
+            firstRequest.cancel()
+            generator.finishAllRequests()
+            return
+        }
+        let secondRequest = Task {
+            await provider.thumbnail(
+                for: items[1],
+                size: ThumbnailExpectation.pointSize,
+                scale: ThumbnailExpectation.scale
+            )
+        }
+        guard await waitForGenerationCount(2, generator: generator) else {
+            firstRequest.cancel()
+            secondRequest.cancel()
+            generator.finishAllRequests()
+            return
+        }
+
+        let thirdRequest = Task {
+            await provider.thumbnail(
+                for: items[2],
+                size: ThumbnailExpectation.pointSize,
+                scale: ThumbnailExpectation.scale
+            )
+        }
+        await allowPendingTasksToRegister()
+        let fourthRequest = Task {
+            await provider.thumbnail(
+                for: items[3],
+                size: ThumbnailExpectation.pointSize,
+                scale: ThumbnailExpectation.scale
+            )
+        }
+        await allowPendingTasksToRegister()
+        let fifthRequestFinished = TestFlag()
+        let fifthRequest = Task {
+            let image = await provider.thumbnail(
+                for: items[4],
+                size: ThumbnailExpectation.pointSize,
+                scale: ThumbnailExpectation.scale
+            )
+            fifthRequestFinished.value = true
+            return image
+        }
+        await allowPendingTasksToRegister()
+        XCTAssertEqual(generator.generationCount, logicalConcurrencyLimit)
+
+        firstRequest.cancel()
+        secondRequest.cancel()
+        let firstImage = await firstRequest.value
+        let secondImage = await secondRequest.value
+        await waitForCancellationCount(2, generator: generator)
+        guard await waitForDrainDeadlineCount(
+            2,
+            gate: cancellationDeadlineGate
+        ) else {
+            thirdRequest.cancel()
+            fourthRequest.cancel()
+            fifthRequest.cancel()
+            generator.finishAllRequests()
+            return
+        }
+
+        XCTAssertNil(firstImage)
+        XCTAssertNil(secondImage)
+        XCTAssertEqual(generator.activeGenerationCount, 2)
+
+        // The first cancelled Quick Look generations deliberately do not return.
+        // Each bounded grace expiry yields one logical slot for a replacement.
+        cancellationDeadlineGate.openNext()
+        guard await waitForGenerationCount(3, generator: generator) else {
+            thirdRequest.cancel()
+            fourthRequest.cancel()
+            fifthRequest.cancel()
+            generator.finishAllRequests()
+            return
+        }
+        cancellationDeadlineGate.openNext()
+        guard await waitForGenerationCount(4, generator: generator) else {
+            thirdRequest.cancel()
+            fourthRequest.cancel()
+            fifthRequest.cancel()
+            generator.finishAllRequests()
+            return
+        }
+
+        XCTAssertEqual(generator.activeGenerationCount, hardInFlightLimit)
+        XCTAssertEqual(
+            generator.maximumActiveGenerationCount,
+            hardInFlightLimit
+        )
+        XCTAssertFalse(fifthRequestFinished.value)
+
+        // With the physical budget full, no further orphan or replacement can
+        // launch until a real callback releases one generation ID.
+        generator.finishGeneration(3)
+        guard await waitForGenerationCount(5, generator: generator) else {
+            thirdRequest.cancel()
+            fourthRequest.cancel()
+            fifthRequest.cancel()
+            generator.finishAllRequests()
+            return
+        }
+        XCTAssertEqual(generator.activeGenerationCount, hardInFlightLimit)
+        XCTAssertEqual(
+            generator.maximumActiveGenerationCount,
+            hardInFlightLimit
+        )
+
+        generator.finishGeneration(4)
+        generator.finishGeneration(5)
+        let thirdImage = await thirdRequest.value
+        let fourthImage = await fourthRequest.value
+        let fifthImage = await fifthRequest.value
+        XCTAssertTrue(thirdImage === thumbnail)
+        XCTAssertTrue(fourthImage === thumbnail)
+        XCTAssertTrue(fifthImage === thumbnail)
+        XCTAssertTrue(fifthRequestFinished.value)
+
+        // Late callbacks from the abandoned generations are inert and only free
+        // their physical-budget entries.
+        generator.finishGeneration(1)
+        generator.finishGeneration(2)
+        await allowPendingTasksToRegister()
+        XCTAssertEqual(generator.activeGenerationCount, 0)
+        await provider.shutdown()
+    }
+
     func testConcurrentShutdownCallsWaitForActiveGeneration() async throws {
         let url = try TestMediaFixture.h264URL(for: Self.self)
         let item = try makeLibraryItem(for: url)
@@ -1858,8 +2019,13 @@ private final class CountingQuickLookThumbnailGenerator:
 @MainActor
 private final class BlockingQuickLookThumbnailGenerator:
     QuickLookThumbnailGenerating {
+    private struct PendingGeneration {
+        let number: Int
+        let continuation: CheckedContinuation<CGImage, Error>
+    }
+
     private let image: CGImage
-    private var continuations: [CheckedContinuation<CGImage, Error>] = []
+    private var pendingGenerations: [PendingGeneration] = []
     private(set) var generationCount = 0
     private(set) var cancellationCount = 0
     private(set) var activeGenerationCount = 0
@@ -1873,6 +2039,7 @@ private final class BlockingQuickLookThumbnailGenerator:
         for request: QLThumbnailGenerator.Request
     ) async throws -> CGImage {
         generationCount += 1
+        let generationNumber = generationCount
         activeGenerationCount += 1
         maximumActiveGenerationCount = max(
             maximumActiveGenerationCount,
@@ -1882,7 +2049,12 @@ private final class BlockingQuickLookThumbnailGenerator:
             activeGenerationCount -= 1
         }
         return try await withCheckedThrowingContinuation { continuation in
-            continuations.append(continuation)
+            pendingGenerations.append(
+                PendingGeneration(
+                    number: generationNumber,
+                    continuation: continuation
+                )
+            )
         }
     }
 
@@ -1891,17 +2063,28 @@ private final class BlockingQuickLookThumbnailGenerator:
     }
 
     func finishNextRequest() {
-        guard !continuations.isEmpty else {
+        guard !pendingGenerations.isEmpty else {
             return
         }
-        continuations.removeFirst().resume(returning: image)
+        pendingGenerations.removeFirst().continuation.resume(returning: image)
+    }
+
+    func finishGeneration(_ generationNumber: Int) {
+        guard let index = pendingGenerations.firstIndex(where: {
+            $0.number == generationNumber
+        }) else {
+            return
+        }
+        pendingGenerations.remove(at: index).continuation.resume(
+            returning: image
+        )
     }
 
     func finishAllRequests() {
-        let pendingContinuations = continuations
-        continuations.removeAll()
-        pendingContinuations.forEach { continuation in
-            continuation.resume(returning: image)
+        let generations = pendingGenerations
+        pendingGenerations.removeAll()
+        generations.forEach { generation in
+            generation.continuation.resume(returning: image)
         }
     }
 }

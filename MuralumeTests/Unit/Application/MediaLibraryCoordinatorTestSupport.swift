@@ -81,6 +81,52 @@ func makeFileItem(url: URL, name: String? = nil) -> LibraryMediaItem {
     )
 }
 
+final class CanonicalPathThreadProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private let blockedCallGate = DispatchSemaphore(value: 0)
+    private let blockingCallNumber: Int?
+    private var storedCallCount = 0
+    private var storedDidRunOnMainThread = false
+    private var storedDidBeginBlockedCall = false
+
+    init(blockingCallNumber: Int? = nil) {
+        self.blockingCallNumber = blockingCallNumber
+    }
+
+    var callCount: Int {
+        lock.withLock { storedCallCount }
+    }
+
+    var didRunOnMainThread: Bool {
+        lock.withLock { storedDidRunOnMainThread }
+    }
+
+    var didBeginBlockedCall: Bool {
+        lock.withLock { storedDidBeginBlockedCall }
+    }
+
+    func resolve(_ url: URL) -> String {
+        let shouldBlock = lock.withLock {
+            storedCallCount += 1
+            storedDidRunOnMainThread =
+                storedDidRunOnMainThread || Thread.isMainThread
+            guard storedCallCount == blockingCallNumber else {
+                return false
+            }
+            storedDidBeginBlockedCall = true
+            return true
+        }
+        if shouldBlock {
+            blockedCallGate.wait()
+        }
+        return url.standardizedFileURL.path
+    }
+
+    func finishBlockedCall() {
+        blockedCallGate.signal()
+    }
+}
+
 @MainActor
 func waitForScan(_ coordinator: MediaLibraryCoordinator) async {
     while coordinator.scanState == .scanning {

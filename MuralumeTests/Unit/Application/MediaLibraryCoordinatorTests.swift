@@ -515,6 +515,123 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.engine.loadedSources.count, 1)
     }
 
+    func testTemporaryPlaybackCanonicalizesLargeLibraryOffMainThread()
+        async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/Large Temporary Match")
+        let itemCount = 50_000
+        let libraryItems = (0..<itemCount).map { index in
+            makeItem(
+                rootURL: rootURL,
+                name: "Clip \(index)",
+                path: "Clip-\(index).mp4"
+            )
+        }
+        let requestedItem = try XCTUnwrap(libraryItems.last)
+        let probe = CanonicalPathThreadProbe()
+        let session = TemporaryPlaybackSession(
+            scanner: TestMediaLibraryScanner(snapshot: .empty),
+            canonicalPath: { probe.resolve($0) }
+        )
+
+        let resolution = try await session.resolve(
+            [requestedItem.url],
+            libraryItems: libraryItems
+        )
+
+        XCTAssertEqual(resolution.items, [requestedItem])
+        XCTAssertTrue(resolution.temporaryItemIDs.isEmpty)
+        // One filesystem normalization for the shared library root and one
+        // for the requested URL; all 50,000 item paths are indexed off-main.
+        XCTAssertEqual(probe.callCount, 2)
+        XCTAssertFalse(probe.didRunOnMainThread)
+        session.end()
+    }
+
+    func testSecondTemporaryResolveCancelsActiveMatcherWithoutPublishingOldPlan()
+        async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/Superseded Temporary Match")
+        let firstItem = makeItem(
+            rootURL: rootURL,
+            name: "First",
+            path: "First.mp4"
+        )
+        let secondItem = makeItem(
+            rootURL: rootURL,
+            name: "Second",
+            path: "Second.mp4"
+        )
+        let probe = CanonicalPathThreadProbe(blockingCallNumber: 1)
+        let session = TemporaryPlaybackSession(
+            scanner: TestMediaLibraryScanner(snapshot: .empty),
+            canonicalPath: { probe.resolve($0) }
+        )
+        defer {
+            probe.finishBlockedCall()
+            session.end()
+        }
+        let firstResolution = Task {
+            try await session.resolve(
+                [firstItem.url],
+                libraryItems: [firstItem]
+            )
+        }
+        while !probe.didBeginBlockedCall {
+            await Task.yield()
+        }
+
+        let secondResolution = try await session.resolve(
+            [secondItem.url],
+            libraryItems: [secondItem]
+        )
+        probe.finishBlockedCall()
+
+        do {
+            _ = try await firstResolution.value
+            XCTFail("A superseded matcher must not publish its result")
+        } catch is CancellationError {
+            // Expected: the second resolve invalidates and cancels the first.
+        }
+        XCTAssertEqual(secondResolution.items, [secondItem])
+        XCTAssertTrue(secondResolution.temporaryItemIDs.isEmpty)
+    }
+
+    func testEndingTemporarySessionCancelsActiveMatcherWithoutPublishingPlan()
+        async {
+        let rootURL = URL(fileURLWithPath: "/tmp/Ended Temporary Match")
+        let item = makeItem(
+            rootURL: rootURL,
+            name: "Clip",
+            path: "Clip.mp4"
+        )
+        let probe = CanonicalPathThreadProbe(blockingCallNumber: 1)
+        let session = TemporaryPlaybackSession(
+            scanner: TestMediaLibraryScanner(snapshot: .empty),
+            canonicalPath: { probe.resolve($0) }
+        )
+        defer {
+            probe.finishBlockedCall()
+            session.end()
+        }
+        let resolution = Task {
+            try await session.resolve([item.url], libraryItems: [item])
+        }
+        while !probe.didBeginBlockedCall {
+            await Task.yield()
+        }
+
+        session.end()
+        probe.finishBlockedCall()
+
+        do {
+            _ = try await resolution.value
+            XCTFail("An ended session must not publish an active match")
+        } catch is CancellationError {
+            // Expected: ending the session invalidates and cancels the match.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testTemporaryPlaybackSurvivesRefreshAndRestoresPlaybackContext()
         async throws {
         let rootURL = URL(fileURLWithPath: "/tmp/Temporary Playback Library")

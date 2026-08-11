@@ -39,13 +39,15 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         static let generatorVersion = 1
         // Quick Look cancellation is cooperative, so bound actual in-flight work.
         static let maximumConcurrentRequestCount = 4
-        // Allow one replacement wave after a drain deadline. If Quick Look also
-        // stalls that wave, stop dispatching until a real callback frees capacity.
+        // Allow one replacement wave after a cancellation or drain deadline. If
+        // Quick Look also stalls that wave, stop dispatching until a real callback
+        // frees capacity.
         static let maximumInFlightRequestMultiplier = 2
         // Avoid starting video decoding for rows only crossed while scrolling.
         static let cacheMissDelay: Duration = .milliseconds(80)
-        // Quick Look may never acknowledge cancellation. Keep source removal and
-        // application termination bounded even when the system service stalls.
+        // Quick Look may never acknowledge cancellation. Keep ordinary request
+        // cancellation, source removal, and application termination bounded even
+        // when the system service stalls.
         static let drainDeadline: Duration = .seconds(2)
     }
 
@@ -143,6 +145,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         var cancellation: CancellationBox?
         var waiters: [UUID: CheckedContinuation<CGImage?, Never>] = [:]
         var task: Task<Void, Never>?
+        var cancellationDeadlineTask: Task<Void, Never>?
         weak var previousQueuedRequest: ActiveRequest?
         var nextQueuedRequest: ActiveRequest?
 
@@ -190,8 +193,9 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
     private var attachableRequests: [CacheKey: ActiveRequest] = [:]
     private var firstQueuedRequest: ActiveRequest?
     private var lastQueuedRequest: ActiveRequest?
-    // A cancelled request remains here until Quick Look returns. Source drain
-    // and shutdown may abandon it when their bounded deadline expires.
+    // A cancelled request remains here until Quick Look returns. Last-waiter
+    // cancellation, source drain, and shutdown may abandon it when their bounded
+    // deadline expires.
     private var runningRequests: [ObjectIdentifier: ActiveRequest] = [:]
     // Includes logically abandoned requests whose Quick Look generation has not
     // actually returned. This hard budget prevents repeated invalidation from
@@ -651,6 +655,9 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             }
             activeRequest.task?.cancel()
             activeRequest.cancellation?.cancel()
+            activeRequest.cancellationDeadlineTask?.cancel()
+            activeRequest.cancellationDeadlineTask =
+                makeCancellationDeadlineTask(for: activeRequest)
         case .finished:
             break
         }
@@ -666,6 +673,8 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
 
         activeRequest.state = .finished
         runningRequests[ObjectIdentifier(activeRequest)] = nil
+        activeRequest.cancellationDeadlineTask?.cancel()
+        activeRequest.cancellationDeadlineTask = nil
         if attachableRequests[activeRequest.cacheKey] === activeRequest {
             attachableRequests[activeRequest.cacheKey] = nil
         }
@@ -747,6 +756,25 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         }
     }
 
+    private func makeCancellationDeadlineTask(
+        for activeRequest: ActiveRequest
+    ) -> Task<Void, Never> {
+        let drainDeadline = drainDeadline
+        let drainDelayer = drainDelayer
+        return Task { @MainActor [weak self, weak activeRequest] in
+            do {
+                try await drainDelayer(drainDeadline)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  let activeRequest else {
+                return
+            }
+            self?.cancellationDeadlineReached(for: activeRequest)
+        }
+    }
+
     private func makeShutdownDrainDeadlineTask(
         waiterID: UUID
     ) -> Task<Void, Never> {
@@ -778,6 +806,21 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         resumeDrainWaitersIfNeeded()
     }
 
+    private func cancellationDeadlineReached(
+        for activeRequest: ActiveRequest
+    ) {
+        guard activeRequest.state == .running,
+              activeRequest.waiters.isEmpty,
+              runningRequests[ObjectIdentifier(activeRequest)]
+                === activeRequest else {
+            return
+        }
+        abandonRunningRequests { request in
+            request === activeRequest
+        }
+        resumeDrainWaitersIfNeeded()
+    }
+
     private func shutdownDrainDeadlineReached(waiterID: UUID) {
         guard shutdownDrainWaiters[waiterID] != nil else {
             return
@@ -796,6 +839,8 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             }
             activeRequest.task?.cancel()
             activeRequest.cancellation?.cancel()
+            activeRequest.cancellationDeadlineTask?.cancel()
+            activeRequest.cancellationDeadlineTask = nil
             detachWaiters(from: activeRequest)
             runningRequests[ObjectIdentifier(activeRequest)] = nil
             if attachableRequests[activeRequest.cacheKey] === activeRequest {
