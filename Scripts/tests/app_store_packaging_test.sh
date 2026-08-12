@@ -71,15 +71,15 @@ run_app_store_packaging_command \
 [[ "$(umask)" == "0077" ]] \
     || { echo "Failed App Store packaging changed the parent private umask." >&2; exit 1; }
 
-readonly wrapped_xcode_invocations="$(
+readonly isolated_xcodebuild_wrapper_invocations="$(
     awk '
         /^run_app_store_packaging_command/ { wrapped = 1; next }
-        wrapped && /^[[:space:]]+xcodebuild archive/ {
+        wrapped && /^[[:space:]]+run_xcodebuild_with_app_store_auth archive/ {
             archive_count += 1
             wrapped = 0
             next
         }
-        wrapped && /^[[:space:]]+xcodebuild -exportArchive/ {
+        wrapped && /^[[:space:]]+run_xcodebuild_with_app_store_auth -exportArchive/ {
             export_count += 1
             wrapped = 0
             next
@@ -88,7 +88,31 @@ readonly wrapped_xcode_invocations="$(
         END { printf "%d:%d", archive_count, export_count }
     ' "${release_script_path}"
 )"
-[[ "${wrapped_xcode_invocations}" == "1:3" ]] \
+[[ "${isolated_xcodebuild_wrapper_invocations}" == "1:3" ]] \
     || { echo "All four App Store archive/export calls must use readable packaging permissions." >&2; exit 1; }
+
+readonly real_xcodebuild_delegations="$(
+    awk '
+        /^run_xcodebuild_with_app_store_auth\(\) \{/ {
+            in_wrapper = 1
+            next
+        }
+        in_wrapper && /^}/ {
+            in_wrapper = 0
+            next
+        }
+        in_wrapper && /^[[:space:]]+xcodebuild "\$@"/ {
+            delegation_count += 1
+            if ($0 ~ /app_store_authentication_arguments/) {
+                authenticated_delegation_count += 1
+            }
+        }
+        END {
+            printf "%d:%d", delegation_count, authenticated_delegation_count
+        }
+    ' "${release_script_path}"
+)"
+[[ "${real_xcodebuild_delegations}" == "2:1" ]] \
+    || { echo "The App Store authentication wrapper must delegate both branches to xcodebuild." >&2; exit 1; }
 
 printf 'App Store packaging permission checks passed.\n'

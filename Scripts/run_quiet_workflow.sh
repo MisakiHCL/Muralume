@@ -3,6 +3,13 @@
 set -u
 umask 077
 
+readonly script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly project_root="$(cd "${script_directory}/.." && pwd)"
+readonly lifecycle_helper_path="${script_directory}/lib/workflow_lifecycle.sh"
+
+# shellcheck source=lib/workflow_lifecycle.sh
+source "${lifecycle_helper_path}"
+
 if [[ "$#" -lt 2 ]]; then
     printf 'Usage: %s <workflow> <command> [args...]\n' "$0" >&2
     exit 64
@@ -11,21 +18,30 @@ fi
 readonly workflow_name="$1"
 shift
 
-readonly log_file="$(mktemp "${TMPDIR:-/tmp}/Muralume-${workflow_name}.log.XXXXXX")"
+workflow_lifecycle_initialize "${project_root}" || exit 1
+log_file="$(workflow_create_log "${workflow_name}")" || exit 1
+readonly log_file
 readonly start_seconds="${SECONDS}"
 keep_log=0
 private_workflow=0
 
 case "${workflow_name}" in
-    release-macos|validate-testflight|upload-testflight)
+    release-dual|release-macos|validate-testflight|upload-testflight)
         private_workflow=1
         ;;
 esac
 
 cleanup() {
+    local status="$?"
+
     if [[ "${keep_log}" -eq 0 ]]; then
-        rm -f "${log_file}"
+        rm -f -- "${log_file}"
+    elif ! workflow_rotate_logs \
+        "${MURALUME_LOG_RETENTION:-${MURALUME_WORKFLOW_DEFAULT_RETENTION}}" \
+        "${log_file}"; then
+        printf 'Warning: unable to rotate Muralume workflow logs.\n' >&2
     fi
+    return "${status}"
 }
 trap cleanup EXIT
 

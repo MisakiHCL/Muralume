@@ -11,6 +11,8 @@ readonly app_store_scheme="Muralume-AppStore"
 readonly app_store_configuration="AppStore"
 readonly production_bundle_identifier="com.muralume.Muralume"
 readonly expected_architecture="arm64"
+readonly failed_diagnostic_bundle_limit="5"
+readonly failed_diagnostic_log_byte_limit="2097152"
 
 readonly script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly project_root="$(cd "${script_directory}/.." && pwd)"
@@ -18,11 +20,20 @@ readonly project_path="${project_root}/Muralume.xcodeproj"
 readonly private_config_path="${project_root}/Config/AppStore.local.xcconfig"
 readonly public_config_relative_path="Config/AppStore.xcconfig"
 readonly base_config_relative_path="Config/Base.xcconfig"
+readonly app_store_connect_helper_path="${script_directory}/lib/app_store_connect_api.sh"
+readonly build_cache_helper_path="${script_directory}/lib/build_cache.sh"
+export MURALUME_ASC_FORBIDDEN_ROOT="${project_root}"
 readonly packaging_helper_path="${script_directory}/lib/app_store_packaging.sh"
 readonly validation_helper_path="${script_directory}/lib/app_store_validation.sh"
+readonly release_gate_receipt_helper_path="${script_directory}/lib/release_gate_receipt.sh"
+readonly release_invocation_helper_path="${script_directory}/lib/release_invocation.sh"
 readonly release_signature_helper_path="${script_directory}/lib/release_signature_validation.sh"
 readonly release_source_helper_path="${script_directory}/lib/release_source_snapshot.sh"
 
+# shellcheck source=lib/app_store_connect_api.sh
+source "${app_store_connect_helper_path}"
+# shellcheck source=lib/build_cache.sh
+source "${build_cache_helper_path}"
 # shellcheck source=lib/app_store_packaging.sh
 source "${packaging_helper_path}"
 # shellcheck source=lib/app_store_validation.sh
@@ -31,8 +42,14 @@ source "${validation_helper_path}"
 source "${release_signature_helper_path}"
 # shellcheck source=lib/release_source_snapshot.sh
 source "${release_source_helper_path}"
+# shellcheck source=lib/release_gate_receipt.sh
+source "${release_gate_receipt_helper_path}"
+# shellcheck source=lib/release_invocation.sh
+source "${release_invocation_helper_path}"
 
 selected_mode=""
+gate_receipt_path=""
+gate_capability_path=""
 work_directory=""
 source_checkout_path=""
 source_checkout_registered=0
@@ -44,12 +61,30 @@ private_profile_specifier=""
 marketing_version=""
 build_number=""
 xcode_python_path=""
+keep_failed_work_directory="${MURALUME_KEEP_FAILED_WORKDIR:-0}"
+original_arguments=("$@")
+app_store_authentication_arguments=()
+app_store_authentication_arguments_present=0
+captured_asc_key_id="${MURALUME_ASC_KEY_ID:-}"
+captured_asc_issuer_id="${MURALUME_ASC_ISSUER_ID:-}"
+captured_asc_private_key_path="${MURALUME_ASC_PRIVATE_KEY_PATH:-}"
 
-# Make loads the Developer ID release configuration globally. The MAS process
-# deliberately discards those unrelated secrets before invoking any child.
+run_xcodebuild_with_app_store_auth() {
+    if [[ "${app_store_authentication_arguments_present}" -eq 1 ]]; then
+        xcodebuild "$@" "${app_store_authentication_arguments[@]}"
+    else
+        xcodebuild "$@"
+    fi
+}
+
+# Make loads both release configurations. Developer ID values are always
+# unrelated here. ASC values remain exported only until lockf re-entry, then
+# the captured copy is used explicitly and the environment is cleared.
 unset MURALUME_DEVELOPER_ID_APPLICATION
 unset MURALUME_NOTARY_KEYCHAIN_PROFILE
 unset MURALUME_EXPECTED_TEAM_IDENTIFIER
+unset GH_TOKEN
+unset GITHUB_TOKEN
 
 print_usage() {
     cat <<'EOF'
@@ -61,6 +96,7 @@ Modes:
   upload     Validate, then upload the same archive for TestFlight/App Store.
 
 Use the matching Make targets so signing output stays in private mode-0600 logs.
+The private --gate-receipt option is reserved for release-dual.
 EOF
 }
 
@@ -272,31 +308,141 @@ write_upload_receipt() {
     fi
 }
 
+preserve_failure_logs() {
+    local source_directory="$1"
+    local diagnostics_root="${project_root}/.build/muralume/diagnostics/release-app-store"
+    local diagnostic_bundle
+    local source_log
+    local destination_log
+    local copied_log_count=0
+    local -a diagnostic_bundles
+
+    [[ -d "${source_directory}" ]] || return 0
+    if ! mkdir -p "${diagnostics_root}" \
+        || ! chmod 700 "${diagnostics_root}"; then
+        printf 'Warning: unable to prepare private App Store diagnostics.\n' >&2
+        return 0
+    fi
+    diagnostic_bundle="$(
+        mktemp -d \
+            "${diagnostics_root}/failure-$(date -u '+%Y%m%dT%H%M%SZ')-${$}.XXXXXX"
+    )" || {
+        printf 'Warning: unable to create a private App Store diagnostic bundle.\n' >&2
+        return 0
+    }
+    if ! chmod 700 "${diagnostic_bundle}"; then
+        rm -rf -- "${diagnostic_bundle}" || true
+        printf 'Warning: unable to secure the private App Store diagnostic bundle.\n' >&2
+        return 0
+    fi
+
+    while IFS= read -r -d '' source_log; do
+        destination_log="${diagnostic_bundle}/$(basename "${source_log}")"
+        if tail -c "${failed_diagnostic_log_byte_limit}" \
+            "${source_log}" >"${destination_log}" \
+            && chmod 600 "${destination_log}"; then
+            copied_log_count=$((copied_log_count + 1))
+        else
+            rm -f -- "${destination_log}" || true
+            printf 'Warning: unable to preserve App Store diagnostic %s.\n' \
+                "$(basename "${source_log}")" >&2
+        fi
+    done < <(
+        find "${source_directory}" \
+            -maxdepth 1 \
+            -type f \
+            -name '*.log' \
+            -print0
+    )
+
+    if [[ "${copied_log_count}" -eq 0 ]]; then
+        rm -rf -- "${diagnostic_bundle}" || true
+        return 0
+    fi
+
+    diagnostic_bundles=("${diagnostics_root}"/failure-*)
+    while [[ "${#diagnostic_bundles[@]}" \
+        -gt "${failed_diagnostic_bundle_limit}" ]]; do
+        if ! rm -rf -- "${diagnostic_bundles[0]}"; then
+            printf 'Warning: unable to prune an old private App Store diagnostic.\n' \
+                >&2
+            break
+        fi
+        diagnostic_bundles=("${diagnostics_root}"/failure-*)
+    done
+    printf 'Private App Store diagnostics: %s\n' "${diagnostic_bundle}" >&2
+}
+
+remove_app_store_work_directory() {
+    local directory_path="$1"
+
+    case "$(basename "${directory_path}")" in
+        MuralumeAppStore.*)
+            rm -rf -- "${directory_path}" || {
+                printf 'Warning: unable to remove App Store work directory: %s\n' \
+                    "${directory_path}" >&2
+                return 0
+            }
+            ;;
+        *)
+            printf 'Warning: refusing to remove unexpected App Store work directory: %s\n' \
+                "${directory_path}" >&2
+            ;;
+    esac
+}
+
 cleanup() {
     local status="$?"
+    local preserve_complete_work_directory=0
 
-    if [[ "${source_checkout_registered}" -eq 1 ]]; then
+    trap - EXIT HUP INT TERM
+
+    if [[ "${status}" -ne 0 && -n "${work_directory}" ]]; then
+        preserve_failure_logs "${work_directory}" || true
+        if [[ "${keep_failed_work_directory}" == "1" ]]; then
+            preserve_complete_work_directory=1
+        fi
+    fi
+
+    if [[ -n "${source_checkout_path}" ]]; then
         if ! release_git -C "${project_root}" worktree remove --force \
             "${source_checkout_path}" >/dev/null 2>&1; then
-            printf 'Warning: unable to unregister the isolated App Store source.\n' >&2
+            [[ ! -e "${source_checkout_path}" ]] || printf \
+                'Warning: unable to unregister the isolated App Store source.\n' >&2
         fi
+        release_git -C "${project_root}" worktree prune >/dev/null 2>&1 || true
         source_checkout_registered=0
     fi
 
-    if [[ "${status}" -eq 0 && -n "${work_directory}" ]]; then
-        rm -rf "${work_directory}"
-    elif [[ -n "${work_directory}" ]]; then
+    if [[ "${preserve_complete_work_directory}" -eq 1 ]]; then
         printf 'Private App Store work directory preserved: %s\n' \
             "${work_directory}" >&2
+    elif [[ -n "${work_directory}" ]]; then
+        remove_app_store_work_directory "${work_directory}"
     fi
+
+    return "${status}"
 }
 trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
         --mode)
             [[ "$#" -ge 2 ]] || fail "--mode requires a value."
             selected_mode="$2"
+            shift 2
+            ;;
+        --gate-receipt)
+            [[ "$#" -ge 2 ]] || fail "--gate-receipt requires a value."
+            gate_receipt_path="$2"
+            shift 2
+            ;;
+        --gate-capability)
+            [[ "$#" -ge 2 ]] || fail "--gate-capability requires a value."
+            gate_capability_path="$2"
             shift 2
             ;;
         -h|--help)
@@ -309,6 +455,14 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
+case "${keep_failed_work_directory}" in
+    0|1)
+        ;;
+    *)
+        fail "MURALUME_KEEP_FAILED_WORKDIR must be either 0 or 1."
+        ;;
+esac
+
 case "${selected_mode}" in
     "${check_mode}"|"${validate_mode}"|"${upload_mode}")
         ;;
@@ -316,6 +470,65 @@ case "${selected_mode}" in
         fail "--mode must be check, validate, or upload."
         ;;
 esac
+
+if [[ "${MURALUME_RELEASE_LOCK_HELD:-0}" == "1" \
+    && "${MURALUME_RELEASE_DUAL_CAPABILITY_PATH:-}" != "" ]]; then
+    validate_release_dual_capability "${project_root}" \
+        || fail "The inherited release lock capability is invalid."
+elif [[ "${MURALUME_RELEASE_LOCK_HELD:-0}" == "1" \
+    && "${MURALUME_RELEASE_STANDALONE_LOCK_PATH:-}" \
+        == "${project_root}/.build/muralume/locks/release.lock" ]]; then
+    [[ "${MURALUME_RELEASE_LOCK_REEXEC_TOKEN:-}" =~ ^[[:xdigit:]]{64}$ ]] \
+        || fail "The inherited standalone release lock is invalid."
+    /usr/bin/lockf -t 0 "${MURALUME_RELEASE_STANDALONE_LOCK_PATH}" \
+        /usr/bin/true >/dev/null 2>&1 \
+        && fail "The inherited standalone release lock is not held."
+elif [[ "${MURALUME_RELEASE_LOCK_HELD:-0}" != "0" ]]; then
+    fail "MURALUME_RELEASE_LOCK_HELD has an invalid value."
+fi
+if [[ -n "${gate_receipt_path}" || -n "${gate_capability_path}" ]]; then
+    [[ "${selected_mode}" != "${check_mode}" \
+        && "${gate_receipt_path}" == /* \
+        && "${gate_capability_path}" == /* \
+        && "${MURALUME_RELEASE_LOCK_HELD:-0}" == "1" \
+        && "${gate_capability_path}" \
+            == "${MURALUME_RELEASE_DUAL_CAPABILITY_PATH:-}" ]] \
+        || fail "Shared gate reuse is only available inside release-dual."
+fi
+
+if [[ "${MURALUME_RELEASE_LOCK_HELD:-0}" != "1" ]]; then
+    readonly lock_directory="${project_root}/.build/muralume/locks"
+    readonly release_lock_path="${lock_directory}/release.lock"
+    mkdir -p "${lock_directory}"
+    chmod 700 "${project_root}/.build/muralume" "${lock_directory}"
+    export MURALUME_RELEASE_LOCK_HELD=1
+    export MURALUME_RELEASE_STANDALONE_LOCK_PATH="${release_lock_path}"
+    export MURALUME_RELEASE_LOCK_REEXEC_TOKEN="$(openssl rand -hex 32)"
+    set +e
+    if [[ "${#original_arguments[@]}" -eq 0 ]]; then
+        /usr/bin/lockf -t 0 -k "${release_lock_path}" \
+            "${script_directory}/release_app_store.sh"
+    else
+        /usr/bin/lockf -t 0 -k "${release_lock_path}" \
+            "${script_directory}/release_app_store.sh" "${original_arguments[@]}"
+    fi
+    lock_status="$?"
+    set -e
+    if [[ "${lock_status}" -eq 75 ]]; then
+        printf '%s\n' 'Error: another Muralume release workflow is running.' >&2
+    fi
+    exit "${lock_status}"
+fi
+
+# The wrapper keeps the kernel lock. Its re-entry proof and a dual capability
+# are single-use so descendant build phases cannot start another release.
+unset MURALUME_RELEASE_LOCK_REEXEC_TOKEN
+unset MURALUME_RELEASE_STANDALONE_LOCK_PATH
+unset MURALUME_RELEASE_DUAL_CAPABILITY_PATH
+unset MURALUME_RELEASE_DUAL_CAPABILITY_TOKEN
+unset MURALUME_ASC_KEY_ID
+unset MURALUME_ASC_ISSUER_ID
+unset MURALUME_ASC_PRIVATE_KEY_PATH
 
 [[ -z "${GIT_REPLACE_REF_BASE:-}" ]] \
     || fail "The App Store workflow rejects GIT_REPLACE_REF_BASE."
@@ -337,6 +550,37 @@ require_command stat
 require_command xcrun
 require_command xcodebuild
 
+app_store_connect_setting_count=0
+[[ -z "${captured_asc_key_id}" ]] \
+    || app_store_connect_setting_count=$((app_store_connect_setting_count + 1))
+[[ -z "${captured_asc_issuer_id}" ]] \
+    || app_store_connect_setting_count=$((app_store_connect_setting_count + 1))
+[[ -z "${captured_asc_private_key_path}" ]] \
+    || app_store_connect_setting_count=$((app_store_connect_setting_count + 1))
+case "${app_store_connect_setting_count}" in
+    0)
+        ;;
+    3)
+        MURALUME_ASC_KEY_ID="${captured_asc_key_id}" \
+        MURALUME_ASC_ISSUER_ID="${captured_asc_issuer_id}" \
+        MURALUME_ASC_PRIVATE_KEY_PATH="${captured_asc_private_key_path}" \
+        validate_app_store_connect_credentials \
+            || fail "The App Store Connect API credentials are invalid."
+        app_store_authentication_arguments=(
+            -authenticationKeyPath "${captured_asc_private_key_path}"
+            -authenticationKeyID "${captured_asc_key_id}"
+            -authenticationKeyIssuerID "${captured_asc_issuer_id}"
+        )
+        app_store_authentication_arguments_present=1
+        unset MURALUME_ASC_KEY_ID
+        unset MURALUME_ASC_ISSUER_ID
+        unset MURALUME_ASC_PRIVATE_KEY_PATH
+        ;;
+    *)
+        fail "Configure all three App Store Connect API credential values or none."
+        ;;
+esac
+
 xcode_python_path="$(xcrun --find python3 2>/dev/null || true)"
 [[ -x "${xcode_python_path}" ]] \
     || fail "Xcode's Python 3 runtime is unavailable."
@@ -349,6 +593,14 @@ verify_clean_release_repository "${project_root}" \
 
 source_commit="$(release_git -C "${project_root}" rev-parse --verify 'HEAD^{commit}')"
 source_tree="$(release_git -C "${project_root}" rev-parse --verify 'HEAD^{tree}')"
+if [[ -n "${gate_receipt_path}" ]]; then
+    validate_release_gate_receipt \
+        "${gate_receipt_path}" \
+        "${project_root}" \
+        "${source_commit}" \
+        "${source_tree}" \
+        || fail "The shared release gate receipt is invalid."
+fi
 marketing_version="$(
     release_xcconfig_value_at_commit \
         "${project_root}" \
@@ -389,8 +641,12 @@ base_build_number="$(
 
 work_directory="$(mktemp -d "${TMPDIR:-/tmp}/MuralumeAppStore.XXXXXX")"
 chmod 700 "${work_directory}"
+derived_data_path="$(
+    muralume_prepare_xcode_cache "${project_root}" release-app-store
+)" || fail "Unable to prepare the App Store Xcode cache."
+readonly derived_data_path
 readonly settings_log_path="${work_directory}/show-build-settings.log"
-readonly settings_derived_data_path="${work_directory}/SettingsDerivedData"
+readonly settings_derived_data_path="${derived_data_path}"
 readonly identity_log_path="${work_directory}/code-signing-identities.log"
 
 run_private_command \
@@ -424,8 +680,11 @@ printf 'App Store preflight passed for Muralume %s (%s).\n' \
 
 readonly archive_path="${work_directory}/Muralume.xcarchive"
 readonly archive_app_path="${archive_path}/Products/Applications/Muralume.app"
-readonly derived_data_path="${work_directory}/DerivedData"
 readonly release_gate_artifacts_path="${work_directory}/ReleaseGate"
+release_gate_derived_data_path="$(
+    muralume_prepare_xcode_cache "${project_root}" release-gate
+)" || fail "Unable to prepare the release-gate Xcode cache."
+readonly release_gate_derived_data_path
 readonly release_gate_log_path="${work_directory}/release-gate.log"
 readonly archive_log_path="${work_directory}/archive.log"
 readonly archive_signature_log_path="${work_directory}/archive-signature-verification.log"
@@ -446,7 +705,14 @@ readonly upload_options_path="${work_directory}/UploadExportOptions.plist"
 readonly upload_export_path="${work_directory}/Upload"
 readonly upload_log_path="${work_directory}/app-store-upload.log"
 
-source_checkout_path="${work_directory}/Source"
+readonly source_checkout_parent="${project_root}/.build/muralume/checkouts/release-app-store"
+mkdir -p "${source_checkout_parent}"
+chmod 700 \
+    "${project_root}/.build/muralume/checkouts" \
+    "${source_checkout_parent}"
+source_checkout_path="${source_checkout_parent}/Source"
+release_reclaim_managed_worktree "${project_root}" "${source_checkout_path}" \
+    || fail "Unable to reclaim a stale App Store source checkout."
 if ! release_git -C "${project_root}" worktree add --detach \
     "${source_checkout_path}" "${source_commit}" >/dev/null; then
     fail "Unable to create the isolated App Store source checkout."
@@ -459,12 +725,36 @@ verify_release_source_snapshot \
     "${source_checkout_path}" "${source_commit}" "${source_tree}" \
     || fail "The isolated App Store source does not match the captured HEAD."
 
-run_private_command \
-    "Testing the isolated App Store source" \
-    "${release_gate_log_path}" \
-    /usr/bin/env \
-        MURALUME_TEST_ARTIFACTS_DIR="${release_gate_artifacts_path}" \
-        "${source_checkout_path}/Scripts/verify.sh" release-gate
+if [[ -n "${gate_receipt_path}" ]]; then
+    printf 'Reusing the source- and Xcode-bound shared release gate.\n'
+    validate_release_gate_receipt \
+        "${gate_receipt_path}" \
+        "${project_root}" \
+        "${source_commit}" \
+        "${source_tree}" \
+        || fail "The shared release gate receipt changed before archive."
+else
+    run_private_command \
+        "Testing the isolated App Store source" \
+        "${release_gate_log_path}" \
+        /usr/bin/env \
+            -u MURALUME_RELEASE_LOCK_HELD \
+            -u MURALUME_RELEASE_LOCK_REEXEC_TOKEN \
+            -u MURALUME_RELEASE_STANDALONE_LOCK_PATH \
+            -u MURALUME_RELEASE_DUAL_CAPABILITY_PATH \
+            -u MURALUME_RELEASE_DUAL_CAPABILITY_TOKEN \
+            -u MURALUME_ASC_KEY_ID \
+            -u MURALUME_ASC_ISSUER_ID \
+            -u MURALUME_ASC_PRIVATE_KEY_PATH \
+            -u MURALUME_DEVELOPER_ID_APPLICATION \
+            -u MURALUME_NOTARY_KEYCHAIN_PROFILE \
+            -u MURALUME_EXPECTED_TEAM_IDENTIFIER \
+            -u GH_TOKEN \
+            -u GITHUB_TOKEN \
+            MURALUME_TEST_ARTIFACTS_DIR="${release_gate_artifacts_path}" \
+            MURALUME_TEST_DERIVED_DATA_DIR="${release_gate_derived_data_path}" \
+            "${source_checkout_path}/Scripts/verify.sh" release-gate
+fi
 verify_release_source_snapshot \
     "${source_checkout_path}" "${source_commit}" "${source_tree}" \
     || fail "The tested App Store source changed before archive."
@@ -472,7 +762,7 @@ verify_release_source_snapshot \
 run_app_store_packaging_command \
     "Archiving the signed App Store app" \
     "${archive_log_path}" \
-    xcodebuild archive \
+    run_xcodebuild_with_app_store_auth archive \
         -project "${source_checkout_path}/Muralume.xcodeproj" \
         -scheme "${app_store_scheme}" \
         -configuration "${app_store_configuration}" \
@@ -530,7 +820,7 @@ mkdir -p "${inspection_export_path}"
 run_app_store_packaging_command \
     "Exporting a local App Store inspection package" \
     "${inspection_log_path}" \
-    xcodebuild -exportArchive \
+    run_xcodebuild_with_app_store_auth -exportArchive \
         -archivePath "${archive_path}" \
         -exportPath "${inspection_export_path}" \
         -exportOptionsPlist "${inspection_options_path}" \
@@ -677,7 +967,7 @@ mkdir -p "${validation_export_path}"
 run_app_store_packaging_command \
     "Validating the archive with App Store Connect" \
     "${validation_log_path}" \
-    xcodebuild -exportArchive \
+    run_xcodebuild_with_app_store_auth -exportArchive \
         -archivePath "${archive_path}" \
         -exportPath "${validation_export_path}" \
         -exportOptionsPlist "${validation_options_path}" \
@@ -708,7 +998,7 @@ mkdir -p "${upload_export_path}"
 run_app_store_packaging_command \
     "Uploading the validated archive to App Store Connect" \
     "${upload_log_path}" \
-    xcodebuild -exportArchive \
+    run_xcodebuild_with_app_store_auth -exportArchive \
         -archivePath "${archive_path}" \
         -exportPath "${upload_export_path}" \
         -exportOptionsPlist "${upload_options_path}" \

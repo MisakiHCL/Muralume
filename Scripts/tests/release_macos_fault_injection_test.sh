@@ -10,6 +10,7 @@ test_root="$(
 )"
 readonly fixture_root="${test_root}/repository"
 readonly fake_bin="${test_root}/fake-bin"
+readonly fixture_tmp="${test_root}/tmp"
 readonly output_root="${test_root}/output"
 readonly gate_log_path="${test_root}/gate.log"
 readonly archive_log_path="${test_root}/archive.log"
@@ -44,16 +45,24 @@ mkdir -p \
     "${fixture_root}/Muralume.xcodeproj" \
     "${fixture_root}/Scripts/lib" \
     "${fake_bin}" \
+    "${fixture_tmp}" \
     "${output_root}"
 
 cp "${scripts_directory}/release_macos.sh" \
     "${fixture_root}/Scripts/release_macos.sh"
 cp "${scripts_directory}/lib/release_source_snapshot.sh" \
     "${fixture_root}/Scripts/lib/release_source_snapshot.sh"
+cp "${scripts_directory}/lib/build_cache.sh" \
+    "${fixture_root}/Scripts/lib/build_cache.sh"
+cp "${scripts_directory}/lib/release_gate_receipt.sh" \
+    "${fixture_root}/Scripts/lib/release_gate_receipt.sh"
+cp "${scripts_directory}/lib/release_invocation.sh" \
+    "${fixture_root}/Scripts/lib/release_invocation.sh"
 
 printf '%s\n' \
     'Config/Release.local.mk' \
     'Config/Distribution.requirements' \
+    '.build/' \
     >"${fixture_root}/.gitignore"
 printf '%s\n' \
     'MARKETING_VERSION = 1.0.3' \
@@ -143,13 +152,17 @@ printf '%s\n' \
 printf '%s\n' \
     '#!/usr/bin/env bash' \
     'set -euo pipefail' \
+    'if [[ "${MURALUME_XCODE_CACHE_IDENTITY_ONLY:-0}" == "1" && "$1" == "-version" ]]; then printf "%s\n" "Xcode 26.1.1" "Build version 17B100"; exit 0; fi' \
+    'archive_path=""' \
     'project_path=""' \
     'previous=""' \
     'for argument in "$@"; do' \
+    '    if [[ "${previous}" == "-archivePath" ]]; then archive_path="${argument}"; fi' \
     '    if [[ "${previous}" == "-project" ]]; then project_path="${argument}"; fi' \
     '    previous="${argument}"' \
     'done' \
     'source_root="$(cd "${project_path%/Muralume.xcodeproj}" && pwd -P)"' \
+    'printf "%s\n" "synthetic archive failure" >"${archive_path%/Muralume.xcarchive}/synthetic-archive.log"' \
     'printf "%s|%s|%s|%s|%s\n" "${source_root}" "$(git -C "${source_root}" rev-parse HEAD)" "$(git -C "${source_root}" rev-parse "HEAD^{tree}")" "${GIT_NO_REPLACE_OBJECTS:-}" "${GIT_REPLACE_REF_BASE:-}" >"${FAKE_ARCHIVE_LOG_PATH}"' \
     'exit 97' \
     >"${fake_bin}/xcodebuild"
@@ -173,6 +186,8 @@ run_fixture_release() {
         "FAKE_GATE_LOG_PATH=${gate_log_path}" \
         "FAKE_ARCHIVE_LOG_PATH=${archive_log_path}" \
         "FAKE_REQUIREMENT_LOG_PATH=${requirement_log_path}" \
+        "MURALUME_KEEP_FAILED_WORKDIR=${MURALUME_KEEP_FAILED_WORKDIR:-0}" \
+        "TMPDIR=${fixture_tmp}" \
         "${identity_variable}=Developer ID Application" \
         "${notary_variable}=TEST-NOTARY-PROFILE" \
         "${team_variable}=ABCDEFGHIJ" \
@@ -218,8 +233,10 @@ set +e
 run_fixture_release >/dev/null 2>"${error_log_path}"
 release_status="$?"
 set -e
-[[ "${release_status}" -eq 97 ]] \
-    || fail_test "the injected archive failure returned ${release_status}, expected 97"
+if [[ "${release_status}" -ne 97 ]]; then
+    sed -n '1,160p' "${error_log_path}" >&2 || true
+    fail_test "the injected archive failure returned ${release_status}, expected 97"
+fi
 [[ -s "${gate_log_path}" ]] || fail_test 'the isolated release gate did not run'
 [[ -s "${archive_log_path}" ]] || fail_test 'the isolated archive did not run'
 
@@ -247,7 +264,8 @@ IFS='|' read -r archive_root archive_commit archive_tree \
     || fail_test 'Git object replacement was not disabled for gate and archive'
 [[ "$(basename "${gate_artifacts}")" == "ReleaseGate" \
     && "$(basename "$(dirname "${gate_artifacts}")")" \
-        == "$(basename "${gate_root%/source}")" ]] \
+        == MuralumeRelease.* \
+    && "$(dirname "${gate_artifacts}")" == "${fixture_tmp}/"* ]] \
     || fail_test 'release gate artifacts escaped the private work directory'
 
 IFS='|' read -r requirement_snapshot requirement_mode \
@@ -256,12 +274,57 @@ IFS='|' read -r requirement_snapshot requirement_mode \
     "${fixture_root}/Config/Distribution.requirements" ]] \
     || fail_test 'provenance validation used the mutable live requirement'
 [[ "$(basename "${requirement_snapshot}")" == "Distribution.requirements" \
-    && "$(basename "$(dirname "${requirement_snapshot}")")" \
-        == "$(basename "${gate_root%/source}")" ]] \
+    && "$(dirname "${requirement_snapshot}")" \
+        == "$(dirname "${gate_artifacts}")" ]] \
     || fail_test 'the requirement snapshot was outside the private work directory'
 [[ "${requirement_mode}" == "400" ]] \
     || fail_test 'the requirement snapshot was not read-only'
-[[ -f "${requirement_snapshot}" ]] \
-    || fail_test 'the private requirement snapshot was not preserved after failure'
+readonly failed_work_directory="$(dirname "${requirement_snapshot}")"
+[[ ! -e "${failed_work_directory}" ]] \
+    || fail_test 'the failed release work directory was not removed by default'
+
+readonly diagnostic_root="${fixture_root}/.build/muralume/diagnostics/release-macos"
+diagnostic_bundle_count=0
+diagnostic_log_path=""
+while IFS= read -r -d '' candidate_diagnostic_bundle; do
+    diagnostic_bundle_count=$((diagnostic_bundle_count + 1))
+    [[ "$(stat -f '%Lp' "${candidate_diagnostic_bundle}")" == "700" ]] \
+        || fail_test 'the release diagnostic bundle was not mode 0700'
+    candidate_log_path="${candidate_diagnostic_bundle}/synthetic-archive.log"
+    if [[ -f "${candidate_log_path}" ]]; then
+        diagnostic_log_path="${candidate_log_path}"
+    fi
+done < <(
+    find "${diagnostic_root}" \
+        -mindepth 1 \
+        -maxdepth 1 \
+        -type d \
+        -name 'failure-*' \
+        -print0
+)
+[[ "${diagnostic_bundle_count}" -eq 1 && -n "${diagnostic_log_path}" ]] \
+    || fail_test 'the failed release did not retain one small diagnostic bundle'
+[[ "$(stat -f '%Lp' "${diagnostic_log_path}")" == "600" ]] \
+    || fail_test 'the preserved release diagnostic was not mode 0600'
+
+set +e
+MURALUME_KEEP_FAILED_WORKDIR=1 \
+    run_fixture_release >/dev/null 2>"${error_log_path}"
+preserved_release_status="$?"
+set -e
+[[ "${preserved_release_status}" -eq 97 ]] \
+    || fail_test \
+        "the opt-in preserved release returned ${preserved_release_status}, expected 97"
+preserved_work_directory="$(
+    sed -n 's/^Release work directory preserved: //p' \
+        "${error_log_path}" | tail -n 1
+)"
+[[ -d "${preserved_work_directory}" ]] \
+    || fail_test 'MURALUME_KEEP_FAILED_WORKDIR=1 did not preserve the release work directory'
+[[ -f "${preserved_work_directory}/Distribution.requirements" ]] \
+    || fail_test 'the opt-in release work directory lost its private requirement snapshot'
+[[ ! -e "${fixture_root}/.build/muralume/checkouts/release-macos/Source" ]] \
+    || fail_test 'the opt-in release left a registered source checkout behind'
+rm -rf "${preserved_work_directory}"
 
 printf '%s\n' 'PASS: release workflow snapshot fault-injection tests'

@@ -120,6 +120,34 @@ if check_tracked_signing_privacy "${profile_repository}" >/dev/null 2>&1; then
     exit 1
 fi
 
+forwarded_repository="${test_root}/forwarded"
+new_fixture_repository "${forwarded_repository}"
+printf '%s\n' \
+    'MURALUME_EXPECTED_TEAM_IDENTIFIER="${captured_team}" \' \
+    'MURALUME_DEVELOPER_ID_APPLICATION="${captured_identity}" \' \
+    'MURALUME_ASC_KEY_ID="${captured_key_id}" \' \
+    '    ./release-child' \
+    >"${forwarded_repository}/Config/forwarded.sh"
+git -C "${forwarded_repository}" add Config/forwarded.sh
+check_tracked_signing_privacy "${forwarded_repository}" >/dev/null \
+    || {
+        echo "Expected scoped variable forwarding to pass the privacy gate." >&2
+        exit 1
+    }
+
+literal_continuation_repository="${test_root}/literal-continuation"
+new_fixture_repository "${literal_continuation_repository}"
+printf '%s\n' \
+    "MURALUME_EXPECTED_TEAM_"'IDENTIFIER=ABCDE12345 \' \
+    '    ./release-child' \
+    >"${literal_continuation_repository}/Config/forwarded.sh"
+git -C "${literal_continuation_repository}" add Config/forwarded.sh
+if check_tracked_signing_privacy \
+    "${literal_continuation_repository}" >/dev/null 2>&1; then
+    echo "Expected a concrete Team ID with continuation to fail." >&2
+    exit 1
+fi
+
 certificate_repository="${test_root}/certificate"
 new_fixture_repository "${certificate_repository}"
 certificate_extension="p12"

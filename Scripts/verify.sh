@@ -11,18 +11,19 @@ readonly selected_suite="${1:-all}"
 
 # shellcheck source=lib/signing_privacy.sh
 source "${script_directory}/lib/signing_privacy.sh"
+# shellcheck source=lib/workflow_lifecycle.sh
+source "${script_directory}/lib/workflow_lifecycle.sh"
+# shellcheck source=lib/build_cache.sh
+source "${script_directory}/lib/build_cache.sh"
 
-readonly artifacts_root="${MURALUME_TEST_ARTIFACTS_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/MuralumeVerify.XXXXXX")}"
-readonly derived_data_path="${artifacts_root}/DerivedData"
-readonly test_results_root="${artifacts_root}/TestResults"
-
-readonly -a common_debug_arguments=(
-    -project "${project_path}"
-    -scheme "${scheme_name}"
-    -configuration Debug
-    -destination "${debug_destination}"
-    -derivedDataPath "${derived_data_path}"
-)
+artifacts_root=""
+derived_data_path=""
+test_results_root=""
+verify_workspace=""
+verify_workspace_owned=0
+verify_cache_lock_directory=""
+verify_cache_lock_owned=0
+common_debug_arguments=()
 
 unit_test_selectors=()
 integration_test_selectors=()
@@ -42,9 +43,177 @@ Suites:
   all           Run every check above (default).
 
 Optional environment:
-  MURALUME_TEST_ARTIFACTS_DIR  Directory for DerivedData and test results.
+  MURALUME_TEST_ARTIFACTS_DIR  Caller-owned directory for DerivedData and test
+                               results. Muralume never removes this directory.
+  MURALUME_TEST_DERIVED_DATA_DIR  Caller-owned stable DerivedData cache. This
+                                  overrides only DerivedData, not TestResults.
   MURALUME_REAL_MEDIA_DIRECTORY  Local media directory for real-media.
 EOF
+}
+
+is_known_suite() {
+    case "$1" in
+        architecture|unit|integration|ui|real-media|release|release-gate|all)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+suite_uses_test_selectors() {
+    case "$1" in
+        unit|integration|release-gate|all)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+release_verify_cache_lock() {
+    local recorded_pid=""
+
+    [[ "${verify_cache_lock_owned}" -eq 1 \
+        && -n "${verify_cache_lock_directory}" ]] || return 0
+    if [[ -f "${verify_cache_lock_directory}/owner.pid" \
+        && ! -L "${verify_cache_lock_directory}/owner.pid" ]]; then
+        IFS= read -r recorded_pid \
+            <"${verify_cache_lock_directory}/owner.pid" || true
+    fi
+    if [[ "${recorded_pid}" == "$$" ]]; then
+        rm -rf -- "${verify_cache_lock_directory}"
+    fi
+    verify_cache_lock_owned=0
+}
+
+acquire_verify_cache_lock() {
+    local lock_directory="$1"
+    local owner_pid=""
+    local stale_lock_directory
+
+    verify_cache_lock_directory="${lock_directory}"
+    if mkdir "${verify_cache_lock_directory}" 2>/dev/null; then
+        chmod 700 "${verify_cache_lock_directory}"
+        printf '%s\n' "$$" >"${verify_cache_lock_directory}/owner.pid"
+        chmod 600 "${verify_cache_lock_directory}/owner.pid"
+        verify_cache_lock_owned=1
+        return 0
+    fi
+
+    if [[ -L "${verify_cache_lock_directory}" \
+        || ! -d "${verify_cache_lock_directory}" \
+        || ! -f "${verify_cache_lock_directory}/owner.pid" \
+        || -L "${verify_cache_lock_directory}/owner.pid" ]]; then
+        echo "The verify build cache lock is invalid: ${verify_cache_lock_directory}" >&2
+        return 75
+    fi
+    IFS= read -r owner_pid <"${verify_cache_lock_directory}/owner.pid" || true
+    case "${owner_pid}" in
+        ''|*[!0-9]*)
+            echo "The verify build cache lock has invalid owner metadata." >&2
+            return 75
+            ;;
+    esac
+    if kill -0 "${owner_pid}" 2>/dev/null; then
+        printf 'The verify build cache is already in use by process %s.\n' \
+            "${owner_pid}" >&2
+        return 75
+    fi
+
+    stale_lock_directory="${verify_cache_lock_directory}.stale.$$"
+    if [[ -e "${stale_lock_directory}" || -L "${stale_lock_directory}" ]]; then
+        echo "The stale verify lock quarantine path already exists." >&2
+        return 75
+    fi
+    if ! mv "${verify_cache_lock_directory}" "${stale_lock_directory}"; then
+        echo "Another process changed the stale verify build cache lock." >&2
+        return 75
+    fi
+    rm -rf -- "${stale_lock_directory}"
+
+    if ! mkdir "${verify_cache_lock_directory}" 2>/dev/null; then
+        echo "Another process acquired the verify build cache lock." >&2
+        return 75
+    fi
+    chmod 700 "${verify_cache_lock_directory}"
+    printf '%s\n' "$$" >"${verify_cache_lock_directory}/owner.pid"
+    chmod 600 "${verify_cache_lock_directory}/owner.pid"
+    verify_cache_lock_owned=1
+}
+
+initialize_verify_lifecycle() {
+    local cache_scope_root
+
+    if [[ "${MURALUME_TEST_ARTIFACTS_DIR+x}" == "x" ]]; then
+        [[ -n "${MURALUME_TEST_ARTIFACTS_DIR}" ]] || {
+            echo "MURALUME_TEST_ARTIFACTS_DIR must not be empty." >&2
+            return 64
+        }
+        mkdir -p "${MURALUME_TEST_ARTIFACTS_DIR}"
+        artifacts_root="$(cd "${MURALUME_TEST_ARTIFACTS_DIR}" && pwd -P)"
+        cache_scope_root="${artifacts_root}"
+        derived_data_path="${artifacts_root}/DerivedData"
+        test_results_root="${artifacts_root}/TestResults"
+    else
+        workflow_lifecycle_initialize "${project_root}" || return 1
+        verify_workspace="$(workflow_create_workspace verify)" || return 1
+        verify_workspace_owned=1
+        artifacts_root="${verify_workspace}"
+        test_results_root="${verify_workspace}/TestResults"
+
+        if [[ "${MURALUME_TEST_DERIVED_DATA_DIR+x}" != "x" ]]; then
+            derived_data_path="$(
+                muralume_prepare_xcode_cache "${project_root}" verify
+            )" || return 1
+            cache_scope_root="$(dirname "${derived_data_path}")"
+        fi
+    fi
+
+    if [[ "${MURALUME_TEST_DERIVED_DATA_DIR+x}" == "x" ]]; then
+        [[ "${MURALUME_TEST_DERIVED_DATA_DIR}" == /* \
+            && -n "${MURALUME_TEST_DERIVED_DATA_DIR}" \
+            && ! -L "${MURALUME_TEST_DERIVED_DATA_DIR}" ]] || {
+            echo "MURALUME_TEST_DERIVED_DATA_DIR must be an absolute non-symlink path." >&2
+            return 64
+        }
+        mkdir -p "${MURALUME_TEST_DERIVED_DATA_DIR}"
+        derived_data_path="$(
+            cd "${MURALUME_TEST_DERIVED_DATA_DIR}" && pwd -P
+        )"
+        cache_scope_root="$(dirname "${derived_data_path}")"
+    fi
+
+    acquire_verify_cache_lock "${cache_scope_root}/.verify.lock" || return
+    common_debug_arguments=(
+        -project "${project_path}"
+        -scheme "${scheme_name}"
+        -configuration Debug
+        -destination "${debug_destination}"
+        -derivedDataPath "${derived_data_path}"
+    )
+}
+
+cleanup_verify_lifecycle() {
+    local status="$?"
+
+    trap - EXIT HUP INT TERM
+    if [[ "${verify_workspace_owned}" -eq 1 \
+        && -n "${verify_workspace}" ]]; then
+        workflow_safe_remove_workspace "${verify_workspace}" || true
+        verify_workspace_owned=0
+    fi
+    release_verify_cache_lock
+    exit "${status}"
+}
+
+install_verify_lifecycle_traps() {
+    trap cleanup_verify_lifecycle EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
 }
 
 require_command() {
@@ -393,6 +562,8 @@ assert_test_sources_belong_to_target() {
 
 check_architecture() {
     local retired_entry
+    local shell_test_path
+    local shell_test_count=0
     local -a retired_entries=(
         "${project_root}/Muralume/Core"
         "${project_root}/Muralume/Desktop"
@@ -407,18 +578,22 @@ check_architecture() {
     plutil -lint "${project_path}/project.pbxproj"
     check_tracked_signing_privacy "${project_root}"
     check_localization_key_parity
-    "${script_directory}/tests/distribution_requirements_test.sh"
-    "${script_directory}/tests/prepare_distribution_requirements_test.sh"
-    "${script_directory}/tests/signing_privacy_test.sh"
-    "${script_directory}/tests/secure_timestamp_test.sh"
-    "${script_directory}/tests/release_output_transaction_test.sh"
-    "${script_directory}/tests/release_signature_validation_test.sh"
-    "${script_directory}/tests/release_source_snapshot_test.sh"
-    "${script_directory}/tests/release_macos_fault_injection_test.sh"
-    "${script_directory}/tests/app_store_packaging_test.sh"
-    "${script_directory}/tests/app_store_validation_test.sh"
-    "${script_directory}/tests/run_quiet_workflow_test.sh"
-    "${script_directory}/tests/verify_test_results_test.sh"
+    while IFS= read -r shell_test_path; do
+        [[ -n "${shell_test_path}" ]] || continue
+        shell_test_count=$((shell_test_count + 1))
+        "${shell_test_path}"
+    done < <(
+        find "${script_directory}/tests" \
+            -maxdepth 1 \
+            -type f \
+            -name '*_test.sh' \
+            -print \
+            | LC_ALL=C sort
+    )
+    [[ "${shell_test_count}" -gt 0 ]] || {
+        echo "No shell infrastructure tests were discovered." >&2
+        return 1
+    }
 
     reject_imports \
         "Domain" \
@@ -690,12 +865,28 @@ run_release_gate() {
 }
 
 main() {
+    case "${selected_suite}" in
+        help|-h|--help)
+            print_usage
+            return
+            ;;
+    esac
+    if ! is_known_suite "${selected_suite}"; then
+        echo "Unknown suite: ${selected_suite}" >&2
+        print_usage >&2
+        return 64
+    fi
+
     require_command rg
     require_command plutil
     require_command xcodebuild
     require_command xcrun
+    install_verify_lifecycle_traps
+    initialize_verify_lifecycle
     mkdir -p "${artifacts_root}"
-    load_test_selectors
+    if suite_uses_test_selectors "${selected_suite}"; then
+        load_test_selectors
+    fi
 
     case "${selected_suite}" in
         architecture)
@@ -722,16 +913,12 @@ main() {
         all)
             run_all
             ;;
-        help|-h|--help)
-            print_usage
-            ;;
-        *)
-            echo "Unknown suite: ${selected_suite}" >&2
-            print_usage >&2
-            exit 64
-            ;;
     esac
-    echo "Artifacts: ${artifacts_root}"
+    if [[ "${verify_workspace_owned}" -eq 1 ]]; then
+        echo "DerivedData cache: ${derived_data_path}"
+    else
+        echo "Artifacts: ${artifacts_root}"
+    fi
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

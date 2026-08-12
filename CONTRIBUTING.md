@@ -128,6 +128,43 @@ make validate-testflight
 make upload-testflight
 ```
 
+For a complete two-channel release, also copy
+`Config/AppStoreConnect.local.mk.example` to the Git-ignored
+`Config/AppStoreConnect.local.mk`, set it to mode `0600`, and point it at a
+mode-`0600` App Store Connect Team API `.p8` key stored outside the repository.
+Authenticate both GitHub paths once (`gh auth login --hostname github.com` for
+Release API access, plus the repository's normal Git credential/SSH key for
+pushes). Verify `gh auth status --hostname github.com` after rotating a token.
+If `HTTP_PROXY`, `HTTPS_PROXY`, or `ALL_PROXY` points at a local port, keep that
+proxy running during release or unset the stale variables; the doctor fails
+early instead of discovering an unavailable proxy after an archive finishes.
+Then use:
+
+```bash
+make release-doctor
+make release-status
+make release-dual RELEASE_NOTES_FILE=/absolute/path/to/notes.md
+```
+
+`release-doctor` checks the live GitHub, Git push, notarization, signing, local
+proxy, disk-space, and App Store Connect credentials before expensive builds.
+`release-dual` captures one clean source commit, runs one shared release gate,
+reuses Xcode-versioned DerivedData lanes, uploads TestFlight only once, creates
+the annotated tag and final GitHub Release, and verifies both remote endpoints.
+It refuses to call a `PROCESSING` TestFlight build complete. The annotated tag
+and the mode-`0600` `Muralume.release-provenance` Release asset bind the source,
+DMG digest, and App Store build, so a cleaned `dist/` directory or a new Mac can
+resume safely. A complete Release contains exactly the DMG, its checksum, and
+that provenance file; legacy two-asset Releases are migrated only after their
+existing assets and local upload receipt have been verified.
+
+Generated DerivedData is kept under `.build/muralume/cache` and bounded to two
+Xcode identities per lane. Per-run workspaces are deleted on success, failure,
+and termination. Failure diagnostics keep only the last five private, truncated
+logs under `.build/muralume/diagnostics`. Set
+`MURALUME_KEEP_FAILED_WORKDIR=1` only for a one-off deep investigation; remove
+the reported workspace afterward.
+
 The upload workflow requires a clean committed source tree, tests a detached
 checkout, archives that same tree, exports a local App Store inspection package,
 and verifies its production signature, provisioning profile, Sandbox

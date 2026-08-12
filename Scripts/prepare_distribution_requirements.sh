@@ -8,6 +8,8 @@ readonly production_bundle_identifier="com.muralume.Muralume"
 readonly expected_architecture="arm64"
 readonly provenance_marketing_version="0.0.0"
 readonly provenance_build_number="1"
+readonly failed_diagnostic_bundle_limit="5"
+readonly failed_diagnostic_log_byte_limit="2097152"
 readonly launch_services_register_path="/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
 
 readonly script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,9 +17,17 @@ readonly project_root="$(cd "${script_directory}/.." && pwd)"
 readonly release_config_path="${project_root}/Config/Release.local.mk"
 readonly distribution_requirements_path="${project_root}/Config/Distribution.requirements"
 readonly distribution_requirements_helper_path="${script_directory}/lib/distribution_requirements.sh"
+readonly release_invocation_helper_path="${script_directory}/lib/release_invocation.sh"
+readonly build_cache_helper_path="${script_directory}/lib/build_cache.sh"
 
 # shellcheck source=lib/distribution_requirements.sh
 source "${distribution_requirements_helper_path}"
+# shellcheck source=lib/build_cache.sh
+source "${build_cache_helper_path}"
+# shellcheck source=lib/release_source_snapshot.sh
+source "${script_directory}/lib/release_source_snapshot.sh"
+# shellcheck source=lib/release_invocation.sh
+source "${release_invocation_helper_path}"
 
 selected_mode="prepare"
 replace_existing=0
@@ -26,10 +36,22 @@ temporary_install_path=""
 archive_app_path=""
 exported_app_path=""
 source_checkout_path=""
+source_checkout_registered=0
 build_project_path=""
+keep_failed_work_directory="${MURALUME_KEEP_FAILED_WORKDIR:-0}"
+original_arguments=("$@")
 
 configured_signing_identity="${MURALUME_DEVELOPER_ID_APPLICATION:-}"
 expected_team_identifier="${MURALUME_EXPECTED_TEAM_IDENTIFIER:-}"
+
+# Requirement preparation never needs GitHub or App Store Connect credentials.
+# Developer ID values remain only until lockf re-entry, then are removed before
+# git, xcodebuild, export, and project build phases.
+unset MURALUME_ASC_KEY_ID
+unset MURALUME_ASC_ISSUER_ID
+unset MURALUME_ASC_PRIVATE_KEY_PATH
+unset GH_TOKEN
+unset GITHUB_TOKEN
 
 print_usage() {
     cat <<'EOF'
@@ -68,8 +90,102 @@ unregister_temporary_app() {
     fi
 }
 
+preserve_failure_logs() {
+    local source_directory="$1"
+    local diagnostics_root="${project_root}/.build/muralume/diagnostics/prepare-distribution-requirements"
+    local diagnostic_bundle
+    local source_log
+    local destination_log
+    local copied_log_count=0
+    local -a diagnostic_bundles
+
+    [[ -d "${source_directory}" ]] || return 0
+    if ! mkdir -p "${diagnostics_root}" \
+        || ! chmod 700 "${diagnostics_root}"; then
+        printf 'Warning: unable to prepare private requirement diagnostics.\n' >&2
+        return 0
+    fi
+    diagnostic_bundle="$(
+        mktemp -d \
+            "${diagnostics_root}/failure-$(date -u '+%Y%m%dT%H%M%SZ')-${$}.XXXXXX"
+    )" || {
+        printf 'Warning: unable to create a private requirement diagnostic bundle.\n' >&2
+        return 0
+    }
+    if ! chmod 700 "${diagnostic_bundle}"; then
+        rm -rf -- "${diagnostic_bundle}" || true
+        printf 'Warning: unable to secure the private requirement diagnostic bundle.\n' >&2
+        return 0
+    fi
+
+    while IFS= read -r -d '' source_log; do
+        destination_log="${diagnostic_bundle}/$(basename "${source_log}")"
+        if tail -c "${failed_diagnostic_log_byte_limit}" \
+            "${source_log}" >"${destination_log}" \
+            && chmod 600 "${destination_log}"; then
+            copied_log_count=$((copied_log_count + 1))
+        else
+            rm -f -- "${destination_log}" || true
+            printf 'Warning: unable to preserve requirement diagnostic %s.\n' \
+                "$(basename "${source_log}")" >&2
+        fi
+    done < <(
+        find "${source_directory}" \
+            -maxdepth 1 \
+            -type f \
+            -name '*.log' \
+            -print0
+    )
+
+    if [[ "${copied_log_count}" -eq 0 ]]; then
+        rm -rf -- "${diagnostic_bundle}" || true
+        return 0
+    fi
+
+    diagnostic_bundles=("${diagnostics_root}"/failure-*)
+    while [[ "${#diagnostic_bundles[@]}" \
+        -gt "${failed_diagnostic_bundle_limit}" ]]; do
+        if ! rm -rf -- "${diagnostic_bundles[0]}"; then
+            printf 'Warning: unable to prune an old private requirement diagnostic.\n' \
+                >&2
+            break
+        fi
+        diagnostic_bundles=("${diagnostics_root}"/failure-*)
+    done
+    printf 'Private requirement diagnostics: %s\n' \
+        "${diagnostic_bundle}" >&2
+}
+
+remove_requirement_work_directory() {
+    local directory_path="$1"
+
+    case "$(basename "${directory_path}")" in
+        MuralumeRequirementPreparation.*)
+            rm -rf -- "${directory_path}" || {
+                printf 'Warning: unable to remove requirement work directory: %s\n' \
+                    "${directory_path}" >&2
+                return 0
+            }
+            ;;
+        *)
+            printf 'Warning: refusing to remove unexpected requirement work directory: %s\n' \
+                "${directory_path}" >&2
+            ;;
+    esac
+}
+
 cleanup() {
     local status="$?"
+    local preserve_complete_work_directory=0
+
+    trap - EXIT HUP INT TERM
+
+    if [[ "${status}" -ne 0 && -n "${work_directory}" ]]; then
+        preserve_failure_logs "${work_directory}" || true
+        if [[ "${keep_failed_work_directory}" == "1" ]]; then
+            preserve_complete_work_directory=1
+        fi
+    fi
 
     # lsregister adds com.apple.provenance metadata asynchronously on current
     # macOS releases, which makes a preserved signed App fail codesign checks.
@@ -85,22 +201,27 @@ cleanup() {
         rm -f "${temporary_install_path}"
     fi
 
-    if [[ -n "${source_checkout_path}" ]]; then
+    if [[ "${source_checkout_registered}" -eq 1 \
+        && "${preserve_complete_work_directory}" -eq 0 ]]; then
         git -C "${project_root}" worktree remove --force \
             "${source_checkout_path}" >/dev/null 2>&1 || true
+        source_checkout_registered=0
     fi
 
-    if [[ -n "${work_directory}" ]]; then
-        if [[ "${status}" -eq 0 ]]; then
-            rm -rf "${work_directory}"
-        else
-            chmod -R go-rwx "${work_directory}" >/dev/null 2>&1 || true
-            printf 'Private requirement preparation logs preserved at: %s\n' \
-                "${work_directory}" >&2
-        fi
+    if [[ "${preserve_complete_work_directory}" -eq 1 ]]; then
+        chmod -R go-rwx "${work_directory}" >/dev/null 2>&1 || true
+        printf 'Private requirement preparation work directory preserved: %s\n' \
+            "${work_directory}" >&2
+    elif [[ -n "${work_directory}" ]]; then
+        remove_requirement_work_directory "${work_directory}"
     fi
+
+    return "${status}"
 }
 trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
@@ -122,9 +243,68 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
+case "${keep_failed_work_directory}" in
+    0|1)
+        ;;
+    *)
+        fail "MURALUME_KEEP_FAILED_WORKDIR must be either 0 or 1."
+        ;;
+esac
+
 if [[ "${selected_mode}" == "check" && "${replace_existing}" -eq 1 ]]; then
     fail "--check and --replace cannot be combined."
 fi
+
+if [[ "${MURALUME_RELEASE_LOCK_HELD:-0}" == "1" \
+    && "${MURALUME_RELEASE_DUAL_CAPABILITY_PATH:-}" != "" ]]; then
+    validate_release_dual_capability "${project_root}" \
+        || fail "The inherited release lock capability is invalid."
+elif [[ "${MURALUME_RELEASE_LOCK_HELD:-0}" == "1" \
+    && "${MURALUME_RELEASE_STANDALONE_LOCK_PATH:-}" \
+        == "${project_root}/.build/muralume/locks/release.lock" ]]; then
+    [[ "${MURALUME_RELEASE_LOCK_REEXEC_TOKEN:-}" =~ ^[[:xdigit:]]{64}$ ]] \
+        || fail "The inherited standalone release lock is invalid."
+    /usr/bin/lockf -t 0 "${MURALUME_RELEASE_STANDALONE_LOCK_PATH}" \
+        /usr/bin/true >/dev/null 2>&1 \
+        && fail "The inherited standalone release lock is not held."
+elif [[ "${MURALUME_RELEASE_LOCK_HELD:-0}" != "0" ]]; then
+    fail "MURALUME_RELEASE_LOCK_HELD has an invalid value."
+fi
+
+if [[ "${MURALUME_RELEASE_LOCK_HELD:-0}" != "1" ]]; then
+    readonly lock_directory="${project_root}/.build/muralume/locks"
+    readonly release_lock_path="${lock_directory}/release.lock"
+    mkdir -p "${lock_directory}"
+    chmod 700 "${project_root}/.build/muralume" "${lock_directory}"
+    export MURALUME_RELEASE_LOCK_HELD=1
+    export MURALUME_RELEASE_STANDALONE_LOCK_PATH="${release_lock_path}"
+    export MURALUME_RELEASE_LOCK_REEXEC_TOKEN="$(openssl rand -hex 32)"
+    set +e
+    if [[ "${#original_arguments[@]}" -eq 0 ]]; then
+        /usr/bin/lockf -t 0 -k "${release_lock_path}" \
+            "${script_directory}/prepare_distribution_requirements.sh"
+    else
+        /usr/bin/lockf -t 0 -k "${release_lock_path}" \
+            "${script_directory}/prepare_distribution_requirements.sh" \
+            "${original_arguments[@]}"
+    fi
+    lock_status="$?"
+    set -e
+    if [[ "${lock_status}" -eq 75 ]]; then
+        printf '%s\n' 'Error: another Muralume release workflow is running.' >&2
+    fi
+    exit "${lock_status}"
+fi
+
+# The wrapper keeps the kernel lock. Its re-entry proof and a dual capability
+# are single-use so descendant build phases cannot start another release.
+unset MURALUME_RELEASE_LOCK_REEXEC_TOKEN
+unset MURALUME_RELEASE_STANDALONE_LOCK_PATH
+unset MURALUME_RELEASE_DUAL_CAPABILITY_PATH
+unset MURALUME_RELEASE_DUAL_CAPABILITY_TOKEN
+unset MURALUME_DEVELOPER_ID_APPLICATION
+unset MURALUME_NOTARY_KEYCHAIN_PROFILE
+unset MURALUME_EXPECTED_TEAM_IDENTIFIER
 
 require_command awk
 require_command cmp
@@ -247,7 +427,11 @@ work_directory="$(
 chmod 700 "${work_directory}"
 
 readonly archive_path="${work_directory}/Muralume.xcarchive"
-readonly derived_data_path="${work_directory}/DerivedData"
+derived_data_path="$(
+    muralume_prepare_xcode_cache \
+        "${project_root}" release-requirements
+)" || fail "Unable to prepare the requirement-export Xcode cache."
+readonly derived_data_path
 readonly export_path="${work_directory}/DeveloperIDExport"
 readonly archive_xcconfig_path="${work_directory}/Archive.xcconfig"
 readonly export_options_path="${work_directory}/ExportOptions.plist"
@@ -266,6 +450,7 @@ if ! git -C "${project_root}" worktree add --detach \
     >"${checkout_log_path}" 2>&1; then
     fail "Unable to create the private detached source checkout. The private log is ${checkout_log_path}."
 fi
+source_checkout_registered=1
 build_project_path="${source_checkout_path}/Muralume.xcodeproj"
 [[ -d "${build_project_path}" ]] \
     || fail "The detached source checkout is missing Muralume.xcodeproj."

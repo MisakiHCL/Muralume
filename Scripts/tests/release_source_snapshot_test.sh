@@ -162,6 +162,30 @@ rm "${fixture_repository_path}/${git_common_directory}/info/grafts"
 reject_release_git_object_overrides "${fixture_repository_path}" \
     || fail_test 'a repository without replace refs or grafts should pass'
 
+override_repository_path="${test_root}/override-repository"
+git -C "${test_root}" init -q "${override_repository_path}"
+if [[ "$(GIT_DIR="${override_repository_path}/.git" \
+    GIT_WORK_TREE="${override_repository_path}" \
+    release_git -C "${fixture_repository_path}" rev-parse 'HEAD^{commit}')" \
+    != "${source_commit}" ]]; then
+    fail_test 'release_git accepted repository environment overrides'
+fi
+
+stale_checkout_parent="${fixture_repository_path}/.build/muralume/checkouts/test"
+stale_checkout_path="${stale_checkout_parent}/Source"
+mkdir -p "${stale_checkout_parent}"
+git -C "${fixture_repository_path}" worktree add --detach \
+    "${stale_checkout_path}" "${source_commit}" >/dev/null
+release_reclaim_managed_worktree \
+    "${fixture_repository_path}" "${stale_checkout_path}" \
+    || fail_test 'a stale managed worktree could not be reclaimed'
+[[ ! -e "${stale_checkout_path}" ]] \
+    || fail_test 'stale managed worktree files remained after reclaim'
+if git -C "${fixture_repository_path}" worktree list --porcelain \
+    | /usr/bin/grep -F "worktree ${stale_checkout_path}" >/dev/null; then
+    fail_test 'stale managed worktree registration remained after reclaim'
+fi
+
 git -C "${fixture_repository_path}" worktree add --detach \
     "${fixture_snapshot_path}" \
     "${source_commit}" >/dev/null

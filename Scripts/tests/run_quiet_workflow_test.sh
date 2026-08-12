@@ -4,7 +4,8 @@ set -euo pipefail
 
 readonly script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly scripts_directory="$(cd "${script_directory}/.." && pwd)"
-readonly quiet_workflow_script="${scripts_directory}/run_quiet_workflow.sh"
+readonly production_quiet_workflow_script="${scripts_directory}/run_quiet_workflow.sh"
+readonly lifecycle_helper_path="${scripts_directory}/lib/workflow_lifecycle.sh"
 readonly private_marker="SYNTHETIC_PRIVATE_SIGNING_METADATA"
 
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/MuralumeQuietWorkflowTests.XXXXXX")"
@@ -12,6 +13,17 @@ cleanup() {
     rm -rf "${test_root}"
 }
 trap cleanup EXIT
+
+readonly fixture_repository="${test_root}/repository"
+mkdir -p "${fixture_repository}/Scripts/lib"
+cp "${production_quiet_workflow_script}" \
+    "${fixture_repository}/Scripts/run_quiet_workflow.sh"
+cp "${lifecycle_helper_path}" \
+    "${fixture_repository}/Scripts/lib/workflow_lifecycle.sh"
+chmod 700 "${fixture_repository}/Scripts/run_quiet_workflow.sh"
+readonly quiet_workflow_script="${fixture_repository}/Scripts/run_quiet_workflow.sh"
+readonly managed_log_root="${fixture_repository}/.build/muralume/diagnostics/logs"
+export MURALUME_LOG_RETENTION=5
 
 fail_test() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -54,7 +66,7 @@ grep -F "${private_marker}" "${release_log_path}" >/dev/null \
     || fail_test 'private release log lost the diagnostic output'
 rm -f "${release_log_path}"
 
-for private_workflow in validate-testflight upload-testflight; do
+for private_workflow in release-dual validate-testflight upload-testflight; do
     private_error_path="${test_root}/${private_workflow}-error"
     set +e
     "${quiet_workflow_script}" "${private_workflow}" \
@@ -93,5 +105,61 @@ grep -F 'VERBOSE=1' "${normal_error_path}" >/dev/null \
     || fail_test 'normal workflow lost its verbose rerun guidance'
 normal_log_path="$(sed -n 's/^Full log: //p' "${normal_error_path}")"
 rm -f "${normal_log_path}"
+
+success_output_path="${test_root}/success-output"
+log_count_before_success="$(
+    find "${managed_log_root}" -maxdepth 1 -type f -name '*.log.*' \
+        | wc -l \
+        | tr -d '[:space:]'
+)"
+"${quiet_workflow_script}" test /usr/bin/true >"${success_output_path}"
+grep -F '[PASS] test completed' "${success_output_path}" >/dev/null \
+    || fail_test 'successful quiet workflow did not report success'
+log_count_after_success="$(
+    find "${managed_log_root}" -maxdepth 1 -type f -name '*.log.*' \
+        | wc -l \
+        | tr -d '[:space:]'
+)"
+[[ "${log_count_after_success}" == "${log_count_before_success}" ]] \
+    || fail_test 'successful quiet workflow retained its active log'
+
+rotation_index=0
+while [[ "${rotation_index}" -lt 8 ]]; do
+    rotation_error_path="${test_root}/rotation-error-${rotation_index}"
+    set +e
+    "${quiet_workflow_script}" "rotation-${rotation_index}" \
+        "${failing_command}" >/dev/null 2>"${rotation_error_path}"
+    rotation_status="$?"
+    set -e
+    [[ "${rotation_status}" -eq 17 ]] \
+        || fail_test \
+            "rotated failure returned ${rotation_status}, expected 17"
+    rotation_index=$((rotation_index + 1))
+done
+
+retained_log_count="$(
+    find "${managed_log_root}" -maxdepth 1 -type f -name '*.log.*' \
+        | wc -l \
+        | tr -d '[:space:]'
+)"
+[[ "${retained_log_count}" == '5' ]] \
+    || fail_test 'quiet workflow log rotation did not retain exactly five logs'
+[[ "$(stat -f '%Lp' "${managed_log_root}")" == '700' ]] \
+    || fail_test 'managed quiet workflow log directory was not mode 0700'
+while IFS= read -r retained_log_path; do
+    [[ -n "${retained_log_path}" ]] || continue
+    [[ -f "${retained_log_path}" && ! -L "${retained_log_path}" ]] \
+        || fail_test 'log rotation retained an unsafe entry'
+    [[ "$(stat -f '%Lp' "${retained_log_path}")" == '600' ]] \
+        || fail_test 'rotated quiet workflow log was not mode 0600'
+    grep -F "${private_marker}" "${retained_log_path}" >/dev/null \
+        || fail_test 'rotated quiet workflow log lost diagnostics'
+done < <(
+    find "${managed_log_root}" \
+        -maxdepth 1 \
+        -type f \
+        -name '*.log.*' \
+        -print
+)
 
 printf '%s\n' 'PASS: quiet workflow privacy tests'

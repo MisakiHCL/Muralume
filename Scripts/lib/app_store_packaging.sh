@@ -5,7 +5,10 @@
 # and signing metadata remain private inside a mode-0700 work directory.
 run_app_store_packaging_process() (
     umask 022
-    exec "$@"
+    # The caller may pass a shell function that safely appends optional App
+    # Store Connect authentication arguments. A plain invocation preserves
+    # function lookup while retaining the isolated subshell/umask.
+    "$@"
 )
 
 run_app_store_packaging_command() {

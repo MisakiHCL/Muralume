@@ -63,6 +63,8 @@ run_fake_invocation() {
         bash -c '
             set -euo pipefail
             source "$1"
+            install_verify_lifecycle_traps
+            initialize_verify_lifecycle
             mkdir -p "${artifacts_root}"
             run_xcode_test_invocation "$2" test
         ' verify-test "${project_root}/Scripts/verify.sh" "${invocation_name}"
@@ -86,6 +88,8 @@ run_membership_check() {
         bash -c '
             set -euo pipefail
             source "$1"
+            install_verify_lifecycle_traps
+            initialize_verify_lifecycle
             assert_test_sources_belong_to_target "$2" FakeTests
         ' verify-test "${project_root}/Scripts/verify.sh" "${source_directory}"
 }

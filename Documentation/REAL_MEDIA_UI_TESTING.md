@@ -32,7 +32,8 @@ Run the test with:
 make test-real-media
 ~~~
 
-To retain DerivedData and the result bundle at a known location:
+To retain the result bundle at a known location (the reusable DerivedData cache
+remains in `.build/muralume/cache/verify`):
 
 ~~~bash
 make test-real-media \

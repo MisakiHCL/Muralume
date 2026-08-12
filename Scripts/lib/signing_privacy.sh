@@ -13,6 +13,13 @@ signing_privacy_value_is_indirect_or_empty() {
     value="${value%,}"
     value="${value#"${value%%[![:space:]]*}"}"
     value="${value%"${value##*[![:space:]]}"}"
+    # A scoped environment assignment may continue into the command on the
+    # next line. Remove exactly that shell continuation before evaluating the
+    # value; a literal on the left still remains concrete and is rejected.
+    if [[ "${value}" == *' \' ]]; then
+        value="${value%??}"
+        value="${value%"${value##*[![:space:]]}"}"
+    fi
 
     if [[ "${#value}" -ge 2 ]]; then
         case "${value}" in
@@ -31,6 +38,10 @@ signing_privacy_value_is_indirect_or_empty() {
     [[ "${value}" =~ ^(YOUR|EXAMPLE|REPLACE)_[A-Z0-9_]+$ ]] && return 0
     [[ "${value}" =~ ^\$\([A-Za-z_][A-Za-z0-9_.-]*\)$ ]] && return 0
     [[ "${value}" =~ ^\$\{[A-Za-z_][A-Za-z0-9_]*(:-)?\}$ ]] && return 0
+    # Scoped shell forwarding such as KEY="${captured_key}" remains indirect;
+    # the actual value still comes from a private, ignored configuration.
+    [[ "${value}" =~ ^[\"\']\$\{[A-Za-z_][A-Za-z0-9_]*(:-)?\}[\"\']$ ]] \
+        && return 0
     [[ "${value}" =~ ^\$[A-Za-z_][A-Za-z0-9_]*$ ]] && return 0
     [[ "${value}" =~ ^ENV\[[\"\'][A-Za-z_][A-Za-z0-9_]*[\"\']\]$ ]] \
         && return 0

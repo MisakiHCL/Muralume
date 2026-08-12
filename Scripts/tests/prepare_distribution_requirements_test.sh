@@ -38,11 +38,18 @@ cp "${project_root}/Scripts/prepare_distribution_requirements.sh" \
     "${fixture_root}/Scripts/prepare_distribution_requirements.sh"
 cp "${project_root}/Scripts/lib/distribution_requirements.sh" \
     "${fixture_root}/Scripts/lib/distribution_requirements.sh"
+cp "${project_root}/Scripts/lib/release_invocation.sh" \
+    "${fixture_root}/Scripts/lib/release_invocation.sh"
+cp "${project_root}/Scripts/lib/build_cache.sh" \
+    "${fixture_root}/Scripts/lib/build_cache.sh"
+cp "${project_root}/Scripts/lib/release_source_snapshot.sh" \
+    "${fixture_root}/Scripts/lib/release_source_snapshot.sh"
 chmod 755 "${fixture_root}/Scripts/prepare_distribution_requirements.sh"
 
 printf '%s\n' \
     '/Config/Release.local.mk' \
     '/Config/Distribution.requirements' \
+    '.build/' \
     '*.requirements' \
     >"${fixture_root}/.gitignore"
 printf '%s\n' 'fixture project' >"${fixture_root}/README.md"
@@ -191,7 +198,8 @@ if [[ "${is_export}" -eq 0 ]]; then
     [[ "${scheme}" == "Muralume" ]]
     [[ "${configuration}" == "Release" ]]
     [[ "${destination}" == "generic/platform=macOS" ]]
-    [[ "${derived_data_path}" == "${work_directory}/DerivedData" ]]
+    [[ "${derived_data_path}" == \
+        "${FAKE_FIXTURE_ROOT}"/.build/muralume/cache/release-requirements/*/DerivedData ]]
     [[ "${xcconfig_path}" == "${work_directory}/Archive.xcconfig" ]]
     [[ "$(git -C "${source_root}" rev-parse HEAD)" \
         == "${FAKE_EXPECTED_SOURCE_COMMIT}" ]]
@@ -408,6 +416,7 @@ export FAKE_EXPORT_APP_STATE_PATH="${export_app_state_path}"
 export FAKE_ARCHIVE_COUNT_PATH="${archive_count_path}"
 export FAKE_EXPORT_COUNT_PATH="${export_count_path}"
 export FAKE_TMP_ROOT="${fixture_tmp}"
+export FAKE_FIXTURE_ROOT="${fixture_root}"
 export FAKE_EXPECTED_SOURCE_COMMIT="${fixture_bridge_commit}"
 export FAKE_EXPECTED_SOURCE_TREE="${fixture_bridge_tree}"
 
@@ -500,6 +509,17 @@ assert_failed_preparation_preserves_requirement() {
         "${expected_export_count}" \
         "${description}"
     assert_requirement_unchanged "${description}"
+    if find "${fixture_tmp}" \
+        -mindepth 1 \
+        -maxdepth 1 \
+        -type d \
+        -name 'MuralumeRequirementPreparation.*' \
+        -print \
+        -quit | grep . >/dev/null; then
+        printf 'A failed preparation work directory leaked after %s.\n' \
+            "${description}" >&2
+        exit 1
+    fi
 }
 
 if "${preparation_script}" --app "${fixture_root}/Muralume.app" \
@@ -645,6 +665,79 @@ assert_failed_preparation_preserves_requirement \
     1 \
     1 \
     FAKE_EXPORT_FAIL=1
+
+readonly diagnostics_root="${fixture_root}/.build/muralume/diagnostics/prepare-distribution-requirements"
+diagnostic_bundle_count="$(
+    find "${diagnostics_root}" \
+        -mindepth 1 \
+        -maxdepth 1 \
+        -type d \
+        -name 'failure-*' \
+        -print | wc -l | tr -d '[:space:]'
+)"
+[[ "${diagnostic_bundle_count}" -le 5 ]] \
+    || {
+        echo 'Requirement preparation retained more than five diagnostic bundles.' >&2
+        exit 1
+    }
+while IFS= read -r -d '' diagnostic_bundle; do
+    [[ "$(stat -f '%Lp' "${diagnostic_bundle}")" == "700" ]] \
+        || {
+            echo 'A requirement diagnostic bundle was not mode 0700.' >&2
+            exit 1
+        }
+    while IFS= read -r -d '' diagnostic_log; do
+        [[ "$(stat -f '%Lp' "${diagnostic_log}")" == "600" ]] \
+            || {
+                echo 'A requirement diagnostic log was not mode 0600.' >&2
+                exit 1
+            }
+    done < <(find "${diagnostic_bundle}" -type f -name '*.log' -print0)
+done < <(
+    find "${diagnostics_root}" \
+        -mindepth 1 \
+        -maxdepth 1 \
+        -type d \
+        -name 'failure-*' \
+        -print0
+)
+
+before_preserved_archive_count="$(counter_value "${archive_count_path}")"
+before_preserved_export_count="$(counter_value "${export_count_path}")"
+set +e
+env MURALUME_KEEP_FAILED_WORKDIR=1 FAKE_ARCHIVE_FAIL=1 \
+    "${preparation_script}" --replace >"${command_log}" 2>&1
+preserved_preparation_status="$?"
+set -e
+[[ "${preserved_preparation_status}" -ne 0 ]] \
+    || {
+        echo 'Expected the opt-in preserved preparation to fail.' >&2
+        exit 1
+    }
+assert_workflow_counts \
+    "$((before_preserved_archive_count + 1))" \
+    "${before_preserved_export_count}" \
+    'opt-in preserved preparation'
+assert_requirement_unchanged 'opt-in preserved preparation'
+preserved_work_directory="$(
+    sed -n \
+        's/^Private requirement preparation work directory preserved: //p' \
+        "${command_log}" | tail -n 1
+)"
+[[ -d "${preserved_work_directory}" ]] \
+    || {
+        echo 'MURALUME_KEEP_FAILED_WORKDIR=1 did not preserve the requirement work directory.' >&2
+        exit 1
+    }
+[[ -d "${preserved_work_directory}/Source" \
+    && -f "${preserved_work_directory}/archive.log" ]] \
+    || {
+        echo 'The opt-in requirement work directory was not a complete failure scene.' >&2
+        exit 1
+    }
+git -C "${fixture_root}" worktree remove --force \
+    "${preserved_work_directory}/Source" >/dev/null
+rm -rf "${preserved_work_directory}"
 
 [[ ! -e "${archive_extraction_marker}" ]]
 echo "Distribution requirement preparation fault-injection checks passed."

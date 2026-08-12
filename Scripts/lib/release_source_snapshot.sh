@@ -4,7 +4,21 @@
 # intended to be sourced.
 
 release_git() {
-    GIT_NO_REPLACE_OBJECTS=1 command git "$@"
+    env \
+        -u GIT_DIR \
+        -u GIT_WORK_TREE \
+        -u GIT_INDEX_FILE \
+        -u GIT_OBJECT_DIRECTORY \
+        -u GIT_ALTERNATE_OBJECT_DIRECTORIES \
+        -u GIT_COMMON_DIR \
+        -u GIT_CONFIG \
+        -u GIT_CONFIG_GLOBAL \
+        -u GIT_CONFIG_SYSTEM \
+        -u GIT_CONFIG_PARAMETERS \
+        -u GIT_NAMESPACE \
+        GIT_CONFIG_COUNT=0 \
+        GIT_NO_REPLACE_OBJECTS=1 \
+        git "$@"
 }
 
 reject_release_git_object_overrides() {
@@ -73,6 +87,59 @@ verify_clean_release_repository() {
         echo "A formal release requires a clean tracked worktree and no unignored files." >&2
         return 1
     fi
+}
+
+release_reclaim_managed_worktree() {
+    if [[ "$#" -ne 2 ]]; then
+        echo "Managed worktree cleanup needs a repository and path." >&2
+        return 64
+    fi
+    local reclaim_repository_path="$1"
+    local reclaim_checkout_path="$2"
+    local reclaim_repository_root
+    local reclaim_checkout_parent
+    local reclaim_common_directory
+    local reclaim_checkout_common_directory
+
+    [[ "${reclaim_checkout_path}" == /* ]] || return 1
+    reclaim_repository_root="$(
+        cd "${reclaim_repository_path}" && pwd -P
+    )" || return 1
+    reclaim_checkout_parent="$(dirname "${reclaim_checkout_path}")"
+    [[ -d "${reclaim_checkout_parent}" \
+        && "$(cd "${reclaim_checkout_parent}" && pwd -P)" \
+            == "${reclaim_repository_root}/.build/muralume/checkouts/"* ]] \
+        || return 1
+
+    release_git -C "${reclaim_repository_root}" worktree remove --force \
+        "${reclaim_checkout_path}" >/dev/null 2>&1 || true
+    release_git -C "${reclaim_repository_root}" worktree prune \
+        >/dev/null 2>&1 || return 1
+    [[ ! -e "${reclaim_checkout_path}" \
+        && ! -L "${reclaim_checkout_path}" ]] && return 0
+    [[ -d "${reclaim_checkout_path}" \
+        && ! -L "${reclaim_checkout_path}" \
+        && -f "${reclaim_checkout_path}/.git" \
+        && ! -L "${reclaim_checkout_path}/.git" ]] || return 1
+    reclaim_common_directory="$(
+        release_git -C "${reclaim_repository_root}" rev-parse --git-common-dir
+    )" || return 1
+    case "${reclaim_common_directory}" in
+        /*) reclaim_common_directory="$(cd "${reclaim_common_directory}" && pwd -P)" ;;
+        *) reclaim_common_directory="$(cd "${reclaim_repository_root}/${reclaim_common_directory}" && pwd -P)" ;;
+    esac || return 1
+    reclaim_checkout_common_directory="$(
+        release_git -C "${reclaim_checkout_path}" rev-parse --git-common-dir
+    )" || return 1
+    case "${reclaim_checkout_common_directory}" in
+        /*) reclaim_checkout_common_directory="$(cd "${reclaim_checkout_common_directory}" && pwd -P)" ;;
+        *) reclaim_checkout_common_directory="$(cd "${reclaim_checkout_path}/${reclaim_checkout_common_directory}" && pwd -P)" ;;
+    esac || return 1
+    [[ "${reclaim_checkout_common_directory}" \
+        == "${reclaim_common_directory}" ]] || return 1
+    rm -rf -- "${reclaim_checkout_path}"
+    release_git -C "${reclaim_repository_root}" worktree prune \
+        >/dev/null 2>&1
 }
 
 verify_release_source_snapshot() {
@@ -155,11 +222,11 @@ validate_formal_release_version() {
         return 64
     fi
 
-    local repository_path="$1"
-    local source_commit="$2"
-    local expected_version="$3"
-    local expected_build="$4"
-    local python_path="$5"
+    local release_repository_path="$1"
+    local release_source_commit="$2"
+    local release_expected_version="$3"
+    local release_expected_build="$4"
+    local release_python_path="$5"
     local config_path='Config/Base.xcconfig'
     local configured_version
     local configured_build
@@ -172,48 +239,48 @@ validate_formal_release_version() {
     local previous_release_count=0
     local release_tags
 
-    [[ "${expected_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+    [[ "${release_expected_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
         echo "The formal release version must be a three-component semantic version." >&2
         return 1
     }
-    [[ "${expected_build}" =~ ^[0-9]+$ ]] || {
+    [[ "${release_expected_build}" =~ ^[0-9]+$ ]] || {
         echo "The formal release build number must be an integer." >&2
         return 1
     }
 
     configured_version="$(
         release_xcconfig_value_at_commit \
-            "${repository_path}" \
-            "${source_commit}" \
+            "${release_repository_path}" \
+            "${release_source_commit}" \
             "${config_path}" \
             MARKETING_VERSION
     )" || return 1
     configured_build="$(
         release_xcconfig_value_at_commit \
-            "${repository_path}" \
-            "${source_commit}" \
+            "${release_repository_path}" \
+            "${release_source_commit}" \
             "${config_path}" \
             CURRENT_PROJECT_VERSION
     )" || return 1
-    if [[ "${configured_version}" != "${expected_version}" \
-        || "${configured_build}" != "${expected_build}" ]]; then
+    if [[ "${configured_version}" != "${release_expected_version}" \
+        || "${configured_build}" != "${release_expected_build}" ]]; then
         echo "The formal release version and build must come from the captured Base.xcconfig." >&2
         return 1
     fi
 
-    expected_tag="v${expected_version}"
+    expected_tag="v${release_expected_version}"
     if tagged_commit="$(
-        release_git -C "${repository_path}" rev-parse --verify \
+        release_git -C "${release_repository_path}" rev-parse --verify \
             "refs/tags/${expected_tag}^{commit}" 2>/dev/null
     )"; then
-        if [[ "${tagged_commit}" != "${source_commit}" ]]; then
+        if [[ "${tagged_commit}" != "${release_source_commit}" ]]; then
             echo "${expected_tag} already points to a different source commit." >&2
             return 1
         fi
     fi
 
     release_tags="$(
-        release_git -C "${repository_path}" tag --list 'v*'
+        release_git -C "${release_repository_path}" tag --list 'v*'
     )" || return 1
     while IFS= read -r candidate_tag; do
         [[ "${candidate_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
@@ -224,7 +291,7 @@ validate_formal_release_version() {
 
         candidate_configured_version="$(
             release_xcconfig_value_at_commit \
-                "${repository_path}" \
+                "${release_repository_path}" \
                 "${candidate_tag}^{commit}" \
                 "${config_path}" \
                 MARKETING_VERSION
@@ -235,7 +302,7 @@ validate_formal_release_version() {
         fi
         candidate_build="$(
             release_xcconfig_value_at_commit \
-                "${repository_path}" \
+                "${release_repository_path}" \
                 "${candidate_tag}^{commit}" \
                 "${config_path}" \
                 CURRENT_PROJECT_VERSION
@@ -245,21 +312,21 @@ validate_formal_release_version() {
             return 1
         }
 
-        if ! "${python_path}" -c '
+        if ! "${release_python_path}" -c '
 import sys
 
 def version(value):
     return tuple(int(component) for component in value.split("."))
 
 raise SystemExit(0 if version(sys.argv[1]) > version(sys.argv[2]) else 1)
-' "${expected_version}" "${candidate_version}"; then
+' "${release_expected_version}" "${candidate_version}"; then
             echo "The release version must be greater than ${candidate_tag}." >&2
             return 1
         fi
-        if ! "${python_path}" -c '
+        if ! "${release_python_path}" -c '
 import sys
 raise SystemExit(0 if int(sys.argv[1]) > int(sys.argv[2]) else 1)
-' "${expected_build}" "${candidate_build}"; then
+' "${release_expected_build}" "${candidate_build}"; then
             echo "The release build must be greater than ${candidate_tag} build ${candidate_build}." >&2
             return 1
         fi

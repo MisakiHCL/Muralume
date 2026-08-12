@@ -3,6 +3,7 @@ SHELL := /bin/bash
 VERBOSE ?= 0
 
 -include Config/Release.local.mk
+-include Config/AppStoreConnect.local.mk
 -include .env.test.local
 
 MURALUME_DEVELOPER_ID_APPLICATION ?=
@@ -10,19 +11,33 @@ MURALUME_NOTARY_KEYCHAIN_PROFILE ?=
 MURALUME_EXPECTED_TEAM_IDENTIFIER ?=
 MURALUME_REPLACE_DISTRIBUTION_REQUIREMENTS ?= 0
 MURALUME_REAL_MEDIA_DIRECTORY ?=
-export MURALUME_DEVELOPER_ID_APPLICATION
-export MURALUME_NOTARY_KEYCHAIN_PROFILE
-export MURALUME_EXPECTED_TEAM_IDENTIFIER
+MURALUME_ASC_KEY_ID ?=
+MURALUME_ASC_ISSUER_ID ?=
+MURALUME_ASC_PRIVATE_KEY_PATH ?=
+RELEASE_TITLE ?=
+RELEASE_NOTES_FILE ?=
 export MURALUME_REAL_MEDIA_DIRECTORY
+export RELEASE_TITLE
+export RELEASE_NOTES_FILE
+
+developer-release-targets := prepare-distribution-requirements release-doctor release-dual release-dual-steps release-macos release-macos-steps
+app-store-release-targets := release-doctor release-status release-dual release-dual-steps mas-preflight validate-testflight validate-testflight-steps upload-testflight upload-testflight-steps
+$(developer-release-targets): export MURALUME_DEVELOPER_ID_APPLICATION := $(MURALUME_DEVELOPER_ID_APPLICATION)
+$(developer-release-targets): export MURALUME_NOTARY_KEYCHAIN_PROFILE := $(MURALUME_NOTARY_KEYCHAIN_PROFILE)
+$(developer-release-targets): export MURALUME_EXPECTED_TEAM_IDENTIFIER := $(MURALUME_EXPECTED_TEAM_IDENTIFIER)
+$(app-store-release-targets): export MURALUME_ASC_KEY_ID := $(MURALUME_ASC_KEY_ID)
+$(app-store-release-targets): export MURALUME_ASC_ISSUER_ID := $(MURALUME_ASC_ISSUER_ID)
+$(app-store-release-targets): export MURALUME_ASC_PRIVATE_KEY_PATH := $(MURALUME_ASC_PRIVATE_KEY_PATH)
 
 LOCAL_DMG := $(abspath dist/macos-local/Muralume.dmg)
 RELEASE_DMG := $(abspath dist/macos-release/Muralume.dmg)
 
-.PHONY: help test test-steps test-real-media package-macos package-macos-steps prepare-distribution-requirements release-macos release-macos-steps mas-preflight validate-testflight validate-testflight-steps upload-testflight upload-testflight-steps
+.PHONY: help test test-steps test-real-media package-macos package-macos-steps prepare-distribution-requirements release-doctor release-status release-dual release-dual-steps release-macos release-macos-steps mas-preflight validate-testflight validate-testflight-steps upload-testflight upload-testflight-steps
 
 define run-quiet-workflow
 	@if [[ "$(VERBOSE)" == "1" \
 		&& "$(2)" != "release-macos" \
+		&& "$(2)" != "release-dual" \
 		&& "$(2)" != "validate-testflight" \
 		&& "$(2)" != "upload-testflight" ]]; then \
 		$(MAKE) --no-print-directory $(1); \
@@ -42,6 +57,9 @@ help:
 		'  make prepare-distribution-requirements' \
 		'                              Export and record the private bridge requirement' \
 		'  make release-macos          Build, sign, notarize, and verify the release DMG' \
+		'  make release-doctor         Check GitHub, Apple, signing, proxy, and disk access' \
+		'  make release-status         Verify GitHub Release and TestFlight remote state' \
+		'  make release-dual           Publish one complete GitHub + TestFlight release' \
 		'  make mas-preflight          Check the private Mac App Store configuration' \
 		'  make validate-testflight    Archive and validate with App Store Connect' \
 		'  make upload-testflight      Validate and upload a TestFlight/App Store build' \
@@ -91,6 +109,19 @@ release-macos-steps:
 	@./Scripts/release_macos.sh \
 		--mode distribution \
 		--output "$(RELEASE_DMG)"
+
+release-doctor:
+	@./Scripts/release_doctor.sh
+
+release-status:
+	@./Scripts/release_dual.sh --status
+
+release-dual:
+	@printf 'Publishing the complete Muralume GitHub + TestFlight release...\n'
+	+$(call run-quiet-workflow,release-dual-steps,release-dual)
+
+release-dual-steps:
+	@./Scripts/release_dual.sh
 
 mas-preflight:
 	@./Scripts/release_app_store.sh --mode check
