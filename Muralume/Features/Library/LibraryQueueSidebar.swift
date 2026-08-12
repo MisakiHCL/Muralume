@@ -717,12 +717,12 @@ struct LibraryQueueSidebar: View {
                 .foregroundStyle(MuralumeTheme.Colors.textSecondary)
         case .ready:
             libraryCountSummary
-        case .failed:
+        case let .failed(failure):
             HStack(spacing: MuralumeTheme.Spacing.small) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(MuralumeTheme.Colors.warning)
                     .accessibilityHidden(true)
-                Text("library.scan.failed")
+                Text(LocalizedStringKey(failure.localizedTitleKey))
                     .font(.caption)
                     .lineLimit(1)
                     .foregroundStyle(MuralumeTheme.Colors.textSecondary)
@@ -849,6 +849,7 @@ struct LibraryQueueSidebar: View {
                 scanState: library.scanState,
                 sourceAccessState: library.sourceAccessState,
                 canRetrySourceAccess: library.canRetrySourceAccess,
+                retryScan: { library.refresh() },
                 retrySourceAccess: retryUnavailableSourceAccess,
                 reauthorizeMediaSources: reauthorizeMediaSources
             )
@@ -1273,6 +1274,7 @@ private struct LibrarySidebarEmptyState: View {
     let scanState: MediaLibraryScanState
     let sourceAccessState: MediaLibrarySourceAccessState
     let canRetrySourceAccess: Bool
+    let retryScan: () -> Void
     let retrySourceAccess: () -> Void
     let reauthorizeMediaSources: () -> Void
 
@@ -1286,17 +1288,31 @@ private struct LibrarySidebarEmptyState: View {
             : "library.sourceAccess.unavailable.title"
     }
 
+    private var scanFailure: MediaLibraryScanFailure? {
+        guard case let .failed(failure) = scanState else {
+            return nil
+        }
+        return failure
+    }
+
+    private var iconName: String {
+        if sourceAccessIsUnavailable {
+            return "externaldrive.badge.exclamationmark"
+        }
+        if scanFailure != nil {
+            return "exclamationmark.triangle.fill"
+        }
+        if scanState == .scanning {
+            return "magnifyingglass"
+        }
+        return "plus.rectangle.on.folder"
+    }
+
     var body: some View {
         VStack(spacing: MuralumeTheme.Spacing.medium) {
             Spacer(minLength: MuralumeTheme.Spacing.large)
 
-            Image(
-                systemName: sourceAccessIsUnavailable
-                    ? "externaldrive.badge.exclamationmark"
-                    : scanState == .scanning
-                        ? "magnifyingglass"
-                        : "plus.rectangle.on.folder"
-            )
+            Image(systemName: iconName)
             .font(.system(size: 32, weight: .medium))
             .foregroundStyle(MuralumeTheme.Colors.controlAccent)
             .accessibilityHidden(true)
@@ -1306,7 +1322,8 @@ private struct LibrarySidebarEmptyState: View {
                     sourceAccessIsUnavailable
                         && scanState != .scanning
                         ? sourceAccessUnavailableTitleKey
-                        : "library.playlist.empty"
+                        : scanFailure?.localizedTitleKey
+                            ?? "library.playlist.empty"
                 )
             )
             .font(.body.weight(.semibold))
@@ -1324,6 +1341,11 @@ private struct LibrarySidebarEmptyState: View {
                 .font(.caption)
                 .foregroundStyle(MuralumeTheme.Colors.textSecondary)
                 .multilineTextAlignment(.center)
+            } else if let scanFailure {
+                Text(LocalizedStringKey(scanFailure.localizedDetailKey))
+                    .font(.caption)
+                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
             }
 
             if sourceAccessIsUnavailable,
@@ -1358,6 +1380,16 @@ private struct LibrarySidebarEmptyState: View {
                             .reauthorizeSourcesButton
                     )
                 }
+            } else if scanFailure != nil {
+                Button("library.retry") {
+                    retryScan()
+                }
+                .buttonStyle(
+                    MuralumeToolbarButtonStyle(
+                        width: MuralumeTheme.Size
+                            .playlistRefreshActionWidth
+                    )
+                )
             }
 
             Spacer(minLength: MuralumeTheme.Spacing.large)

@@ -499,6 +499,7 @@ final class TestMediaLibraryScanner: MediaLibraryScanning, @unchecked Sendable {
     private let lock = NSLock()
     private let snapshot: MediaLibrarySnapshot
     private var queuedSnapshots: [MediaLibrarySnapshot] = []
+    private var queuedScanErrors: [MediaLibraryScanError] = []
     private var storedScannedRootURLs: [[URL]] = []
     private var storedScannedSources: [[MediaSource]] = []
     private var shouldBlockNextScan = false
@@ -562,11 +563,20 @@ final class TestMediaLibraryScanner: MediaLibraryScanning, @unchecked Sendable {
             }
             try Task.checkCancellation()
         }
-        return lock.withLock {
+        return try lock.withLock {
+            if !queuedScanErrors.isEmpty {
+                throw queuedScanErrors.removeFirst()
+            }
             guard !queuedSnapshots.isEmpty else {
                 return snapshot
             }
             return queuedSnapshots.removeFirst()
+        }
+    }
+
+    func enqueueScanError(_ error: MediaLibraryScanError) {
+        lock.withLock {
+            queuedScanErrors.append(error)
         }
     }
 

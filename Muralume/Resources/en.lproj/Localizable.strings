@@ -70,6 +70,11 @@
 "library.scanning" = "Scanning media…";
 "library.scanning.detail" = "Muralume is looking for supported videos in your media sources.";
 "library.scan.failed" = "Media scan failed";
+"library.scan.failed.detail" = "Muralume stopped scanning. Choose the media sources again or retry.";
+"library.scan.timeLimit.title" = "Media scan took too long";
+"library.scan.timeLimit.detail" = "Muralume stopped scanning to keep the app responsive. Choose a smaller folder or fewer media sources, then retry.";
+"library.scan.memoryLimit.title" = "Media library is too large";
+"library.scan.memoryLimit.detail" = "Muralume stopped scanning before it used too much memory. Choose a smaller folder or fewer media sources, then retry.";
 "library.retry" = "Retry";
 "library.refresh" = "Refresh Data";
 "library.empty.title" = "No playable videos found";

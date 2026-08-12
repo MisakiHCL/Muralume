@@ -266,6 +266,31 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.coordinator.scanState, .ready)
     }
 
+    func testResourceLimitFailuresRemainVisibleToTheUser() async {
+        let rootURL = URL(fileURLWithPath: "/tmp/Oversized Library")
+        let cases: [(MediaLibraryScanError, MediaLibraryScanFailure)] = [
+            (.timeLimitExceeded, .timeLimitExceeded),
+            (.memoryLimitExceeded, .memoryLimitExceeded),
+        ]
+
+        for (error, expectedFailure) in cases {
+            let fixture = makeFixture(
+                selectedURLs: [rootURL],
+                snapshot: .empty
+            )
+            fixture.scanner.enqueueScanError(error)
+
+            fixture.coordinator.addMedia()
+            await waitForScan(fixture.coordinator)
+
+            XCTAssertEqual(
+                fixture.coordinator.scanState,
+                .failed(expectedFailure)
+            )
+            XCTAssertTrue(fixture.coordinator.items.isEmpty)
+        }
+    }
+
     func testCanonicalItemLookupIndexIsReusedUntilItemsChange()
         async throws {
         let fileManager = FileManager.default

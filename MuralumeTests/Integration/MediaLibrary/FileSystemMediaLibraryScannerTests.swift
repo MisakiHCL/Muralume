@@ -4,6 +4,46 @@ import XCTest
 
 @MainActor
 final class FileSystemMediaLibraryScannerTests: XCTestCase {
+    func testStopsImmediatelyWhenScanTimeBudgetIsExhausted() async throws {
+        let sandboxURL = try makeSandbox()
+        defer { removeSandbox(sandboxURL) }
+        let scanner = FileSystemMediaLibraryScanner(
+            scanLimits: FileSystemMediaLibraryScanLimits(
+                maximumDuration: .zero,
+                maximumEstimatedWorkingSetBytes: 1_024
+            )
+        )
+
+        do {
+            _ = try await scanner.scan(rootURLs: [sandboxURL])
+            XCTFail("Expected the scan time budget to stop the scan")
+        } catch let error as MediaLibraryScanError {
+            XCTAssertEqual(error, .timeLimitExceeded)
+        }
+    }
+
+    func testStopsBeforeRetainingMediaBeyondMemoryBudget() async throws {
+        let sandboxURL = try makeSandbox()
+        defer { removeSandbox(sandboxURL) }
+        try writeFile(
+            at: sandboxURL.appendingPathComponent("Large Library.mp4"),
+            byteCount: 1
+        )
+        let scanner = FileSystemMediaLibraryScanner(
+            scanLimits: FileSystemMediaLibraryScanLimits(
+                maximumDuration: .seconds(60),
+                maximumEstimatedWorkingSetBytes: 1
+            )
+        )
+
+        do {
+            _ = try await scanner.scan(rootURLs: [sandboxURL])
+            XCTFail("Expected the scan memory budget to stop the scan")
+        } catch let error as MediaLibraryScanError {
+            XCTAssertEqual(error, .memoryLimitExceeded)
+        }
+    }
+
     func testScansEverySupportedVideoExtensionCaseInsensitively() async throws {
         let sandboxURL = try makeSandbox()
         defer { removeSandbox(sandboxURL) }

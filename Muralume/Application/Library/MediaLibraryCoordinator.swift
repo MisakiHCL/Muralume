@@ -5,7 +5,7 @@ enum MediaLibraryScanState: Equatable, Sendable {
     case idle
     case scanning
     case ready
-    case failed
+    case failed(MediaLibraryScanFailure)
 }
 
 enum MediaLibraryStartDisposition: Equatable, Sendable {
@@ -1743,13 +1743,20 @@ final class MediaLibraryCoordinator: ObservableObject {
                 }
             } catch is CancellationError {
                 return
+            } catch let error as MediaLibraryScanError {
+                guard let self,
+                      generation == scanGeneration,
+                      !isShutDown else {
+                    return
+                }
+                scanState = .failed(error.userFacingFailure)
             } catch {
                 guard let self,
                       generation == scanGeneration,
                       !isShutDown else {
                     return
                 }
-                scanState = .failed
+                scanState = .failed(.other)
             }
         }
         scanTasks[taskID] = task

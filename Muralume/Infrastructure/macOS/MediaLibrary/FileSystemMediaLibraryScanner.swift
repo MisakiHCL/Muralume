@@ -16,13 +16,26 @@ struct FileSystemMediaSourceInspection: Sendable {
     )
 }
 
+struct FileSystemMediaLibraryScanLimits: Sendable {
+    static let production = FileSystemMediaLibraryScanLimits(
+        maximumDuration: .seconds(120),
+        maximumEstimatedWorkingSetBytes: 128 * 1_024 * 1_024
+    )
+
+    let maximumDuration: Duration
+    let maximumEstimatedWorkingSetBytes: Int
+}
+
 struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
     private let sourceInspection: FileSystemMediaSourceInspection
+    private let scanLimits: FileSystemMediaLibraryScanLimits
 
     init(
-        sourceInspection: FileSystemMediaSourceInspection = .live
+        sourceInspection: FileSystemMediaSourceInspection = .live,
+        scanLimits: FileSystemMediaLibraryScanLimits = .production
     ) {
         self.sourceInspection = sourceInspection
+        self.scanLimits = scanLimits
     }
 
     func scan(rootURLs: [URL]) async throws -> MediaLibrarySnapshot {
@@ -69,7 +82,11 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         sources: [MediaSource]
     ) throws -> MediaLibrarySnapshot {
         let fileManager = FileManager.default
-        let normalizedSources = try normalizedUniqueSources(sources)
+        var budget = FileSystemMediaLibraryScanBudget(limits: scanLimits)
+        let normalizedSources = try normalizedUniqueSources(
+            sources,
+            budget: &budget
+        )
         var roots: [MediaLibraryRoot] = []
         var items: [LibraryMediaItem] = []
         var itemIndicesByID: [LibraryMediaItem.ID: Int] = [:]
@@ -78,7 +95,9 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
 
         for source in normalizedSources {
             try Task.checkCancellation()
+            try budget.checkpoint()
             var scannedRootPath: String?
+            let rootMemoryCheckpoint = budget.estimatedWorkingSetBytes
             do {
                 let root = try Self.inspectRoot(
                     source,
@@ -88,6 +107,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                 let isComplete = try Self.scan(
                     root: root,
                     fileManager: fileManager,
+                    budget: &budget,
                     onItem: { item in
                         if let existingIndex = itemIndicesByID[item.id] {
                             if items[existingIndex].kind == .folder {
@@ -105,6 +125,13 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                     incompleteRootPaths.insert(root.id.standardizedPath)
                 }
             } catch let error as MediaLibraryScanError {
+                if error.isResourceLimitExceeded {
+                    roots.removeAll(keepingCapacity: false)
+                    items.removeAll(keepingCapacity: false)
+                    itemIndicesByID.removeAll(keepingCapacity: false)
+                    incompleteRootPaths.removeAll(keepingCapacity: false)
+                    throw error
+                }
                 // Items are streamed into the final array to avoid a second
                 // full item collection per root. A root-level failure is
                 // uncommon, so rebuild the compact ID index only on failure.
@@ -116,6 +143,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                     for (index, item) in items.enumerated() {
                         itemIndicesByID[item.id] = index
                     }
+                    budget.restoreMemory(to: rootMemoryCheckpoint)
                 }
                 if firstRootError == nil {
                     firstRootError = error
@@ -130,8 +158,17 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         // The ID index is no longer needed. Release it before sorting so peak
         // scan memory is the final item array plus the sort's own workspace.
         itemIndicesByID = [:]
-        roots.sort(by: Self.rootPathPrecedes)
-        items.sort(by: Self.itemPathPrecedes)
+        do {
+            try budget.checkpoint()
+            roots.sort(by: Self.rootPathPrecedes)
+            items.sort(by: Self.itemPathPrecedes)
+            try budget.checkpoint()
+        } catch {
+            roots.removeAll(keepingCapacity: false)
+            items.removeAll(keepingCapacity: false)
+            incompleteRootPaths.removeAll(keepingCapacity: false)
+            throw error
+        }
         return MediaLibrarySnapshot(
             roots: roots,
             items: items,
@@ -140,12 +177,14 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
     }
 
     private func normalizedUniqueSources(
-        _ sources: [MediaSource]
+        _ sources: [MediaSource],
+        budget: inout FileSystemMediaLibraryScanBudget
     ) throws -> [MediaSource] {
         var sortedSources: [MediaSource] = []
         sortedSources.reserveCapacity(sources.count)
         for source in sources {
             try Task.checkCancellation()
+            try budget.checkpoint()
             sortedSources.append(
                 MediaSource(
                     url: source.url.standardizedFileURL,
@@ -171,6 +210,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
 
         for source in sortedSources {
             try Task.checkCancellation()
+            try budget.checkpoint()
             let canonicalURL = sourceInspection
                 .canonicalURL(source.url)
                 .standardizedFileURL
@@ -193,7 +233,8 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                         acceptedFolderResourceIdentifiers,
                     inspectedAncestorPaths: &inspectedAncestorPaths,
                     ancestorResourceIdentifiersByPath:
-                        &ancestorResourceIdentifiersByPath
+                        &ancestorResourceIdentifiersByPath,
+                    budget: &budget
                 ) {
                 continue
             }
@@ -220,7 +261,8 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         acceptedFolderPaths: Set<String>,
         acceptedFolderResourceIdentifiers: Set<NSObject>,
         inspectedAncestorPaths: inout Set<String>,
-        ancestorResourceIdentifiersByPath: inout [String: NSObject]
+        ancestorResourceIdentifiersByPath: inout [String: NSObject],
+        budget: inout FileSystemMediaLibraryScanBudget
     ) throws -> Bool {
         guard !acceptedFolderPaths.isEmpty else {
             return false
@@ -229,6 +271,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         var ancestorURL = canonicalURL.deletingLastPathComponent()
         while true {
             try Task.checkCancellation()
+            try budget.checkpoint()
             let ancestorPath = ancestorURL.path
             if acceptedFolderPaths.contains(ancestorPath) {
                 return true
@@ -326,10 +369,13 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
     private static func scan(
         root: MediaLibraryRoot,
         fileManager: FileManager,
+        budget: inout FileSystemMediaLibraryScanBudget,
         onItem: (LibraryMediaItem) -> Void
     ) throws -> Bool {
         if root.kind == .file {
-            onItem(try inspectFile(root: root))
+            let item = try inspectFile(root: root)
+            try budget.reserveMemory(for: item)
+            onItem(item)
             return true
         }
 
@@ -355,8 +401,14 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
 
         let rootPathComponents = root.url.standardizedFileURL.pathComponents
 
-        while let fileURL = enumerator.nextObject() as? URL {
+        while true {
             try Task.checkCancellation()
+            try budget.checkpoint()
+            guard let fileURL = autoreleasepool(
+                invoking: { enumerator.nextObject() as? URL }
+            ) else {
+                break
+            }
             let values: URLResourceValues
             do {
                 values = try fileURL.resourceValues(forKeys: resourceKeys)
@@ -403,24 +455,24 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                 rootFailureRecorder.record(fileURL)
                 continue
             }
-            onItem(
-                LibraryMediaItem(
-                    rootURL: root.url,
-                    rootName: root.displayName,
-                    kind: .folder,
-                    url: fileURL,
-                    displayName: fileURL
-                        .deletingPathExtension()
-                        .lastPathComponent,
-                    relativePath: relativeItemPath,
-                    relativeDirectory: relativeDirectory(
-                        for: relativeItemPath
-                    ),
-                    creationDate: values.creationDate,
-                    modificationDate: values.contentModificationDate,
-                    fileSize: Int64(values.fileSize ?? 0)
-                )
+            let item = LibraryMediaItem(
+                rootURL: root.url,
+                rootName: root.displayName,
+                kind: .folder,
+                url: fileURL,
+                displayName: fileURL
+                    .deletingPathExtension()
+                    .lastPathComponent,
+                relativePath: relativeItemPath,
+                relativeDirectory: relativeDirectory(
+                    for: relativeItemPath
+                ),
+                creationDate: values.creationDate,
+                modificationDate: values.contentModificationDate,
+                fileSize: Int64(values.fileSize ?? 0)
             )
+            try budget.reserveMemory(for: item)
+            onItem(item)
         }
 
         if let failedURL = rootFailureRecorder.failedRootURL {
@@ -557,6 +609,74 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         return nil
     }
 
+}
+
+private struct FileSystemMediaLibraryScanBudget {
+    private enum MemoryEstimate {
+        // Covers value storage, array/dictionary buckets and sorting workspace.
+        static let fixedBytesPerItem = 1_024
+        // Paths are retained in URLs, IDs and display fields more than once.
+        static let duplicatedTextStorageMultiplier = 4
+    }
+
+    private let limits: FileSystemMediaLibraryScanLimits
+    private let clock = ContinuousClock()
+    private let startedAt: ContinuousClock.Instant
+    private(set) var estimatedWorkingSetBytes = 0
+
+    init(limits: FileSystemMediaLibraryScanLimits) {
+        self.limits = limits
+        startedAt = clock.now
+    }
+
+    func checkpoint() throws {
+        guard startedAt.duration(to: clock.now)
+                < limits.maximumDuration else {
+            throw MediaLibraryScanError.timeLimitExceeded
+        }
+    }
+
+    mutating func reserveMemory(for item: LibraryMediaItem) throws {
+        try checkpoint()
+        let textBytes = item.id.rootPath.utf8.count
+            + item.id.relativePath.utf8.count
+            + item.id.standardizedMediaPath.utf8.count
+            + item.rootName.utf8.count
+            + item.url.path.utf8.count
+            + item.displayName.utf8.count
+            + item.relativePath.utf8.count
+            + item.relativeDirectory.utf8.count
+        let (duplicatedTextBytes, textOverflow) = textBytes
+            .multipliedReportingOverflow(
+                by: MemoryEstimate.duplicatedTextStorageMultiplier
+            )
+        let (itemBytes, itemOverflow) = duplicatedTextBytes
+            .addingReportingOverflow(MemoryEstimate.fixedBytesPerItem)
+        guard !textOverflow,
+              !itemOverflow,
+              estimatedWorkingSetBytes
+                <= limits.maximumEstimatedWorkingSetBytes,
+              limits.maximumEstimatedWorkingSetBytes
+                - estimatedWorkingSetBytes >= itemBytes else {
+            throw MediaLibraryScanError.memoryLimitExceeded
+        }
+        estimatedWorkingSetBytes += itemBytes
+    }
+
+    mutating func restoreMemory(to checkpoint: Int) {
+        estimatedWorkingSetBytes = checkpoint
+    }
+}
+
+private extension MediaLibraryScanError {
+    var isResourceLimitExceeded: Bool {
+        switch self {
+        case .timeLimitExceeded, .memoryLimitExceeded:
+            true
+        default:
+            false
+        }
+    }
 }
 
 private final class RootEnumerationFailureRecorder: @unchecked Sendable {

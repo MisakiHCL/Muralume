@@ -289,8 +289,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         closeWindowItem.isEnabled = keyWindow != nil
         minimizeWindowItem.isEnabled = canMinimize(keyWindow)
         zoomWindowItem.isEnabled = canZoom(keyWindow)
-        bringAllToFrontItem.isEnabled =
-            application.windows.contains(where: \.isVisible)
+        bringAllToFrontItem.isEnabled = mainWindow?.isVisible == true
     }
 
     func refreshPlayerCommands(

@@ -70,6 +70,11 @@
 "library.scanning" = "正在扫描媒体…";
 "library.scanning.detail" = "Muralume 正在媒体来源中查找支持的视频。";
 "library.scan.failed" = "媒体扫描失败";
+"library.scan.failed.detail" = "Muralume 已停止扫描，请重新选择媒体来源或重试。";
+"library.scan.timeLimit.title" = "媒体扫描时间过长";
+"library.scan.timeLimit.detail" = "为保持应用流畅，Muralume 已停止扫描。请选择较小的文件夹或减少媒体来源后重试。";
+"library.scan.memoryLimit.title" = "媒体库过大";
+"library.scan.memoryLimit.detail" = "为避免占用过多内存，Muralume 已停止扫描。请选择较小的文件夹或减少媒体来源后重试。";
 "library.retry" = "重试";
 "library.refresh" = "刷新数据";
 "library.empty.title" = "未找到可播放的视频";
