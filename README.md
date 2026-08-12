@@ -30,6 +30,12 @@
 
 Muralume is a private, native macOS Dynamic Desktop app that turns the videos and folders you choose into a living desktop. A focused local player and playlist keep everything organized—without an account, cloud upload, or tracking.
 
+## See it in motion
+
+Watch a 20-second tour from choosing a local video to placing the queue behind your desktop files and switching scenes without interrupting the desktop.
+
+https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
+
 ## Why Muralume
 
 | | |
