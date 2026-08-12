@@ -230,20 +230,6 @@ struct SettingsView: View {
                 }
             }
 
-            Text("settings.defaultVideoPlayer.formats")
-                .font(.caption)
-                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-                .multilineTextAlignment(.trailing)
-                .accessibilityIdentifier(
-                    MuralumeAccessibilityIdentifier
-                        .defaultVideoPlayerStatus
-                )
-                .accessibilityLabel(
-                    Text(
-                        "settings.defaultVideoPlayer.accessibility.formats"
-                    )
-                )
-
             if defaultVideoPlayer.operationFailure != nil {
                 Text("settings.defaultVideoPlayer.failure")
                     .font(.caption)

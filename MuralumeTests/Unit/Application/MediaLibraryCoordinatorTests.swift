@@ -3,6 +3,57 @@ import XCTest
 
 @MainActor
 final class MediaLibraryCoordinatorTests: XCTestCase {
+    func testUnsupportedFileFormatShowsSpecificImportNotice() {
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(roots: [], items: [])
+        )
+        fixture.session.nextAddSourcesUpdate = MediaAccessUpdate(
+            activeSources: [],
+            requestedFileURLs: [],
+            acceptedRequestCount: 0,
+            rejectedRequestCount: 1,
+            actionableRejectionCounts: [.unsupportedFileFormat: 1],
+            didChangeSources: false
+        )
+
+        let preparation = fixture.coordinator.prepareImport([
+            URL(fileURLWithPath: "/tmp/Unsupported.mkv")
+        ])
+
+        XCTAssertNil(preparation)
+        XCTAssertEqual(
+            fixture.coordinator.importNotice,
+            .unsupportedFileFormat
+        )
+    }
+
+    func testPartiallyAcceptedUnsupportedFormatShowsSpecificNotice() {
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(roots: [], items: [])
+        )
+        fixture.session.nextAddSourcesUpdate = MediaAccessUpdate(
+            activeSources: [],
+            requestedFileURLs: [],
+            acceptedRequestCount: 1,
+            rejectedRequestCount: 1,
+            actionableRejectionCounts: [.unsupportedFileFormat: 1],
+            didChangeSources: false
+        )
+
+        let preparation = fixture.coordinator.prepareImport([
+            URL(fileURLWithPath: "/tmp/Supported.mp4"),
+            URL(fileURLWithPath: "/tmp/Unsupported.mkv")
+        ])
+
+        XCTAssertNil(preparation)
+        XCTAssertEqual(
+            fixture.coordinator.importNotice,
+            .partialUnsupportedFileFormat
+        )
+    }
+
     func testParentFolderConflictShowsActionableImportNotice() {
         let fixture = makeFixture(
             selectedURLs: [],

@@ -15,20 +15,43 @@ final class DefaultVideoPlayerControllerTests: XCTestCase {
 
     func testSupportedContentTypeIdentifiersAreExact() {
         XCTAssertEqual(
-            DefaultVideoContentType.allCases.map(\.rawValue),
+            SupportedVideoContentType.allCases.map(\.rawValue),
             [
                 "public.mpeg-4",
                 "com.apple.quicktime-movie",
                 "com.apple.m4v-video",
+                "public.mpeg",
+                "public.mpeg-2-video",
+                "public.mpeg-2-transport-stream",
+                "public.3gpp",
+                "public.3gpp2",
+                "public.avi",
+                "public.dv-movie",
             ]
         )
         XCTAssertEqual(
             UTType.mpeg4Movie.identifier,
-            DefaultVideoContentType.mp4.rawValue
+            SupportedVideoContentType.mpeg4.rawValue
         )
         XCTAssertEqual(
             UTType.quickTimeMovie.identifier,
-            DefaultVideoContentType.mov.rawValue
+            SupportedVideoContentType.quickTimeMovie.rawValue
+        )
+        XCTAssertEqual(
+            UTType.mpeg.identifier,
+            SupportedVideoContentType.mpeg.rawValue
+        )
+        XCTAssertEqual(
+            UTType.mpeg2Video.identifier,
+            SupportedVideoContentType.mpeg2Video.rawValue
+        )
+        XCTAssertEqual(
+            UTType.mpeg2TransportStream.identifier,
+            SupportedVideoContentType.mpeg2TransportStream.rawValue
+        )
+        XCTAssertEqual(
+            UTType.avi.identifier,
+            SupportedVideoContentType.avi.rawValue
         )
     }
 
@@ -44,7 +67,7 @@ final class DefaultVideoPlayerControllerTests: XCTestCase {
         XCTAssertEqual(documentType["LSHandlerRank"] as? String, "Alternate")
         XCTAssertEqual(
             documentType["LSItemContentTypes"] as? [String],
-            DefaultVideoContentType.allCases.map(\.rawValue)
+            SupportedVideoContentType.allCases.map(\.rawValue)
         )
     }
 
@@ -62,7 +85,7 @@ final class DefaultVideoPlayerControllerTests: XCTestCase {
             defaultApplicationURL: otherApplicationURL
         )
         workspace.defaultApplicationURLs[
-            DefaultVideoContentType.mp4.rawValue
+            SupportedVideoContentType.mpeg4.rawValue
         ] = applicationURL
         let service = makeService(workspace: workspace)
 
@@ -81,10 +104,10 @@ final class DefaultVideoPlayerControllerTests: XCTestCase {
     func testSetAsDefaultOnlyUpdatesMissingAssociations() async throws {
         let workspace = TestDefaultApplicationWorkspaceClient()
         workspace.defaultApplicationURLs[
-            DefaultVideoContentType.mp4.rawValue
+            SupportedVideoContentType.mpeg4.rawValue
         ] = applicationURL
         workspace.defaultApplicationURLs[
-            DefaultVideoContentType.mov.rawValue
+            SupportedVideoContentType.quickTimeMovie.rawValue
         ] = otherApplicationURL
         let service = makeService(workspace: workspace)
 
@@ -92,10 +115,7 @@ final class DefaultVideoPlayerControllerTests: XCTestCase {
 
         XCTAssertEqual(
             workspace.requestedContentTypeIdentifiers,
-            [
-                DefaultVideoContentType.mov.rawValue,
-                DefaultVideoContentType.m4v.rawValue,
-            ]
+            SupportedVideoContentType.allCases.dropFirst().map(\.rawValue)
         )
         XCTAssertEqual(service.status, .all)
     }
@@ -103,10 +123,10 @@ final class DefaultVideoPlayerControllerTests: XCTestCase {
     func testSetAsDefaultStopsAfterFirstSystemFailure() async {
         let workspace = TestDefaultApplicationWorkspaceClient()
         workspace.defaultApplicationURLs[
-            DefaultVideoContentType.mp4.rawValue
+            SupportedVideoContentType.mpeg4.rawValue
         ] = applicationURL
         workspace.failingContentTypeIdentifiers = [
-            DefaultVideoContentType.mov.rawValue,
+            SupportedVideoContentType.quickTimeMovie.rawValue,
         ]
         let service = makeService(workspace: workspace)
 
@@ -120,7 +140,7 @@ final class DefaultVideoPlayerControllerTests: XCTestCase {
         XCTAssertTrue(didThrow)
         XCTAssertEqual(
             workspace.requestedContentTypeIdentifiers,
-            [DefaultVideoContentType.mov.rawValue]
+            [SupportedVideoContentType.quickTimeMovie.rawValue]
         )
         XCTAssertEqual(service.status, .partial)
     }
@@ -222,7 +242,7 @@ private final class TestDefaultApplicationWorkspaceClient:
     init(defaultApplicationURL: URL? = nil) {
         if let defaultApplicationURL {
             defaultApplicationURLs = Dictionary(
-                uniqueKeysWithValues: DefaultVideoContentType.allCases.map {
+                uniqueKeysWithValues: SupportedVideoContentType.allCases.map {
                     ($0.rawValue, defaultApplicationURL)
                 }
             )

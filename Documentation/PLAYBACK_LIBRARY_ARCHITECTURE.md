@@ -49,10 +49,21 @@ the media scanner accepts:
 - `public.mpeg-4` for MP4
 - `com.apple.quicktime-movie` for MOV
 - `com.apple.m4v-video` for M4V
+- `public.mpeg` for MPEG-1 and MPEG-2 program streams
+- `public.mpeg-2-video` for MPEG-2 elementary video
+- `public.mpeg-2-transport-stream` for MPEG-2 transport streams and AVCHD
+- `public.3gpp` for 3GPP
+- `public.3gpp2` for 3GPP2
+- `public.avi` for AVI
+- `public.dv-movie` for DV
 
 The app does not claim the broad `public.movie` type and does not export system
 UTIs. Registration makes Muralume available in Finder’s **Open With** menu; it
 does not silently make Muralume the default application.
+
+These UTIs and their extension aliases are a container allowlist, not a codec
+guarantee. Actual decoding still depends on the codecs available to
+AVFoundation on the current macOS installation.
 
 AppKit open-file events can arrive before application startup is complete.
 `AppDelegate` therefore buffers them until both launch completion and the app
@@ -62,8 +73,25 @@ loads so an older request cannot overwrite a newer user intent.
 
 Default-player state is queried from Launch Services for each supported UTI.
 The Settings UI reports **all**, **some**, or **none** and can explicitly set
-Muralume as the default for missing supported formats. This state is never
-stored as an app preference because Finder or another app can change it.
+Muralume as the default for missing supported formats. It deliberately does
+not enumerate every format in the settings row; unsupported files are
+explained at the point where the user tries to add or open them. This state is
+never stored as an app preference because Finder or another app can change it.
+
+## Picker and drop imports
+
+Picker and Finder-drop imports use the same extension policy as scanning and
+file association. Rejections distinguish unsupported file containers from
+bookmark, access, capacity, and folder-overlap failures so the UI does not
+mislabel unrelated errors as format incompatibility. A wholly unsupported
+selection reports that the file format is not supported yet; a mixed selection
+imports accepted sources and reports that unsupported formats were skipped.
+
+Settings blocks ordinary player commands and picker actions, but the video
+area remains an intentional drop target. A drop while Settings is open is
+therefore validated and imported without dismissing Settings. Unsupported
+files still produce the status banner; accepted files enter the library
+without autoplaying behind the settings panel.
 
 ## Finder Open routing
 
@@ -167,16 +195,29 @@ state icon rather than an additional colored leading bar.
 
 ## Verification expectations
 
-The implementation recorded here passed the complete repository gate on
-2026-08-11: `make test` completed in 306 seconds with 483 non-UI and 6 UI
-tests (489 total), no failures, skips, or expected failures. The same gate also
-passed architecture, localization, fixture, and unsigned arm64 Release-build
-checks.
+`make test` is the complete repository gate. It covers architecture and
+localization checks, deterministic unit and integration tests, macOS UI tests,
+bundled resources, and the unsigned arm64 Release build. Use
+`./Scripts/verify.sh release-gate` when a non-interactive environment cannot
+run UI automation, and run `./Scripts/verify.sh ui` separately on a Mac that
+has been authorized for XCTest automation.
+
+On a local development Mac, enable developer-tool access once before the first
+unattended UI-test run:
+
+```bash
+sudo /usr/sbin/DevToolsSecurity -enable
+```
+
+The initiating application may also need one-time approval under macOS Privacy
+& Security. Keep a stable launcher for automated runs so the operating system
+does not treat each invocation as a different automation client.
 
 Automated workspace fakes do not replace Launch Services integration testing.
 Before release, install Muralume in Applications and manually verify Finder
-Open With, cold and warm launches, and default-player changes for MP4, MOV, and
-M4V. Do not use a translocated or read-only DMG path for that validation.
+Open With, cold and warm launches, and default-player changes for every
+supported content type. Do not use a translocated or read-only DMG path for
+that validation.
 
 Future changes to this subsystem should cover, as applicable:
 
@@ -189,6 +230,7 @@ Future changes to this subsystem should cover, as applicable:
   round trips;
 - one-item completion and disabled manual navigation;
 - security-scope ownership during import promotion;
+- unsupported, partially supported, and settings-visible drop imports;
 - Launch Services all/some/none default-player state;
 - bounded projections for large queues and stable sidebar behavior.
 

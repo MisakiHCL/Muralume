@@ -60,6 +60,27 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         }
     }
 
+    func testUnsupportedFileFormatHasActionableRejectionReason() {
+        let fixture = makeSessionFixture(sourceKindResolver: { _ in .file })
+        defer { fixture.clearDefaults() }
+        let fileURL = URL(fileURLWithPath: "/tmp/Unsupported.mkv")
+
+        let update = fixture.session.addSources([fileURL])
+
+        XCTAssertEqual(update.acceptedRequestCount, 0)
+        XCTAssertEqual(update.rejectedRequestCount, 1)
+        XCTAssertEqual(
+            update.actionableRejectionCounts,
+            [.unsupportedFileFormat: 1]
+        )
+        XCTAssertEqual(
+            update.exclusiveRejectionReason,
+            .unsupportedFileFormat
+        )
+        XCTAssertTrue(fixture.recorder.bookmarkedURLs.isEmpty)
+        XCTAssertEqual(fixture.recorder.stoppedURLs, [fileURL])
+    }
+
     func testSelectedScopeIsReleasedAndResolvedScopeUsesExactURLUntilStop() {
         let fixture = makeSessionFixture()
         defer { fixture.clearDefaults() }

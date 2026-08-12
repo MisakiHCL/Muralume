@@ -184,11 +184,42 @@ struct MediaLibrarySnapshot: Equatable, Sendable {
     }
 }
 
+enum SupportedVideoContentType: String, CaseIterable, Sendable {
+    case mpeg4 = "public.mpeg-4"
+    case quickTimeMovie = "com.apple.quicktime-movie"
+    case appleM4V = "com.apple.m4v-video"
+    case mpeg = "public.mpeg"
+    case mpeg2Video = "public.mpeg-2-video"
+    case mpeg2TransportStream = "public.mpeg-2-transport-stream"
+    case threeGPP = "public.3gpp"
+    case threeGPP2 = "public.3gpp2"
+    case avi = "public.avi"
+    case dvMovie = "public.dv-movie"
+}
+
 enum MediaLibraryFilePolicy {
     static let supportedVideoExtensions: Set<String> = [
+        "3g2",
+        "3gp",
+        "3gp2",
+        "3gpp",
+        "avi",
+        "dif",
+        "dv",
+        "m1v",
+        "m2t",
+        "m2ts",
+        "m2v",
         "m4v",
         "mov",
-        "mp4"
+        "mp4",
+        "mpe",
+        "mpeg",
+        "mpg",
+        "mts",
+        "qt",
+        "sdv",
+        "ts"
     ]
 }
 

@@ -1,11 +1,5 @@
 import Combine
 
-enum DefaultVideoContentType: String, CaseIterable, Sendable {
-    case mp4 = "public.mpeg-4"
-    case mov = "com.apple.quicktime-movie"
-    case m4v = "com.apple.m4v-video"
-}
-
 enum DefaultVideoPlayerStatus: Equatable, Sendable {
     case none
     case partial

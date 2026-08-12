@@ -113,6 +113,14 @@ final class AppLocalizationControllerTests: XCTestCase {
         )
 
         XCTAssertEqual(
+            controller.localized("library.import.unsupportedFormat"),
+            "This file format is not supported yet."
+        )
+        XCTAssertEqual(
+            controller.localized("library.import.unsupportedFormat.partial"),
+            "Some file formats are not supported yet and were skipped."
+        )
+        XCTAssertEqual(
             controller.localized(
                 "library.import.folderContainsActiveFolder"
             ),
@@ -130,6 +138,14 @@ final class AppLocalizationControllerTests: XCTestCase {
 
         controller.selectLanguage(.simplifiedChinese)
 
+        XCTAssertEqual(
+            controller.localized("library.import.unsupportedFormat"),
+            "暂不支持此文件格式。"
+        )
+        XCTAssertEqual(
+            controller.localized("library.import.unsupportedFormat.partial"),
+            "部分文件格式暂不支持，已跳过。"
+        )
         XCTAssertEqual(
             controller.localized(
                 "library.import.folderContainsActiveFolder"
@@ -323,10 +339,6 @@ final class AppLocalizationControllerTests: XCTestCase {
             "Default"
         )
         XCTAssertEqual(
-            controller.localized("settings.defaultVideoPlayer.formats"),
-            "MP4, MOV, and M4V"
-        )
-        XCTAssertEqual(
             controller.localized("settings.defaultVideoPlayer.failure"),
             "Couldn’t set every format."
         )
@@ -342,13 +354,6 @@ final class AppLocalizationControllerTests: XCTestCase {
             ),
             "Muralume is the default video player"
         )
-        XCTAssertEqual(
-            controller.localized(
-                "settings.defaultVideoPlayer.accessibility.formats"
-            ),
-            "Supported formats: MP4, MOV, and M4V"
-        )
-
         controller.selectLanguage(.simplifiedChinese)
 
         XCTAssertEqual(
@@ -384,10 +389,6 @@ final class AppLocalizationControllerTests: XCTestCase {
             "已设为默认"
         )
         XCTAssertEqual(
-            controller.localized("settings.defaultVideoPlayer.formats"),
-            "MP4、MOV、M4V"
-        )
-        XCTAssertEqual(
             controller.localized("settings.defaultVideoPlayer.failure"),
             "未能设置全部格式。"
         )
@@ -402,12 +403,6 @@ final class AppLocalizationControllerTests: XCTestCase {
                 "settings.defaultVideoPlayer.accessibility.complete"
             ),
             "Muralume 已设为默认视频播放器"
-        )
-        XCTAssertEqual(
-            controller.localized(
-                "settings.defaultVideoPlayer.accessibility.formats"
-            ),
-            "支持格式：MP4、MOV、M4V"
         )
     }
 

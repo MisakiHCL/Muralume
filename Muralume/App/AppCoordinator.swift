@@ -268,15 +268,19 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
 
     @discardableResult
     func importDroppedURLs(_ urls: [URL]) -> Bool {
-        guard canImportMedia, !urls.isEmpty else {
+        guard canImportDroppedMedia, !urls.isEmpty else {
             return false
         }
+        let shouldAutoplay = !playerChrome.isSettingsPresented
         let preparation = library.prepareImport(urls)
         guard let preparation else {
             return true
         }
 
-        commitPreparedDropAfterCancellingInitialRestore(preparation)
+        commitPreparedDropAfterCancellingInitialRestore(
+            preparation,
+            autoplayExplicitFiles: shouldAutoplay
+        )
         return true
     }
 
@@ -311,11 +315,15 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     private var canImportMedia: Bool {
+        canImportDroppedMedia
+            && !playerChrome.isSettingsPresented
+    }
+
+    private var canImportDroppedMedia: Bool {
         !desktopSession.isActive
             && !desktopSession.isTransitioning
             && sourceAccessRetryTask == nil
             && !playback.isPlayerWindowDismissed
-            && !playerChrome.isSettingsPresented
             && !isShutDown
     }
 
@@ -610,10 +618,14 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     private func commitPreparedDropAfterCancellingInitialRestore(
-        _ preparation: MediaLibraryImportPreparation
+        _ preparation: MediaLibraryImportPreparation,
+        autoplayExplicitFiles: Bool
     ) {
         guard let pendingTask = cancelInitialRestore() else {
-            library.commitImport(preparation)
+            library.commitImport(
+                preparation,
+                autoplayExplicitFiles: autoplayExplicitFiles
+            )
             return
         }
         let restoreGeneration = initialRestoreGeneration
@@ -642,6 +654,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                 preparation,
                 autoplayExplicitFiles:
                     restoreGeneration == initialRestoreGeneration
+                        && autoplayExplicitFiles
                         && canImportMedia
             )
         }

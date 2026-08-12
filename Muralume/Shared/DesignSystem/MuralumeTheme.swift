@@ -192,8 +192,6 @@ enum MuralumeAccessibilityIdentifier {
         "muralume.settings-row.default-video-player"
     static let setDefaultVideoPlayerButton =
         "muralume.settings.set-default-video-player"
-    static let defaultVideoPlayerStatus =
-        "muralume.settings.default-video-player-status"
     static let languagePicker = "muralume.language-picker"
     static let launchAtLoginCheckbox =
         "muralume.launch-at-login.checkbox"

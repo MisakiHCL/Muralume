@@ -32,6 +32,8 @@ final class MuralumeLaunchTests: XCTestCase {
         static let minimumBrandControlGap: CGFloat = 8
         static let maximumBrandControlGap: CGFloat = 16
         static let minimumSidePanelInset: CGFloat = 16
+        // Accessibility frames can land on half-point screen coordinates.
+        static let accessibilityCoordinateTolerance: CGFloat = 0.5
         static let maximumSidePanelInsetOffset: CGFloat = 2
         static let maximumWindowEdgeOffset: CGFloat = 2
         static let maximumSidebarTitleHorizontalOffset: CGFloat = 1
@@ -1060,6 +1062,7 @@ final class MuralumeLaunchTests: XCTestCase {
                 let bottomInset =
                     playerControls.frame.minY - panelContent.frame.maxY
                 return topInset
+                    + LayoutExpectation.accessibilityCoordinateTolerance
                     >= LayoutExpectation.minimumSidePanelInset
                     && abs(topInset - trailingInset)
                     <= LayoutExpectation.maximumSidePanelInsetOffset
@@ -1080,7 +1083,7 @@ final class MuralumeLaunchTests: XCTestCase {
         let topInset =
             panelContent.frame.minY - topBar.frame.maxY
         XCTAssertGreaterThanOrEqual(
-            topInset,
+            topInset + LayoutExpectation.accessibilityCoordinateTolerance,
             LayoutExpectation.minimumSidePanelInset,
             file: file,
             line: line

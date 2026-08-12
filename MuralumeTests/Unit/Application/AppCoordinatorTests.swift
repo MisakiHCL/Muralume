@@ -166,6 +166,42 @@ final class AppCoordinatorTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
+    func testUnsupportedDropWhileSettingsArePresentedShowsNotice() async {
+        let fixture = makeFixture(launchStatus: .disabled)
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+                && fixture.library.scanState == .ready
+        }
+        fixture.coordinator.openSettings()
+        await waitUntil {
+            fixture.coordinator.playerChrome.isSettingsPresented
+        }
+        fixture.mediaSession.nextAddSourcesUpdate = MediaAccessUpdate(
+            activeSources: fixture.mediaSession.activeSources,
+            requestedFileURLs: [],
+            acceptedRequestCount: 0,
+            rejectedRequestCount: 1,
+            actionableRejectionCounts: [.unsupportedFileFormat: 1],
+            didChangeSources: false
+        )
+
+        XCTAssertTrue(
+            fixture.coordinator.importDroppedURLs([
+                URL(fileURLWithPath: "/tmp/AppCoordinatorTests/Video.mkv")
+            ])
+        )
+        XCTAssertEqual(
+            fixture.library.importNotice,
+            .unsupportedFileFormat
+        )
+        XCTAssertTrue(
+            fixture.coordinator.playerChrome.isSettingsPresented
+        )
+
+        await fixture.coordinator.shutdown()
+    }
+
     func testLatestOfTwoDropsDuringBlockedRestoreAutoplaysOnce() async {
         let fixture = makeFixture(
             launchStatus: .disabled,
@@ -1610,6 +1646,7 @@ private final class AppCoordinatorMediaSession: MediaAccessSession {
     private(set) var didBeginBlockedAsyncRetry = false
     private(set) var didBeginBlockedAsyncRestore = false
     private(set) var asyncRetryReturnCount = 0
+    var nextAddSourcesUpdate: MediaAccessUpdate?
 
     var hasUnavailablePersistedSources: Bool {
         !persistedSourceIsAvailable
@@ -1682,6 +1719,10 @@ private final class AppCoordinatorMediaSession: MediaAccessSession {
     }
 
     func addSources(_ urls: [URL]) -> MediaAccessUpdate {
+        if let nextAddSourcesUpdate {
+            self.nextAddSourcesUpdate = nil
+            return nextAddSourcesUpdate
+        }
         var didChangeSources = false
         for url in urls {
             let source = MediaSource(

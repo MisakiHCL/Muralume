@@ -264,7 +264,9 @@ struct PlayerStatusBanner: View {
             } label: {
                 Image(systemName: "xmark")
             }
-            .buttonStyle(MuralumeControlButtonStyle())
+            .buttonStyle(
+                MuralumeControlButtonStyle(scale: .compact)
+            )
             .help(Text("action.dismiss"))
             .accessibilityLabel(Text("action.dismiss"))
         }

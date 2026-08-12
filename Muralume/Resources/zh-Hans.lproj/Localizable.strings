@@ -52,7 +52,7 @@
 "library.add.media" = "添加媒体…";
 "library.media.picker.message" = "选择视频或文件夹";
 "library.media.picker.prompt" = "添加";
-"library.media.picker.reauthorize.message" = "再次选择原来的 MP4、MOV、M4V 视频或文件夹以恢复访问，此操作不会开始播放";
+"library.media.picker.reauthorize.message" = "再次选择原来受支持的视频或文件夹以恢复访问，此操作不会开始播放";
 "library.media.picker.reauthorize.prompt" = "重新授权";
 "library.playlist" = "媒体库";
 "library.playlist.show" = "显示媒体库";
@@ -106,6 +106,8 @@
 "library.drop.title" = "松开添加视频";
 "library.import.partial" = "部分项目无法添加";
 "library.import.failed" = "无法添加这些项目";
+"library.import.unsupportedFormat.partial" = "部分文件格式暂不支持，已跳过。";
+"library.import.unsupportedFormat" = "暂不支持此文件格式。";
 "library.import.folderContainsActiveFolder" = "所选文件夹包含一个或多个已单独添加的子文件夹。请先从媒体库移除这些子文件夹，然后重试。";
 "library.import.folderCoveredByActiveFolder" = "所选文件夹已位于媒体库的现有文件夹内，无需重复添加。";
 "action.cancel" = "取消";
@@ -164,12 +166,10 @@
 "settings.defaultVideoPlayer.action.retry" = "重试";
 "settings.defaultVideoPlayer.action.updating" = "正在设置…";
 "settings.defaultVideoPlayer.action.complete" = "已设为默认";
-"settings.defaultVideoPlayer.formats" = "MP4、MOV、M4V";
 "settings.defaultVideoPlayer.failure" = "未能设置全部格式。";
 "settings.defaultVideoPlayer.accessibility.action" = "将 Muralume 设为默认视频播放器";
 "settings.defaultVideoPlayer.accessibility.updating" = "正在将 Muralume 设为默认视频播放器";
 "settings.defaultVideoPlayer.accessibility.complete" = "Muralume 已设为默认视频播放器";
-"settings.defaultVideoPlayer.accessibility.formats" = "支持格式：MP4、MOV、M4V";
 "menu.actions" = "功能";
 "menu.window" = "窗口";
 "menu.help" = "帮助";

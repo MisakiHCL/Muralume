@@ -37,15 +37,11 @@ final class NSWorkspaceDefaultApplicationClient:
 
 @MainActor
 final class MacDefaultVideoPlayerService: DefaultVideoPlayerServicing {
-    private static let m4vContentType =
-        UTType(DefaultVideoContentType.m4v.rawValue)
-        ?? UTType(importedAs: DefaultVideoContentType.m4v.rawValue)
-
-    private static let supportedContentTypes: [UTType] = [
-        .mpeg4Movie,
-        .quickTimeMovie,
-        m4vContentType,
-    ]
+    private static let supportedContentTypes: [UTType] =
+        SupportedVideoContentType.allCases.map { contentType in
+            UTType(contentType.rawValue)
+                ?? UTType(importedAs: contentType.rawValue)
+        }
 
     private let workspace: any DefaultApplicationWorkspaceClient
     private let applicationURL: URL

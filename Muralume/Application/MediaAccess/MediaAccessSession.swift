@@ -1,6 +1,8 @@
 import Foundation
 
 enum MediaAccessRejectionReason: Hashable, Sendable {
+    /// A selected regular file does not use a supported video container.
+    case unsupportedFileFormat
     /// The selected folder is broader than a folder already granted access.
     case selectedFolderContainsActiveFolder
     /// The selected folder is already covered by a broader active folder.

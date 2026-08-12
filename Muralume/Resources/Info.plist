@@ -20,6 +20,13 @@
 				<string>public.mpeg-4</string>
 				<string>com.apple.quicktime-movie</string>
 				<string>com.apple.m4v-video</string>
+				<string>public.mpeg</string>
+				<string>public.mpeg-2-video</string>
+				<string>public.mpeg-2-transport-stream</string>
+				<string>public.3gpp</string>
+				<string>public.3gpp2</string>
+				<string>public.avi</string>
+				<string>public.dv-movie</string>
 			</array>
 		</dict>
 	</array>

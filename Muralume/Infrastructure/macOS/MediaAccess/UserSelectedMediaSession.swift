@@ -592,11 +592,15 @@ final class UserSelectedMediaSession: MediaAccessSession {
             )
             guard let selectedKind = sourceKindResolver(
                 selectedLinkResolution.targetURL
-            ), MediaSourceURLInspector.isSupported(
+            ) else {
+                recordRejection()
+                continue
+            }
+            guard MediaSourceURLInspector.isSupported(
                 kind: selectedKind,
                 url: selectedLinkResolution.targetURL
             ) else {
-                recordRejection()
+                recordRejection(.unsupportedFileFormat)
                 continue
             }
             let selectedSource = MediaSource(
@@ -664,12 +668,17 @@ final class UserSelectedMediaSession: MediaAccessSession {
             )
             guard let resolvedKind = sourceKindResolver(
                 resolvedLinkResolution.targetURL
-            ), MediaSourceURLInspector.isSupported(
+            ) else {
+                securityAccess.stopAccess(resolvedURL)
+                recordRejection()
+                continue
+            }
+            guard MediaSourceURLInspector.isSupported(
                 kind: resolvedKind,
                 url: resolvedLinkResolution.targetURL
             ) else {
                 securityAccess.stopAccess(resolvedURL)
-                recordRejection()
+                recordRejection(.unsupportedFileFormat)
                 continue
             }
             let resolvedSource = MediaSource(

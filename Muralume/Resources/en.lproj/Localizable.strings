@@ -52,7 +52,7 @@
 "library.add.media" = "Add Media…";
 "library.media.picker.message" = "Choose videos or folders.";
 "library.media.picker.prompt" = "Add";
-"library.media.picker.reauthorize.message" = "Choose the original MP4, MOV, or M4V videos or folders again to restore access. This will not start playback.";
+"library.media.picker.reauthorize.message" = "Choose the original supported videos or folders again to restore access. This will not start playback.";
 "library.media.picker.reauthorize.prompt" = "Reauthorize";
 "library.playlist" = "Media Library";
 "library.playlist.show" = "Show Media Library";
@@ -106,6 +106,8 @@
 "library.drop.title" = "Drop to add videos";
 "library.import.partial" = "Some items could not be added.";
 "library.import.failed" = "Muralume could not add these items.";
+"library.import.unsupportedFormat.partial" = "Some file formats are not supported yet and were skipped.";
+"library.import.unsupportedFormat" = "This file format is not supported yet.";
 "library.import.folderContainsActiveFolder" = "A selected folder contains one or more subfolders already added separately. Remove those subfolders from the library, then try again.";
 "library.import.folderCoveredByActiveFolder" = "The selected folder is already included in a folder in the library, so it does not need to be added again.";
 "action.cancel" = "Cancel";
@@ -164,12 +166,10 @@
 "settings.defaultVideoPlayer.action.retry" = "Try Again";
 "settings.defaultVideoPlayer.action.updating" = "Setting…";
 "settings.defaultVideoPlayer.action.complete" = "Default";
-"settings.defaultVideoPlayer.formats" = "MP4, MOV, and M4V";
 "settings.defaultVideoPlayer.failure" = "Couldn’t set every format.";
 "settings.defaultVideoPlayer.accessibility.action" = "Make Muralume the default video player";
 "settings.defaultVideoPlayer.accessibility.updating" = "Setting Muralume as the default video player";
 "settings.defaultVideoPlayer.accessibility.complete" = "Muralume is the default video player";
-"settings.defaultVideoPlayer.accessibility.formats" = "Supported formats: MP4, MOV, and M4V";
 "menu.actions" = "Actions";
 "menu.window" = "Window";
 "menu.help" = "Help";

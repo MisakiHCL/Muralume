@@ -24,6 +24,8 @@ enum MediaLibraryQueueRestoreResult: Equatable, Sendable {
 enum MediaImportNotice: Hashable, Sendable {
     case partialFailure
     case failure
+    case partialUnsupportedFileFormat
+    case unsupportedFileFormat
     case selectedFolderContainsActiveFolder
     case activeFolderContainsSelectedFolder
 
@@ -33,6 +35,10 @@ enum MediaImportNotice: Hashable, Sendable {
             "library.import.partial"
         case .failure:
             "library.import.failed"
+        case .partialUnsupportedFileFormat:
+            "library.import.unsupportedFormat.partial"
+        case .unsupportedFileFormat:
+            "library.import.unsupportedFormat"
         case .selectedFolderContainsActiveFolder:
             "library.import.folderContainsActiveFolder"
         case .activeFolderContainsSelectedFolder:
@@ -597,6 +603,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         )
         if update.acceptedRequestCount == 0 {
             importNotice = switch update.exclusiveRejectionReason {
+            case .unsupportedFileFormat:
+                .unsupportedFileFormat
             case .selectedFolderContainsActiveFolder:
                 .selectedFolderContainsActiveFolder
             case .activeFolderContainsSelectedFolder:
@@ -606,9 +614,15 @@ final class MediaLibraryCoordinator: ObservableObject {
             }
             return nil
         }
-        importNotice = update.rejectedRequestCount > 0
-            ? .partialFailure
-            : nil
+        if update.rejectedRequestCount == 0 {
+            importNotice = nil
+        } else if update.actionableRejectionCounts[
+            .unsupportedFileFormat
+        ] == update.rejectedRequestCount {
+            importNotice = .partialUnsupportedFileFormat
+        } else {
+            importNotice = .partialFailure
+        }
 
         let requestedFileURLs = update.requestedFileURLs
         recordSupersededThumbnailRoots(

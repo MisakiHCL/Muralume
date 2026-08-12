@@ -60,9 +60,11 @@ By default, Muralume keeps the full video sharp and fills any remaining space wi
 
 ### Videos and folders become playlists
 
-Use one Add Media picker to choose individual videos, folders from your Mac or an external drive, or both in the same selection; you can also drop the same mix from Finder. Muralume recursively discovers MP4, MOV, and M4V videos in folders, generates local thumbnails, and sorts everything by name, creation date, or file size—without reorganizing anything on disk. If a folder changes in Finder, use **Edit → Refresh Data** in the playlist to rescan the access you already granted.
+Use one Add Media picker to choose individual videos, folders from your Mac or an external drive, or both in the same selection; you can also drop the same mix from Finder. Muralume recursively discovers AVFoundation-native MP4, MOV, M4V, MPEG, MPEG-2, MPEG-TS, 3GP, 3G2, AVI, and DV videos in folders, generates local thumbnails, and sorts everything by name, creation date, or file size—without reorganizing anything on disk. If a folder changes in Finder, use **Edit → Refresh Data** in the playlist to rescan the access you already granted.
 
-Muralume also appears in Finder’s **Open With** menu for MP4, MOV, and M4V files. A file already in the library plays from the library queue; other files open in a temporary queue and are saved only if you explicitly add them. Settings shows whether Muralume is the default player for all, some, or none of these formats and lets you set it explicitly.
+Unsupported file formats are rejected when you add or open them, with a concise explanation instead of a format list in Settings. Drops onto the video area remain available while Settings is open; accepted files are added without autoplaying behind the panel.
+
+Muralume also appears in Finder’s **Open With** menu for these supported video formats. A file already in the library plays from the library queue; other files open in a temporary queue and are saved only if you explicitly add them. Settings shows whether Muralume is the default player for all, some, or none of these formats and lets you set it explicitly.
 
 ### A library and queue with different jobs
 
@@ -112,7 +114,7 @@ The menu bar item lets you pause, skip, choose a playback mode, change playback 
 
 - Apple silicon Mac
 - macOS 14 or later
-- MP4, MOV, or M4V video
+- AVFoundation-native MP4, MOV, M4V, MPEG, MPEG-2, MPEG-TS, 3GP, 3G2, AVI, or DV video
 - All connected displays share the same video, playback clock, and display mode; per-display media is not supported
 
 Playback compatibility depends on the codecs available through macOS AVFoundation. H.264 and HEVC are common compatible choices.
@@ -129,6 +131,8 @@ make package-macos
 ```
 
 `make package-macos` creates an ad-hoc signed DMG in `dist/macos-local/` for local installation testing only.
+
+The macOS UI suite needs one-time developer-tool authorization. If XCTest cannot enable automation mode, run `sudo /usr/sbin/DevToolsSecurity -enable`, approve the launcher under **Privacy & Security** if prompted, then rerun `./Scripts/verify.sh ui`.
 
 ## Open source
 

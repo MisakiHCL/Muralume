@@ -4,6 +4,58 @@ import XCTest
 
 @MainActor
 final class FileSystemMediaLibraryScannerTests: XCTestCase {
+    func testScansEverySupportedVideoExtensionCaseInsensitively() async throws {
+        let sandboxURL = try makeSandbox()
+        defer { removeSandbox(sandboxURL) }
+
+        let expectedExtensions: Set<String> = [
+            "3g2",
+            "3gp",
+            "3gp2",
+            "3gpp",
+            "avi",
+            "dif",
+            "dv",
+            "m1v",
+            "m2t",
+            "m2ts",
+            "m2v",
+            "m4v",
+            "mov",
+            "mp4",
+            "mpe",
+            "mpeg",
+            "mpg",
+            "mts",
+            "qt",
+            "sdv",
+            "ts",
+        ]
+        XCTAssertEqual(
+            MediaLibraryFilePolicy.supportedVideoExtensions,
+            expectedExtensions
+        )
+
+        for fileExtension in expectedExtensions {
+            let fileURL = sandboxURL.appendingPathComponent(
+                "Video.\(fileExtension.uppercased())"
+            )
+            try writeFile(at: fileURL, byteCount: 1)
+        }
+        let unsupportedURL = sandboxURL.appendingPathComponent("Video.mkv")
+        try writeFile(at: unsupportedURL, byteCount: 1)
+
+        let snapshot = try await FileSystemMediaLibraryScanner().scan(
+            rootURLs: [sandboxURL]
+        )
+
+        XCTAssertEqual(
+            Set(snapshot.items.map { $0.url.pathExtension.lowercased() }),
+            expectedExtensions
+        )
+        XCTAssertFalse(snapshot.items.contains { $0.url == unsupportedURL })
+    }
+
     func testScansNestedFilesAcrossMultipleRootsInStablePathOrder() async throws {
         let sandboxURL = try makeSandbox()
         defer { removeSandbox(sandboxURL) }

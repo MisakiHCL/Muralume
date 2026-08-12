@@ -13,10 +13,11 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.resolvesAliases = true
-        panel.allowedContentTypes = [.folder] + MediaLibraryFilePolicy
-            .supportedVideoExtensions
-            .sorted()
-            .compactMap { UTType(filenameExtension: $0) }
+        panel.allowedContentTypes = [.folder]
+            + SupportedVideoContentType.allCases.map { contentType in
+                UTType(contentType.rawValue)
+                    ?? UTType(importedAs: contentType.rawValue)
+            }
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.canCreateDirectories = false
