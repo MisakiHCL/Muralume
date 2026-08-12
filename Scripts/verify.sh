@@ -36,12 +36,14 @@ Suites:
   unit          Run deterministic domain and application tests.
   integration   Run AVFoundation and real rendering-surface tests.
   ui            Launch the app through XCUITest.
+  real-media    Import local media and exercise Dynamic Desktop.
   release       Build an unsigned arm64 Release app.
   release-gate  Run deterministic release checks without GUI automation.
   all           Run every check above (default).
 
 Optional environment:
   MURALUME_TEST_ARTIFACTS_DIR  Directory for DerivedData and test results.
+  MURALUME_REAL_MEDIA_DIRECTORY  Local media directory for real-media.
 EOF
 }
 
@@ -315,6 +317,39 @@ run_xcode_test_invocation() {
     fi
 }
 
+run_xcode_test_specification() {
+    local invocation_name="$1"
+    local test_specification_path="$2"
+    shift 2
+    local result_bundle_path
+    local xcodebuild_status=0
+    local result_validation_status=0
+
+    result_bundle_path="$(new_test_result_bundle_path "${invocation_name}")"
+    echo "Writing XCTest results to ${result_bundle_path}"
+    if xcodebuild \
+        -xctestrun "${test_specification_path}" \
+        -destination "${debug_destination}" \
+        -derivedDataPath "${derived_data_path}" \
+        -resultBundlePath "${result_bundle_path}" \
+        "$@"; then
+        :
+    else
+        xcodebuild_status=$?
+    fi
+
+    assert_xcresult_passed "${result_bundle_path}" || result_validation_status=$?
+    if [[ "${xcodebuild_status}" -ne 0 ]]; then
+        echo \
+            "xcodebuild test invocation failed with status ${xcodebuild_status}: ${invocation_name}" \
+            >&2
+        return "${xcodebuild_status}"
+    fi
+    if [[ "${result_validation_status}" -ne 0 ]]; then
+        return "${result_validation_status}"
+    fi
+}
+
 assert_test_sources_belong_to_target() {
     local source_directory="$1"
     local target_name="$2"
@@ -497,7 +532,81 @@ run_ui_tests() {
     run_xcode_test_invocation \
         ui \
         -only-testing:MuralumeUITests \
+        -skip-testing:MuralumeUITests/MuralumeRealMediaTests \
         test
+    assert_test_sources_belong_to_target \
+        "${project_root}/MuralumeUITests" \
+        MuralumeUITests
+}
+
+run_real_media_tests() {
+    local test_specification_path
+    local media_file_path=""
+    local media_file_size=""
+    local candidate_path
+    local candidate_size
+
+    if [[ -z "${MURALUME_REAL_MEDIA_DIRECTORY:-}" \
+        || ! -d "${MURALUME_REAL_MEDIA_DIRECTORY}" ]]; then
+        echo "real-media requires a readable MURALUME_REAL_MEDIA_DIRECTORY." >&2
+        return 64
+    fi
+
+    while IFS= read -r -d '' candidate_path; do
+        candidate_size="$(stat -f '%z' "${candidate_path}")"
+        if [[ -z "${media_file_path}" \
+            || "${candidate_size}" -lt "${media_file_size}" \
+            || ( "${candidate_size}" -eq "${media_file_size}" \
+                && "${candidate_path}" < "${media_file_path}" ) ]]; then
+            media_file_path="${candidate_path}"
+            media_file_size="${candidate_size}"
+        fi
+    done < <(
+        find "${MURALUME_REAL_MEDIA_DIRECTORY}" \
+            -maxdepth 1 \
+            -type f \
+            -iname '*.mp4' \
+            -print0
+    )
+    if [[ -z "${media_file_path}" ]]; then
+        echo "No MP4 file exists in MURALUME_REAL_MEDIA_DIRECTORY." >&2
+        return 66
+    fi
+
+    build_for_testing
+    test_specification_path="$(
+        find "${derived_data_path}/Build/Products" \
+            -maxdepth 1 \
+            -type f \
+            -name '*.xctestrun' \
+            -print \
+            -quit
+    )"
+    if [[ -z "${test_specification_path}" ]]; then
+        echo "Could not find the generated XCTest run specification." >&2
+        return 1
+    fi
+    if plutil \
+        -extract MuralumeUITests.EnvironmentVariables.MURALUME_REAL_MEDIA_FILE \
+        raw \
+        -o /dev/null \
+        "${test_specification_path}" 2>/dev/null; then
+        plutil \
+            -replace MuralumeUITests.EnvironmentVariables.MURALUME_REAL_MEDIA_FILE \
+            -string "${media_file_path}" \
+            "${test_specification_path}"
+    else
+        plutil \
+            -insert MuralumeUITests.EnvironmentVariables.MURALUME_REAL_MEDIA_FILE \
+            -string "${media_file_path}" \
+            "${test_specification_path}"
+    fi
+
+    run_xcode_test_specification \
+        real-media \
+        "${test_specification_path}" \
+        -only-testing:MuralumeUITests/MuralumeRealMediaTests \
+        test-without-building
     assert_test_sources_belong_to_target \
         "${project_root}/MuralumeUITests" \
         MuralumeUITests
@@ -517,6 +626,7 @@ run_ui_tests_without_building() {
     run_xcode_test_invocation \
         ui-without-building \
         -only-testing:MuralumeUITests \
+        -skip-testing:MuralumeUITests/MuralumeRealMediaTests \
         test-without-building
     assert_test_sources_belong_to_target \
         "${project_root}/MuralumeUITests" \
@@ -599,6 +709,9 @@ main() {
             ;;
         ui)
             run_ui_tests
+            ;;
+        real-media)
+            run_real_media_tests
             ;;
         release)
             build_release

@@ -134,6 +134,8 @@ make package-macos
 
 macOS UI 测试需要一次性开发者工具授权。若 XCTest 无法启用自动化模式，请运行 `sudo /usr/sbin/DevToolsSecurity -enable`，按需在“隐私与安全性”中允许测试启动程序，然后重新运行 `./Scripts/verify.sh ui`。
 
+如需导入本地 MP4 并验证完整动态桌面生命周期，请参阅[真实媒体 UI 测试](Documentation/REAL_MEDIA_UI_TESTING.md)。个人媒体及其本地路径始终保留在 Git 之外。
+
 ## 开源
 
 源代码使用 [MIT License](LICENSE)。参与项目前请阅读[贡献指南](CONTRIBUTING.md)、[播放与媒体库架构说明](Documentation/PLAYBACK_LIBRARY_ARCHITECTURE.md)、[安全政策](SECURITY.md)与[社区行为规范](CODE_OF_CONDUCT.md)。构建工具中随仓库提供的第三方组件保留各自许可，详见[第三方声明](THIRD_PARTY_NOTICES.md)。Muralume 名称、Logo、App Icon 与菜单栏图标不包含在 MIT 授权范围内，详见[品牌资产声明](BRAND_ASSETS.md)。

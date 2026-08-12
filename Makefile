@@ -3,19 +3,22 @@ SHELL := /bin/bash
 VERBOSE ?= 0
 
 -include Config/Release.local.mk
+-include .env.test.local
 
 MURALUME_DEVELOPER_ID_APPLICATION ?=
 MURALUME_NOTARY_KEYCHAIN_PROFILE ?=
 MURALUME_EXPECTED_TEAM_IDENTIFIER ?=
 MURALUME_REPLACE_DISTRIBUTION_REQUIREMENTS ?= 0
+MURALUME_REAL_MEDIA_DIRECTORY ?=
 export MURALUME_DEVELOPER_ID_APPLICATION
 export MURALUME_NOTARY_KEYCHAIN_PROFILE
 export MURALUME_EXPECTED_TEAM_IDENTIFIER
+export MURALUME_REAL_MEDIA_DIRECTORY
 
 LOCAL_DMG := $(abspath dist/macos-local/Muralume.dmg)
 RELEASE_DMG := $(abspath dist/macos-release/Muralume.dmg)
 
-.PHONY: help test test-steps package-macos package-macos-steps prepare-distribution-requirements release-macos release-macos-steps mas-preflight validate-testflight validate-testflight-steps upload-testflight upload-testflight-steps
+.PHONY: help test test-steps test-real-media package-macos package-macos-steps prepare-distribution-requirements release-macos release-macos-steps mas-preflight validate-testflight validate-testflight-steps upload-testflight upload-testflight-steps
 
 define run-quiet-workflow
 	@if [[ "$(VERBOSE)" == "1" \
@@ -34,6 +37,7 @@ help:
 		'Muralume workflows' \
 		'' \
 		'  make test                   Run the complete automated test suite' \
+		'  make test-real-media        Import local media and exercise Dynamic Desktop' \
 		'  make package-macos          Build a local-only, ad-hoc signed DMG' \
 		'  make prepare-distribution-requirements' \
 		'                              Export and record the private bridge requirement' \
@@ -49,6 +53,14 @@ test:
 
 test-steps:
 	./Scripts/verify.sh all
+
+test-real-media:
+	@if [[ -z "$(MURALUME_REAL_MEDIA_DIRECTORY)" \
+		|| ! -d "$(MURALUME_REAL_MEDIA_DIRECTORY)" ]]; then \
+		echo 'Set MURALUME_REAL_MEDIA_DIRECTORY to a readable media directory.' >&2; \
+		exit 64; \
+	fi
+	@./Scripts/verify.sh real-media
 
 package-macos:
 	@printf 'Building the local Muralume DMG...\n'

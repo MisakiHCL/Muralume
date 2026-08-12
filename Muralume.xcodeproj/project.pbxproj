@@ -35,6 +35,7 @@
 		5213CB1B3B66BACA9F1B129F /* PlaybackSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A8CD24644F62AEA01414D9 /* PlaybackSettings.swift */; };
 		5238BB82977C4E3E95EEDE9C /* MacMainWindowPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB91AD47A5964E75A6BE6AC6 /* MacMainWindowPresenter.swift */; };
 		59A747D39B0D485767C9F57B /* MuralumeLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E822D51DC4B3787E4B76B0B /* MuralumeLaunchTests.swift */; };
+		DD0000000000000000000001 /* MuralumeRealMediaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0000000000000000000002 /* MuralumeRealMediaTests.swift */; };
 		60083F2F8C964BFC9443A988 /* PlaybackRenderSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 024CA620068D40FBB0ADBA3B /* PlaybackRenderSurface.swift */; };
 		61F9D4963CFD4D2B81DF24E5 /* MacMediaSourcePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73D7A7472A543B7BDA43C33 /* MacMediaSourcePicker.swift */; };
 		628DEF8A0A9BCE74862C63C4 /* PlaybackGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 889EFC2BF9A60D84ADA53D6E /* PlaybackGateTests.swift */; };
@@ -164,6 +165,7 @@
 		62EADC3367C34613B9AB4302 /* MacDesktopHost.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopHost.swift; sourceTree = "<group>"; };
 		6D32A61D760BE7B80916FCEB /* AppConfiguration.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
 		6E822D51DC4B3787E4B76B0B /* MuralumeLaunchTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MuralumeLaunchTests.swift; sourceTree = "<group>"; };
+		DD0000000000000000000002 /* MuralumeRealMediaTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MuralumeRealMediaTests.swift; sourceTree = "<group>"; };
 		74A5203BC7984913AC2EB88C /* DesktopStatusPresenting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopStatusPresenting.swift; sourceTree = "<group>"; };
 		7573A17FB1034C7A95BA8906 /* PlaybackTestDoubles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackTestDoubles.swift; sourceTree = "<group>"; };
 		7B45D5363784459EA36A0566 /* PlaybackState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackState.swift; sourceTree = "<group>"; };
@@ -341,6 +343,7 @@
 			isa = PBXGroup;
 			children = (
 				3BB8533CBCE74BEC8401B359 /* Launch */,
+				DD0000000000000000000003 /* Media */,
 			);
 			name = MuralumeUITests;
 			path = MuralumeUITests;
@@ -384,6 +387,15 @@
 			);
 			name = Launch;
 			path = Launch;
+			sourceTree = "<group>";
+		};
+		DD0000000000000000000003 /* Media */ = {
+			isa = PBXGroup;
+			children = (
+				DD0000000000000000000002 /* MuralumeRealMediaTests.swift */,
+			);
+			name = Media;
+			path = Media;
 			sourceTree = "<group>";
 		};
 		4417AF8DD73D4DB182F62613 /* UI */ = {
@@ -1047,6 +1059,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				59A747D39B0D485767C9F57B /* MuralumeLaunchTests.swift in Sources */,
+				DD0000000000000000000001 /* MuralumeRealMediaTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

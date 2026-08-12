@@ -134,6 +134,8 @@ make package-macos
 
 The macOS UI suite needs one-time developer-tool authorization. If XCTest cannot enable automation mode, run `sudo /usr/sbin/DevToolsSecurity -enable`, approve the launcher under **Privacy & Security** if prompted, then rerun `./Scripts/verify.sh ui`.
 
+For the opt-in test that imports a local MP4 and exercises the complete Dynamic Desktop lifecycle, see [Real-Media UI Testing](Documentation/REAL_MEDIA_UI_TESTING.md). Personal media and its local path remain outside Git.
+
 ## Open source
 
 Source code is available under the [MIT License](LICENSE). See [Contributing](CONTRIBUTING.md), the [Playback and Media Library architecture](Documentation/PLAYBACK_LIBRARY_ARCHITECTURE.md), the [Security Policy](SECURITY.md), and the [Community Code of Conduct](CODE_OF_CONDUCT.md) before participating. Vendored build-tool components retain their licenses in [Third-Party Notices](THIRD_PARTY_NOTICES.md). The Muralume name, logo, app icon, and menu bar icon are excluded from the MIT grant; see the [Brand Assets Notice](BRAND_ASSETS.md).

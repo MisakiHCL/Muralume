@@ -176,6 +176,8 @@ enum MuralumeAccessibilityIdentifier {
     static let temporaryQueueItemBadge =
         "muralume.playback-queue.temporary-badge"
     static let playbackModeButton = "muralume.playback-mode"
+    static let enterDesktopButton = "muralume.enter-desktop"
+    static let desktopStatusItem = "muralume.desktop-status-item"
     static let librarySortButton = "muralume.library-sort"
     static let openSettingsButton = "muralume.open-settings"
     static let closeWindowButton = "muralume.window-close"

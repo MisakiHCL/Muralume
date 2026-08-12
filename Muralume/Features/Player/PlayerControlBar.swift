@@ -361,6 +361,9 @@ struct PlayerControlBar: View {
             .accessibilityLabel(
                 Text(LocalizedStringKey(desktopActionLabelKey))
             )
+            .accessibilityIdentifier(
+                MuralumeAccessibilityIdentifier.enterDesktopButton
+            )
             .disabled(!mediaControlsEnabled)
         }
         .fixedSize()

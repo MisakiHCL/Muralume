@@ -32,6 +32,12 @@ must produce a readable result bundle with at least one test, no failures,
 skips, or expected failures, and every Swift test source must belong to its
 Xcode test target.
 
+An additional opt-in UI test imports a developer-owned MP4 and exercises the
+complete Dynamic Desktop lifecycle. Keep real media outside the repository and
+follow [Real-Media UI Testing](Documentation/REAL_MEDIA_UI_TESTING.md) to
+configure the Git-ignored local environment and run **make test-real-media**.
+This test is excluded from **make test** and CI.
+
 Debug builds use `com.muralume.Muralume.debug`, so their sandbox and media
 bookmarks stay separate from the production app. The public defaults build
 without an Apple account. To use a personal development team, copy

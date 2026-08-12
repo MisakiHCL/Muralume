@@ -102,6 +102,9 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         let menu = makeMenu()
         statusItem.menu = menu
         statusItem.isVisible = true
+        statusItem.button?.setAccessibilityIdentifier(
+            MuralumeAccessibilityIdentifier.desktopStatusItem
+        )
         self.statusItem = statusItem
         updateMenu()
 
