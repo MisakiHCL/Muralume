@@ -20,7 +20,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         }
     }
 
-    private let player = AVPlayer()
+    private let player: AVPlayer
     private weak var attachedSurface: (any AVPlayerRenderSurface)?
     private var timeObserver: Any?
     private var timeControlObservation: NSKeyValueObservation?
@@ -38,7 +38,9 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         )
     }
 
-    init() {}
+    init(player: AVPlayer = AVPlayer()) {
+        self.player = player
+    }
 
     func load(_ source: ResolvedMediaSource) async throws -> TimeInterval {
         seekCoalescer.invalidate()
@@ -89,6 +91,8 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         guard let surface = surface as? any AVPlayerRenderSurface else {
             throw PlaybackEngineError.incompatibleSurface
         }
+
+        configureDisplaySleepPrevention(for: surface)
 
         surfaceGeneration &+= 1
         let generation = surfaceGeneration
@@ -148,6 +152,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             player.cancelPendingPrerolls()
             previousSurface?.connect(to: player)
             attachedSurface = previousSurface
+            configureDisplaySleepPrevention(for: previousSurface)
             throw error
         }
     }
@@ -157,6 +162,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         player.cancelPendingPrerolls()
         attachedSurface?.connect(to: nil)
         attachedSurface = nil
+        configureDisplaySleepPrevention(for: nil)
     }
 
     func play(at rate: PlaybackRate) {
@@ -168,6 +174,12 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
 
     func pause() {
         player.pause()
+    }
+
+    private func configureDisplaySleepPrevention(
+        for surface: (any AVPlayerRenderSurface)?
+    ) {
+        player.preventsDisplaySleepDuringVideoPlayback = surface?.id == .player
     }
 
     func seek(to seconds: TimeInterval) {

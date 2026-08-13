@@ -864,7 +864,7 @@ final class MuralumeLaunchTests: XCTestCase {
         )
         XCTAssertEqual(
             launchAtLoginCheckbox.label,
-            "Start Dynamic Desktop at Login"
+            "Launch at Login"
         )
         XCTAssertTrue(
             languageRow.frame.contains(

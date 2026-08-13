@@ -13,6 +13,11 @@ private enum DesktopDisplayTopologyPolicy {
         4_000_000_000
 }
 
+private enum DesktopOcclusionPolicy {
+    static let debounceNanoseconds: UInt64 = 750_000_000
+    static let revealedWindowAlphaThreshold: CGFloat = 0.99
+}
+
 struct MacDesktopDisplayID: Hashable, Comparable {
     let rawValue: CGDirectDisplayID
 
@@ -86,6 +91,17 @@ final class MacDesktopHost: DesktopHosting {
 
     private(set) var surface: DesktopPlayerLayerSurfaceGroup?
 
+    var desktopOcclusionHandler: ((Bool) -> Void)? {
+        didSet {
+            desktopOcclusionHandler?(isDesktopOccluded)
+        }
+    }
+
+    private(set) var isDesktopOccluded = false
+    var isDesktopOcclusionDebouncePending: Bool {
+        occlusionDebounceTask != nil
+    }
+
     var hostedDisplayIDs: Set<MacDesktopDisplayID> {
         Set(hostedDisplays.keys)
     }
@@ -102,36 +118,58 @@ final class MacDesktopHost: DesktopHosting {
         hostedDisplays.mapValues(\.window.alphaValue)
     }
 
+    var hostedWindows: [MacDesktopDisplayID: DesktopWindow] {
+        hostedDisplays.mapValues(\.window)
+    }
+
     private let notificationCenter: NotificationCenter
+    private let workspaceCenter: NotificationCenter
     private let displaysProvider: () -> [MacDesktopDisplay]
     private let isSurfaceReady: (DesktopPlayerLayerSurfaceView) -> Bool
+    private let isWindowVisible: (DesktopWindow) -> Bool
     private let emptyTopologyGracePeriodNanoseconds: UInt64
+    private let occlusionDebounceNanoseconds: UInt64
     private var hostedDisplays: [MacDesktopDisplayID: HostedDisplay] = [:]
     private var displayRevealTasks: [
         MacDesktopDisplayID: Task<Void, Never>
     ] = [:]
     private var emptyTopologyTask: Task<Void, Never>?
+    private var occlusionDebounceTask: Task<Void, Never>?
     private var screenObserver: NSObjectProtocol?
+    private var workspaceObservers: [NSObjectProtocol] = []
+    private var windowOcclusionObservers: [
+        MacDesktopDisplayID: NSObjectProtocol
+    ] = [:]
     private var contentMode = DesktopVideoContentMode.defaultValue
     private var isEnergyConstrained = false
     private var isRevealed = false
 
     init(
         notificationCenter: NotificationCenter = .default,
+        workspaceCenter: NotificationCenter = NSWorkspace.shared
+            .notificationCenter,
         displaysProvider: @escaping () -> [MacDesktopDisplay] = {
             MacDesktopHost.currentDisplays
         },
         isSurfaceReady: @escaping (
             DesktopPlayerLayerSurfaceView
         ) -> Bool = { $0.isReadyForDisplay },
+        isWindowVisible: @escaping (DesktopWindow) -> Bool = {
+            $0.occlusionState.contains(.visible)
+        },
         emptyTopologyGracePeriodNanoseconds: UInt64 =
-            DesktopDisplayTopologyPolicy.emptyTopologyGracePeriodNanoseconds
+            DesktopDisplayTopologyPolicy.emptyTopologyGracePeriodNanoseconds,
+        occlusionDebounceNanoseconds: UInt64 =
+            DesktopOcclusionPolicy.debounceNanoseconds
     ) {
         self.notificationCenter = notificationCenter
+        self.workspaceCenter = workspaceCenter
         self.displaysProvider = displaysProvider
         self.isSurfaceReady = isSurfaceReady
+        self.isWindowVisible = isWindowVisible
         self.emptyTopologyGracePeriodNanoseconds =
             emptyTopologyGracePeriodNanoseconds
+        self.occlusionDebounceNanoseconds = occlusionDebounceNanoseconds
     }
 
     func prepare(
@@ -145,6 +183,7 @@ final class MacDesktopHost: DesktopHosting {
         self.surface = surface
         reconcileDisplays()
         installScreenObserver()
+        installWorkspaceObservers()
         return surface
     }
 
@@ -167,6 +206,7 @@ final class MacDesktopHost: DesktopHosting {
         }
         isRevealed = true
         reassertDesktopPlacement()
+        refreshDesktopOcclusionState()
     }
 
     func reassertDesktopPlacement() {
@@ -188,13 +228,21 @@ final class MacDesktopHost: DesktopHosting {
             notificationCenter.removeObserver(screenObserver)
             self.screenObserver = nil
         }
+        workspaceObservers.forEach(workspaceCenter.removeObserver)
+        workspaceObservers.removeAll()
+        windowOcclusionObservers.values.forEach(
+            notificationCenter.removeObserver
+        )
+        windowOcclusionObservers.removeAll()
         cancelPendingTopologyWork()
+        cancelOcclusionDebounce()
         isRevealed = false
         surface?.replaceDisplaySurfaces([])
         surface?.connect(to: nil)
         surface = nil
         hostedDisplays.values.forEach(Self.tearDown)
         hostedDisplays.removeAll()
+        publishDesktopOcclusion(false)
     }
 
     private func installScreenObserver() {
@@ -205,6 +253,24 @@ final class MacDesktopHost: DesktopHosting {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.reassertDesktopPlacement()
+            }
+        }
+    }
+
+    private func installWorkspaceObservers() {
+        let notificationNames: [Notification.Name] = [
+            NSWorkspace.activeSpaceDidChangeNotification,
+            NSWorkspace.didActivateApplicationNotification
+        ]
+        workspaceObservers = notificationNames.map { name in
+            workspaceCenter.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshDesktopOcclusionState()
+                }
             }
         }
     }
@@ -234,6 +300,7 @@ final class MacDesktopHost: DesktopHosting {
 
         for displayID in removedDisplayIDs {
             cancelReveal(for: displayID)
+            removeOcclusionObserver(for: displayID)
             if let removedDisplay = hostedDisplays.removeValue(
                 forKey: displayID
             ) {
@@ -247,7 +314,12 @@ final class MacDesktopHost: DesktopHosting {
                 hostedDisplay.window.setFrame(display.frame, display: true)
                 hostedDisplays[displayID] = hostedDisplay
             } else {
-                hostedDisplays[displayID] = makeHostedDisplay(for: display)
+                let hostedDisplay = makeHostedDisplay(for: display)
+                hostedDisplays[displayID] = hostedDisplay
+                installOcclusionObserver(
+                    for: displayID,
+                    window: hostedDisplay.window
+                )
                 addedDisplayIDs.insert(displayID)
             }
         }
@@ -267,6 +339,7 @@ final class MacDesktopHost: DesktopHosting {
         }
 
         removedDisplays.forEach(Self.tearDown)
+        refreshDesktopOcclusionState()
     }
 
     private func makeHostedDisplay(
@@ -321,6 +394,7 @@ final class MacDesktopHost: DesktopHosting {
         }
         if isSurfaceReady(surface) {
             hostedDisplays[displayID]?.window.alphaValue = 1
+            refreshDesktopOcclusionState()
             return
         }
 
@@ -339,6 +413,7 @@ final class MacDesktopHost: DesktopHosting {
                     if self.isSurfaceReady(surface) {
                         self.hostedDisplays[displayID]?.window.alphaValue = 1
                         self.displayRevealTasks[displayID] = nil
+                        self.refreshDesktopOcclusionState()
                         return false
                     }
                     return true
@@ -398,6 +473,111 @@ final class MacDesktopHost: DesktopHosting {
         displayRevealTasks.values.forEach { $0.cancel() }
         displayRevealTasks.removeAll()
         cancelEmptyTopologyRecheck()
+    }
+
+    private func installOcclusionObserver(
+        for displayID: MacDesktopDisplayID,
+        window: DesktopWindow
+    ) {
+        removeOcclusionObserver(for: displayID)
+        windowOcclusionObservers[displayID] = notificationCenter.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshDesktopOcclusionState()
+            }
+        }
+    }
+
+    private func removeOcclusionObserver(
+        for displayID: MacDesktopDisplayID
+    ) {
+        guard let observer = windowOcclusionObservers.removeValue(
+            forKey: displayID
+        ) else {
+            return
+        }
+        notificationCenter.removeObserver(observer)
+    }
+
+    private func refreshDesktopOcclusionState() {
+        let eligibleWindows = occlusionEligibleWindows
+        guard isRevealed, !hostedDisplays.isEmpty else {
+            cancelOcclusionDebounce()
+            publishDesktopOcclusion(false)
+            return
+        }
+        guard !eligibleWindows.isEmpty else {
+            cancelOcclusionDebounce()
+            // A hot-plugged replacement can be connected before its first
+            // frame is ready. Preserve the last known state until at least one
+            // desktop window becomes observable instead of resuming hidden
+            // decoding or preemptively pausing the frame needed for readiness.
+            return
+        }
+
+        let isFullyOccluded = eligibleWindows.allSatisfy {
+            !isWindowVisible($0)
+        }
+        guard isFullyOccluded else {
+            cancelOcclusionDebounce()
+            publishDesktopOcclusion(false)
+            return
+        }
+        scheduleOcclusionDebounceIfNeeded()
+    }
+
+    private var occlusionEligibleWindows: [DesktopWindow] {
+        hostedDisplays.values.compactMap { hostedDisplay in
+            let window = hostedDisplay.window
+            guard window.alphaValue
+                >= DesktopOcclusionPolicy.revealedWindowAlphaThreshold else {
+                return nil
+            }
+            return window
+        }
+    }
+
+    private func scheduleOcclusionDebounceIfNeeded() {
+        guard !isDesktopOccluded, occlusionDebounceTask == nil else {
+            return
+        }
+        let debounceNanoseconds = occlusionDebounceNanoseconds
+        occlusionDebounceTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: debounceNanoseconds)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else {
+                return
+            }
+            occlusionDebounceTask = nil
+            let eligibleWindows = occlusionEligibleWindows
+            guard isRevealed,
+                  !eligibleWindows.isEmpty,
+                  eligibleWindows.allSatisfy({
+                      !isWindowVisible($0)
+                  }) else {
+                return
+            }
+            publishDesktopOcclusion(true)
+        }
+    }
+
+    private func cancelOcclusionDebounce() {
+        occlusionDebounceTask?.cancel()
+        occlusionDebounceTask = nil
+    }
+
+    private func publishDesktopOcclusion(_ isOccluded: Bool) {
+        guard isDesktopOccluded != isOccluded else {
+            return
+        }
+        isDesktopOccluded = isOccluded
+        desktopOcclusionHandler?(isOccluded)
     }
 
     private static func reassertPlacement(

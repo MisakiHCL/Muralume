@@ -104,6 +104,9 @@
 		CD94D20452E0790A183D3EC0 /* PlaybackCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2D6934434FD592F47EA3C97 /* PlaybackCoordinatorTests.swift */; };
 		CEB28A8BFD66AAC33B3CF6A1 /* FileDesktopPresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2E5FCCB7B72B4DD3AFAF836 /* FileDesktopPresetStore.swift */; };
 		E80000000000000000000002 /* SystemLifecycleMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E80000000000000000000001 /* SystemLifecycleMonitorTests.swift */; };
+		E81000000000000000000011 /* PlaybackEnergyPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000000000000000000001 /* PlaybackEnergyPolicyTests.swift */; };
+		E82000000000000000000011 /* DesktopEnergyPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82000000000000000000001 /* DesktopEnergyPolicyTests.swift */; };
+		E83000000000000000000011 /* MacDesktopHostEnergyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83000000000000000000001 /* MacDesktopHostEnergyTests.swift */; };
 		D0E3643141099DD2E8F3DF6D /* PlayerScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED645770F764AF0E6A40DE45 /* PlayerScreen.swift */; };
 		D70000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D70000000000000000000001 /* PrivacyInfo.xcprivacy */; };
 		D60000000000000000000011 /* DesktopPlayerLayerSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */; };
@@ -253,6 +256,9 @@
 		D70000000000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		D9C9A8AA279227FF1FED1E7E /* Localizable.strings */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		E80000000000000000000001 /* SystemLifecycleMonitorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemLifecycleMonitorTests.swift; sourceTree = "<group>"; };
+		E81000000000000000000001 /* PlaybackEnergyPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackEnergyPolicyTests.swift; sourceTree = "<group>"; };
+		E82000000000000000000001 /* DesktopEnergyPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopEnergyPolicyTests.swift; sourceTree = "<group>"; };
+		E83000000000000000000001 /* MacDesktopHostEnergyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopHostEnergyTests.swift; sourceTree = "<group>"; };
 		E4C1719B3EBF498C8A5CCF6E /* PlayerControls.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerControls.swift; sourceTree = "<group>"; };
 		E4FE718E54F942A296B9CED2 /* PlaybackTimeline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackTimeline.swift; sourceTree = "<group>"; };
 		E9EDF0C412B646C199C77E26 /* AppCompositionRoot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppCompositionRoot.swift; sourceTree = "<group>"; };
@@ -453,6 +459,8 @@
 				B50000000000000000000002 /* MuralumeSliderTests.swift */,
 				B40000000000000000000002 /* PlayerChromeControllerTests.swift */,
 				F2D6934434FD592F47EA3C97 /* PlaybackCoordinatorTests.swift */,
+				E81000000000000000000001 /* PlaybackEnergyPolicyTests.swift */,
+				E82000000000000000000001 /* DesktopEnergyPolicyTests.swift */,
 				C30000000000000000000005 /* PlaybackSessionControllerTests.swift */,
 				848B492C1513ACCE6930D647 /* LaunchAtLoginControllerTests.swift */,
 				A6D41A86D32688BAF7100FD3 /* DesktopPresetControllerTests.swift */,
@@ -715,6 +723,7 @@
 			isa = PBXGroup;
 			children = (
 				AC0000000000000000000006 /* MacMainWindowPresenterTests.swift */,
+				E83000000000000000000001 /* MacDesktopHostEnergyTests.swift */,
 			);
 			name = UI;
 			path = UI;
@@ -1079,6 +1088,8 @@
 				B50000000000000000000012 /* MuralumeSliderTests.swift in Sources */,
 				B40000000000000000000012 /* PlayerChromeControllerTests.swift in Sources */,
 				CD94D20452E0790A183D3EC0 /* PlaybackCoordinatorTests.swift in Sources */,
+				E81000000000000000000011 /* PlaybackEnergyPolicyTests.swift in Sources */,
+				E82000000000000000000011 /* DesktopEnergyPolicyTests.swift in Sources */,
 				C30000000000000000000015 /* PlaybackSessionControllerTests.swift in Sources */,
 				628DEF8A0A9BCE74862C63C4 /* PlaybackGateTests.swift in Sources */,
 				AA0000000000000000000018 /* PlaybackQueueTests.swift in Sources */,
@@ -1087,6 +1098,7 @@
 				004C99C5AE9B45B3AE32AB2A /* AVFoundationPlaybackEngineTests.swift in Sources */,
 				9DDE2F09B8C64CF4AB689811 /* RealAVPlayerLayerRoundTripTests.swift in Sources */,
 				AC0000000000000000000016 /* MacMainWindowPresenterTests.swift in Sources */,
+				E83000000000000000000011 /* MacDesktopHostEnergyTests.swift in Sources */,
 				E80000000000000000000002 /* SystemLifecycleMonitorTests.swift in Sources */,
 				830486FEDB044884B2D283C5 /* PlaybackTestDoubles.swift in Sources */,
 				FA0000000000000000000013 /* DefaultVideoPlayerControllerTests.swift in Sources */,

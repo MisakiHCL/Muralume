@@ -15,6 +15,7 @@ final class PlaybackCoordinator: ObservableObject {
     }
     @Published private(set) var presentation: PlaybackPresentation = .player {
         didSet {
+            updatePublishedSuspensionState()
             updateProgressCadence()
         }
     }
@@ -515,14 +516,10 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     func setSuspended(_ suspended: Bool, for reason: PlaybackSuspensionReason) {
-        gate.setSuspended(suspended, for: reason)
-        let nextSuspensionState = !gate.suspensionReasons.isEmpty
-        if isSystemSuspended != nextSuspensionState {
-            isSystemSuspended = nextSuspensionState
+        guard gate.setSuspended(suspended, for: reason) else {
+            return
         }
-        // Some reasons (for example a miniaturized player window) are ignored
-        // by desktop playback while system reasons still block it. Recompute
-        // even when the aggregate published Bool remains true.
+        updatePublishedSuspensionState()
         updateProgressCadence()
         applyPlaybackGate()
     }
@@ -874,6 +871,13 @@ final class PlaybackCoordinator: ObservableObject {
         engine.setProgressCadence(cadence)
     }
 
+    private func updatePublishedSuspensionState() {
+        let nextSuspensionState = hasBlockingSuspensionForCurrentPresentation
+        if isSystemSuspended != nextSuspensionState {
+            isSystemSuspended = nextSuspensionState
+        }
+    }
+
     private var desiredProgressCadence: PlaybackProgressCadence {
         guard readiness == .ready,
               !isPlayerWindowDismissed,
@@ -892,10 +896,7 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     private var shouldPlayForCurrentPresentation: Bool {
-        if ignoresPlayerWindowSuspension {
-            return gate.shouldPlay(ignoring: .playerWindowMiniaturized)
-        }
-        return gate.shouldPlay
+        gate.shouldPlay(ignoring: ignoredSuspensionReasonsForCurrentPresentation)
     }
 
     private var isWaitingForPlayerSurface: Bool {
@@ -919,22 +920,39 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     private var hasBlockingSuspensionForCurrentPresentation: Bool {
-        if ignoresPlayerWindowSuspension {
-            return gate.suspensionReasons.contains {
-                $0 != .playerWindowMiniaturized
-            }
-        }
-        return !gate.suspensionReasons.isEmpty
+        !gate.suspensionReasons.isSubset(
+            of: ignoredSuspensionReasonsForCurrentPresentation
+        )
     }
 
-    private var ignoresPlayerWindowSuspension: Bool {
+    private var ignoredSuspensionReasonsForCurrentPresentation: Set<
+        PlaybackSuspensionReason
+    > {
+        let scope = currentPresentationScope
+        return Set(gate.suspensionReasons.filter { reason in
+            switch (reason.scope, scope) {
+            case (.allPresentations, _):
+                false
+            case (.desktopOnly, .playerOnly),
+                 (.playerOnly, .desktopOnly):
+                true
+            case (.desktopOnly, .desktopOnly),
+                 (.playerOnly, .playerOnly),
+                 (.desktopOnly, .allPresentations),
+                 (.playerOnly, .allPresentations):
+                false
+            }
+        })
+    }
+
+    private var currentPresentationScope: PlaybackSuspensionScope {
         switch presentation {
         case let .switching(_, destination):
-            return destination == .desktop
+            return destination == .desktop ? .desktopOnly : .playerOnly
         case .desktop:
-            return true
+            return .desktopOnly
         case .player, .terminating:
-            return false
+            return .playerOnly
         }
     }
 

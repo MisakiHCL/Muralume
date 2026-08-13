@@ -41,6 +41,42 @@ an explicit **Restore Dynamic Desktop** action. A failed external request
 restores the previous desktop automatically. Closing the detour can also return
 to the captured desktop state.
 
+## Energy and lifecycle policy
+
+Energy protection is progressive and presentation-aware. Muralume keeps a set
+of active constraint reasons instead of replacing one Boolean with the latest
+signal, so clearing Low Power Mode cannot accidentally re-enable an effect
+while battery, load, or thermal pressure is still active. Suspension reasons
+are scoped separately to foreground playback, Dynamic Desktop, or every
+presentation.
+
+| Signal | Behavior |
+| --- | --- |
+| AC power with no internal battery | Run normally. An unreadable power state fails open. |
+| Battery or UPS power, Low Power Mode, an early battery warning, fair thermal pressure, or sustained system load | Disconnect the decorative blurred fill while keeping the primary video active. |
+| Every revealed Dynamic Desktop window is occluded | Pause Dynamic Desktop after a 750 ms debounce; keep playing while any display remains visible. |
+| Final battery warning or serious thermal pressure | Pause Dynamic Desktop only, without interrupting intentional foreground viewing. |
+| Critical thermal pressure, system/display sleep, or an inactive user session | Pause every applicable presentation. |
+
+System-load protection samples only while Dynamic Desktop is active. It reads
+the one-minute load average every five seconds, divides it by the active logical
+processor count, enters after three consecutive samples at or above 0.85, and
+recovers after six consecutive samples at or below 0.60. This is runnable-queue
+pressure rather than CPU utilization, and it never causes a hard pause. Thermal
+state remains the public fallback for GPU, media-engine, and aggregate heat.
+
+Fullscreen-app handling uses only the public occlusion state of Muralume's own
+desktop windows. It does not enumerate other applications, use private window
+server APIs, or require Accessibility or screen-recording permission. Pending
+hot-plug surfaces do not override the last known visibility of already revealed
+windows.
+
+The shared `AVPlayer` prevents display sleep only while attached to the
+foreground player surface. Dynamic Desktop and detached playback surfaces leave
+normal display-sleep policy in control. Power-source listeners, window
+observers, and load timers are removed during teardown, and stale timer
+generations cannot reactivate monitoring after a stop or presentation change.
+
 ## Finder file association and default-player status
 
 `Info.plist` registers Muralume as an alternate Viewer for exactly the formats
@@ -225,6 +261,11 @@ Future changes to this subsystem should cover, as applicable:
 - known library items, temporary single files, and mixed external batches;
 - Dynamic Desktop interruption, failure, restoration, adoption, and request
   supersession;
+- overlapping power, Low Power Mode, load, and thermal reasons with independent
+  recovery order;
+- single- and multi-display occlusion debounce, Spaces, Stage Manager, and
+  hot-plugged surfaces that are not ready for display yet;
+- load-sampler activation, hysteresis, stale generations, stop, and teardown;
 - complete versus incomplete refresh reconciliation;
 - ordered and shuffled selection, history, forward history, and persistence
   round trips;

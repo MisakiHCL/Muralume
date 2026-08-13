@@ -49,6 +49,8 @@ final class TestPlaybackEngine: PlaybackEngine {
     private(set) var progressCadence: PlaybackProgressCadence = .inactive
     private(set) var progressCadenceChanges: [PlaybackProgressCadence] = []
     private(set) var stopCount = 0
+    private(set) var playCount = 0
+    private(set) var pauseCount = 0
     var loadErrorsByURL: [URL: PlaybackEngineError] = [:]
     var attachmentErrorsBySurfaceID: [PlaybackSurfaceID: PlaybackEngineError] = [:]
     var shouldBlockLoads = false
@@ -104,12 +106,14 @@ final class TestPlaybackEngine: PlaybackEngine {
     }
 
     func play(at rate: PlaybackRate) {
+        playCount += 1
         self.rate = rate
         isPlaying = true
         playbackActivityHandler?(true)
     }
 
     func pause() {
+        pauseCount += 1
         isPlaying = false
         playbackActivityHandler?(false)
     }
@@ -244,6 +248,7 @@ enum TestMediaFixture {
 
 @MainActor
 final class TestDesktopHost: DesktopHosting {
+    var desktopOcclusionHandler: ((Bool) -> Void)?
     var revealHandler: (() -> Void)?
     let surface = TestPlaybackSurface(id: .desktop)
     private(set) var prepareCount = 0
@@ -281,6 +286,10 @@ final class TestDesktopHost: DesktopHosting {
 
     func close() {
         closeCount += 1
+    }
+
+    func emitDesktopOcclusion(_ isOccluded: Bool) {
+        desktopOcclusionHandler?(isOccluded)
     }
 }
 
@@ -354,9 +363,12 @@ final class TestDesktopVideoContentModeStore: DesktopVideoContentModeStoring {
 @MainActor
 final class TestSystemLifecycleMonitor: SystemLifecycleMonitoring {
     var suspensionHandler: ((PlaybackSuspensionReason, Bool) -> Void)?
-    var energyConstrainedHandler: ((Bool) -> Void)?
+    var energyConstraintsHandler: (
+        (Set<SystemEnergyConstraintReason>) -> Void
+    )?
     private(set) var startCount = 0
     private(set) var stopCount = 0
+    private(set) var desktopMonitoringStates: [Bool] = []
 
     func start() {
         startCount += 1
@@ -366,12 +378,24 @@ final class TestSystemLifecycleMonitor: SystemLifecycleMonitoring {
         stopCount += 1
     }
 
+    func setDesktopMonitoringActive(_ isActive: Bool) {
+        desktopMonitoringStates.append(isActive)
+    }
+
     func emit(_ reason: PlaybackSuspensionReason, suspended: Bool) {
         suspensionHandler?(reason, suspended)
     }
 
     func emitEnergyConstrained(_ isEnergyConstrained: Bool) {
-        energyConstrainedHandler?(isEnergyConstrained)
+        emitEnergyConstraints(
+            isEnergyConstrained ? [.lowPowerMode] : []
+        )
+    }
+
+    func emitEnergyConstraints(
+        _ constraints: Set<SystemEnergyConstraintReason>
+    ) {
+        energyConstraintsHandler?(constraints)
     }
 }
 

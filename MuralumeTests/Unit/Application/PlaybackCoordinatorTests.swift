@@ -884,7 +884,7 @@ final class PlaybackCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(engine.progressCadence, .background)
         XCTAssertTrue(engine.isPlaying)
-        XCTAssertTrue(coordinator.isSystemSuspended)
+        XCTAssertFalse(coordinator.isSystemSuspended)
     }
 
     func testMiniaturizedReturnPausesDuringAttachmentAndResumesOnFailure()

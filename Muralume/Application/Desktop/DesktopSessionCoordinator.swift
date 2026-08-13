@@ -48,6 +48,8 @@ final class DesktopSessionCoordinator: ObservableObject {
     private let applicationPresence: any ApplicationPresenceControlling
     private var transitionTask: Task<Void, Never>?
     private var transitionGeneration: UInt64 = 0
+    private var areDesktopEffectsConstrained = false
+    private var isDesktopMonitoringEnabled = false
     private var isShutDown = false
 
     init(
@@ -73,6 +75,7 @@ final class DesktopSessionCoordinator: ObservableObject {
         }
         configureStatusMenu()
         configureLifecycleMonitor()
+        configureDesktopHost()
         lifecycleMonitor.start()
     }
 
@@ -105,7 +108,7 @@ final class DesktopSessionCoordinator: ObservableObject {
                         .applicationPresenceUnavailable
                 }
                 mainWindow.hide()
-                isActive = true
+                updateActiveState(true)
                 didEnterDesktopHandler?()
             } catch is CancellationError {
                 if isCurrentTransition(generation) {
@@ -197,7 +200,7 @@ final class DesktopSessionCoordinator: ObservableObject {
                 }
                 desktopHost.close()
                 statusMenu.remove()
-                isActive = false
+                updateActiveState(false)
                 didReturnToPlayerHandler?()
             } catch is CancellationError {
                 // A newer stop or quit intent owns the final presentation state.
@@ -206,7 +209,7 @@ final class DesktopSessionCoordinator: ObservableObject {
                     _ = applicationPresence.setMode(.menuBarOnly)
                     mainWindow.hideAfterFailedReturn()
                     desktopHost.reassertDesktopPlacement()
-                    isActive = true
+                    updateActiveState(true)
                     transientFailure = .playback(.surfaceTimeout)
                 }
             }
@@ -236,7 +239,7 @@ final class DesktopSessionCoordinator: ObservableObject {
             if restoredStandardPresence {
                 statusMenu.remove()
             }
-            isActive = !restoredStandardPresence
+            updateActiveState(!restoredStandardPresence)
         }
 
         mainWindow.dismiss()
@@ -264,7 +267,7 @@ final class DesktopSessionCoordinator: ObservableObject {
         if restoredStandardPresence {
             statusMenu.remove()
         }
-        isActive = !restoredStandardPresence
+        updateActiveState(!restoredStandardPresence)
         didStopPlaybackHandler?()
     }
 
@@ -279,11 +282,14 @@ final class DesktopSessionCoordinator: ObservableObject {
         isShutDown = true
 
         invalidateTransition()
+        updateActiveState(false)
         lifecycleMonitor.stop()
+        lifecycleMonitor.suspensionHandler = nil
+        lifecycleMonitor.energyConstraintsHandler = nil
         statusMenu.remove()
         playback.shutdown()
         desktopHost.close()
-        isActive = false
+        desktopHost.desktopOcclusionHandler = nil
     }
 
     private func configureStatusMenu() {
@@ -359,12 +365,49 @@ final class DesktopSessionCoordinator: ObservableObject {
 
     private func configureLifecycleMonitor() {
         lifecycleMonitor.suspensionHandler = { [weak self] reason, suspended in
-            self?.playback.setSuspended(suspended, for: reason)
+            guard let self, !isShutDown else {
+                return
+            }
+            playback.setSuspended(suspended, for: reason)
         }
-        lifecycleMonitor.energyConstrainedHandler = {
-            [weak self] isConstrained in
-            self?.desktopHost.setEnergyConstrained(isConstrained)
+        lifecycleMonitor.energyConstraintsHandler = {
+            [weak self] constraints in
+            self?.applyEnergyConstraints(constraints)
         }
+    }
+
+    private func configureDesktopHost() {
+        desktopHost.desktopOcclusionHandler = { [weak self] isOccluded in
+            guard let self, !isShutDown else {
+                return
+            }
+            playback.setSuspended(isOccluded, for: .desktopOccluded)
+        }
+    }
+
+    private func applyEnergyConstraints(
+        _ constraints: Set<SystemEnergyConstraintReason>
+    ) {
+        guard !isShutDown else {
+            return
+        }
+        let shouldConstrainEffects = !constraints.isEmpty
+        guard areDesktopEffectsConstrained != shouldConstrainEffects else {
+            return
+        }
+        areDesktopEffectsConstrained = shouldConstrainEffects
+        desktopHost.setEnergyConstrained(shouldConstrainEffects)
+    }
+
+    private func updateActiveState(_ isActive: Bool) {
+        self.isActive = isActive
+        let shouldMonitorDesktop = isActive
+            && playback.presentation == .desktop
+        guard isDesktopMonitoringEnabled != shouldMonitorDesktop else {
+            return
+        }
+        isDesktopMonitoringEnabled = shouldMonitorDesktop
+        lifecycleMonitor.setDesktopMonitoringActive(shouldMonitorDesktop)
     }
 
     private func handlePlaybackFailure(_ failure: PlaybackFailure) {
@@ -379,7 +422,7 @@ final class DesktopSessionCoordinator: ObservableObject {
         if restoredStandardPresence {
             statusMenu.remove()
         }
-        isActive = !restoredStandardPresence
+        updateActiveState(!restoredStandardPresence)
         didStopPlaybackHandler?()
     }
 
@@ -467,7 +510,7 @@ final class DesktopSessionCoordinator: ObservableObject {
         }
         desktopHost.close()
         mainWindow.show()
-        isActive = !restoredStandardPresence
+        updateActiveState(!restoredStandardPresence)
         transientFailure = failure
     }
 

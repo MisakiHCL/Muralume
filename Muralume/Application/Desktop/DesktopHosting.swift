@@ -24,6 +24,8 @@ protocol DesktopVideoContentModeStoring {
 
 @MainActor
 protocol DesktopHosting: AnyObject {
+    var desktopOcclusionHandler: ((Bool) -> Void)? { get set }
+
     func prepare(
         contentMode: DesktopVideoContentMode
     ) -> any PlaybackRenderSurface

@@ -19,6 +19,25 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
         static let staleSeekSettleNanoseconds: UInt64 = 300_000_000
     }
 
+    func testDisplaySleepPreventionTracksPresentationSurface() async throws {
+        let player = AVPlayer()
+        let engine = AVFoundationPlaybackEngine(player: player)
+        let playerSurface = TestAVPlayerSurface(id: .player)
+        let desktopSurface = TestAVPlayerSurface(id: .desktop)
+
+        try await engine.attach(to: playerSurface)
+        XCTAssertTrue(player.preventsDisplaySleepDuringVideoPlayback)
+
+        try await engine.attach(to: desktopSurface)
+        XCTAssertFalse(player.preventsDisplaySleepDuringVideoPlayback)
+
+        try await engine.attach(to: playerSurface)
+        XCTAssertTrue(player.preventsDisplaySleepDuringVideoPlayback)
+
+        engine.detachAll()
+        XCTAssertFalse(player.preventsDisplaySleepDuringVideoPlayback)
+    }
+
     func testLoadsBundledH264Sample() async throws {
         let engine = AVFoundationPlaybackEngine()
 

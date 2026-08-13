@@ -60,7 +60,7 @@ Your source videos stay exactly where you put them. Muralume receives read-only 
 
 ### An energy-aware Dynamic Desktop
 
-Place the current queue behind desktop files and widgets on every connected display while keeping each desktop fully interactive. Displays can be connected, removed, rearranged, or resized without restarting the queue. Muralume uses macOS-native playback, stays muted in desktop mode, does not prevent display sleep, and pauses automatically when the screen locks, every display sleeps, or the system enters a constrained state.
+Place the current queue behind desktop files and widgets on every connected display while keeping each desktop fully interactive. Displays can be connected, removed, rearranged, or resized without restarting the queue. Muralume uses macOS-native playback, stays muted in desktop mode, and does not prevent display sleep. On battery or UPS power, in Low Power Mode, under elevated thermal pressure, or during sustained system load, it removes the decorative blurred fill. Dynamic Desktop pauses when every desktop window is occluded, the battery reaches its final warning, thermal pressure becomes serious, or normal sleep and session lifecycle events require it; critical thermal pressure pauses playback everywhere.
 
 By default, Muralume keeps the full video sharp and fills any remaining space with a softly blurred version of the same frame.
 
@@ -98,7 +98,7 @@ The latest release includes a Developer ID–signed and Apple-notarized DMG plus
 
 ## Restore after login
 
-To restore the current queue automatically after login, open Settings and enable **Start Dynamic Desktop at Login** while a video queue is active. macOS may ask you to approve Muralume in Login Items.
+To restore the current queue automatically after login, open Settings and enable **Launch at Login** while a video queue is active. macOS may ask you to approve Muralume in Login Items.
 
 The menu bar item lets you pause, skip, choose a playback mode, change playback speed or desktop fit, return to the player, and quit Muralume.
 

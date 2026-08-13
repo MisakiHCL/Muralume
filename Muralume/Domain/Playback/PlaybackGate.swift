@@ -10,9 +10,15 @@ struct PlaybackGate: Equatable, Sendable {
     func shouldPlay(
         ignoring ignoredReason: PlaybackSuspensionReason
     ) -> Bool {
+        shouldPlay(ignoring: [ignoredReason])
+    }
+
+    func shouldPlay(
+        ignoring ignoredReasons: Set<PlaybackSuspensionReason>
+    ) -> Bool {
         intent == .playing
             && !isTerminating
-            && suspensionReasons.allSatisfy { $0 == ignoredReason }
+            && suspensionReasons.isSubset(of: ignoredReasons)
     }
 
     mutating func setIntent(_ intent: PlaybackIntent) {
@@ -22,14 +28,18 @@ struct PlaybackGate: Equatable, Sendable {
         self.intent = intent
     }
 
-    mutating func setSuspended(_ suspended: Bool, for reason: PlaybackSuspensionReason) {
+    @discardableResult
+    mutating func setSuspended(
+        _ suspended: Bool,
+        for reason: PlaybackSuspensionReason
+    ) -> Bool {
         guard !isTerminating else {
-            return
+            return false
         }
         if suspended {
-            suspensionReasons.insert(reason)
+            return suspensionReasons.insert(reason).inserted
         } else {
-            suspensionReasons.remove(reason)
+            return suspensionReasons.remove(reason) != nil
         }
     }
 

@@ -117,4 +117,28 @@ enum PlaybackSuspensionReason: Hashable, Sendable {
     case systemSleeping
     case sessionInactive
     case thermalPressure
+    case desktopOccluded
+    case desktopThermalPressure
+    case lowBattery
+
+    var scope: PlaybackSuspensionScope {
+        switch self {
+        case .playerWindowMiniaturized:
+            .playerOnly
+        case .desktopOccluded, .desktopThermalPressure, .lowBattery:
+            .desktopOnly
+        case .screenLocked,
+             .displaySleeping,
+             .systemSleeping,
+             .sessionInactive,
+             .thermalPressure:
+            .allPresentations
+        }
+    }
+}
+
+enum PlaybackSuspensionScope: Equatable, Sendable {
+    case allPresentations
+    case desktopOnly
+    case playerOnly
 }
