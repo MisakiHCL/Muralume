@@ -5,12 +5,6 @@ set -euo pipefail
 readonly test_script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly project_root="$(cd "${test_script_directory}/../.." && pwd)"
 
-# Fixture invocations use the artifact directory created below. Formal
-# release gates export their own cache overrides, which must not leak into
-# these nested verify.sh processes and contend with the parent gate.
-unset MURALUME_TEST_ARTIFACTS_DIR
-unset MURALUME_TEST_DERIVED_DATA_DIR
-
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/MuralumeVerifyResults.XXXXXX")"
 cleanup() {
     rm -rf "${test_root}"

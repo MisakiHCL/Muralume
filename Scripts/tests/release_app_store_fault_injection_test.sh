@@ -189,8 +189,12 @@ printf '%s\n' \
     'MURALUME_APP_STORE_PROVISIONING_PROFILE_SPECIFIER =' \
     >"${fixture_root}/Config/AppStore.local.xcconfig"
 chmod 600 "${fixture_root}/Config/AppStore.local.xcconfig"
-printf '%s\n' 'synthetic App Store Connect private key' \
-    >"${app_store_private_key_path}"
+openssl genpkey \
+    -algorithm EC \
+    -pkeyopt ec_paramgen_curve:P-256 \
+    -out "${app_store_private_key_path}" \
+    >/dev/null 2>&1 \
+    || fail_test 'could not generate an isolated App Store Connect key'
 chmod 600 "${app_store_private_key_path}"
 
 printf '%s\n' \

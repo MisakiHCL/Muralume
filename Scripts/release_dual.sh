@@ -34,6 +34,12 @@ source "${script_directory}/lib/release_provenance.sh"
 source "${script_directory}/lib/release_source_snapshot.sh"
 # shellcheck source=lib/release_gate_receipt.sh
 source "${script_directory}/lib/release_gate_receipt.sh"
+# shellcheck source=lib/release_timing_journal.sh
+source "${script_directory}/lib/release_timing_journal.sh"
+# shellcheck source=lib/release_shared_gate.sh
+source "${script_directory}/lib/release_shared_gate.sh"
+# shellcheck source=lib/release_github_state.sh
+source "${script_directory}/lib/release_github_state.sh"
 
 release_title="${RELEASE_TITLE:-}"
 release_notes_path="${RELEASE_NOTES_FILE:-}"
@@ -72,6 +78,11 @@ EOF
 
 fail() {
     printf 'Error: %s\n' "$1" >&2
+    if [[ -n "${timing_journal_path:-}" \
+        && -f "${timing_journal_path}" ]]; then
+        printf 'Release timing journal: %s\n' \
+            "${timing_journal_path}" >&2
+    fi
     exit 1
 }
 
@@ -106,6 +117,9 @@ safe_remove_work_directory() {
 cleanup() {
     local status="$?"
     set +e
+    if [[ "${status}" -ne 0 ]]; then
+        release_timing_stage_fail_active || true
+    fi
     if [[ "${source_checkout_registered}" -eq 1 \
         || -n "${source_checkout_path}" ]]; then
         release_git -C "${project_root}" worktree remove --force \
@@ -229,6 +243,19 @@ readonly app_store_build
 readonly release_tag="v${marketing_version}"
 readonly upload_receipt_path="${project_root}/dist/app-store/Muralume-${app_store_version}-${app_store_build}-upload.txt"
 readonly release_manifest_path="${project_root}/dist/releases/${release_tag}.manifest"
+readonly release_state_parent="${managed_root}/release-state"
+release_xcode_identity="$(release_gate_xcode_identity)" \
+    || fail 'Unable to resolve the release Xcode identity.'
+release_xcode_key="$(
+    printf '%s\n' "${release_xcode_identity}" \
+        | shasum -a 256 \
+        | awk '{ print $1 }'
+)"
+readonly release_xcode_key
+readonly release_source_state_directory="${release_state_parent}/${source_commit}"
+readonly release_state_directory="${release_source_state_directory}/${release_xcode_key}"
+readonly gate_receipt_path="${release_state_directory}/gate-all.receipt"
+readonly timing_journal_path="${release_state_directory}/timing.journal"
 
 [[ "${marketing_version}" == "${app_store_version}" ]] \
     || fail 'Developer ID and App Store marketing versions differ.'
@@ -236,6 +263,24 @@ readonly release_manifest_path="${project_root}/dist/releases/${release_tag}.man
     && "${app_store_build}" =~ ^[0-9]+$ \
     && "${app_store_build}" -gt "${developer_id_build}" ]] \
     || fail 'The App Store build must be newer than the Developer ID build.'
+[[ ! -L "${release_state_parent}" \
+    && (! -e "${release_state_parent}" \
+        || -d "${release_state_parent}") \
+    && ! -L "${release_source_state_directory}" \
+    && (! -e "${release_source_state_directory}" \
+        || -d "${release_source_state_directory}") \
+    && ! -L "${release_state_directory}" \
+    && (! -e "${release_state_directory}" \
+        || -d "${release_state_directory}") ]] \
+    || fail 'The persistent release-state path is unsafe.'
+mkdir -p "${release_state_directory}"
+chmod 700 \
+    "${release_state_parent}" \
+    "${release_source_state_directory}" \
+    "${release_state_directory}"
+release_timing_session_initialize \
+    "${timing_journal_path}" "${source_commit}" "${source_tree}" \
+    || fail 'Unable to initialize the release timing journal.'
 if [[ -n "${release_notes_path}" \
     && "${release_notes_path}" != /* ]]; then
     release_notes_path="${project_root}/${release_notes_path}"
@@ -246,6 +291,45 @@ fi
 [[ -n "${release_title}" ]] \
     || release_title="Muralume ${release_tag}"
 
+work_directory="$(
+    mktemp -d "${workspace_parent}/MuralumeDualRelease.XXXXXX"
+)"
+chmod 700 "${work_directory}"
+{
+    printf 'schema=1\n'
+    printf 'repository=%s\n' "${project_root}"
+} >"${work_directory}/.muralume-workspace"
+chmod 600 "${work_directory}/.muralume-workspace"
+readonly gate_capability_path="${work_directory}/release-dual.capability"
+release_dual_capability_token="$(openssl rand -hex 32)"
+{
+    printf 'token=%s\n' "${release_dual_capability_token}"
+    printf 'orchestrator_pid=%s\n' "$$"
+    printf 'source_commit=%s\n' "${source_commit}"
+    printf 'source_tree=%s\n' "${source_tree}"
+} >"${gate_capability_path}"
+chmod 600 "${gate_capability_path}"
+
+if [[ "${selected_mode}" == 'release' ]]; then
+    release_timing_stage_begin local_preflight \
+        || fail 'Unable to start local preflight timing.'
+    MURALUME_RELEASE_DUAL_CAPABILITY_PATH="${gate_capability_path}" \
+    MURALUME_RELEASE_DUAL_CAPABILITY_TOKEN="${release_dual_capability_token}" \
+    MURALUME_DEVELOPER_ID_APPLICATION="${dual_developer_id_application}" \
+    MURALUME_NOTARY_KEYCHAIN_PROFILE="${dual_notary_keychain_profile}" \
+    MURALUME_EXPECTED_TEAM_IDENTIFIER="${dual_expected_team_identifier}" \
+    MURALUME_ASC_KEY_ID="${dual_asc_key_id}" \
+    MURALUME_ASC_ISSUER_ID="${dual_asc_issuer_id}" \
+    MURALUME_ASC_PRIVATE_KEY_PATH="${dual_asc_private_key_path}" \
+    GH_TOKEN="${dual_gh_token}" \
+    GITHUB_TOKEN="${dual_github_token}" \
+        "${script_directory}/release_doctor.sh"
+    release_timing_stage_finish passed \
+        || fail 'Unable to finish local preflight timing.'
+fi
+
+release_timing_stage_begin remote_inspection \
+    || fail 'Unable to start remote inspection timing.'
 remote_tag_records="$(
     release_git -C "${project_root}" ls-remote origin \
         "refs/tags/${release_tag}" \
@@ -401,209 +485,6 @@ inspect_local_release_assets() {
 }
 inspect_local_release_assets
 
-github_release_exists=0
-github_release_identity_valid=0
-github_release_is_draft=0
-github_release_assets=""
-github_release_assets_exact=0
-github_release_assets_valid=0
-github_release_asset_policy_valid=0
-github_release_is_complete=0
-github_release_url=""
-github_release_digest=""
-github_release_has_provenance=0
-inspect_github_release() {
-    local release_fields
-    local release_error_path="${work_directory}/github-release-view.error"
-    local latest_tag
-    local remote_tag_commit
-    local expected_asset_digest
-    local remote_checksum_digest
-    local downloaded_directory="${work_directory}/GitHubAssets"
-    local remote_dmg_digest
-    local remote_provenance_path
-
-    if ! release_fields="$(
-        gh release view "${release_tag}" --repo "${github_repository}" \
-            --json tagName,isDraft,isPrerelease,url \
-            --jq '[.tagName, .isDraft, .isPrerelease, .url] | @tsv' \
-            2>"${release_error_path}"
-    )"; then
-        if rg -q '(HTTP 404|release not found|not found)' \
-            "${release_error_path}"; then
-            return 0
-        fi
-        printf '%s\n' 'GitHub Release inspection failed before publication.' >&2
-        return 1
-    fi
-    github_release_exists=1
-    IFS=$'\t' read -r remote_tag remote_draft remote_prerelease \
-        github_release_url <<<"${release_fields}"
-    [[ "${remote_tag}" == "${release_tag}" ]] || return 0
-    [[ "${remote_draft}" != 'true' ]] || github_release_is_draft=1
-    remote_tag_commit="$(
-        gh api "repos/${github_repository}/commits/${release_tag}" --jq '.sha'
-    )" || return 1
-    [[ "${remote_tag_commit}" == "${source_commit}" ]] || return 0
-    github_release_identity_valid=1
-
-    github_release_assets="$(
-        gh release view "${release_tag}" --repo "${github_repository}" \
-            --json assets --jq '.assets[].name' | sort
-    )" || return 1
-    if [[ -n "${github_release_assets}" ]]; then
-        if printf '%s\n' "${github_release_assets}" \
-            | /usr/bin/grep -E -v \
-                '^(Muralume\.dmg|Muralume\.dmg\.sha256|Muralume\.release-provenance)$' \
-                >/dev/null; then
-            return 0
-        fi
-        [[ "$(printf '%s\n' "${github_release_assets}" | wc -l \
-            | tr -d '[:space:]')" \
-            == "$(printf '%s\n' "${github_release_assets}" | sort -u \
-                | wc -l | tr -d '[:space:]')" ]] || return 0
-    fi
-    github_release_asset_policy_valid=1
-    [[ -n "${github_release_assets}" ]] || {
-        github_release_assets_valid=1
-        return 0
-    }
-    mkdir -p "${downloaded_directory}"
-    if printf '%s\n' "${github_release_assets}" \
-        | rg -x 'Muralume\.release-provenance' >/dev/null; then
-        gh release download "${release_tag}" --repo "${github_repository}" \
-            --dir "${downloaded_directory}" \
-            --pattern 'Muralume.release-provenance' >/dev/null || return 1
-        remote_provenance_path="${downloaded_directory}/${release_provenance_asset_name}"
-        chmod 600 "${remote_provenance_path}" || return 1
-        release_provenance_read "${remote_provenance_path}" || return 0
-        release_provenance_matches \
-            "${source_commit}" "${source_tree}" '' \
-            "${app_store_version}" "${app_store_build}" || return 0
-        if [[ -n "${release_manifest_digest}" \
-            && "${release_manifest_digest}" \
-                != "${MURALUME_PROVENANCE_DMG_SHA256}" ]]; then
-            return 0
-        fi
-        release_manifest_digest="${MURALUME_PROVENANCE_DMG_SHA256}"
-        durable_testflight_provenance=1
-        github_release_has_provenance=1
-    fi
-    if printf '%s\n' "${github_release_assets}" \
-        | rg -x 'Muralume\.dmg\.sha256' >/dev/null; then
-        gh release download "${release_tag}" --repo "${github_repository}" \
-            --dir "${downloaded_directory}" \
-            --pattern 'Muralume.dmg.sha256' >/dev/null || return 1
-        remote_checksum_digest="$(
-            release_checksum_digest \
-                "${downloaded_directory}/Muralume.dmg.sha256"
-        )" || return 0
-        [[ "${remote_checksum_digest}" =~ ^[[:xdigit:]]{64}$ ]] || return 0
-    fi
-    if printf '%s\n' "${github_release_assets}" \
-        | rg -x 'Muralume\.dmg' >/dev/null; then
-        gh release download "${release_tag}" --repo "${github_repository}" \
-            --dir "${downloaded_directory}" \
-            --pattern 'Muralume.dmg' >/dev/null || return 1
-        remote_dmg_digest="$(
-            shasum -a 256 "${downloaded_directory}/Muralume.dmg" \
-                | awk '{ print $1 }'
-        )"
-        [[ "${remote_dmg_digest}" =~ ^[[:xdigit:]]{64}$ ]] || return 0
-    fi
-    expected_asset_digest="${release_manifest_digest}"
-    [[ -n "${expected_asset_digest}" \
-        || "${local_release_assets_valid}" -ne 1 ]] \
-        || expected_asset_digest="${local_release_digest}"
-    # Never turn an untrusted partial upload into its own provenance. Recovery
-    # requires a digest already pinned by the tag/local manifest or by the
-    # original locally verified signed asset pair.
-    [[ "${expected_asset_digest}" =~ ^[[:xdigit:]]{64}$ ]] || return 0
-    [[ -z "${remote_checksum_digest}" \
-        || "${remote_checksum_digest}" == "${expected_asset_digest}" ]] \
-        || return 0
-    [[ -z "${remote_dmg_digest}" \
-        || "${remote_dmg_digest}" == "${expected_asset_digest}" ]] \
-        || return 0
-    github_release_digest="${expected_asset_digest}"
-    if [[ -n "${release_manifest_digest}" \
-        && "${release_manifest_digest}" != "${github_release_digest}" ]]; then
-        return 0
-    fi
-    release_manifest_digest="${github_release_digest}"
-    [[ "${github_release_assets}" \
-        == $'Muralume.dmg\nMuralume.dmg.sha256\nMuralume.release-provenance' ]] \
-        || {
-            github_release_assets_valid=1
-            return 0
-        }
-    github_release_assets_exact=1
-    github_release_assets_valid=1
-
-    [[ "${remote_draft}" == 'false' \
-        && "${remote_prerelease}" == 'false' ]] || return 0
-    latest_tag="$(
-        gh api "repos/${github_repository}/releases/latest" --jq '.tag_name'
-    )" || return 1
-    [[ "${latest_tag}" == "${release_tag}" ]] || return 0
-    github_release_is_complete=1
-}
-
-reset_github_release_state() {
-    github_release_exists=0
-    github_release_identity_valid=0
-    github_release_is_draft=0
-    github_release_assets=""
-    github_release_assets_exact=0
-    github_release_assets_valid=0
-    github_release_asset_policy_valid=0
-    github_release_is_complete=0
-    github_release_url=""
-    github_release_digest=""
-    github_release_has_provenance=0
-    rm -rf "${work_directory}/GitHubAssets"
-}
-
-create_github_draft_release_if_missing() {
-    [[ "${github_release_exists}" -eq 0 ]] || return 0
-    local -a create_arguments
-    create_arguments=(
-        release create "${release_tag}"
-        --repo "${github_repository}"
-        --title "${release_title}"
-        --verify-tag
-        --draft
-    )
-    if [[ -n "${release_notes_path}" ]]; then
-        create_arguments+=(--notes-file "${release_notes_path}")
-    else
-        create_arguments+=(--generate-notes)
-    fi
-    gh "${create_arguments[@]}" || return 1
-    github_release_exists=1
-    github_release_is_draft=1
-    github_release_assets=""
-}
-
-work_directory="$(
-    mktemp -d "${workspace_parent}/MuralumeDualRelease.XXXXXX"
-)"
-chmod 700 "${work_directory}"
-{
-    printf 'schema=1\n'
-    printf 'repository=%s\n' "${project_root}"
-} >"${work_directory}/.muralume-workspace"
-chmod 600 "${work_directory}/.muralume-workspace"
-readonly gate_capability_path="${work_directory}/release-dual.capability"
-release_dual_capability_token="$(openssl rand -hex 32)"
-{
-    printf 'token=%s\n' "${release_dual_capability_token}"
-    printf 'orchestrator_pid=%s\n' "$$"
-    printf 'source_commit=%s\n' "${source_commit}"
-    printf 'source_tree=%s\n' "${source_tree}"
-} >"${gate_capability_path}"
-chmod 600 "${gate_capability_path}"
-
 inspect_github_release \
     || fail 'Unable to establish the current GitHub Release state.'
 testflight_state="UNKNOWN"
@@ -657,6 +538,8 @@ MURALUME_ASC_PRIVATE_KEY_PATH="${dual_asc_private_key_path}" \
     || fail 'Configure the App Store Connect API key before release/status.'
 refresh_testflight_state \
     || fail 'Unable to verify the TestFlight build remotely.'
+release_timing_stage_finish passed \
+    || fail 'Unable to finish remote inspection timing.'
 
 if [[ "${selected_mode}" == "status" ]]; then
     printf 'Source: %s (%s)\n' "${source_commit}" "${source_tree}"
@@ -675,27 +558,17 @@ if [[ "${selected_mode}" == "status" ]]; then
         && printf '[PASS] Final latest GitHub Release: %s\n' \
             "${github_release_url}" \
         || printf '[MISS] Complete latest GitHub Release\n'
+    printf 'Release timing journal: %s\n' "${timing_journal_path}"
     [[ "${upload_complete}" -eq 1 \
         && "${github_release_is_complete}" -eq 1 ]]
     exit
 fi
 
-MURALUME_RELEASE_DUAL_CAPABILITY_PATH="${gate_capability_path}" \
-MURALUME_RELEASE_DUAL_CAPABILITY_TOKEN="${release_dual_capability_token}" \
-MURALUME_DEVELOPER_ID_APPLICATION="${dual_developer_id_application}" \
-MURALUME_NOTARY_KEYCHAIN_PROFILE="${dual_notary_keychain_profile}" \
-MURALUME_EXPECTED_TEAM_IDENTIFIER="${dual_expected_team_identifier}" \
-MURALUME_ASC_KEY_ID="${dual_asc_key_id}" \
-MURALUME_ASC_ISSUER_ID="${dual_asc_issuer_id}" \
-MURALUME_ASC_PRIVATE_KEY_PATH="${dual_asc_private_key_path}" \
-GH_TOKEN="${dual_gh_token}" \
-GITHUB_TOKEN="${dual_github_token}" \
-    "${script_directory}/release_doctor.sh"
-
 if [[ "${upload_complete}" -eq 1 \
     && "${github_release_is_complete}" -eq 1 ]]; then
     printf 'Muralume %s is already fully published.\n' "${marketing_version}"
     printf 'GitHub Release: %s\n' "${github_release_url}"
+    printf 'Release timing journal: %s\n' "${timing_journal_path}"
     exit 0
 fi
 if [[ "${testflight_remote_present}" -eq 1 \
@@ -708,7 +581,11 @@ if [[ "${testflight_remote_present}" -eq 0 \
     fail 'A matching upload acceptance receipt exists, but App Store Connect does not yet show the build. Do not retry this build number; wait and run release-status.'
 fi
 if [[ "${testflight_state}" == 'PROCESSING' ]]; then
-    fail 'The TestFlight build is still processing. Wait and run release-status; it is not yet a complete publication.'
+    if ! has_matching_upload_receipt \
+        && [[ "${durable_testflight_provenance}" -ne 1 ]]; then
+        fail 'The TestFlight build is processing without a matching local receipt or durable source/version/build provenance; refusing automatic recovery.'
+    fi
+    printf 'Matching TestFlight upload is processing; resuming remote polling without rebuilding or uploading.\n'
 fi
 if [[ "${github_release_exists}" -eq 1 \
     && "${github_release_identity_valid}" -eq 0 ]]; then
@@ -766,60 +643,36 @@ elif [[ -n "${release_manifest_digest}" ]]; then
     developer_id_assets_ready=1
 fi
 
-readonly source_checkout_parent="${managed_root}/checkouts/release-dual"
-mkdir -p "${source_checkout_parent}"
-chmod 700 "${managed_root}/checkouts" "${source_checkout_parent}"
-source_checkout_path="${source_checkout_parent}/Source"
-release_reclaim_managed_worktree "${project_root}" "${source_checkout_path}" \
-    || fail 'Unable to reclaim a stale dual-release source checkout.'
-release_git -C "${project_root}" worktree add --detach \
-    "${source_checkout_path}" "${source_commit}" >/dev/null \
-    || fail 'Unable to create the shared release-gate source snapshot.'
-source_checkout_registered=1
-verify_release_source_snapshot \
-    "${source_checkout_path}" "${source_commit}" "${source_tree}" \
-    || fail 'The shared release-gate source snapshot is invalid.'
+release_timing_stage_begin shared_gate \
+    || fail 'Unable to start shared gate timing.'
+shared_gate_status=0
+run_or_reuse_shared_release_gate \
+    "${project_root}" \
+    "${managed_root}" \
+    "${work_directory}" \
+    "${gate_receipt_path}" \
+    "${source_commit}" \
+    "${source_tree}" \
+    "${managed_root}/checkouts/release-dual" \
+    "${managed_root}/checkouts/release-dual/Source" \
+    || shared_gate_status="$?"
+if [[ "${shared_gate_status}" -eq 10 ]]; then
+    release_timing_stage_finish reused \
+        || fail 'Unable to record shared gate reuse.'
+elif [[ "${shared_gate_status}" -eq 0 ]]; then
+    release_timing_stage_finish passed \
+        || fail 'Unable to finish shared gate timing.'
+else
+    fail 'The persistent all-suite gate failed or its receipt is invalid; refusing unsafe reuse.'
+fi
 
-readonly gate_artifacts_path="${work_directory}/GateArtifacts"
-gate_derived_data_path="$(
-    muralume_prepare_xcode_cache "${project_root}" release-gate
-)" || fail 'Unable to prepare the shared release-gate cache.'
-readonly gate_derived_data_path
-readonly gate_receipt_path="${work_directory}/release-gate.txt"
-printf 'Running the shared release gate for %s...\n' "${source_commit}"
-env \
-    -u MURALUME_RELEASE_LOCK_HELD \
-    -u MURALUME_RELEASE_LOCK_REEXEC_TOKEN \
-    -u MURALUME_RELEASE_STANDALONE_LOCK_PATH \
-    -u MURALUME_RELEASE_DUAL_CAPABILITY_PATH \
-    -u MURALUME_RELEASE_DUAL_CAPABILITY_TOKEN \
-    -u MURALUME_ASC_KEY_ID \
-    -u MURALUME_ASC_ISSUER_ID \
-    -u MURALUME_ASC_PRIVATE_KEY_PATH \
-    -u MURALUME_DEVELOPER_ID_APPLICATION \
-    -u MURALUME_NOTARY_KEYCHAIN_PROFILE \
-    -u MURALUME_EXPECTED_TEAM_IDENTIFIER \
-    -u GH_TOKEN \
-    -u GITHUB_TOKEN \
-    MURALUME_TEST_ARTIFACTS_DIR="${gate_artifacts_path}" \
-    MURALUME_TEST_DERIVED_DATA_DIR="${gate_derived_data_path}" \
-    "${source_checkout_path}/Scripts/verify.sh" release-gate
-verify_release_source_snapshot \
-    "${source_checkout_path}" "${source_commit}" "${source_tree}" \
-    || fail 'The source changed during the shared release gate.'
-write_release_gate_receipt \
-    "${gate_receipt_path}" "${project_root}" "${source_commit}" "${source_tree}" \
-    || fail 'Unable to write the shared release-gate receipt.'
-
-release_git -C "${project_root}" worktree remove --force \
-    "${source_checkout_path}" >/dev/null \
-    || fail 'Unable to unregister the shared release-gate source snapshot.'
-source_checkout_registered=0
-source_checkout_path=""
-
+release_timing_stage_begin developer_id \
+    || fail 'Unable to start Developer ID timing.'
 if [[ "${github_side_complete}" -eq 1 \
     || "${developer_id_assets_ready}" -eq 1 ]]; then
     printf 'Verified GitHub assets already exist; Developer ID build will not be repeated.\n'
+    release_timing_stage_finish reused \
+        || fail 'Unable to record Developer ID reuse.'
 else
     MURALUME_RELEASE_DUAL_CAPABILITY_PATH="${gate_capability_path}" \
     MURALUME_RELEASE_DUAL_CAPABILITY_TOKEN="${release_dual_capability_token}" \
@@ -844,6 +697,8 @@ else
         cd "$(dirname "${release_dmg_path}")"
         shasum -a 256 -c "$(basename "${release_checksum_path}")" >/dev/null
     ) || fail 'The Developer ID release checksum is invalid.'
+    release_timing_stage_finish passed \
+        || fail 'Unable to finish Developer ID timing.'
 fi
 
 if [[ "${github_side_complete}" -eq 0 ]]; then
@@ -935,6 +790,8 @@ durable_testflight_provenance=1
 
 # Complete and verify the private GitHub transaction before TestFlight. The
 # only operation deferred until Apple reports VALID is making this draft public.
+release_timing_stage_begin github_draft \
+    || fail 'Unable to start GitHub draft timing.'
 if [[ "${github_side_complete}" -eq 0 ]]; then
     create_github_draft_release_if_missing \
         || fail 'Unable to create the draft GitHub Release.'
@@ -972,10 +829,47 @@ if [[ "${github_side_complete}" -eq 0 ]]; then
             || fail 'The draft GitHub Release is incomplete; it will remain private.'
     fi
 fi
+if [[ "${github_side_complete}" -eq 1 ]]; then
+    release_timing_stage_finish reused \
+        || fail 'Unable to record existing GitHub release timing.'
+else
+    release_timing_stage_finish passed \
+        || fail 'Unable to finish GitHub draft timing.'
+fi
 
 if [[ "${upload_complete}" -eq 1 ]]; then
     printf 'Matching TestFlight receipt found; upload will not be repeated.\n'
+elif [[ "${testflight_state}" == 'PROCESSING' ]]; then
+    release_timing_stage_begin testflight_processing \
+        || fail 'Unable to start TestFlight processing timing.'
+    poll_attempt=0
+    poll_limit="${MURALUME_ASC_BUILD_POLL_ATTEMPTS:-40}"
+    [[ "${poll_limit}" =~ ^[0-9]+$ && "${poll_limit}" -gt 0 ]] \
+        || fail 'MURALUME_ASC_BUILD_POLL_ATTEMPTS must be a positive integer.'
+    while [[ "${poll_attempt}" -lt "${poll_limit}" ]]; do
+        poll_attempt=$((poll_attempt + 1))
+        refresh_testflight_state \
+            || fail 'Unable to confirm the processing TestFlight build remotely.'
+        [[ "${testflight_state}" != 'VALID' \
+            && "${testflight_state}" != 'FAILED' \
+            && "${testflight_state}" != 'INVALID' ]] || break
+        sleep 15
+    done
+    if [[ "${upload_complete}" -ne 1 ]]; then
+        if [[ "${testflight_state}" == 'PROCESSING' ]]; then
+            release_timing_stage_finish processing \
+                || fail 'Unable to record the processing TestFlight stage.'
+        elif [[ "${testflight_state}" == 'FAILED' \
+            || "${testflight_state}" == 'INVALID' ]]; then
+            fail "The matching TestFlight build entered ${testflight_state}; do not retry this build number."
+        fi
+        fail "The matching TestFlight build did not become VALID (state ${testflight_state}). Re-run release-dual only after checking App Store Connect; it will not rebuild or upload."
+    fi
+    release_timing_stage_finish passed \
+        || fail 'Unable to finish TestFlight processing timing.'
 else
+    release_timing_stage_begin testflight_upload \
+        || fail 'Unable to start TestFlight upload timing.'
     MURALUME_RELEASE_DUAL_CAPABILITY_PATH="${gate_capability_path}" \
     MURALUME_RELEASE_DUAL_CAPABILITY_TOKEN="${release_dual_capability_token}" \
     MURALUME_ASC_KEY_ID="${dual_asc_key_id}" \
@@ -998,8 +892,18 @@ else
             && "${testflight_state}" != 'INVALID' ]] || break
         sleep 15
     done
-    [[ "${upload_complete}" -eq 1 ]] \
-        || fail 'The upload returned, but App Store Connect did not confirm a matching build and provenance receipt. Do not retry this build number until its remote state is checked.'
+    if [[ "${upload_complete}" -ne 1 ]]; then
+        if [[ "${testflight_state}" == 'PROCESSING' ]]; then
+            release_timing_stage_finish processing \
+                || fail 'Unable to record the processing TestFlight upload.'
+        elif [[ "${testflight_state}" == 'FAILED' \
+            || "${testflight_state}" == 'INVALID' ]]; then
+            fail "The uploaded TestFlight build entered ${testflight_state}; do not retry this build number."
+        fi
+        fail "The upload returned, but App Store Connect did not confirm VALID (state ${testflight_state}). Do not retry this build number until its remote state is checked."
+    fi
+    release_timing_stage_finish passed \
+        || fail 'Unable to finish TestFlight upload timing.'
 fi
 
 refresh_testflight_state \
@@ -1035,6 +939,8 @@ if [[ "${github_side_complete}" -eq 0 ]]; then
     gh "${release_edit_arguments[@]}"
 fi
 
+release_timing_stage_begin final_verification \
+    || fail 'Unable to start final verification timing.'
 refresh_testflight_state \
     || fail 'Unable to verify TestFlight after GitHub publication.'
 [[ "${testflight_state}" == 'VALID' && "${upload_complete}" -eq 1 ]] \
@@ -1045,9 +951,12 @@ inspect_github_release \
     || fail 'Unable to re-read the GitHub Release after publication.'
 [[ "${github_release_is_complete}" -eq 1 ]] \
     || fail 'The final GitHub Release failed post-publication verification.'
+release_timing_stage_finish complete \
+    || fail 'Unable to finish final verification timing.'
 
 printf '\nMuralume %s is fully published from %s.\n' \
     "${marketing_version}" "${source_commit}"
 printf 'GitHub Release: %s\n' "${github_release_url}"
 printf 'TestFlight build: %s (%s)\n' \
     "${app_store_version}" "${app_store_build}"
+printf 'Release timing journal: %s\n' "${timing_journal_path}"

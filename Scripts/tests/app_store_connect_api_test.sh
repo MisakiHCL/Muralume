@@ -56,6 +56,29 @@ esac
 validate_app_store_connect_credentials \
     || asc_test_fail 'valid isolated credentials were rejected'
 
+asc_test_malformed_key_path="${asc_test_credentials_directory}/AuthKey_MALFORMED.p8"
+asc_test_rsa_key_path="${asc_test_credentials_directory}/AuthKey_RSA.p8"
+asc_test_key_error_path="${asc_test_root}/key-validation-error"
+printf '%s\n' 'not a private key' >"${asc_test_malformed_key_path}"
+chmod 600 "${asc_test_malformed_key_path}"
+if MURALUME_ASC_PRIVATE_KEY_PATH="${asc_test_malformed_key_path}" \
+    validate_app_store_connect_credentials \
+    >/dev/null 2>"${asc_test_key_error_path}"; then
+    asc_test_fail 'malformed mode-0600 private key was accepted'
+fi
+grep -F 'must be a valid P-256 EC Team API key' \
+    "${asc_test_key_error_path}" >/dev/null \
+    || asc_test_fail 'malformed private key failure was not explained safely'
+
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
+    -out "${asc_test_rsa_key_path}" >/dev/null 2>&1 \
+    || asc_test_fail 'could not generate an isolated non-EC private key'
+chmod 600 "${asc_test_rsa_key_path}"
+if MURALUME_ASC_PRIVATE_KEY_PATH="${asc_test_rsa_key_path}" \
+    validate_app_store_connect_credentials >/dev/null 2>&1; then
+    asc_test_fail 'non-P-256 private key was accepted'
+fi
+
 asc_test_jwt="$(app_store_connect_jwt)" \
     || asc_test_fail 'could not generate an App Store Connect JWT'
 asc_test_jwt_segment_count="$(

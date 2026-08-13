@@ -49,7 +49,10 @@ for helper_name in \
     build_cache.sh \
     release_gate_receipt.sh \
     release_provenance.sh \
-    release_source_snapshot.sh; do
+    release_source_snapshot.sh \
+    release_github_state.sh \
+    release_shared_gate.sh \
+    release_timing_journal.sh; do
     cp "${project_root}/Scripts/lib/${helper_name}" \
         "${fixture_repository}/Scripts/lib/${helper_name}"
 done
@@ -67,6 +70,7 @@ printf '%s\n' '.build/' 'dist/' \
 
 printf '%s\n' \
     '#!/usr/bin/env bash' \
+    'printf "verify %s\n" "$1" >>"${FAKE_INVOCATION_LOG}"' \
     'exit 0' \
     >"${fixture_repository}/Scripts/verify.sh"
 printf '%s\n' \
@@ -93,8 +97,13 @@ chmod 755 "${fixture_repository}/Scripts/"*.sh
 printf '%s\n' \
     '#!/usr/bin/env bash' \
     'printf "Xcode 26.1.1\n"' \
-    'printf "Build version 17B100\n"' \
+    'printf "Build version %s\n" "${FAKE_XCODE_BUILD:-17B100}"' \
     >"${fake_bin}/xcodebuild"
+
+printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'exit 0' \
+    >"${fake_bin}/sleep"
 
 printf '%s\n' \
     '#!/usr/bin/env bash' \
@@ -291,6 +300,7 @@ chmod 600 "${private_key_path}"
 
 release_output=''
 release_exit_code=0
+selected_fake_xcode_build='17B100'
 run_release() {
     local github_state="$1"
     local github_assets="$2"
@@ -305,6 +315,7 @@ run_release() {
         env \
             PATH="${fake_bin}:${PATH}" \
             FAKE_APP_STORE_BUILD=2 \
+            FAKE_XCODE_BUILD="${selected_fake_xcode_build}" \
             FAKE_GITHUB_ASSETS_STATE_PATH="${github_assets_state_path}" \
             FAKE_GITHUB_STATE_PATH="${github_state_path}" \
             FAKE_INVOCATION_LOG="${invocation_log_path}" \
@@ -317,6 +328,7 @@ run_release() {
             MURALUME_ASC_ISSUER_ID='11111111-2222-3333-4444-555555555555' \
             MURALUME_ASC_KEY_ID='ABCDE12345' \
             MURALUME_ASC_PRIVATE_KEY_PATH="${private_key_path}" \
+            MURALUME_ASC_BUILD_POLL_ATTEMPTS=1 \
             MURALUME_GITHUB_REPOSITORY='Fixture/Muralume' \
             "${fixture_repository}/Scripts/release_dual.sh" "$@" 2>&1
     )"
@@ -359,11 +371,72 @@ run_release draft exact VALID --title 'Fixture release'
     || fail_test 'an exact valid draft could not resume to completion'
 [[ "$(cat "${github_state_path}")" == 'final' ]] \
     || fail_test 'the exact valid draft was not finalized'
-[[ ! -s "${invocation_log_path}" ]] \
-    || fail_test 'an exact valid draft rebuilt or re-uploaded release artifacts'
+[[ "$(<"${invocation_log_path}")" == 'verify all' ]] \
+    || fail_test 'the first exact draft did not run exactly one all-suite gate'
 printf '%s\n' "${release_output}" \
     | grep -F 'Developer ID build will not be repeated.' >/dev/null \
     || fail_test 'the exact draft did not take the no-rebuild recovery path'
+
+run_release final exact PROCESSING \
+    --title 'Fixture processing recovery'
+[[ "${release_exit_code}" -ne 0 ]] \
+    || fail_test 'a still-processing TestFlight build completed publication'
+[[ ! -s "${invocation_log_path}" ]] \
+    || fail_test 'PROCESSING recovery reran the gate, build, or upload'
+printf '%s\n' "${release_output}" \
+    | grep -F 'Reusing the persistent all-suite release gate' >/dev/null \
+    || fail_test 'PROCESSING recovery did not reuse the persistent gate'
+printf '%s\n' "${release_output}" \
+    | grep -F 'without rebuilding or uploading' >/dev/null \
+    || fail_test 'PROCESSING recovery did not stop with resumable guidance'
+timing_journal_path="$(
+    find "${fixture_repository}/.build/muralume/release-state" \
+        -type f -name timing.journal -print -quit
+)"
+[[ -n "${timing_journal_path}" ]] \
+    || fail_test 'PROCESSING recovery did not persist a timing journal'
+grep -E \
+    $'^stage_finish\t[0-9a-f]{64}\ttestflight_processing\t[^\t]+\t[0-9]+\t[0-9]+\tprocessing$' \
+    "${timing_journal_path}" >/dev/null \
+    || fail_test 'PROCESSING recovery was not journaled as processing'
+if grep -E \
+    $'^stage_finish\t[0-9a-f]{64}\ttestflight_processing\t[^\t]+\t[0-9]+\t[0-9]+\tfailed$' \
+    "${timing_journal_path}" >/dev/null; then
+    fail_test 'external TestFlight processing was journaled as a failure'
+fi
+
+rm -f "${upload_receipt_path}"
+run_release final exact PROCESSING \
+    --title 'Fixture durable processing recovery'
+[[ "${release_exit_code}" -ne 0 ]] \
+    || fail_test 'durable no-receipt PROCESSING unexpectedly completed'
+[[ ! -s "${invocation_log_path}" ]] \
+    || fail_test 'durable no-receipt PROCESSING reran gate, build, or upload'
+printf '%s\n' "${release_output}" \
+    | grep -F 'Reusing the persistent all-suite release gate' >/dev/null \
+    || fail_test 'durable no-receipt PROCESSING did not reuse the gate'
+if printf '%s\n' "${release_output}" \
+    | grep -F 'without a matching local receipt or durable' >/dev/null; then
+    fail_test 'full remote provenance was not accepted without a local receipt'
+fi
+printf '%s\n' \
+    'product=Muralume' \
+    'marketing_version=9.9.9' \
+    'build_number=2' \
+    "source_commit=${source_commit}" \
+    "source_tree=${source_tree}" \
+    >"${upload_receipt_path}"
+chmod 600 "${upload_receipt_path}"
+
+selected_fake_xcode_build='17B200'
+run_release draft exact VALID --title 'Fixture Xcode upgrade'
+[[ "${release_exit_code}" -eq 0 ]] \
+    || fail_test 'a legitimate Xcode upgrade could not create a new gate state'
+[[ "$(<"${invocation_log_path}")" == 'verify all' ]] \
+    || fail_test 'an Xcode identity change did not run exactly one new all-suite gate'
+printf '%s\n' "${release_output}" \
+    | grep -F 'Running the shared all-suite release gate' >/dev/null \
+    || fail_test 'the Xcode upgrade incorrectly reused the old gate receipt'
 
 git -C "${fixture_repository}" tag -d "${release_tag}" >/dev/null
 git -C "${fixture_repository}" tag -a "${release_tag}" \

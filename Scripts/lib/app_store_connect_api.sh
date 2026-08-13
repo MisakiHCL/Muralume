@@ -5,6 +5,31 @@
 
 readonly MURALUME_ASC_API_BASE_URL='https://api.appstoreconnect.apple.com'
 
+validate_app_store_connect_private_key() {
+    if [[ "$#" -ne 1 ]]; then
+        echo "App Store Connect private-key validation needs one path." >&2
+        return 64
+    fi
+
+    local asc_validation_private_key_path="$1"
+
+    # Team API keys sign ES256 JWTs. Parse and exercise the key locally so a
+    # malformed, public-only, RSA, or wrong-curve .p8 fails before networking.
+    if ! ruby -ropenssl -e '
+path = ARGV.fetch(0)
+key = OpenSSL::PKey.read(File.binread(path))
+abort unless key.is_a?(OpenSSL::PKey::EC)
+abort unless key.private?
+abort unless key.group.curve_name == "prime256v1"
+digest = OpenSSL::Digest::SHA256.digest("Muralume ASC local key validation")
+signature = key.dsa_sign_asn1(digest)
+abort unless key.dsa_verify_asn1(digest, signature)
+' "${asc_validation_private_key_path}" >/dev/null 2>&1; then
+        echo "The App Store Connect private key must be a valid P-256 EC Team API key." >&2
+        return 1
+    fi
+}
+
 validate_app_store_connect_credentials() {
     local asc_key_id="${MURALUME_ASC_KEY_ID:-}"
     local asc_issuer_id="${MURALUME_ASC_ISSUER_ID:-}"
@@ -49,6 +74,7 @@ validate_app_store_connect_credentials() {
                 ;;
         esac
     fi
+    validate_app_store_connect_private_key "${asc_private_key_path}"
 }
 
 app_store_connect_jwt() {

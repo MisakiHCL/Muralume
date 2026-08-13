@@ -17,12 +17,6 @@ readonly expected_derived_data="${expected_cache_scope}/DerivedData"
 active_pid=""
 active_release_marker=""
 
-# This test owns all of its fake artifact and cache paths. Release workflows
-# intentionally export their real paths to verify.sh, so never let those
-# caller-owned overrides leak into nested fixture invocations here.
-unset MURALUME_TEST_ARTIFACTS_DIR
-unset MURALUME_TEST_DERIVED_DATA_DIR
-
 cleanup() {
     if [[ -n "${active_release_marker}" ]]; then
         : >"${active_release_marker}" 2>/dev/null || true
@@ -295,5 +289,43 @@ FAKE_DISCOVERY_LOG="${discovery_log}" \
 [[ "$(sed -n '1p' "${discovery_log}")" == 'a-first' \
     && "$(sed -n '2p' "${discovery_log}")" == 'z-last' ]] \
     || fail_test 'shell infrastructure tests were not auto-discovered in stable order'
+
+# A formal parent gate owns a live cache lock and exports private credentials,
+# proxies, and capability values. The central dispatcher must remove all of
+# them before launching nested fixture tests, without releasing the parent lock.
+formal_gate_artifacts="${test_root}/formal-gate-artifacts"
+formal_gate_derived_data="${formal_gate_artifacts}/DerivedData"
+formal_gate_probe="${test_root}/formal-gate-probe"
+mkdir -p "${formal_gate_derived_data}"
+MURALUME_TEST_ARTIFACTS_DIR="${formal_gate_artifacts}" \
+MURALUME_TEST_DERIVED_DATA_DIR="${formal_gate_derived_data}" \
+PATH="${fake_bin}:/usr/bin:/bin:/usr/sbin:/sbin" \
+TMPDIR="${controlled_tmp}" \
+    bash -c '
+        set -euo pipefail
+        source "$1"
+        install_verify_lifecycle_traps
+        initialize_verify_lifecycle
+        probe="$2"
+        {
+            printf "%s\n" "#!/usr/bin/env bash" "set -euo pipefail"
+            for environment_name in "${nested_test_environment_names[@]}"; do
+                printf "[[ -z \"\${%s+x}\" ]] || exit 91\n" \
+                    "${environment_name}"
+            done
+            printf "%s\n" ": >\"\${FAKE_FORMAL_GATE_PROBE}\""
+        } >"${probe}.sh"
+        chmod 755 "${probe}.sh"
+        MURALUME_RELEASE_LOCK_HELD=1 \
+        MURALUME_RELEASE_DUAL_CAPABILITY_PATH=/private/synthetic-capability \
+        MURALUME_ASC_KEY_ID=SHOULDCLEAR \
+        HTTPS_PROXY=http://127.0.0.1:1 \
+        FAKE_FORMAL_GATE_PROBE="${probe}" \
+            run_shell_infrastructure_test "${probe}.sh"
+        [[ -f "${MURALUME_TEST_ARTIFACTS_DIR}/.verify.lock/owner.pid" ]]
+    ' formal-gate-test "${verify_script}" "${formal_gate_probe}" >/dev/null
+[[ -f "${formal_gate_probe}" \
+    && ! -e "${formal_gate_artifacts}/.verify.lock" ]] \
+    || fail_test 'formal parent gate environment isolation or lock cleanup failed'
 
 printf '%s\n' 'PASS: verify workspace, cache, lock, and discovery lifecycle tests'

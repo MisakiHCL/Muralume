@@ -56,18 +56,21 @@ It uses `com.muralume.Muralume.local`, so replacing it cannot consume or mutate
 the production app's sandbox container.
 
 A direct Xcode Release build is also local-only and uses the same isolated
-bundle identifier. Formal distribution is intentionally available only through
-`make release-macos`, which overrides the production bundle identifier and
-fails closed unless its private signing inputs are present.
+bundle identifier. A complete formal distribution is intentionally available
+only through `make release-dual`, which publishes the Developer ID and
+TestFlight channels from one immutable source commit. Follow the
+[Dual-Release Playbook](Documentation/DUAL_RELEASE_PLAYBOOK.md); standalone
+release targets are diagnostic tools and must not be chained into a formal
+release.
 
 A formal release requires a clean, committed source tree. Its marketing version
 and build must increase from the latest semantic-version tag; an existing tag
 for the candidate version must point to the exact source commit. The release
-script creates a detached source snapshot, runs `release-gate` inside that
-snapshot, and archives the same unchanged tree. It snapshots the private code
-requirement before signing and installs the final DMG and checksum as a
-rollback-protected pair, so the public output is not replaced after a failed
-workflow.
+script creates a detached source snapshot, runs the complete `all` suite once
+inside that snapshot, and archives the same unchanged tree. It snapshots the
+private code requirement before signing and installs the final DMG and checksum
+as a rollback-protected pair, so the public output is not replaced after a
+failed workflow.
 
 Maintainers preparing a formal Developer ID release must copy
 `Config/Release.local.mk.example` to the Git-ignored
@@ -120,15 +123,7 @@ download managed distribution signing assets. Never add Apple IDs, passwords,
 API keys, certificate files, profile files, Team values, or App Store Connect
 numeric identifiers to tracked files or logs.
 
-Use the explicit stages below:
-
-```bash
-make mas-preflight
-make validate-testflight
-make upload-testflight
-```
-
-For a complete two-channel release, also copy
+For a complete two-channel release, copy
 `Config/AppStoreConnect.local.mk.example` to the Git-ignored
 `Config/AppStoreConnect.local.mk`, set it to mode `0600`, and point it at a
 mode-`0600` App Store Connect Team API `.p8` key stored outside the repository.
@@ -138,25 +133,39 @@ pushes). Verify `gh auth status --hostname github.com` after rotating a token.
 If `HTTP_PROXY`, `HTTPS_PROXY`, or `ALL_PROXY` points at a local port, keep that
 proxy running during release or unset the stale variables; the doctor fails
 early instead of discovering an unavailable proxy after an archive finishes.
-Then use:
+The only formal publication command is:
 
 ```bash
-make release-doctor
-make release-status
-make release-dual RELEASE_NOTES_FILE=/absolute/path/to/notes.md
+make release-dual \
+  RELEASE_TITLE='Muralume vX.Y.Z — release title' \
+  RELEASE_NOTES_FILE=/absolute/path/to/notes.md
 ```
 
-`release-doctor` checks the live GitHub, Git push, notarization, signing, local
-proxy, disk-space, and App Store Connect credentials before expensive builds.
-`release-dual` captures one clean source commit, runs one shared release gate,
-reuses Xcode-versioned DerivedData lanes, uploads TestFlight only once, creates
-the annotated tag and final GitHub Release, and verifies both remote endpoints.
+`release-dual` runs `release-doctor` internally to check the live GitHub, Git
+push, notarization, signing, local proxy, disk-space, and App Store Connect
+credentials before expensive builds. It then captures one clean source commit,
+runs one shared release gate, reuses Xcode-versioned DerivedData lanes, uploads
+TestFlight only once, creates the annotated tag and final GitHub Release, and
+verifies both remote endpoints. Run standalone `make release-doctor` only while
+provisioning the workstation, after credentials change, or to diagnose a failed
+internal doctor; it is not a routine pre-release command.
 It refuses to call a `PROCESSING` TestFlight build complete. The annotated tag
 and the mode-`0600` `Muralume.release-provenance` Release asset bind the source,
 DMG digest, and App Store build, so a cleaned `dist/` directory or a new Mac can
 resume safely. A complete Release contains exactly the DMG, its checksum, and
 that provenance file; legacy two-asset Releases are migrated only after their
 existing assets and local upload receipt have been verified.
+
+Do not pre-run `make test`, a standalone `release-gate`, `release-macos`,
+`validate-testflight`, and `upload-testflight` during the formal release window.
+Product changes are fully tested before the candidate commit; `release-dual`
+owns the candidate's single final gate and reuses its source/Xcode-bound receipt
+for both distribution branches. If TestFlight remains `PROCESSING`, do not
+retry the upload or change the build number: use `make release-status`, wait for
+`VALID`, then resume the same `release-dual` command from the unchanged commit.
+The detailed 30-minute budget, credential checklist, recovery rules, and final
+acceptance criteria are in the
+[Dual-Release Playbook](Documentation/DUAL_RELEASE_PLAYBOOK.md).
 
 Generated DerivedData is kept under `.build/muralume/cache` and bounded to two
 Xcode identities per lane. Per-run workspaces are deleted on success, failure,

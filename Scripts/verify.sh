@@ -28,6 +28,41 @@ common_debug_arguments=()
 unit_test_selectors=()
 integration_test_selectors=()
 
+# Shell infrastructure tests create their own repositories, caches, locks, and
+# credentials. Never let a formal parent gate's private overrides leak into a
+# nested fixture process.
+readonly nested_test_environment_names=(
+    MURALUME_TEST_ARTIFACTS_DIR
+    MURALUME_TEST_DERIVED_DATA_DIR
+    MURALUME_REAL_MEDIA_DIRECTORY
+    MURALUME_RELEASE_LOCK_HELD
+    MURALUME_RELEASE_LOCK_REEXEC_TOKEN
+    MURALUME_RELEASE_STANDALONE_LOCK_PATH
+    MURALUME_RELEASE_DUAL_CAPABILITY_PATH
+    MURALUME_RELEASE_DUAL_CAPABILITY_TOKEN
+    MURALUME_RELEASE_MINIMUM_FREE_GIB
+    MURALUME_GITHUB_REPOSITORY
+    MURALUME_KEEP_FAILED_WORKDIR
+    MURALUME_DEVELOPER_ID_APPLICATION
+    MURALUME_NOTARY_KEYCHAIN_PROFILE
+    MURALUME_EXPECTED_TEAM_IDENTIFIER
+    MURALUME_ASC_KEY_ID
+    MURALUME_ASC_ISSUER_ID
+    MURALUME_ASC_PRIVATE_KEY_PATH
+    RELEASE_TITLE
+    RELEASE_NOTES_FILE
+    GH_TOKEN
+    GITHUB_TOKEN
+    GIT_NO_REPLACE_OBJECTS
+    GIT_REPLACE_REF_BASE
+    HTTP_PROXY
+    HTTPS_PROXY
+    ALL_PROXY
+    http_proxy
+    https_proxy
+    all_proxy
+)
+
 print_usage() {
     cat <<'EOF'
 Usage: ./Scripts/verify.sh [suite]
@@ -222,6 +257,22 @@ require_command() {
         echo "Required command is unavailable: ${command_name}" >&2
         exit 1
     fi
+}
+
+run_shell_infrastructure_test() {
+    if [[ "$#" -ne 1 ]]; then
+        echo "Shell infrastructure test dispatch needs one path." >&2
+        return 64
+    fi
+
+    local shell_test_path="$1"
+    local environment_name
+    local -a isolated_environment=(env)
+
+    for environment_name in "${nested_test_environment_names[@]}"; do
+        isolated_environment+=(-u "${environment_name}")
+    done
+    "${isolated_environment[@]}" "${shell_test_path}"
 }
 
 reject_imports() {
@@ -581,7 +632,7 @@ check_architecture() {
     while IFS= read -r shell_test_path; do
         [[ -n "${shell_test_path}" ]] || continue
         shell_test_count=$((shell_test_count + 1))
-        "${shell_test_path}"
+        run_shell_infrastructure_test "${shell_test_path}"
     done < <(
         find "${script_directory}/tests" \
             -maxdepth 1 \

@@ -227,13 +227,6 @@ verify_clean_release_repository "${project_root}" \
 source_commit="$(release_git -C "${project_root}" rev-parse 'HEAD^{commit}')" \
     || fail 'Unable to resolve HEAD.'
 readonly source_commit
-origin_commit="$(
-    release_git -C "${project_root}" ls-remote --exit-code origin refs/heads/main \
-        | awk 'NR == 1 { print $1 }'
-)" || fail 'Unable to read the current remote main commit.'
-readonly origin_commit
-[[ "${source_commit}" == "${origin_commit}" ]] \
-    || fail 'HEAD must match the locally fetched origin/main before release.'
 origin_url="$(release_git -C "${project_root}" remote get-url origin)" \
     || fail 'Unable to read the origin URL.'
 readonly origin_url
@@ -249,7 +242,7 @@ case "${origin_url}" in
         fail "origin does not point to ${github_repository}."
         ;;
 esac
-pass "Clean ${expected_branch} source matches origin/main (${source_commit})"
+pass "Clean ${expected_branch} source is ready for local preflight (${source_commit})"
 
 validate_private_file "${release_config_path}" 'Config/Release.local.mk'
 validate_private_file \
@@ -294,6 +287,9 @@ pass "$(xcodebuild -version | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
 validate_disk_space
 validate_local_proxy
 
+# Everything above and through the child preflights is local-only. Keep this
+# section ahead of ls-remote, notarytool, GitHub, and App Store Connect so a
+# missing proxy, key, certificate, or private config fails before networking.
 [[ -n "${doctor_developer_id_application}" ]] \
     || fail 'MURALUME_DEVELOPER_ID_APPLICATION is not configured.'
 [[ -n "${doctor_notary_keychain_profile}" ]] \
@@ -305,6 +301,41 @@ resolve_developer_id_identity_hash \
     "${doctor_expected_team_identifier}" >/dev/null \
     || fail 'The Developer ID identity is unavailable or ambiguous.'
 pass 'Developer ID signing identity is available'
+
+gh auth token --hostname github.com >/dev/null \
+    || fail 'GitHub CLI has no locally configured authentication token.'
+pass 'GitHub CLI authentication is configured locally'
+
+MURALUME_ASC_KEY_ID="${doctor_asc_key_id}" \
+MURALUME_ASC_ISSUER_ID="${doctor_asc_issuer_id}" \
+MURALUME_ASC_PRIVATE_KEY_PATH="${doctor_asc_private_key_path}" \
+    validate_app_store_connect_credentials \
+    || fail 'App Store Connect API credentials are not configured.'
+MURALUME_ASC_KEY_ID="${doctor_asc_key_id}" \
+MURALUME_ASC_ISSUER_ID="${doctor_asc_issuer_id}" \
+MURALUME_ASC_PRIVATE_KEY_PATH="${doctor_asc_private_key_path}" \
+    app_store_connect_jwt >/dev/null \
+    || fail 'App Store Connect API credentials cannot sign a local ES256 JWT.'
+pass 'App Store Connect API credentials can sign locally'
+
+run_release_doctor_developer_child \
+    "${script_directory}/prepare_distribution_requirements.sh" \
+    --check >/dev/null
+pass 'Developer ID distribution requirement is valid'
+run_release_doctor_app_store_child \
+    "${script_directory}/release_app_store.sh" \
+    --mode check >/dev/null
+pass 'App Store automatic-signing preflight passed'
+
+# Remote checks start only after every local prerequisite has passed.
+origin_commit="$(
+    release_git -C "${project_root}" ls-remote --exit-code origin refs/heads/main \
+        | awk 'NR == 1 { print $1 }'
+)" || fail 'Unable to read the current remote main commit.'
+readonly origin_commit
+[[ "${source_commit}" == "${origin_commit}" ]] \
+    || fail 'HEAD must match origin/main before release.'
+pass "Clean ${expected_branch} source matches origin/main (${source_commit})"
 
 xcrun notarytool history \
     --keychain-profile "${doctor_notary_keychain_profile}" >/dev/null \
@@ -333,11 +364,6 @@ release_git -C "${project_root}" push --dry-run origin \
     || fail 'Git push credentials cannot update origin/main.'
 pass "GitHub CLI and Git can publish to ${github_repository}"
 
-MURALUME_ASC_KEY_ID="${doctor_asc_key_id}" \
-MURALUME_ASC_ISSUER_ID="${doctor_asc_issuer_id}" \
-MURALUME_ASC_PRIVATE_KEY_PATH="${doctor_asc_private_key_path}" \
-    validate_app_store_connect_credentials \
-    || fail 'App Store Connect API credentials are not configured.'
 doctor_work_directory="$(
     mktemp -d "${TMPDIR:-/tmp}/MuralumeReleaseDoctor.XXXXXX"
 )"
@@ -350,14 +376,5 @@ MURALUME_ASC_PRIVATE_KEY_PATH="${doctor_asc_private_key_path}" \
     "${doctor_work_directory}" >/dev/null \
     || fail 'App Store Connect API cannot access the Muralume app.'
 pass 'App Store Connect API authentication and app access passed'
-
-run_release_doctor_developer_child \
-    "${script_directory}/prepare_distribution_requirements.sh" \
-    --check >/dev/null
-pass 'Developer ID distribution requirement is valid'
-run_release_doctor_app_store_child \
-    "${script_directory}/release_app_store.sh" \
-    --mode check >/dev/null
-pass 'App Store automatic-signing preflight passed'
 
 printf 'Release doctor passed for Muralume %s.\n' "${base_version}"

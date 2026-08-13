@@ -46,6 +46,8 @@ write_release_gate_receipt \
 validate_release_gate_receipt \
     "${receipt_path}" "${project_root}" "${source_commit}" "${source_tree}" \
     || fail_test 'a matching release gate receipt was rejected'
+[[ "$(release_gate_receipt_value "${receipt_path}" gate_suite)" == 'all' ]] \
+    || fail_test 'gate receipt did not bind the all suite'
 
 # Sourced helpers must not redeclare caller-owned readonly workflow variables.
 (
@@ -63,6 +65,17 @@ if FAKE_XCODE_BUILD='DIFFERENT' validate_release_gate_receipt \
     "${receipt_path}" "${project_root}" "${source_commit}" "${source_tree}" \
     >/dev/null 2>&1; then
     fail_test 'an Xcode build mismatch was accepted'
+fi
+
+cp "${receipt_path}" "${test_root}/wrong-suite.txt"
+chmod 600 "${test_root}/wrong-suite.txt"
+sed -i '' 's/^gate_suite=all$/gate_suite=release-gate/' \
+    "${test_root}/wrong-suite.txt"
+if validate_release_gate_receipt \
+    "${test_root}/wrong-suite.txt" \
+    "${project_root}" "${source_commit}" "${source_tree}" \
+    >/dev/null 2>&1; then
+    fail_test 'a non-all gate suite was accepted'
 fi
 
 if validate_release_gate_receipt \

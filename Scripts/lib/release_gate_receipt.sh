@@ -4,7 +4,8 @@
 # completed the gate for one immutable source/Xcode combination. It is not a
 # general-purpose "skip tests" switch.
 
-readonly MURALUME_RELEASE_GATE_RECEIPT_SCHEMA="1"
+readonly MURALUME_RELEASE_GATE_RECEIPT_SCHEMA="2"
+readonly MURALUME_RELEASE_GATE_SUITE="all"
 
 release_gate_xcode_identity() {
     if [[ "$#" -ne 0 ]]; then
@@ -12,12 +13,37 @@ release_gate_xcode_identity() {
         return 64
     fi
 
-    xcodebuild -version | awk '
-        NR == 1 && $1 == "Xcode" { print "xcode_version=" $2 }
-        NR == 2 && $1 == "Build" && $2 == "version" {
-            print "xcode_build=" $3
-        }
-    '
+    local xcode_identity
+    local xcode_version
+    local xcode_build
+
+    xcode_identity="$(
+        MURALUME_XCODE_CACHE_IDENTITY_ONLY=1 xcodebuild -version | awk '
+            NR == 1 && $1 == "Xcode" { print "xcode_version=" $2 }
+            NR == 2 && $1 == "Build" && $2 == "version" {
+                print "xcode_build=" $3
+            }
+        '
+    )" || return 1
+    xcode_version="$(
+        printf '%s\n' "${xcode_identity}" \
+            | sed -n 's/^xcode_version=//p'
+    )"
+    xcode_build="$(
+        printf '%s\n' "${xcode_identity}" \
+            | sed -n 's/^xcode_build=//p'
+    )"
+    [[ -n "${xcode_version}" \
+        && "${xcode_version}" != *$'\n'* \
+        && -n "${xcode_build}" \
+        && "${xcode_build}" != *$'\n'* \
+        && "${xcode_identity}" == "$(printf '%s\n%s' \
+            "xcode_version=${xcode_version}" \
+            "xcode_build=${xcode_build}")" ]] || {
+        echo "Xcode returned an unsupported version identity." >&2
+        return 1
+    }
+    printf '%s\n' "${xcode_identity}"
 }
 
 release_gate_script_digest_at_commit() {
@@ -57,7 +83,18 @@ write_release_gate_receipt() {
     }
 
     gate_receipt_directory="$(dirname "${gate_receipt_path}")"
+    [[ ! -L "${gate_receipt_path}" \
+        && (! -e "${gate_receipt_path}" \
+            || -f "${gate_receipt_path}") ]] || {
+        echo "The gate receipt destination must be a regular file." >&2
+        return 1
+    }
     mkdir -p "${gate_receipt_directory}" || return 1
+    [[ -d "${gate_receipt_directory}" \
+        && ! -L "${gate_receipt_directory}" ]] || {
+        echo "The gate receipt directory must not be a symlink." >&2
+        return 1
+    }
     chmod 700 "${gate_receipt_directory}" || return 1
     gate_temporary_receipt_path="$(
         mktemp "${gate_receipt_directory}/.release-gate.XXXXXX"
@@ -79,6 +116,7 @@ write_release_gate_receipt() {
         printf 'product=Muralume\n'
         printf 'source_commit=%s\n' "${gate_source_commit}"
         printf 'source_tree=%s\n' "${gate_source_tree}"
+        printf 'gate_suite=%s\n' "${MURALUME_RELEASE_GATE_SUITE}"
         printf '%s\n' "${gate_xcode_identity}"
         printf 'gate_script_sha256=%s\n' "${gate_script_digest}"
         printf 'completed_at_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -127,15 +165,19 @@ validate_release_gate_receipt() {
     local actual_product
     local actual_commit
     local actual_tree
+    local actual_gate_suite
     local actual_xcode_version
     local actual_xcode_build
     local actual_gate_digest
     local expected_xcode_version
     local expected_xcode_build
     local expected_gate_digest
+    local expected_xcode_identity
+    local actual_completed_at
     local line_count
 
-    [[ -f "${receipt_path}" && ! -L "${receipt_path}" ]] || {
+    [[ -f "${receipt_path}" && ! -L "${receipt_path}" \
+        && "$(stat -f '%u' "${receipt_path}")" == "$(id -u)" ]] || {
         echo "The release gate receipt must be a regular file." >&2
         return 1
     }
@@ -144,12 +186,12 @@ validate_release_gate_receipt() {
         return 1
     }
     line_count="$(wc -l <"${receipt_path}" | tr -d '[:space:]')"
-    [[ "${line_count}" == "8" ]] || {
+    [[ "${line_count}" == "9" ]] || {
         echo "The release gate receipt has an unexpected shape." >&2
         return 1
     }
     if rg -n -v \
-        '^(schema|product|source_commit|source_tree|xcode_version|xcode_build|gate_script_sha256|completed_at_utc)=[^[:cntrl:]]+$' \
+        '^(schema|product|source_commit|source_tree|gate_suite|xcode_version|xcode_build|gate_script_sha256|completed_at_utc)=[^[:cntrl:]]+$' \
         "${receipt_path}" >/dev/null; then
         echo "The release gate receipt contains an unsupported field." >&2
         return 1
@@ -163,6 +205,9 @@ validate_release_gate_receipt() {
         || return 1
     actual_tree="$(release_gate_receipt_value "${receipt_path}" source_tree)" \
         || return 1
+    actual_gate_suite="$(
+        release_gate_receipt_value "${receipt_path}" gate_suite
+    )" || return 1
     actual_xcode_version="$(
         release_gate_receipt_value "${receipt_path}" xcode_version
     )" || return 1
@@ -172,13 +217,19 @@ validate_release_gate_receipt() {
     actual_gate_digest="$(
         release_gate_receipt_value "${receipt_path}" gate_script_sha256
     )" || return 1
+    actual_completed_at="$(
+        release_gate_receipt_value "${receipt_path}" completed_at_utc
+    )" || return 1
 
+    expected_xcode_identity="$(release_gate_xcode_identity)" || return 1
     expected_xcode_version="$(
-        release_gate_xcode_identity | sed -n 's/^xcode_version=//p'
-    )" || return 1
+        printf '%s\n' "${expected_xcode_identity}" \
+            | sed -n 's/^xcode_version=//p'
+    )"
     expected_xcode_build="$(
-        release_gate_xcode_identity | sed -n 's/^xcode_build=//p'
-    )" || return 1
+        printf '%s\n' "${expected_xcode_identity}" \
+            | sed -n 's/^xcode_build=//p'
+    )"
     expected_gate_digest="$(
         release_gate_script_digest_at_commit \
             "${repository_path}" "${expected_commit}"
@@ -188,9 +239,13 @@ validate_release_gate_receipt() {
         && "${actual_product}" == "Muralume" \
         && "${actual_commit}" == "${expected_commit}" \
         && "${actual_tree}" == "${expected_tree}" \
+        && "${actual_gate_suite}" == "${MURALUME_RELEASE_GATE_SUITE}" \
         && "${actual_xcode_version}" == "${expected_xcode_version}" \
         && "${actual_xcode_build}" == "${expected_xcode_build}" \
-        && "${actual_gate_digest}" == "${expected_gate_digest}" ]] || {
+        && "${actual_gate_digest}" == "${expected_gate_digest}" \
+        && "${actual_gate_digest}" =~ ^[[:xdigit:]]{64}$ \
+        && "${actual_completed_at}" \
+            =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || {
         echo "The release gate receipt does not match this source and Xcode." >&2
         return 1
     }
