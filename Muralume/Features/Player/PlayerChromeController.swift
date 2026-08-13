@@ -337,13 +337,14 @@ private extension PlayerChromePlaybackState {
     var canAutoHideChrome: Bool {
         !isPlayerWindowDismissed
             && readiness == .ready
-            && isActuallyPlaying
-            && isPlaybackRequested
             && hasPlayableMedia
+            && (isActuallyPlaying || !isPlaybackRequested)
     }
 
     var canAutoDismissPlaylist: Bool {
         canAutoHideChrome
+            && isActuallyPlaying
+            && isPlaybackRequested
     }
 
     var shouldRevealChrome: Bool {

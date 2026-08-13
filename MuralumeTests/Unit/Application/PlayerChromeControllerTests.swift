@@ -200,7 +200,7 @@ final class PlayerChromeControllerTests: XCTestCase {
         XCTAssertFalse(controller.isVisible)
     }
 
-    func testPausedPlaybackRevealsChrome() {
+    func testPausedPlaybackRevealsThenAutoHidesChrome() {
         let scheduler = ControlledPlayerChromeAutoHideScheduler()
         let controller = makeController(scheduler: scheduler)
         hideChrome(controller, scheduler: scheduler)
@@ -216,7 +216,11 @@ final class PlayerChromeControllerTests: XCTestCase {
         )
 
         XCTAssertTrue(controller.isVisible)
-        XCTAssertFalse(scheduler.hasScheduledAction)
+        XCTAssertTrue(scheduler.hasScheduledAction)
+
+        scheduler.fire()
+
+        XCTAssertFalse(controller.isVisible)
     }
 
     func testFailureAndEmptyPlaybackRevealChrome() {

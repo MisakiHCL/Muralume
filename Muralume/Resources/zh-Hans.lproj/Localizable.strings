@@ -152,7 +152,7 @@
 "settings.language.system" = "跟随系统";
 "settings.language.english" = "English";
 "settings.language.simplifiedChinese" = "简体中文";
-"settings.launchAtLogin" = "登录时启动动态桌面";
+"settings.launchAtLogin" = "开机启动";
 "settings.launchAtLogin.accessibilityHint" = "登录后启动 Muralume，并恢复最近可用的动态桌面。";
 "settings.launchAtLogin.requiresApproval" = "需要在系统设置中批准。";
 "settings.launchAtLogin.openSystemSettings" = "打开系统设置";

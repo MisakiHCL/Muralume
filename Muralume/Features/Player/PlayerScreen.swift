@@ -30,6 +30,16 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 playerSurface: playerSurface
             )
 
+            if chromeController.presentedPanel != nil {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        chromeController.dismissPresentedPanel()
+                    }
+                    .accessibilityHidden(true)
+                    .zIndex(PlayerLayer.panelDismiss)
+            }
+
             PointerActivityReader {
                 chromeController.recordPointerActivity()
             }
@@ -337,6 +347,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
 
 private enum PlayerLayer {
     static let pointerActivity = 1.0
+    static let panelDismiss = 2.0
     static let chrome = 4.0
     static let statusBanner = 5.0
     static let topBar = 6.0
