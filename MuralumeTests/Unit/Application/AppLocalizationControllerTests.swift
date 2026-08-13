@@ -512,6 +512,224 @@ final class AppLocalizationControllerTests: XCTestCase {
         )
     }
 
+    func testDesktopLayoutAndMultiDisplayControlsAreLocalized() {
+        let controller = AppLocalizationController(
+            initialLanguage: .english
+        )
+        let englishStrings = [
+            "player.desktop.options": "Dynamic Desktop Options",
+            "player.desktop.syncAll": "Sync to All Displays",
+            "player.desktop.customize": "Customize Displays…",
+            "desktop.pauseAll": "Pause All",
+            "desktop.resumeAll": "Resume All",
+            "desktop.playNextAll": "Play Next on All Displays",
+            "desktop.displays": "Displays",
+            "desktop.configure": "Customize Displays…",
+            "desktop.open": "Open Muralume",
+            "desktop.stop": "Stop Dynamic Desktop",
+            "desktop.layout.title": "Desktop Layout",
+            "desktop.layout.detail":
+                "Choose what plays on each display and how it appears.",
+            "desktop.layout.close": "Close Desktop Layout",
+            "desktop.layout.mode": "Playback Across Displays",
+            "desktop.layout.mode.synchronized": "Play in Sync",
+            "desktop.layout.mode.independent": "Set Separately",
+            "desktop.layout.identify": "Identify Displays",
+            "desktop.layout.identify.hint":
+                "Shows a number briefly on each connected display.",
+            "desktop.layout.identify.announcement":
+                "Display numbers are now visible.",
+            "desktop.layout.useDisplay": "Use Muralume on This Display",
+            "desktop.layout.video": "Video",
+            "desktop.layout.currentVideo": "Current Video",
+            "desktop.layout.chooseLibrary": "Choose from Media Library…",
+            "desktop.layout.chooseFinder": "Choose in Finder…",
+            "desktop.layout.notConnected": "Not Connected",
+            "desktop.layout.notUsing": "Not Using Muralume",
+            "desktop.layout.noVideo": "No Video Selected",
+            "desktop.layout.mainDisplay": "Main Display",
+            "desktop.layout.search": "Search Videos",
+            "desktop.layout.validation.noDisplay":
+                "Choose at least one display.",
+            "desktop.layout.validation.noVideo":
+                "Choose a video for every enabled display.",
+            "desktop.layout.error.load":
+                "Your saved desktop layout couldn’t be loaded. "
+                    + "Review the layout before applying.",
+            "desktop.layout.error.save":
+                "The desktop layout couldn’t be saved. Try again.",
+            "desktop.layout.accessibility.arrangement":
+                "Display Arrangement",
+            "desktop.layout.accessibility.enabled": "Enabled",
+            "desktop.layout.accessibility.disabled": "Disabled",
+            "desktop.layout.accessibility.displayCard.hint":
+                "Select to edit this display."
+        ]
+
+        for (key, expectedValue) in englishStrings {
+            XCTAssertEqual(controller.localized(key), expectedValue, key)
+        }
+        XCTAssertEqual(
+            controller.localizedFormat("desktop.status.display.one", 1),
+            "1 display active"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat("desktop.status.displays", 3),
+            "3 displays active"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat(
+                "desktop.status.playingCount",
+                2,
+                3
+            ),
+            "2 of 3 displays playing"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat(
+                "desktop.status.availableCount",
+                2,
+                3
+            ),
+            "2 of 3 displays available"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat("desktop.layout.apply.one", 1),
+            "Apply to 1 Display"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat("desktop.layout.apply", 3),
+            "Apply to 3 Displays"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat(
+                "desktop.layout.disconnected.one",
+                1
+            ),
+            "1 saved display is not connected."
+        )
+        XCTAssertEqual(
+            controller.localizedFormat("desktop.layout.disconnected", 2),
+            "2 saved displays are not connected."
+        )
+        XCTAssertEqual(
+            controller.localizedFormat(
+                "desktop.layout.accessibility.displayCard",
+                2,
+                "Studio Display",
+                "Aurora",
+                "Fill Screen",
+                "Enabled"
+            ),
+            "Display 2, Studio Display, Aurora, Fill Screen, Enabled"
+        )
+
+        controller.selectLanguage(.simplifiedChinese)
+        let simplifiedChineseStrings = [
+            "player.desktop.options": "动态桌面选项",
+            "player.desktop.syncAll": "同步到所有显示器",
+            "player.desktop.customize": "自定义显示器…",
+            "desktop.pauseAll": "全部暂停",
+            "desktop.resumeAll": "全部继续",
+            "desktop.playNextAll": "所有显示器播放下一个",
+            "desktop.displays": "显示器",
+            "desktop.configure": "自定义显示器…",
+            "desktop.open": "打开 Muralume",
+            "desktop.stop": "停止动态桌面",
+            "desktop.layout.title": "桌面布局",
+            "desktop.layout.detail": "选择每台显示器播放的内容和显示方式。",
+            "desktop.layout.close": "关闭桌面布局",
+            "desktop.layout.mode": "多屏播放方式",
+            "desktop.layout.mode.synchronized": "同步播放",
+            "desktop.layout.mode.independent": "分别设置",
+            "desktop.layout.identify": "识别显示器",
+            "desktop.layout.identify.hint":
+                "在每台已连接的显示器上短暂显示编号。",
+            "desktop.layout.identify.announcement": "显示器编号已显示。",
+            "desktop.layout.useDisplay":
+                "在这台显示器上使用 Muralume",
+            "desktop.layout.video": "视频",
+            "desktop.layout.currentVideo": "当前视频",
+            "desktop.layout.chooseLibrary": "从媒体库选择…",
+            "desktop.layout.chooseFinder": "在访达中选择…",
+            "desktop.layout.notConnected": "未连接",
+            "desktop.layout.notUsing": "未使用 Muralume",
+            "desktop.layout.noVideo": "未选择视频",
+            "desktop.layout.mainDisplay": "主显示器",
+            "desktop.layout.search": "搜索视频",
+            "desktop.layout.validation.noDisplay": "请至少选择一台显示器。",
+            "desktop.layout.validation.noVideo":
+                "请为每台已启用的显示器选择视频。",
+            "desktop.layout.error.load":
+                "无法载入已保存的桌面布局，请检查布局后再应用。",
+            "desktop.layout.error.save":
+                "无法保存桌面布局，请重试。",
+            "desktop.layout.accessibility.arrangement": "显示器排列",
+            "desktop.layout.accessibility.enabled": "已启用",
+            "desktop.layout.accessibility.disabled": "未启用",
+            "desktop.layout.accessibility.displayCard.hint":
+                "选择以编辑这台显示器。"
+        ]
+
+        for (key, expectedValue) in simplifiedChineseStrings {
+            XCTAssertEqual(controller.localized(key), expectedValue, key)
+        }
+        XCTAssertEqual(
+            controller.localizedFormat("desktop.status.display.one", 1),
+            "1 台显示器正在使用"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat("desktop.status.displays", 3),
+            "3 台显示器正在使用"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat(
+                "desktop.status.playingCount",
+                2,
+                3
+            ),
+            "2 / 3 台显示器正在播放"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat(
+                "desktop.status.availableCount",
+                2,
+                3
+            ),
+            "2 / 3 台显示器可用"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat("desktop.layout.apply.one", 1),
+            "应用到 1 台显示器"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat("desktop.layout.apply", 3),
+            "应用到 3 台显示器"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat(
+                "desktop.layout.disconnected.one",
+                1
+            ),
+            "1 台已保存的显示器未连接。"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat("desktop.layout.disconnected", 2),
+            "2 台已保存的显示器未连接。"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat(
+                "desktop.layout.accessibility.displayCard",
+                2,
+                "Studio Display",
+                "Aurora",
+                "填满屏幕",
+                "已启用"
+            ),
+            "显示器 2，Studio Display，Aurora，填满屏幕，已启用"
+        )
+    }
+
     func testSystemLocaleChangeRefreshesFollowSystemLanguage() async {
         var preferredLanguages = ["en"]
         let controller = AppLocalizationController(

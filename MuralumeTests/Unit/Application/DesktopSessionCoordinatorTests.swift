@@ -162,6 +162,49 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(didEnterDesktopCount, 0)
     }
 
+    func testSynchronizedEntryDoesNotHideAppWhenForegroundBecomesUnready()
+        async {
+        let playback = PlaybackCoordinator(engine: TestPlaybackEngine())
+        let desktopHost = TestDesktopHost()
+        let statusMenu = TestDesktopStatusPresenter()
+        let mainWindow = TestMainWindowPresenter()
+        let applicationPresence = TestApplicationPresenceController()
+        let session = DesktopSessionCoordinator(
+            playback: playback,
+            desktopHost: desktopHost,
+            statusMenu: statusMenu,
+            videoContentModeStore: TestDesktopVideoContentModeStore(),
+            lifecycleMonitor: TestSystemLifecycleMonitor(),
+            mainWindow: mainWindow,
+            applicationPresence: applicationPresence
+        )
+        defer {
+            session.shutdown()
+        }
+
+        playback.registerPlayerSurface(TestPlaybackSurface(id: .player))
+        await Task.yield()
+        await playback.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/example.mp4"),
+                displayName: "Example"
+            )
+        )
+
+        session.enterDesktop()
+        playback.stop()
+        await session.waitForTransitionToSettle()
+
+        XCTAssertFalse(session.isActive)
+        XCTAssertFalse(session.isTransitioning)
+        XCTAssertEqual(playback.presentation, .player)
+        XCTAssertEqual(session.transientFailure, .playback(.cannotOpen))
+        XCTAssertEqual(statusMenu.showCount, 0)
+        XCTAssertEqual(desktopHost.revealCount, 0)
+        XCTAssertEqual(mainWindow.hideCount, 0)
+        XCTAssertEqual(applicationPresence.appliedModes, [.standard])
+    }
+
     func testDesktopEntryEstablishesStatusMenuBeforeHidingApplication() async {
         let engine = TestPlaybackEngine()
         let playback = PlaybackCoordinator(engine: engine)
@@ -319,6 +362,257 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         XCTAssertTrue(
             isSwitching(playback.presentation, to: .player)
         )
+    }
+
+    func testReturnCancelsIndependentEntryBeforeForegroundDetaches() async {
+        let foregroundEngine = TestPlaybackEngine()
+        let playback = PlaybackCoordinator(engine: foregroundEngine)
+        let independentEngine = TestPlaybackEngine()
+        independentEngine.shouldBlockLoads = true
+        let independentPlayback = DesktopPlaybackOrchestrator(
+            initialReadinessTimeout: nil
+        ) { independentEngine }
+        let displayID = DesktopDisplayID(rawValue: "main")
+        let mediaItemID = LibraryMediaItem.ID(
+            rootPath: "/tmp/desktop-session",
+            relativePath: "independent.mp4"
+        )
+        let scene = DesktopScene(
+            mode: .perDisplay,
+            appliesToAllConnectedDisplays: false,
+            defaultContentMode: .contain,
+            assignments: [
+                DesktopDisplayAssignment(
+                    displayID: displayID,
+                    isEnabled: true,
+                    contentMode: .contain,
+                    mediaItemID: mediaItemID
+                )
+            ]
+        )
+        let topology = SessionTestDesktopDisplayTopology(
+            displays: [
+                DesktopDisplayDescriptor(
+                    id: displayID,
+                    runtimeID: DesktopRuntimeDisplayID(rawValue: 1),
+                    localizedName: "Main",
+                    frame: CGRect(x: 0, y: 0, width: 1_920, height: 1_080),
+                    isMain: true,
+                    isBuiltIn: true
+                )
+            ]
+        )
+        let sceneController = DesktopSceneController(
+            store: SessionTestDesktopSceneStore(scene: scene),
+            topology: topology
+        )
+        let desktopHost = TestDesktopHost()
+        desktopHost.scenePreparation = DesktopHostPreparation(
+            synchronizedSurface: desktopHost.surface,
+            displaySurfaces: [
+                displayID: TestPlaybackSurface(id: .desktop)
+            ]
+        )
+        let statusMenu = TestDesktopStatusPresenter()
+        let mainWindow = TestMainWindowPresenter()
+        let applicationPresence = TestApplicationPresenceController()
+        let session = DesktopSessionCoordinator(
+            playback: playback,
+            desktopHost: desktopHost,
+            statusMenu: statusMenu,
+            videoContentModeStore: TestDesktopVideoContentModeStore(),
+            lifecycleMonitor: TestSystemLifecycleMonitor(),
+            mainWindow: mainWindow,
+            applicationPresence: applicationPresence,
+            sceneController: sceneController,
+            independentPlayback: independentPlayback
+        )
+        session.independentSourceResolver = { itemID in
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: itemID.standardizedMediaPath),
+                displayName: itemID.relativePath
+            )
+        }
+        defer {
+            session.shutdown()
+            sceneController.shutdown()
+        }
+
+        let playerSurface = TestPlaybackSurface(id: .player)
+        playback.registerPlayerSurface(playerSurface)
+        await playback.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/foreground.mp4"),
+                displayName: "Foreground"
+            )
+        )
+        session.enterDesktop()
+        await waitUntil {
+            independentEngine.didBeginBlockedLoad
+                && playback.presentation == .player
+                && session.isTransitioning
+        }
+
+        session.returnToPlayer()
+        await session.waitForTransitionToSettle()
+
+        XCTAssertFalse(session.isActive)
+        XCTAssertFalse(session.isTransitioning)
+        XCTAssertEqual(playback.presentation, .player)
+        XCTAssertFalse(playback.isDesktopEngineDetached)
+        XCTAssertTrue(independentPlayback.activeDisplayIDs.isEmpty)
+        XCTAssertTrue(independentPlayback.activeMediaItemIDs.isEmpty)
+        XCTAssertEqual(desktopHost.closeCount, 1)
+        XCTAssertEqual(mainWindow.prepareForReturnCount, 1)
+        XCTAssertEqual(mainWindow.showCount, 1)
+        XCTAssertEqual(applicationPresence.appliedModes, [.standard])
+        XCTAssertEqual(statusMenu.removeCount, 1)
+    }
+
+    func testTerminalIndependentFailureReturnsToPlayerWithError() async {
+        let foregroundEngine = TestPlaybackEngine()
+        let playback = PlaybackCoordinator(engine: foregroundEngine)
+        let independentEngine = TestPlaybackEngine()
+        let independentPlayback = DesktopPlaybackOrchestrator {
+            independentEngine
+        }
+        let displayID = DesktopDisplayID(rawValue: "main")
+        let mediaItemID = LibraryMediaItem.ID(
+            rootPath: "/tmp/desktop-session",
+            relativePath: "late-failure.mp4"
+        )
+        let scene = DesktopScene(
+            mode: .perDisplay,
+            appliesToAllConnectedDisplays: false,
+            defaultContentMode: .contain,
+            assignments: [
+                DesktopDisplayAssignment(
+                    displayID: displayID,
+                    isEnabled: true,
+                    contentMode: .contain,
+                    mediaItemID: mediaItemID
+                )
+            ]
+        )
+        let sceneController = DesktopSceneController(
+            store: SessionTestDesktopSceneStore(scene: scene),
+            topology: SessionTestDesktopDisplayTopology(
+                displays: [
+                    DesktopDisplayDescriptor(
+                        id: displayID,
+                        runtimeID: DesktopRuntimeDisplayID(rawValue: 1),
+                        localizedName: "Main",
+                        frame: CGRect(
+                            x: 0,
+                            y: 0,
+                            width: 1_920,
+                            height: 1_080
+                        ),
+                        isMain: true,
+                        isBuiltIn: true
+                    )
+                ]
+            )
+        )
+        let desktopHost = TestDesktopHost()
+        desktopHost.scenePreparation = DesktopHostPreparation(
+            synchronizedSurface: desktopHost.surface,
+            displaySurfaces: [
+                displayID: TestPlaybackSurface(id: .desktop)
+            ]
+        )
+        let statusMenu = TestDesktopStatusPresenter()
+        let mainWindow = TestMainWindowPresenter()
+        let applicationPresence = TestApplicationPresenceController()
+        let session = DesktopSessionCoordinator(
+            playback: playback,
+            desktopHost: desktopHost,
+            statusMenu: statusMenu,
+            videoContentModeStore: TestDesktopVideoContentModeStore(),
+            lifecycleMonitor: TestSystemLifecycleMonitor(),
+            mainWindow: mainWindow,
+            applicationPresence: applicationPresence,
+            sceneController: sceneController,
+            independentPlayback: independentPlayback
+        )
+        session.independentSourceResolver = { itemID in
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: itemID.standardizedMediaPath),
+                displayName: itemID.relativePath
+            )
+        }
+        defer {
+            session.shutdown()
+            sceneController.shutdown()
+        }
+
+        let playerSurface = TestPlaybackSurface(id: .player)
+        playback.registerPlayerSurface(playerSurface)
+        await playback.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/foreground.mp4"),
+                displayName: "Foreground"
+            )
+        )
+        let didEnterDesktop = await session.enterDesktopAndWait()
+        XCTAssertTrue(didEnterDesktop)
+        XCTAssertEqual(
+            independentPlayback.displayStates[displayID],
+            .playing
+        )
+
+        independentEngine.emitFailure(.cannotOpen)
+        await session.waitForTransitionToSettle()
+
+        XCTAssertFalse(session.isActive)
+        XCTAssertFalse(session.isTransitioning)
+        XCTAssertEqual(playback.presentation, .player)
+        XCTAssertEqual(
+            session.transientFailure,
+            .playback(.cannotOpen)
+        )
+        XCTAssertFalse(playback.isDesktopEngineDetached)
+        XCTAssertTrue(independentPlayback.activeDisplayIDs.isEmpty)
+        XCTAssertEqual(desktopHost.closeCount, 1)
+        XCTAssertEqual(statusMenu.removeCount, 1)
+        XCTAssertEqual(
+            applicationPresence.appliedModes,
+            [.menuBarOnly, .standard]
+        )
+    }
+
+    func testStatusMenuReportsPartialIndependentAvailability() throws {
+        let localization = AppLocalizationController(
+            initialLanguage: .english
+        )
+        let controller = DesktopStatusMenuController(
+            localization: localization
+        )
+        controller.stateProvider = {
+            DesktopStatusState(
+                sourceName: "",
+                isPlaying: true,
+                isTransitioning: false,
+                canPlayNext: false,
+                playbackOrder: .ordered,
+                canSetPlaybackOrder: false,
+                playbackRate: PlaybackPolicy.defaultRate,
+                videoContentMode: .contain,
+                sceneMode: .perDisplay,
+                enabledDisplayCount: 2,
+                failedDisplayCount: 1
+            )
+        }
+
+        let menu = controller.makeMenu()
+        controller.menuNeedsUpdate(menu)
+        XCTAssertEqual(
+            try XCTUnwrap(menu.items.first).title,
+            "1 of 2 displays available"
+        )
+
+        localization.selectLanguage(.simplifiedChinese)
+        XCTAssertEqual(menu.items.first?.title, "1 / 2 台显示器可用")
     }
 
     func testLifecycleSuspensionPausesPlayerAndDesktopWithoutLosingIntent()
@@ -1002,4 +1296,45 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         }
         return currentDestination == destination
     }
+}
+
+@MainActor
+private final class SessionTestDesktopSceneStore: DesktopSceneStoring {
+    private var scene: DesktopScene?
+
+    init(scene: DesktopScene?) {
+        self.scene = scene
+    }
+
+    func load() throws -> DesktopScene? {
+        scene
+    }
+
+    func save(_ scene: DesktopScene) throws {
+        self.scene = scene
+    }
+
+    func clear() throws {
+        scene = nil
+    }
+}
+
+@MainActor
+private final class SessionTestDesktopDisplayTopology:
+    DesktopDisplayTopologyProviding {
+    var displaysDidChangeHandler:
+        (([DesktopDisplayDescriptor]) -> Void)?
+    private let displays: [DesktopDisplayDescriptor]
+
+    init(displays: [DesktopDisplayDescriptor]) {
+        self.displays = displays
+    }
+
+    func currentDisplays() -> [DesktopDisplayDescriptor] {
+        displays
+    }
+
+    func startMonitoring() {}
+    func stopMonitoring() {}
+    func identifyDisplays() {}
 }

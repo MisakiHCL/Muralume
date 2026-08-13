@@ -50,7 +50,7 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 1. Use the single Add Media picker to build a lasting library from videos, folders, or both, or drop them into Muralume from Finder.
 2. Open a supported video from Finder for a temporary viewing session, or play it directly from the library when it is already there.
 3. Choose ordered playback, shuffle, or Repeat Current and preview the real upcoming queue in the built-in player.
-4. Press `⌘D` to place the same queue behind your files and widgets as a Dynamic Desktop.
+4. Press `⌘D` to apply the current Dynamic Desktop layout. Use `⇧⌘D` or **Actions → Customize Displays…** to choose synchronized or per-display playback.
 
 ## Highlights
 
@@ -60,7 +60,7 @@ Your source videos stay exactly where you put them. Muralume receives read-only 
 
 ### An energy-aware Dynamic Desktop
 
-Place the current queue behind desktop files and widgets on every connected display while keeping each desktop fully interactive. Displays can be connected, removed, rearranged, or resized without restarting the queue. Muralume uses macOS-native playback, stays muted in desktop mode, and does not prevent display sleep. On battery or UPS power, in Low Power Mode, under elevated thermal pressure, or during sustained system load, it removes the decorative blurred fill. Dynamic Desktop pauses when every desktop window is occluded, the battery reaches its final warning, thermal pressure becomes serious, or normal sleep and session lifecycle events require it; critical thermal pressure pauses playback everywhere.
+Use synchronized mode to place the current queue on enabled displays with one shared playback clock, or assign one independently looping video to each display. Every display has its own desktop fit. A disconnected display keeps its assignment, video, and fit so Muralume can restore its loop when that display reconnects. Displays can be connected, removed, rearranged, or resized without restarting the synchronized queue. Spanning one video as a single canvas across multiple displays is not currently supported. Muralume uses macOS-native playback, stays muted in desktop mode, and does not prevent display sleep. On battery or UPS power, in Low Power Mode, under elevated thermal pressure, or during sustained system load, it removes the decorative blurred fill. Dynamic Desktop pauses when every desktop window is occluded, the battery reaches its final warning, thermal pressure becomes serious, or normal sleep and session lifecycle events require it; critical thermal pressure pauses playback everywhere.
 
 By default, Muralume keeps the full video sharp and fills any remaining space with a softly blurred version of the same frame.
 
@@ -108,6 +108,7 @@ The menu bar item lets you pause, skip, choose a playback mode, change playback 
 |---|---|
 | Add videos or folders | `⌘O` |
 | Set as Dynamic Desktop | `⌘D` |
+| Customize display layout | `⇧⌘D` |
 | Play / pause | `Space` |
 | Back / forward 10 seconds | `←` / `→` |
 | Previous / next video | `⌘←` / `⌘→` |
@@ -121,7 +122,7 @@ The menu bar item lets you pause, skip, choose a playback mode, change playback 
 - Apple silicon Mac
 - macOS 14 or later
 - AVFoundation-native MP4, MOV, M4V, MPEG, MPEG-2, MPEG-TS, 3GP, 3G2, AVI, or DV video
-- All connected displays share the same video, playback clock, and display mode; per-display media is not supported
+- Multiple displays support either synchronized playback or one independently looping video per display, with per-display fit and reconnect restoration; cross-display spanning is not supported
 
 Playback compatibility depends on the codecs available through macOS AVFoundation. H.264 and HEVC are common compatible choices.
 

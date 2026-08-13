@@ -19,6 +19,14 @@ enum PlaybackSeekMode: Equatable, Sendable {
     case exact
 }
 
+enum PlaybackSurfaceReadinessPolicy: Equatable, Sendable {
+    /// Attaching is not complete until the surface has rendered a frame.
+    case required
+    /// Keep the player connected and let the presentation owner reveal the
+    /// surface whenever its first frame eventually arrives.
+    case deferred
+}
+
 @MainActor
 protocol PlaybackEngine: AnyObject {
     var progressHandler: ((TimeInterval) -> Void)? { get set }
@@ -28,6 +36,10 @@ protocol PlaybackEngine: AnyObject {
 
     func load(_ source: ResolvedMediaSource) async throws -> TimeInterval
     func attach(to surface: any PlaybackRenderSurface) async throws
+    func attach(
+        to surface: any PlaybackRenderSurface,
+        readinessPolicy: PlaybackSurfaceReadinessPolicy
+    ) async throws
     func detachAll()
     func play(at rate: PlaybackRate)
     func pause()
@@ -40,6 +52,13 @@ protocol PlaybackEngine: AnyObject {
 }
 
 extension PlaybackEngine {
+    func attach(
+        to surface: any PlaybackRenderSurface,
+        readinessPolicy _: PlaybackSurfaceReadinessPolicy
+    ) async throws {
+        try await attach(to: surface)
+    }
+
     func seek(to seconds: TimeInterval, mode _: PlaybackSeekMode) {
         seek(to: seconds)
     }

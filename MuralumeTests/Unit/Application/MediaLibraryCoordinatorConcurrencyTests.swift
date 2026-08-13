@@ -359,6 +359,103 @@ final class MediaLibraryCoordinatorConcurrencyTests: XCTestCase {
         XCTAssertEqual(sortCompletions, 1)
     }
 
+    func testRemoveRootAwaitsMediaRemovalHookWithRemovedItemIDs() async {
+        let removedRootURL = URL(
+            fileURLWithPath: "/tmp/Removal Hook Library"
+        )
+        let retainedRootURL = URL(
+            fileURLWithPath: "/tmp/Retained Hook Library"
+        )
+        let removedRoot = makeRoot(removedRootURL)
+        let retainedRoot = makeRoot(retainedRootURL)
+        let removedItem = makeItem(
+            rootURL: removedRootURL,
+            name: "Removed",
+            path: "Removed.mov"
+        )
+        let retainedItem = makeItem(
+            rootURL: retainedRootURL,
+            name: "Retained",
+            path: "Retained.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [removedRootURL, retainedRootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [removedRoot, retainedRoot],
+                items: [removedItem, retainedItem]
+            )
+        )
+        let hook = MediaScopeHookProbe()
+        fixture.coordinator.mediaItemsWillBeRemovedHandler = { itemIDs in
+            await hook.suspend(itemIDs: itemIDs)
+        }
+
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        let removalTask = Task { @MainActor in
+            await fixture.coordinator.removeRoot(removedRoot)
+        }
+        let didReachHook = await waitUntil("media removal hook") {
+            hook.isWaiting
+        }
+        guard didReachHook else {
+            hook.release()
+            await removalTask.value
+            await fixture.coordinator.shutdown()
+            return
+        }
+
+        XCTAssertEqual(hook.receivedItemIDSets, [[removedItem.id]])
+        XCTAssertTrue(fixture.session.removedURLs.isEmpty)
+
+        hook.release()
+        await removalTask.value
+
+        XCTAssertEqual(fixture.session.removedURLs, [removedRootURL])
+        XCTAssertEqual(fixture.coordinator.items.map(\.id), [retainedItem.id])
+        await fixture.coordinator.shutdown()
+    }
+
+    func testShutdownAwaitsMediaScopePreparationBeforeStoppingSession() async {
+        let rootURL = URL(fileURLWithPath: "/tmp/Shutdown Hook Library")
+        let root = makeRoot(rootURL)
+        let item = makeItem(
+            rootURL: rootURL,
+            name: "Clip",
+            path: "Clip.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(roots: [root], items: [item])
+        )
+        let hook = MediaScopeHookProbe()
+        fixture.coordinator.prepareForMediaScopeShutdownHandler = {
+            await hook.suspend()
+        }
+
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        let shutdownTask = Task { @MainActor in
+            await fixture.coordinator.shutdown()
+        }
+        let didReachHook = await waitUntil("media scope shutdown hook") {
+            hook.isWaiting
+        }
+        guard didReachHook else {
+            hook.release()
+            await shutdownTask.value
+            return
+        }
+
+        XCTAssertEqual(hook.callCount, 1)
+        XCTAssertEqual(fixture.session.stopCount, 0)
+
+        hook.release()
+        await shutdownTask.value
+
+        XCTAssertEqual(fixture.session.stopCount, 1)
+    }
+
     func testQueueNavigationWinsOverStaleReconciliation() async {
         let rootURL = URL(fileURLWithPath: "/tmp/Queue Revision Library")
         let root = makeRoot(rootURL)
@@ -557,4 +654,30 @@ final class MediaLibraryCoordinatorConcurrencyTests: XCTestCase {
 @MainActor
 private final class ShutdownCompletionProbe {
     var isComplete = false
+}
+
+@MainActor
+private final class MediaScopeHookProbe {
+    private(set) var receivedItemIDSets:
+        [Set<LibraryMediaItem.ID>] = []
+    private(set) var callCount = 0
+    private(set) var isWaiting = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func suspend(itemIDs: Set<LibraryMediaItem.ID>? = nil) async {
+        callCount += 1
+        if let itemIDs {
+            receivedItemIDSets.append(itemIDs)
+        }
+        isWaiting = true
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+        isWaiting = false
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
+    }
 }

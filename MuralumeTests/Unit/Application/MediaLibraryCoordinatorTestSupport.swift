@@ -367,6 +367,7 @@ final class TestMediaAccessSession: MediaAccessSession {
         [MediaAccessIncomingScopePolicy] = []
     private(set) var preparedRemovalURLs: [URL] = []
     private(set) var removedURLs: [URL] = []
+    private(set) var stopCount = 0
     var restoredURLs: [URL] = []
     var hasUnavailablePersistedSources = false
     var treatsFilesInsideActiveFoldersAsCovered = false
@@ -447,7 +448,9 @@ final class TestMediaAccessSession: MediaAccessSession {
         return activeURLs.map(makeSource)
     }
 
-    func stop() {}
+    func stop() {
+        stopCount += 1
+    }
 
     private func makeSource(_ url: URL) -> MediaSource {
         MediaSource(

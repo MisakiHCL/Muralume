@@ -97,6 +97,7 @@ final class RunLoopPlayerChromeAutoHideScheduler:
 final class PlayerChromeController: ObservableObject {
     @Published private(set) var isVisible = true
     @Published private(set) var presentedPanel: PlayerSidePanel? = .playlist
+    @Published private(set) var isDesktopLayoutPresented = false
     @Published private(set) var libraryQueueMode: LibraryQueueMode = .browsing
     @Published private(set) var librarySidebarSection:
         LibrarySidebarSection = .mediaLibrary
@@ -225,6 +226,27 @@ final class PlayerChromeController: ObservableObject {
         setSettingsPresented(!isSettingsPresented)
     }
 
+    func presentDesktopLayout() {
+        guard !isDesktopLayoutPresented else {
+            return
+        }
+
+        isDesktopLayoutPresented = true
+        setVisible(true)
+        refreshAutoHideSchedule()
+    }
+
+    @discardableResult
+    func cancelDesktopLayout() -> Bool {
+        guard isDesktopLayoutPresented else {
+            return false
+        }
+
+        isDesktopLayoutPresented = false
+        refreshAutoHideSchedule()
+        return true
+    }
+
     @discardableResult
     func dismissPresentedPanel() -> Bool {
         switch presentedPanel {
@@ -329,7 +351,9 @@ final class PlayerChromeController: ObservableObject {
     }
 
     private var shouldAutoHide: Bool {
-        playbackState.canAutoHideChrome && presentedPanel == nil
+        playbackState.canAutoHideChrome
+            && presentedPanel == nil
+            && !isDesktopLayoutPresented
     }
 }
 

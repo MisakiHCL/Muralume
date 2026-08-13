@@ -38,6 +38,8 @@ final class TestPlaybackEngine: PlaybackEngine {
     var failureHandler: ((PlaybackEngineError) -> Void)?
     var playbackActivityHandler: ((Bool) -> Void)?
     private(set) var attachedSurfaceIDs: [PlaybackSurfaceID] = []
+    private(set) var attachmentReadinessPolicies:
+        [PlaybackSurfaceReadinessPolicy] = []
     private(set) var attachedSurfaceID: PlaybackSurfaceID?
     private(set) var isPlaying = false
     private(set) var volume = PlaybackVolume.full
@@ -68,8 +70,14 @@ final class TestPlaybackEngine: PlaybackEngine {
         }
         if shouldBlockLoads {
             didBeginBlockedLoad = true
-            return try await withCheckedThrowingContinuation { continuation in
-                blockedLoadContinuation = continuation
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    blockedLoadContinuation = continuation
+                }
+            } onCancel: {
+                Task { @MainActor [weak self] in
+                    self?.cancelBlockedLoad()
+                }
             }
         }
         return 120
@@ -80,14 +88,27 @@ final class TestPlaybackEngine: PlaybackEngine {
         blockedLoadContinuation = nil
     }
 
+    private func cancelBlockedLoad() {
+        blockedLoadContinuation?.resume(throwing: CancellationError())
+        blockedLoadContinuation = nil
+    }
+
     func attach(to surface: any PlaybackRenderSurface) async throws {
+        try await attach(to: surface, readinessPolicy: .required)
+    }
+
+    func attach(
+        to surface: any PlaybackRenderSurface,
+        readinessPolicy: PlaybackSurfaceReadinessPolicy
+    ) async throws {
         attachedSurfaceIDs.append(surface.id)
+        attachmentReadinessPolicies.append(readinessPolicy)
         if let error = attachmentErrorsBySurfaceID[surface.id] {
             attachedSurfaceID = nil
             throw error
         }
         attachedSurfaceID = surface.id
-        if shouldBlockAttachments {
+        if shouldBlockAttachments, readinessPolicy == .required {
             didBeginBlockedAttachment = true
             try await Task.sleep(
                 nanoseconds: TestPolicy.blockedAttachmentNanoseconds
@@ -251,6 +272,9 @@ final class TestDesktopHost: DesktopHosting {
     var desktopOcclusionHandler: ((Bool) -> Void)?
     var revealHandler: (() -> Void)?
     let surface = TestPlaybackSurface(id: .desktop)
+    var scenePreparation: DesktopHostPreparation?
+    private var displaySurfaceEventHandler:
+        ((DesktopDisplaySurfaceEvent) -> Void)?
     private(set) var prepareCount = 0
     private(set) var preparedContentModes: [DesktopVideoContentMode] = []
     private(set) var appliedContentModes: [DesktopVideoContentMode] = []
@@ -265,6 +289,26 @@ final class TestDesktopHost: DesktopHosting {
         prepareCount += 1
         preparedContentModes.append(contentMode)
         return surface
+    }
+
+    func prepare(scene: DesktopScene) -> DesktopHostPreparation {
+        if let scenePreparation {
+            prepareCount += 1
+            preparedContentModes.append(scene.defaultContentMode)
+            return scenePreparation
+        }
+        return DesktopHostPreparation(
+            synchronizedSurface: prepare(
+                contentMode: scene.defaultContentMode
+            ),
+            displaySurfaces: [:]
+        )
+    }
+
+    func setDisplaySurfaceEventHandler(
+        _ handler: ((DesktopDisplaySurfaceEvent) -> Void)?
+    ) {
+        displaySurfaceEventHandler = handler
     }
 
     func setVideoContentMode(_ contentMode: DesktopVideoContentMode) {
@@ -290,6 +334,10 @@ final class TestDesktopHost: DesktopHosting {
 
     func emitDesktopOcclusion(_ isOccluded: Bool) {
         desktopOcclusionHandler?(isOccluded)
+    }
+
+    func emitDisplaySurfaceEvent(_ event: DesktopDisplaySurfaceEvent) {
+        displaySurfaceEventHandler?(event)
     }
 }
 

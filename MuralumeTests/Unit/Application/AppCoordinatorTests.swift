@@ -532,6 +532,216 @@ final class AppCoordinatorTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
+    func testDesktopLayoutCancelDiscardsDraftAndClosesLayout()
+        async throws {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            includeDesktopScene: true
+        )
+        await prepareActiveQueue(in: fixture)
+        let desktopScene = try XCTUnwrap(fixture.desktopScene)
+        let displayID = try XCTUnwrap(
+            desktopScene.connectedDisplays.first?.id
+        )
+        let committedScene = desktopScene.committedScene
+
+        fixture.coordinator.presentDesktopLayout()
+        desktopScene.setEnabled(false, for: displayID)
+
+        XCTAssertTrue(fixture.coordinator.playerChrome.isDesktopLayoutPresented)
+        XCTAssertTrue(desktopScene.isEditing)
+        XCTAssertNotEqual(desktopScene.scene, committedScene)
+
+        XCTAssertTrue(fixture.coordinator.dismissPresentedPanel())
+
+        XCTAssertFalse(
+            fixture.coordinator.playerChrome.isDesktopLayoutPresented
+        )
+        XCTAssertFalse(desktopScene.isEditing)
+        XCTAssertEqual(desktopScene.committedScene, committedScene)
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testConfigureDesktopFromMenuOpensDraftWithoutEnteringDesktop()
+        async throws {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            includeDesktopScene: true
+        )
+        await prepareActiveQueue(in: fixture)
+        let desktopScene = try XCTUnwrap(fixture.desktopScene)
+        let committedScene = desktopScene.committedScene
+
+        XCTAssertTrue(
+            fixture.coordinator.mainMenuCommandState.canEnterDesktop
+        )
+
+        fixture.coordinator.configureDesktopFromMenu()
+
+        XCTAssertTrue(
+            fixture.coordinator.playerChrome.isDesktopLayoutPresented
+        )
+        XCTAssertTrue(desktopScene.isEditing)
+        XCTAssertEqual(desktopScene.committedScene, committedScene)
+        XCTAssertFalse(fixture.desktopSession.isActive)
+        XCTAssertEqual(fixture.playback.presentation, .player)
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testDesktopEntryOpensLayoutWhenNoConnectedDisplayIsEnabled()
+        async {
+        let unavailableScene = DesktopScene(
+            mode: .synchronized,
+            appliesToAllConnectedDisplays: false,
+            defaultContentMode: .cover,
+            assignments: [
+                DesktopDisplayAssignment(
+                    displayID: DesktopDisplayID(rawValue: "disconnected"),
+                    isEnabled: true,
+                    contentMode: .cover
+                )
+            ]
+        )
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            includeDesktopScene: true,
+            desktopStoredScene: unavailableScene
+        )
+        await prepareActiveQueue(in: fixture)
+
+        XCTAssertEqual(fixture.desktopScene?.enabledDisplayCount, 0)
+        let committedScene = fixture.desktopScene?.committedScene
+
+        fixture.coordinator.enterDesktop()
+
+        XCTAssertTrue(
+            fixture.coordinator.playerChrome.isDesktopLayoutPresented
+        )
+        XCTAssertTrue(fixture.desktopScene?.isEditing == true)
+        XCTAssertFalse(fixture.desktopSession.isActive)
+        XCTAssertEqual(fixture.playback.presentation, .player)
+        XCTAssertEqual(fixture.desktopScene?.committedScene, committedScene)
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testDesktopLayoutInvalidDraftDoesNotApplyOrEnterDesktop()
+        async throws {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            includeDesktopScene: true
+        )
+        await prepareActiveQueue(in: fixture)
+        let desktopScene = try XCTUnwrap(fixture.desktopScene)
+        let displayID = try XCTUnwrap(
+            desktopScene.connectedDisplays.first?.id
+        )
+
+        fixture.coordinator.presentDesktopLayout()
+        desktopScene.setEnabled(false, for: displayID)
+        XCTAssertFalse(desktopScene.canApply)
+
+        fixture.coordinator.applyDesktopLayout()
+
+        XCTAssertTrue(fixture.coordinator.playerChrome.isDesktopLayoutPresented)
+        XCTAssertTrue(desktopScene.isEditing)
+        XCTAssertFalse(fixture.desktopSession.isActive)
+        XCTAssertEqual(fixture.playback.presentation, .player)
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testDesktopLayoutValidDraftCommitsBeforeEnteringDesktop()
+        async throws {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            includeDesktopScene: true
+        )
+        await prepareActiveQueue(in: fixture)
+        let desktopScene = try XCTUnwrap(fixture.desktopScene)
+
+        fixture.coordinator.presentDesktopLayout()
+        desktopScene.setDefaultContentMode(.contain)
+        XCTAssertTrue(desktopScene.canApply)
+
+        fixture.coordinator.applyDesktopLayout()
+        await waitUntil {
+            fixture.desktopSession.isActive
+                && fixture.playback.presentation == .desktop
+        }
+
+        XCTAssertFalse(
+            fixture.coordinator.playerChrome.isDesktopLayoutPresented
+        )
+        XCTAssertFalse(desktopScene.isEditing)
+        XCTAssertEqual(
+            desktopScene.committedScene.defaultContentMode,
+            .contain
+        )
+        XCTAssertEqual(
+            fixture.desktopSession.activeScene?.defaultContentMode,
+            .contain
+        )
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testDesktopLayoutBlocksDesktopCommandsWithoutDiscardingDraft()
+        async throws {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            includeDesktopScene: true
+        )
+        await prepareActiveQueue(in: fixture)
+        let desktopScene = try XCTUnwrap(fixture.desktopScene)
+
+        fixture.coordinator.presentDesktopLayout()
+        desktopScene.setDefaultContentMode(.contain)
+        let editedDraft = try XCTUnwrap(desktopScene.draft)
+
+        XCTAssertFalse(
+            fixture.coordinator.mainMenuCommandState.canEnterDesktop
+        )
+
+        fixture.coordinator.enterDesktopFromMenu()
+        fixture.coordinator.enterDesktop()
+        fixture.coordinator.enterDesktopSynchronized()
+
+        XCTAssertTrue(
+            fixture.coordinator.playerChrome.isDesktopLayoutPresented
+        )
+        XCTAssertEqual(desktopScene.draft, editedDraft)
+        XCTAssertFalse(fixture.desktopSession.isActive)
+        XCTAssertEqual(fixture.playback.presentation, .player)
+
+        await fixture.coordinator.shutdown()
+    }
+
+    func testSynchronizedEntrySaveFailureKeepsPlayerAndShowsLayout()
+        async throws {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            includeDesktopScene: true,
+            desktopSceneSaveShouldFail: true
+        )
+        await prepareActiveQueue(in: fixture)
+        let desktopScene = try XCTUnwrap(fixture.desktopScene)
+
+        fixture.coordinator.enterDesktopSynchronized()
+
+        XCTAssertTrue(
+            fixture.coordinator.playerChrome.isDesktopLayoutPresented
+        )
+        XCTAssertTrue(desktopScene.isEditing)
+        XCTAssertEqual(desktopScene.persistenceFailure, .saveFailed)
+        XCTAssertFalse(fixture.desktopSession.isActive)
+        XCTAssertEqual(fixture.playback.presentation, .player)
+
+        await fixture.coordinator.shutdown()
+    }
+
     func testDesktopStatusPlaybackOrderUsesLibraryQueueTruth() async {
         let fixture = makeFixture(launchStatus: .disabled)
         fixture.coordinator.start(source: .interactive)
@@ -1332,7 +1542,10 @@ final class AppCoordinatorTests: XCTestCase {
         blockSourceRestore: Bool = false,
         sessionPresentation: PlaybackSessionPresentation? = nil,
         sourceInitiallyAvailable: Bool = true,
-        selectedSources: [[URL]]? = nil
+        selectedSources: [[URL]]? = nil,
+        includeDesktopScene: Bool = false,
+        desktopSceneSaveShouldFail: Bool = false,
+        desktopStoredScene: DesktopScene? = nil
     ) -> AppCoordinatorFixture {
         let rootURL = URL(
             fileURLWithPath: "/tmp/AppCoordinatorTests/Library"
@@ -1393,6 +1606,35 @@ final class AppCoordinatorTests: XCTestCase {
         let applicationPresence = TestApplicationPresenceController()
         let desktopHost = TestDesktopHost()
         let statusMenu = TestDesktopStatusPresenter()
+        let desktopScene: DesktopSceneController?
+        if includeDesktopScene {
+            desktopScene = DesktopSceneController(
+                store: AppCoordinatorDesktopSceneStore(
+                    scene: desktopStoredScene,
+                    shouldFailSave: desktopSceneSaveShouldFail
+                ),
+                topology: AppCoordinatorDesktopDisplayTopology(
+                    displays: [
+                        DesktopDisplayDescriptor(
+                            id: DesktopDisplayID(rawValue: "main"),
+                            runtimeID: DesktopRuntimeDisplayID(rawValue: 1),
+                            localizedName: "Main Display",
+                            frame: CGRect(
+                                x: 0,
+                                y: 0,
+                                width: 1_920,
+                                height: 1_080
+                            ),
+                            isMain: true,
+                            isBuiltIn: true
+                        )
+                    ]
+                ),
+                legacyContentMode: .cover
+            )
+        } else {
+            desktopScene = nil
+        }
         let desktopSession = DesktopSessionCoordinator(
             playback: playback,
             desktopHost: desktopHost,
@@ -1400,7 +1642,8 @@ final class AppCoordinatorTests: XCTestCase {
             videoContentModeStore: TestDesktopVideoContentModeStore(),
             lifecycleMonitor: TestSystemLifecycleMonitor(),
             mainWindow: windowPresenter,
-            applicationPresence: applicationPresence
+            applicationPresence: applicationPresence,
+            sceneController: desktopScene
         )
         let store = AppCoordinatorPresetStore(
             preset: preset,
@@ -1446,7 +1689,8 @@ final class AppCoordinatorTests: XCTestCase {
                 service: TestDefaultVideoPlayerService()
             ),
             desktopPreset: desktopPreset,
-            playbackSession: playbackSession
+            playbackSession: playbackSession,
+            desktopScene: desktopScene
         )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
@@ -1475,7 +1719,8 @@ final class AppCoordinatorTests: XCTestCase {
             engine: engine,
             playerSurface: playerSurface,
             item: item,
-            window: window
+            window: window,
+            desktopScene: desktopScene
         )
     }
 
@@ -1513,6 +1758,63 @@ private struct AppCoordinatorFixture {
     let playerSurface: TestPlaybackSurface
     let item: LibraryMediaItem
     let window: NSWindow
+    let desktopScene: DesktopSceneController?
+}
+
+@MainActor
+private final class AppCoordinatorDesktopSceneStore: DesktopSceneStoring {
+    private enum StoreError: Error {
+        case saveFailed
+    }
+
+    private var scene: DesktopScene?
+    private let shouldFailSave: Bool
+
+    init(
+        scene: DesktopScene? = nil,
+        shouldFailSave: Bool = false
+    ) {
+        self.scene = scene
+        self.shouldFailSave = shouldFailSave
+    }
+
+    func load() throws -> DesktopScene? {
+        scene
+    }
+
+    func save(_ scene: DesktopScene) throws {
+        guard !shouldFailSave else {
+            throw StoreError.saveFailed
+        }
+        self.scene = scene
+    }
+
+    func clear() throws {
+        scene = nil
+    }
+}
+
+@MainActor
+private final class AppCoordinatorDesktopDisplayTopology:
+    DesktopDisplayTopologyProviding {
+    var displaysDidChangeHandler:
+        (([DesktopDisplayDescriptor]) -> Void)?
+
+    private let displays: [DesktopDisplayDescriptor]
+
+    init(displays: [DesktopDisplayDescriptor]) {
+        self.displays = displays
+    }
+
+    func currentDisplays() -> [DesktopDisplayDescriptor] {
+        displays
+    }
+
+    func startMonitoring() {}
+
+    func stopMonitoring() {}
+
+    func identifyDisplays() {}
 }
 
 @MainActor

@@ -83,6 +83,13 @@ enum MuralumeTheme {
         static let playlistRowHeight: CGFloat = 72
         static let playlistArtworkWidth: CGFloat = 84
         static let playlistArtworkHeight: CGFloat = 48
+        static let desktopLayoutMaximumWidth: CGFloat = 720
+        static let desktopLayoutMaximumHeight: CGFloat = 560
+        static let desktopDisplayCanvasHeight: CGFloat = 176
+        static let desktopDisplayNumberBadge: CGFloat = 24
+        static let desktopEntryOptionsWidth: CGFloat = 20
+        static let desktopMediaPreviewWidth: CGFloat = 128
+        static let desktopMediaPreviewHeight: CGFloat = 72
 
         static func playlistRowHeight(
             for dynamicTypeSize: DynamicTypeSize
@@ -177,6 +184,33 @@ enum MuralumeAccessibilityIdentifier {
         "muralume.playback-queue.temporary-badge"
     static let playbackModeButton = "muralume.playback-mode"
     static let enterDesktopButton = "muralume.enter-desktop"
+    static let desktopEntryOptionsButton =
+        "muralume.desktop-entry-options"
+    static let desktopLayoutView = "muralume.desktop-layout"
+    static let desktopLayoutModePicker =
+        "muralume.desktop-layout.mode"
+    static let desktopDisplayCanvas =
+        "muralume.desktop-layout.display-canvas"
+    static let desktopIdentifyButton =
+        "muralume.desktop-layout.identify"
+    static let desktopDisplayInspector =
+        "muralume.desktop-layout.display-inspector"
+    static let desktopDisplayEnabledToggle =
+        "muralume.desktop-layout.display-enabled"
+    static let desktopMediaPicker =
+        "muralume.desktop-layout.media-picker"
+    static let desktopMediaSearchField =
+        "muralume.desktop-layout.media-search"
+    static let desktopContentModePicker =
+        "muralume.desktop-layout.content-mode"
+    static let desktopLayoutValidation =
+        "muralume.desktop-layout.validation"
+    static let desktopLayoutCloseButton =
+        "muralume.desktop-layout.close"
+    static let desktopLayoutCancelButton =
+        "muralume.desktop-layout.cancel"
+    static let desktopLayoutApplyButton =
+        "muralume.desktop-layout.apply"
     static let desktopStatusItem = "muralume.desktop-status-item"
     static let librarySortButton = "muralume.library-sort"
     static let openSettingsButton = "muralume.open-settings"

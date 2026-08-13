@@ -10,6 +10,10 @@ struct PlayerActions {
     let playLibraryItem: (LibraryMediaItem) -> Void
     let revealMediaInFinder: (URL) -> Void
     let enterDesktop: () -> Void
+    let enterDesktopSynchronized: () -> Void
+    let presentDesktopLayout: () -> Void
+    let cancelDesktopLayout: () -> Void
+    let applyDesktopLayout: () -> Void
     let toggleSettings: () -> Void
     let closeWindow: () -> Void
     let minimizeWindow: () -> Void

@@ -8,6 +8,9 @@ struct DesktopStatusState {
     let canSetPlaybackOrder: Bool
     let playbackRate: PlaybackRate
     let videoContentMode: DesktopVideoContentMode
+    var sceneMode: DesktopSceneMode = .synchronized
+    var enabledDisplayCount: Int = 1
+    var failedDisplayCount: Int = 0
 
     var playbackMode: PlaybackMode {
         PlaybackMode(

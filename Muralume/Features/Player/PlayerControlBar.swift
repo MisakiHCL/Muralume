@@ -40,6 +40,7 @@ struct PlayerControlBar: View {
     let actions: PlayerActions
     let isFullScreen: Bool
     let isPlaylistPresented: Bool
+    let showsDesktopOptions: Bool
     let togglePlaylist: () -> Void
 
     @State private var controlState: PlayerControlState
@@ -50,6 +51,7 @@ struct PlayerControlBar: View {
         actions: PlayerActions,
         isFullScreen: Bool,
         isPlaylistPresented: Bool,
+        showsDesktopOptions: Bool,
         togglePlaylist: @escaping () -> Void
     ) {
         self.playback = playback
@@ -57,6 +59,7 @@ struct PlayerControlBar: View {
         self.actions = actions
         self.isFullScreen = isFullScreen
         self.isPlaylistPresented = isPlaylistPresented
+        self.showsDesktopOptions = showsDesktopOptions
         self.togglePlaylist = togglePlaylist
         _controlState = State(
             initialValue: PlayerControlState(
@@ -351,20 +354,15 @@ struct PlayerControlBar: View {
 
             playlistButton
 
-            Button {
-                actions.enterDesktop()
-            } label: {
-                Image(systemName: "display")
-            }
-            .buttonStyle(MuralumeControlButtonStyle(kind: .accent))
-            .help(Text(LocalizedStringKey(desktopActionLabelKey)))
-            .accessibilityLabel(
-                Text(LocalizedStringKey(desktopActionLabelKey))
+            DesktopEntryControl(
+                actionLabelKey: desktopActionLabelKey,
+                isEnabled: mediaControlsEnabled,
+                showsOptions: showsDesktopOptions,
+                enterDesktop: actions.enterDesktop,
+                enterDesktopSynchronized:
+                    actions.enterDesktopSynchronized,
+                presentDesktopLayout: actions.presentDesktopLayout
             )
-            .accessibilityIdentifier(
-                MuralumeAccessibilityIdentifier.enterDesktopButton
-            )
-            .disabled(!mediaControlsEnabled)
         }
         .fixedSize()
     }

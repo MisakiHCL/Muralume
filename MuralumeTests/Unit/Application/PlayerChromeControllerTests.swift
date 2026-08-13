@@ -4,6 +4,24 @@ import XCTest
 
 @MainActor
 final class PlayerChromeControllerTests: XCTestCase {
+    func testDesktopOptionsOnlyAppearForMultipleConnectedDisplays() {
+        XCTAssertFalse(
+            DesktopEntryControl.showsOptions(
+                forConnectedDisplayCount: 0
+            )
+        )
+        XCTAssertFalse(
+            DesktopEntryControl.showsOptions(
+                forConnectedDisplayCount: 1
+            )
+        )
+        XCTAssertTrue(
+            DesktopEntryControl.showsOptions(
+                forConnectedDisplayCount: 2
+            )
+        )
+    }
+
     func testFullScreenIconDifferentiatesEnterAndExitStates() {
         XCTAssertEqual(
             PlayerFullScreenIcon.systemName(isFullScreen: false),
@@ -352,6 +370,56 @@ final class PlayerChromeControllerTests: XCTestCase {
         XCTAssertTrue(controller.isVisible)
         XCTAssertTrue(controller.isSettingsPresented)
         XCTAssertFalse(scheduler.hasScheduledAction)
+    }
+
+    func testDesktopLayoutPresentationIsIndependentFromSidePanels() {
+        let controller = PlayerChromeController()
+
+        XCTAssertEqual(controller.presentedPanel, .playlist)
+        XCTAssertFalse(controller.isDesktopLayoutPresented)
+
+        controller.presentDesktopLayout()
+
+        XCTAssertTrue(controller.isVisible)
+        XCTAssertTrue(controller.isDesktopLayoutPresented)
+        XCTAssertEqual(controller.presentedPanel, .playlist)
+        XCTAssertTrue(controller.isPlaylistPresented)
+        XCTAssertFalse(controller.isSettingsPresented)
+
+        XCTAssertTrue(controller.cancelDesktopLayout())
+        XCTAssertFalse(controller.isDesktopLayoutPresented)
+        XCTAssertEqual(controller.presentedPanel, .playlist)
+        XCTAssertFalse(controller.cancelDesktopLayout())
+    }
+
+    func testDesktopLayoutKeepsChromeVisibleAndCancelsAutoHide() {
+        let scheduler = ControlledPlayerChromeAutoHideScheduler()
+        let controller = makeController(scheduler: scheduler)
+        controller.setPlaylistPresented(false)
+        controller.updatePlaybackState(.playing)
+        XCTAssertTrue(scheduler.hasScheduledAction)
+
+        controller.presentDesktopLayout()
+
+        XCTAssertTrue(controller.isVisible)
+        XCTAssertTrue(controller.isDesktopLayoutPresented)
+        XCTAssertNil(controller.presentedPanel)
+        XCTAssertFalse(scheduler.hasScheduledAction)
+
+        XCTAssertTrue(controller.cancelDesktopLayout())
+        XCTAssertTrue(scheduler.hasScheduledAction)
+    }
+
+    func testDismissPresentedPanelDoesNotCancelDesktopLayout() {
+        let controller = PlayerChromeController()
+        controller.setPlaylistPresented(false)
+        controller.presentDesktopLayout()
+
+        XCTAssertFalse(controller.dismissPresentedPanel())
+        XCTAssertTrue(controller.isDesktopLayoutPresented)
+
+        XCTAssertTrue(controller.cancelDesktopLayout())
+        XCTAssertFalse(controller.isDesktopLayoutPresented)
     }
 
     func testFullScreenAutoDismissedPlaylistIsRestoredOnExit() {

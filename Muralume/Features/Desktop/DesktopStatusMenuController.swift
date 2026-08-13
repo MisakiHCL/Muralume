@@ -273,25 +273,64 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
     private func updateMenu() {
         let state = stateProvider?()
         if let state {
-            let fullCurrentTitle = String(
-                format: localized("desktop.current"),
-                locale: localization.locale,
-                state.sourceName
-            )
-            currentItem?.title = currentPlaybackTitle(
-                sourceName: state.sourceName
-            )
+            let fullCurrentTitle: String
+            if state.sceneMode == .perDisplay {
+                if state.failedDisplayCount > 0 {
+                    fullCurrentTitle = String(
+                        format: localized(
+                            "desktop.status.availableCount"
+                        ),
+                        locale: localization.locale,
+                        max(
+                            state.enabledDisplayCount
+                                - state.failedDisplayCount,
+                            0
+                        ),
+                        state.enabledDisplayCount
+                    )
+                } else {
+                    let key = state.enabledDisplayCount == 1
+                        ? "desktop.status.display.one"
+                        : "desktop.status.displays"
+                    fullCurrentTitle = String(
+                        format: localized(key),
+                        locale: localization.locale,
+                        state.enabledDisplayCount
+                    )
+                }
+                currentItem?.title = fullCurrentTitle
+            } else {
+                fullCurrentTitle = String(
+                    format: localized("desktop.current"),
+                    locale: localization.locale,
+                    state.sourceName
+                )
+                currentItem?.title = currentPlaybackTitle(
+                    sourceName: state.sourceName
+                )
+            }
             currentItem?.toolTip = fullCurrentTitle
             currentItem?.setAccessibilityLabel(fullCurrentTitle)
-            togglePlaybackItem?.title = localized(
-                state.isPlaying ? "desktop.pause" : "desktop.resume"
-            )
+            let toggleKey: String
+            if state.sceneMode == .perDisplay {
+                toggleKey = state.isPlaying
+                    ? "desktop.pauseAll"
+                    : "desktop.resumeAll"
+            } else {
+                toggleKey = state.isPlaying
+                    ? "desktop.pause"
+                    : "desktop.resume"
+            }
+            togglePlaybackItem?.title = localized(toggleKey)
             togglePlaybackItem?.isEnabled = !state.isTransitioning
+            playNextItem?.isHidden = state.sceneMode == .perDisplay
+            playbackModeItem?.isHidden = state.sceneMode == .perDisplay
             playNextItem?.isEnabled = state.canPlayNext
                 && !state.isTransitioning
             playbackModeItem?.isEnabled = state.canSetPlaybackOrder
                 && !state.isTransitioning
             playbackRateItem?.isEnabled = !state.isTransitioning
+            videoContentModeItem?.isHidden = state.sceneMode == .perDisplay
             videoContentModeItem?.isEnabled = !state.isTransitioning
             returnItem?.isEnabled = !state.isTransitioning
         }

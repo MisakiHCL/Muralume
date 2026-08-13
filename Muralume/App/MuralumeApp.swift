@@ -164,6 +164,7 @@ private struct MuralumePlayerRootView: View {
         PlayerScreen(
             playback: coordinator.playback,
             desktopSession: coordinator.desktopSession,
+            desktopScene: coordinator.desktopScene!,
             library: coordinator.library,
             dynamicDesktopStartup: coordinator.dynamicDesktopStartup,
             defaultVideoPlayer: coordinator.defaultVideoPlayer,
@@ -199,6 +200,18 @@ private struct MuralumePlayerRootView: View {
                 },
                 enterDesktop: {
                     coordinator.enterDesktop()
+                },
+                enterDesktopSynchronized: {
+                    coordinator.enterDesktopSynchronized()
+                },
+                presentDesktopLayout: {
+                    coordinator.presentDesktopLayout()
+                },
+                cancelDesktopLayout: {
+                    coordinator.cancelDesktopLayout()
+                },
+                applyDesktopLayout: {
+                    coordinator.applyDesktopLayout()
                 },
                 toggleSettings: {
                     coordinator.toggleSettings()

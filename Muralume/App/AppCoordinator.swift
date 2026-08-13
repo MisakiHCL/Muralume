@@ -15,6 +15,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     let playerChrome: PlayerChromeController
     let dynamicDesktopStartup: DynamicDesktopStartupController
     let defaultVideoPlayer: DefaultVideoPlayerController
+    let desktopScene: DesktopSceneController?
     @Published private(set) var isMainWindowFullScreen = false
     @Published private(set) var canRestoreDynamicDesktop = false
 
@@ -42,6 +43,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         defaultVideoPlayer: DefaultVideoPlayerController,
         desktopPreset: DesktopPresetController,
         playbackSession: PlaybackSessionController,
+        desktopScene: DesktopSceneController? = nil,
         playerChrome: PlayerChromeController = PlayerChromeController()
     ) {
         self.playback = playback
@@ -54,6 +56,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         self.defaultVideoPlayer = defaultVideoPlayer
         self.desktopPreset = desktopPreset
         self.playbackSession = playbackSession
+        self.desktopScene = desktopScene
         self.playerChrome = playerChrome
 
         desktopSession.quitHandler = { [weak self] in
@@ -285,6 +288,14 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     func enterDesktop() {
+        guard !playerChrome.isDesktopLayoutPresented else {
+            return
+        }
+        if let desktopScene,
+           desktopScene.enabledDisplayCount == 0 {
+            presentDesktopLayout()
+            return
+        }
         cancelSourceAccessRetry()
         if library.isTemporaryPlayback {
             guard library.addTemporaryItemsToLibrary() else {
@@ -295,6 +306,46 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         clearDynamicDesktopReturnContext()
         playerChrome.setSettingsPresented(false)
         desktopSession.enterDesktop()
+    }
+
+    func enterDesktopSynchronized() {
+        guard !playerChrome.isDesktopLayoutPresented else {
+            return
+        }
+        if let desktopScene,
+           !desktopScene.applySynchronizedToAll(
+               contentMode: desktopSession.videoContentMode
+           ) {
+            presentDesktopLayout()
+            return
+        }
+        enterDesktop()
+    }
+
+    func presentDesktopLayout() {
+        guard !desktopSession.isActive,
+              !desktopSession.isTransitioning,
+              playback.canPresentOnDesktop,
+              !isShutDown,
+              let desktopScene else {
+            return
+        }
+        desktopScene.beginEditing()
+        playerChrome.presentDesktopLayout()
+    }
+
+    func cancelDesktopLayout() {
+        desktopScene?.cancelEditing()
+        _ = playerChrome.cancelDesktopLayout()
+    }
+
+    func applyDesktopLayout() {
+        guard let desktopScene,
+              desktopScene.commit() else {
+            return
+        }
+        _ = playerChrome.cancelDesktopLayout()
+        enterDesktop()
     }
 
     func playLibraryItem(_ item: LibraryMediaItem) {
@@ -323,6 +374,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         !desktopSession.isActive
             && !desktopSession.isTransitioning
             && sourceAccessRetryTask == nil
+            && !playerChrome.isDesktopLayoutPresented
             && !playback.isPlayerWindowDismissed
             && !isShutDown
     }
@@ -509,7 +561,11 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
 
     @discardableResult
     func dismissPresentedPanel() -> Bool {
-        playerChrome.dismissPresentedPanel()
+        if playerChrome.isDesktopLayoutPresented {
+            cancelDesktopLayout()
+            return true
+        }
+        return playerChrome.dismissPresentedPanel()
     }
 
     func shutdown() async {
@@ -529,6 +585,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         await playbackSession.prepareForShutdown()
         await desktopPreset.prepareForShutdown()
         dynamicDesktopStartup.freezeAfterPresetFinalization()
+        desktopScene?.shutdown()
         desktopSession.shutdown()
         await pendingInitialRestore?.value
         await pendingSourceAccessRetry?.value
@@ -755,6 +812,7 @@ extension AppCoordinator: MacMainMenuCommandHandling {
             && !desktopSession.isTransitioning
             && !playback.isPlayerWindowDismissed
             && !playerChrome.isSettingsPresented
+            && !playerChrome.isDesktopLayoutPresented
             && !isShutDown
         let canControlPlayback =
             playback.readiness == .ready
@@ -764,6 +822,7 @@ extension AppCoordinator: MacMainMenuCommandHandling {
             !desktopSession.isActive
             && !desktopSession.isTransitioning
             && !playerChrome.isSettingsPresented
+            && !playerChrome.isDesktopLayoutPresented
             && !isShutDown
             && playback.readiness == .ready
             && playback.presentation == .player
@@ -817,6 +876,9 @@ extension AppCoordinator: MacMainMenuCommandHandling {
                 playerChrome.$presentedPanel
                     .map { _ in () }
                     .eraseToAnyPublisher(),
+                playerChrome.$isDesktopLayoutPresented
+                    .map { _ in () }
+                    .eraseToAnyPublisher(),
                 playerChrome.$libraryQueueMode
                     .map { _ in () }
                     .eraseToAnyPublisher()
@@ -834,6 +896,9 @@ extension AppCoordinator: MacMainMenuCommandHandling {
 
     private func openSettingsAfterInitialRestore() {
         dynamicDesktopStartup.refresh()
+        if playerChrome.isDesktopLayoutPresented {
+            cancelDesktopLayout()
+        }
         if playerChrome.isSettingsPresented {
             guard !desktopSession.isActive,
                   !desktopSession.isTransitioning else {
@@ -901,5 +966,12 @@ extension AppCoordinator: MacMainMenuCommandHandling {
             return
         }
         enterDesktop()
+    }
+
+    func configureDesktopFromMenu() {
+        guard mainMenuCommandState.canEnterDesktop else {
+            return
+        }
+        presentDesktopLayout()
     }
 }

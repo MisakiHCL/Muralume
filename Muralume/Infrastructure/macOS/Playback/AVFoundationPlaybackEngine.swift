@@ -88,6 +88,13 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     }
 
     func attach(to surface: any PlaybackRenderSurface) async throws {
+        try await attach(to: surface, readinessPolicy: .required)
+    }
+
+    func attach(
+        to surface: any PlaybackRenderSurface,
+        readinessPolicy: PlaybackSurfaceReadinessPolicy
+    ) async throws {
         guard let surface = surface as? any AVPlayerRenderSurface else {
             throw PlaybackEngineError.incompatibleSurface
         }
@@ -104,10 +111,13 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             guard player.currentItem != nil else {
                 return
             }
+            if player.timeControlStatus == .paused {
+                prerollCurrentItem()
+            }
+            guard readinessPolicy == .required else {
+                return
+            }
             do {
-                if player.timeControlStatus == .paused {
-                    prerollCurrentItem()
-                }
                 try await waitUntilReady(surface, generation: generation)
                 guard generation == surfaceGeneration else {
                     throw PlaybackEngineError.superseded
@@ -133,10 +143,14 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             return
         }
 
+        if player.timeControlStatus == .paused {
+            prerollCurrentItem()
+        }
+        guard readinessPolicy == .required else {
+            return
+        }
+
         do {
-            if player.timeControlStatus == .paused {
-                prerollCurrentItem()
-            }
             try await waitUntilReady(surface, generation: generation)
             guard generation == surfaceGeneration else {
                 throw PlaybackEngineError.superseded

@@ -587,11 +587,24 @@ final class AppDelegateTests: XCTestCase {
             [.command]
         )
         XCTAssertEqual(
-            actionsMenu.items.prefix(5).map {
+            actionsMenu.items.first {
+                $0.title == "Customize Displays…"
+            }?.keyEquivalent,
+            "d"
+        )
+        XCTAssertEqual(
+            actionsMenu.items.first {
+                $0.title == "Customize Displays…"
+            }?.keyEquivalentModifierMask,
+            [.command, .shift]
+        )
+        XCTAssertEqual(
+            actionsMenu.items.prefix(6).map {
                 $0.isSeparatorItem ? "separator" : $0.title
             },
             [
                 "Set as Dynamic Desktop",
+                "Customize Displays…",
                 "separator",
                 "Add Media…",
                 "Edit",
@@ -692,6 +705,7 @@ final class AppDelegateTests: XCTestCase {
             "Previous Video",
             "Next Video",
             "Set as Dynamic Desktop",
+            "Customize Displays…",
             "Edit"
         ] {
             XCTAssertEqual(
@@ -888,6 +902,7 @@ private final class TestMainMenuCommandHandler:
     private let stateDidChange = PassthroughSubject<Void, Never>()
     private(set) var togglePlaybackCommandCount = 0
     private(set) var enterDesktopCommandCount = 0
+    private(set) var configureDesktopCommandCount = 0
 
     var mainMenuCommandState = MacMainMenuCommandState(
         isPlaybackRequested: false,
@@ -921,6 +936,9 @@ private final class TestMainMenuCommandHandler:
     func toggleMuteFromMenu() {}
     func enterDesktopFromMenu() {
         enterDesktopCommandCount += 1
+    }
+    func configureDesktopFromMenu() {
+        configureDesktopCommandCount += 1
     }
     func toggleFullScreen() {}
 

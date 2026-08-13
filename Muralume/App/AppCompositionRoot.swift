@@ -13,16 +13,28 @@ enum AppCompositionRoot {
         let mainWindowPresenter = MacMainWindowPresenter()
         let applicationPresence = MacApplicationPresenceController()
         let mediaThumbnailProvider = QuickLookMediaThumbnailProvider()
+        let videoContentModeStore =
+            UserDefaultsDesktopVideoContentModeStore()
+        let desktopScene = DesktopSceneController(
+            store: UserDefaultsDesktopSceneStore(),
+            topology: MacDesktopDisplayTopology(),
+            legacyContentMode: videoContentModeStore.load()
+        )
+        let independentDesktopPlayback = DesktopPlaybackOrchestrator {
+            AVFoundationPlaybackEngine()
+        }
         let desktopSession = DesktopSessionCoordinator(
             playback: playback,
             desktopHost: MacDesktopHost(),
             statusMenu: DesktopStatusMenuController(
                 localization: localization
             ),
-            videoContentModeStore: UserDefaultsDesktopVideoContentModeStore(),
+            videoContentModeStore: videoContentModeStore,
             lifecycleMonitor: SystemLifecycleMonitor(),
             mainWindow: mainWindowPresenter,
-            applicationPresence: applicationPresence
+            applicationPresence: applicationPresence,
+            sceneController: desktopScene,
+            independentPlayback: independentDesktopPlayback
         )
         let library = MediaLibraryCoordinator(
             playback: playback,
@@ -62,6 +74,23 @@ enum AppCompositionRoot {
         let defaultVideoPlayer = DefaultVideoPlayerController(
             service: MacDefaultVideoPlayerService()
         )
+        desktopSession.independentSourceResolver = { [weak library] itemID in
+            guard let item = library?.mediaItem(forPersistedID: itemID) else {
+                return nil
+            }
+            return ResolvedMediaSource(
+                url: item.url,
+                displayName: item.displayName
+            )
+        }
+        library.mediaItemsWillBeRemovedHandler = {
+            [weak desktopSession] itemIDs in
+            await desktopSession?.drainMediaItems(itemIDs)
+        }
+        library.prepareForMediaScopeShutdownHandler = {
+            [weak desktopSession] in
+            await desktopSession?.prepareForMediaScopeShutdown()
+        }
 
         return AppCoordinator(
             playback: playback,
@@ -73,7 +102,8 @@ enum AppCompositionRoot {
             dynamicDesktopStartup: dynamicDesktopStartup,
             defaultVideoPlayer: defaultVideoPlayer,
             desktopPreset: desktopPreset,
-            playbackSession: playbackSession
+            playbackSession: playbackSession,
+            desktopScene: desktopScene
         )
     }
 }

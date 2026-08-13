@@ -7,7 +7,7 @@ details of the current UI.
 
 ## Product model
 
-Muralume keeps four related concepts separate:
+Muralume keeps five related concepts separate:
 
 1. **Media library** — the durable set of videos and folders the user has
    explicitly added. Its sources use read-only security-scoped bookmarks and
@@ -22,18 +22,43 @@ Muralume keeps four related concepts separate:
 4. **Dynamic Desktop return context** — a snapshot of the desktop queue,
    cursor, time, and play/pause intent captured before Finder playback takes
    over the single player window.
+5. **Desktop scene** — the synchronized or per-display layout, enabled
+   displays, per-display fit, and optional durable library item assigned to
+   each display. Disconnecting a display removes its playback resources but
+   not its assignment, so the same stable display restores its video and fit
+   when it reconnects.
 
 `isExternalPlaybackContext` and `temporaryItemIDs` are deliberately
 orthogonal. A Finder request can use an external presentation context while
 playing items already present in the library, so “external” must not be
 inferred from whether an item needs a temporary security scope.
 
-## One player, one window
+## One foreground player, explicit desktop playback modes
 
-The app continues to own one playback coordinator, one AVFoundation engine,
-one playback clock, and one main player window. Finder Open requests reveal or
-reuse that window. Dynamic Desktop playback and foreground playback never
-create competing decoders or ambiguous global playback controls.
+The app owns one foreground playback coordinator, one foreground AVFoundation
+engine, one foreground playback clock, and one main player window. Finder Open
+requests reveal or reuse that window. Synchronized Dynamic Desktop playback
+uses that coordinator and one shared clock across its enabled displays.
+Per-display mode detaches the foreground engine and creates one lightweight,
+muted loop node for each enabled display; each node plays exactly one durable
+library item and applies that display's fit. Pause, resume, rate, lifecycle,
+and teardown operations fan out explicitly, so the extra desktop decoders do
+not create competing audio or ambiguous global controls.
+
+Display assignments use stable display identities rather than transient Core
+Graphics runtime IDs. Disconnecting a display releases its window, surface,
+and loop node while retaining the assignment. Reconnecting the same display
+rebuilds its loop with the assigned media and fit; per-display playback
+position is not checkpointed. Muralume does not currently support spanning one
+video as a single canvas across multiple displays.
+
+The player split control and **Actions → Customize Displays…** (`⇧⌘D`) use
+the same `presentDesktopLayout` coordination path. On a single connected
+display the split-control chevron is omitted, while the Actions-menu shortcut
+remains available as the advanced configuration entry. Opening the editor
+creates only a draft: Apply persists that draft and enters Dynamic Desktop,
+while Cancel leaves the committed scene unchanged. Menu availability must
+remain aligned with the player entry's playback and transition guards.
 
 When Finder interrupts an active Dynamic Desktop, Muralume captures the return
 context, pauses the desktop presentation, returns to the player, and preserves
@@ -71,10 +96,10 @@ server APIs, or require Accessibility or screen-recording permission. Pending
 hot-plug surfaces do not override the last known visibility of already revealed
 windows.
 
-The shared `AVPlayer` prevents display sleep only while attached to the
-foreground player surface. Dynamic Desktop and detached playback surfaces leave
-normal display-sleep policy in control. Power-source listeners, window
-observers, and load timers are removed during teardown, and stale timer
+The foreground `AVPlayer` prevents display sleep only while attached to the
+foreground player surface. Synchronized and per-display Dynamic Desktop
+players leave normal display-sleep policy in control. Power-source listeners,
+window observers, and load timers are removed during teardown, and stale timer
 generations cannot reactivate monitoring after a stop or presentation change.
 
 ## Finder file association and default-player status
@@ -263,8 +288,9 @@ Future changes to this subsystem should cover, as applicable:
   supersession;
 - overlapping power, Low Power Mode, load, and thermal reasons with independent
   recovery order;
-- single- and multi-display occlusion debounce, Spaces, Stage Manager, and
-  hot-plugged surfaces that are not ready for display yet;
+- synchronized and per-display playback, per-display fit, disconnect/reconnect
+  assignment restoration, single- and multi-display occlusion debounce,
+  Spaces, Stage Manager, and hot-plugged surfaces that are not ready yet;
 - load-sampler activation, hysteresis, stale generations, stop, and teardown;
 - complete versus incomplete refresh reconciliation;
 - ordered and shuffled selection, history, forward history, and persistence

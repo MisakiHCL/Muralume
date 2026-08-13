@@ -763,6 +763,130 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertEqual(engine.attachedSurfaceIDs.last, .player)
     }
 
+    func testIndependentDesktopDetachesAndFreezesTheForegroundEngine()
+        async throws {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        coordinator.registerPlayerSurface(playerSurface)
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/independent.mp4"),
+                displayName: "Independent"
+            )
+        )
+        engine.progressHandler?(42)
+
+        try await coordinator.transitionToIndependentDesktop()
+
+        XCTAssertEqual(coordinator.presentation, .desktop)
+        XCTAssertTrue(coordinator.isDesktopEngineDetached)
+        XCTAssertTrue(coordinator.isPlaybackRequested)
+        XCTAssertEqual(coordinator.currentTime, 42)
+        XCTAssertTrue(engine.isMuted)
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertNil(engine.attachedSurfaceID)
+        XCTAssertEqual(engine.progressCadence, .inactive)
+
+        engine.progressHandler?(84)
+        XCTAssertEqual(coordinator.currentTime, 42)
+    }
+
+    func testIndependentDesktopReturnRestoresSurfaceSettingsAndIntent()
+        async throws {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        coordinator.registerPlayerSurface(playerSurface)
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/independent-return.mp4"),
+                displayName: "Independent Return"
+            )
+        )
+        coordinator.setVolume(PlaybackVolume(rawValue: 0.4))
+        coordinator.setRate(PlaybackRate(rawValue: 1.5))
+
+        try await coordinator.transitionToIndependentDesktop()
+        coordinator.setRate(PlaybackRate(rawValue: 2))
+
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertEqual(engine.progressCadence, .inactive)
+
+        try await coordinator.transitionToPlayer()
+
+        XCTAssertEqual(coordinator.presentation, .player)
+        XCTAssertFalse(coordinator.isDesktopEngineDetached)
+        XCTAssertEqual(engine.attachedSurfaceID, .player)
+        XCTAssertEqual(engine.volume, PlaybackVolume(rawValue: 0.4))
+        XCTAssertFalse(engine.isMuted)
+        XCTAssertEqual(engine.rate, PlaybackRate(rawValue: 2))
+        XCTAssertTrue(engine.isPlaying)
+        XCTAssertTrue(coordinator.isPlaybackRequested)
+        XCTAssertEqual(engine.progressCadence, .visible)
+    }
+
+    func testIndependentDesktopPreservesPausedIntentAcrossReturn()
+        async throws {
+        let engine = TestPlaybackEngine()
+        let coordinator = PlaybackCoordinator(engine: engine)
+        let playerSurface = TestPlaybackSurface(id: .player)
+        coordinator.registerPlayerSurface(playerSurface)
+        await coordinator.load(
+            ResolvedMediaSource(
+                url: URL(fileURLWithPath: "/tmp/independent-paused.mp4"),
+                displayName: "Independent Paused"
+            ),
+            autoplay: false
+        )
+
+        try await coordinator.transitionToIndependentDesktop()
+        coordinator.setPlaybackIntent(.playing)
+        XCTAssertTrue(coordinator.isPlaybackRequested)
+        XCTAssertFalse(engine.isPlaying)
+        coordinator.setPlaybackIntent(.paused)
+
+        try await coordinator.transitionToPlayer()
+
+        XCTAssertFalse(coordinator.isDesktopEngineDetached)
+        XCTAssertFalse(coordinator.isPlaybackRequested)
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertEqual(engine.attachedSurfaceID, .player)
+    }
+
+    func testIndependentDesktopRejectsAnUnreadyForeground() async {
+        let coordinator = PlaybackCoordinator(engine: TestPlaybackEngine())
+
+        do {
+            try await coordinator.transitionToIndependentDesktop()
+            XCTFail("Expected an unready foreground transition to fail")
+        } catch let error as PlaybackEngineError {
+            XCTAssertEqual(error, .superseded)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(coordinator.presentation, .player)
+        XCTAssertFalse(coordinator.isDesktopEngineDetached)
+    }
+
+    func testSynchronizedDesktopRejectsAnUnreadyForeground() async {
+        let coordinator = PlaybackCoordinator(engine: TestPlaybackEngine())
+        let desktopSurface = TestPlaybackSurface(id: .desktop)
+
+        do {
+            try await coordinator.transitionToDesktop(desktopSurface)
+            XCTFail("Expected an unready foreground transition to fail")
+        } catch let error as PlaybackEngineError {
+            XCTAssertEqual(error, .superseded)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(coordinator.presentation, .player)
+        XCTAssertFalse(coordinator.isDesktopEngineDetached)
+    }
+
     func testRemovingOnlyOneSystemReasonDoesNotResumeDesktopPlayback() async throws {
         let engine = TestPlaybackEngine()
         let coordinator = PlaybackCoordinator(engine: engine)

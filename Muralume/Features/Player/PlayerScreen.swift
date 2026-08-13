@@ -4,6 +4,7 @@ import SwiftUI
 struct PlayerScreen<PlayerSurface: View>: View {
     let playback: PlaybackCoordinator
     @ObservedObject var desktopSession: DesktopSessionCoordinator
+    @ObservedObject var desktopScene: DesktopSceneController
     @ObservedObject var library: MediaLibraryCoordinator
     @ObservedObject var dynamicDesktopStartup:
         DynamicDesktopStartupController
@@ -22,95 +23,111 @@ struct PlayerScreen<PlayerSurface: View>: View {
 
     var body: some View {
         ZStack {
-            MuralumeTheme.Colors.canvas
+            Group {
+                MuralumeTheme.Colors.canvas
 
-            VideoViewport(
-                playback: playback,
-                library: library,
-                playerSurface: playerSurface
+                VideoViewport(
+                    playback: playback,
+                    library: library,
+                    playerSurface: playerSurface
+                )
+
+                if chromeController.presentedPanel != nil {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            chromeController.dismissPresentedPanel()
+                        }
+                        .accessibilityHidden(true)
+                        .zIndex(PlayerLayer.panelDismiss)
+                }
+
+                PointerActivityReader {
+                    chromeController.recordPointerActivity()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .zIndex(PlayerLayer.pointerActivity)
+
+                if library.importNotice != nil
+                    || library.externalPlaybackNotice != nil
+                    || desktopSession.transientFailure != nil {
+                    VStack(spacing: MuralumeTheme.Spacing.small) {
+                        if let notice = library.importNotice {
+                            PlayerStatusBanner(
+                                messageKey: notice.localizedKey,
+                                dismiss: {
+                                    library.dismissImportNotice()
+                                }
+                            )
+                        }
+
+                        if let notice = library.externalPlaybackNotice {
+                            PlayerStatusBanner(
+                                message: externalPlaybackMessage(notice),
+                                dismiss: {
+                                    library.dismissExternalPlaybackNotice()
+                                }
+                            )
+                        }
+
+                        if let failure = desktopSession.transientFailure {
+                            PlayerStatusBanner(
+                                messageKey: failure.localizedKey,
+                                dismiss: {
+                                    desktopSession.dismissTransientFailure()
+                                }
+                            )
+                        }
+                    }
+                    .frame(maxWidth: 560)
+                    .padding(.horizontal, MuralumeTheme.Spacing.large)
+                    .padding(.top, playerTopContentInset)
+                    .frame(
+                        maxWidth: .infinity,
+                        maxHeight: .infinity,
+                        alignment: .top
+                    )
+                    .zIndex(PlayerLayer.statusBanner)
+                }
+
+                playerChrome
+                    .zIndex(PlayerLayer.chrome)
+
+                playerTopBar
+                    .frame(
+                        maxWidth: .infinity,
+                        maxHeight: .infinity,
+                        alignment: .top
+                    )
+                    .zIndex(PlayerLayer.topBar)
+
+                if isMediaDropTargeted {
+                    MediaDropOverlay()
+                        .zIndex(PlayerLayer.mediaDrop)
+                        .transition(.opacity)
+                }
+            }
+            .allowsHitTesting(!chromeController.isDesktopLayoutPresented)
+            .accessibilityHidden(
+                chromeController.isDesktopLayoutPresented
             )
 
-            if chromeController.presentedPanel != nil {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        chromeController.dismissPresentedPanel()
-                    }
-                    .accessibilityHidden(true)
-                    .zIndex(PlayerLayer.panelDismiss)
-            }
-
-            PointerActivityReader {
-                chromeController.recordPointerActivity()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .zIndex(PlayerLayer.pointerActivity)
-
-            if library.importNotice != nil
-                || library.externalPlaybackNotice != nil
-                || desktopSession.transientFailure != nil {
-                VStack(spacing: MuralumeTheme.Spacing.small) {
-                    if let notice = library.importNotice {
-                        PlayerStatusBanner(
-                            messageKey: notice.localizedKey,
-                            dismiss: {
-                                library.dismissImportNotice()
-                            }
-                        )
-                    }
-
-                    if let notice = library.externalPlaybackNotice {
-                        PlayerStatusBanner(
-                            message: externalPlaybackMessage(notice),
-                            dismiss: {
-                                library.dismissExternalPlaybackNotice()
-                            }
-                        )
-                    }
-
-                    if let failure = desktopSession.transientFailure {
-                        PlayerStatusBanner(
-                            messageKey: failure.localizedKey,
-                            dismiss: {
-                                desktopSession.dismissTransientFailure()
-                            }
-                        )
-                    }
-                }
-                .frame(maxWidth: 560)
-                .padding(.horizontal, MuralumeTheme.Spacing.large)
-                .padding(.top, playerTopContentInset)
-                .frame(
-                    maxWidth: .infinity,
-                    maxHeight: .infinity,
-                    alignment: .top
-                )
-                .zIndex(PlayerLayer.statusBanner)
-            }
-
-            playerChrome
-                .zIndex(PlayerLayer.chrome)
-
-            playerTopBar
-                .frame(
-                    maxWidth: .infinity,
-                    maxHeight: .infinity,
-                    alignment: .top
-                )
-                .zIndex(PlayerLayer.topBar)
-
-            if isMediaDropTargeted {
-                MediaDropOverlay()
-                    .zIndex(PlayerLayer.mediaDrop)
+            if chromeController.isDesktopLayoutPresented {
+                desktopLayoutOverlay
+                    .zIndex(PlayerLayer.desktopLayout)
                     .transition(.opacity)
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            actions.importDroppedURLs(urls)
+            guard !chromeController.isDesktopLayoutPresented else {
+                return false
+            }
+            return actions.importDroppedURLs(urls)
         } isTargeted: { isTargeted in
             isMediaDropTargeted = isTargeted
+                && !chromeController.isDesktopLayoutPresented
         }
         .animation(
             playerChromeAnimation,
@@ -119,6 +136,10 @@ struct PlayerScreen<PlayerSurface: View>: View {
         .animation(
             playerChromeAnimation,
             value: isMediaDropTargeted
+        )
+        .animation(
+            playerChromeAnimation,
+            value: chromeController.isDesktopLayoutPresented
         )
         .frame(
             minWidth: AppConfiguration.minimumWindowWidth,
@@ -130,6 +151,11 @@ struct PlayerScreen<PlayerSurface: View>: View {
         }
         .onChange(of: isFullScreen) {
             chromeController.updateFullScreen(isFullScreen)
+        }
+        .onChange(of: chromeController.isDesktopLayoutPresented) {
+            if chromeController.isDesktopLayoutPresented {
+                isMediaDropTargeted = false
+            }
         }
         .onAppear {
             chromeController.updateFullScreen(isFullScreen)
@@ -157,6 +183,25 @@ struct PlayerScreen<PlayerSurface: View>: View {
     private var playerTopContentInset: CGFloat {
         MuralumeTheme.Size.playerTopBarHeight
             + MuralumeTheme.Spacing.large
+    }
+
+    private var desktopLayoutOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.68)
+                .contentShape(Rectangle())
+                .ignoresSafeArea()
+
+            DesktopLayoutView(
+                desktopScene: desktopScene,
+                items: library.items,
+                currentItem: library.currentItem,
+                mediaThumbnailProvider: mediaThumbnailProvider,
+                cancel: actions.cancelDesktopLayout,
+                apply: actions.applyDesktopLayout
+            )
+            .padding(MuralumeTheme.Spacing.xLarge)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var playerChrome: some View {
@@ -190,6 +235,10 @@ struct PlayerScreen<PlayerSurface: View>: View {
             actions: actions,
             isFullScreen: isFullScreen,
             isPlaylistPresented: chromeController.isPlaylistPresented,
+            showsDesktopOptions: DesktopEntryControl.showsOptions(
+                forConnectedDisplayCount:
+                    desktopScene.connectedDisplays.count
+            ),
             togglePlaylist: {
                 chromeController.togglePlaylist()
             }
@@ -352,6 +401,7 @@ private enum PlayerLayer {
     static let statusBanner = 5.0
     static let topBar = 6.0
     static let mediaDrop = 7.0
+    static let desktopLayout = 8.0
 }
 
 private struct MediaDropOverlay: View {

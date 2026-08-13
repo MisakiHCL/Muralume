@@ -124,6 +124,7 @@ protocol MacMainMenuCommandHandling: AnyObject {
     func decreaseVolumeFromMenu()
     func toggleMuteFromMenu()
     func enterDesktopFromMenu()
+    func configureDesktopFromMenu()
     func toggleFullScreen()
     func handleCloseCommand(for window: NSWindow?) -> Bool
 }
@@ -141,6 +142,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         static let volumeDown = functionKey(NSDownArrowFunctionKey)
         static let toggleMute = "m"
         static let enterDesktop = "d"
+        static let configureDesktop = "d"
         static let toggleFullScreen = "f"
         static let settings = ","
         static let closeWindow = "w"
@@ -169,6 +171,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         case decreaseVolume
         case toggleMute
         case enterDesktop
+        case configureDesktop
         case toggleFullScreen
     }
 
@@ -213,6 +216,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private let volumeDownItem = NSMenuItem()
     private let toggleMuteItem = NSMenuItem()
     private let enterDesktopItem = NSMenuItem()
+    private let configureDesktopItem = NSMenuItem()
     private let toggleFullScreenItem = NSMenuItem()
     private let dockEnterDesktopItem = NSMenuItem()
 
@@ -318,6 +322,8 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             hasPlayerFocus && isEnabled(.toggleMute, in: state)
         enterDesktopItem.isEnabled =
             hasPlayerFocus && isEnabled(.enterDesktop, in: state)
+        configureDesktopItem.isEnabled =
+            hasPlayerFocus && isEnabled(.configureDesktop, in: state)
         dockEnterDesktopItem.isEnabled = state.canEnterDesktop
         toggleFullScreenItem.isEnabled =
             hasPlayerFocus && isEnabled(.toggleFullScreen, in: state)
@@ -471,12 +477,19 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             modifiers: [.command]
         )
         configure(
+            configureDesktopItem,
+            action: #selector(configureDesktop(_:)),
+            keyEquivalent: Shortcut.configureDesktop,
+            modifiers: [.command, .shift]
+        )
+        configure(
             toggleFullScreenItem,
             action: #selector(toggleFullScreen(_:)),
             keyEquivalent: Shortcut.toggleFullScreen
         )
 
         actionsMenu.addItem(enterDesktopItem)
+        actionsMenu.addItem(configureDesktopItem)
         actionsMenu.addItem(.separator())
         actionsMenu.addItem(addMediaItem)
         actionsMenu.addItem(editLibraryItem)
@@ -632,6 +645,9 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         let enterDesktopTitle = localization.localized("player.desktop")
         enterDesktopItem.title = enterDesktopTitle
         dockEnterDesktopItem.title = enterDesktopTitle
+        configureDesktopItem.title = localization.localized(
+            "desktop.configure"
+        )
 
         closeWindowItem.title = localization.localized("menu.closeWindow")
         minimizeWindowItem.title = localization.localized(
@@ -657,6 +673,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             volumeDownItem,
             toggleMuteItem,
             enterDesktopItem,
+            configureDesktopItem,
             dockEnterDesktopItem,
             toggleFullScreenItem
         ].forEach { $0.isEnabled = false }
@@ -685,7 +702,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             state.canUseWindowActions
         case .editLibrary:
             state.canEditLibrary
-        case .enterDesktop:
+        case .enterDesktop, .configureDesktop:
             state.canEnterDesktop
         case .togglePlayback, .seekBackward, .seekForward:
             state.canControlPlayback
@@ -851,6 +868,13 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private func enterDesktop(_ sender: Any?) {
         performPlayerCommand(.enterDesktop) {
             $0.enterDesktopFromMenu()
+        }
+    }
+
+    @objc
+    private func configureDesktop(_ sender: Any?) {
+        performPlayerCommand(.configureDesktop) {
+            $0.configureDesktopFromMenu()
         }
     }
 

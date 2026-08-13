@@ -6,6 +6,7 @@ struct PlayerControls: View {
     let actions: PlayerActions
     let isFullScreen: Bool
     let isPlaylistPresented: Bool
+    let showsDesktopOptions: Bool
     let togglePlaylist: () -> Void
 
     var body: some View {
@@ -21,6 +22,7 @@ struct PlayerControls: View {
                 actions: actions,
                 isFullScreen: isFullScreen,
                 isPlaylistPresented: isPlaylistPresented,
+                showsDesktopOptions: showsDesktopOptions,
                 togglePlaylist: togglePlaylist
             )
             .frame(maxWidth: .infinity)

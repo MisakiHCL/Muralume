@@ -84,6 +84,7 @@ final class DesktopWindow: NSWindow {
 @MainActor
 final class MacDesktopHost: DesktopHosting {
     private struct HostedDisplay {
+        let stableID: DesktopDisplayID
         let window: DesktopWindow
         let surface: DesktopPlayerLayerSurfaceView
         var frame: NSRect
@@ -141,6 +142,11 @@ final class MacDesktopHost: DesktopHosting {
         MacDesktopDisplayID: NSObjectProtocol
     ] = [:]
     private var contentMode = DesktopVideoContentMode.defaultValue
+    private var scene = DesktopScene.legacy(
+        contentMode: DesktopVideoContentMode.defaultValue
+    )
+    private var displaySurfaceEventHandler:
+        ((DesktopDisplaySurfaceEvent) -> Void)?
     private var isEnergyConstrained = false
     private var isRevealed = false
 
@@ -175,8 +181,15 @@ final class MacDesktopHost: DesktopHosting {
     func prepare(
         contentMode: DesktopVideoContentMode
     ) -> any PlaybackRenderSurface {
+        prepare(
+            scene: .legacy(contentMode: contentMode)
+        ).synchronizedSurface
+    }
+
+    func prepare(scene: DesktopScene) -> DesktopHostPreparation {
         close()
-        self.contentMode = contentMode
+        self.scene = scene
+        contentMode = scene.defaultContentMode
         isRevealed = false
         let surface = DesktopPlayerLayerSurfaceGroup(id: .desktop)
         surface.setEnergyConstrained(isEnergyConstrained)
@@ -184,12 +197,30 @@ final class MacDesktopHost: DesktopHosting {
         reconcileDisplays()
         installScreenObserver()
         installWorkspaceObservers()
-        return surface
+        return DesktopHostPreparation(
+            synchronizedSurface: surface,
+            displaySurfaces: displaySurfacesByStableID
+        )
     }
 
     func setVideoContentMode(_ contentMode: DesktopVideoContentMode) {
         self.contentMode = contentMode
         surface?.setContentMode(contentMode)
+    }
+
+    func setVideoContentMode(
+        _ contentMode: DesktopVideoContentMode,
+        for displayID: DesktopDisplayID
+    ) {
+        hostedDisplays.values
+            .first { $0.stableID == displayID }?
+            .surface.setContentMode(contentMode)
+    }
+
+    func setDisplaySurfaceEventHandler(
+        _ handler: ((DesktopDisplaySurfaceEvent) -> Void)?
+    ) {
+        displaySurfaceEventHandler = handler
     }
 
     func setEnergyConstrained(_ isEnergyConstrained: Bool) {
@@ -281,7 +312,9 @@ final class MacDesktopHost: DesktopHosting {
         let displays = displaysProvider().reduce(
             into: [MacDesktopDisplayID: MacDesktopDisplay]()
         ) { result, display in
-            guard display.frame.width > 0, display.frame.height > 0 else {
+            guard display.frame.width > 0,
+                  display.frame.height > 0,
+                  isEnabled(display) else {
                 return
             }
             result[display.id] = display
@@ -304,6 +337,9 @@ final class MacDesktopHost: DesktopHosting {
             if let removedDisplay = hostedDisplays.removeValue(
                 forKey: displayID
             ) {
+                displaySurfaceEventHandler?(
+                    .willRemove(displayID: removedDisplay.stableID)
+                )
                 removedDisplays.append(removedDisplay)
             }
         }
@@ -329,6 +365,18 @@ final class MacDesktopHost: DesktopHosting {
         }
         surface?.replaceDisplaySurfaces(orderedSurfaces)
 
+        for displayID in addedDisplayIDs {
+            guard let hostedDisplay = hostedDisplays[displayID] else {
+                continue
+            }
+            displaySurfaceEventHandler?(
+                .didAdd(
+                    displayID: hostedDisplay.stableID,
+                    surface: hostedDisplay.surface
+                )
+            )
+        }
+
         if isRevealed {
             for displayID in addedDisplayIDs {
                 guard let hostedDisplay = hostedDisplays[displayID] else {
@@ -345,9 +393,14 @@ final class MacDesktopHost: DesktopHosting {
     private func makeHostedDisplay(
         for display: MacDesktopDisplay
     ) -> HostedDisplay {
+        let stableID = stableDisplayID(for: display)
+        let displayContentMode = scene.mode == .synchronized
+            ? scene.defaultContentMode
+            : scene.assignment(for: stableID)?.contentMode
+                ?? scene.defaultContentMode
         let surface = DesktopPlayerLayerSurfaceView(
             id: .desktop,
-            contentMode: contentMode
+            contentMode: displayContentMode
         )
         surface.setEnergyConstrained(isEnergyConstrained)
         surface.frame = NSRect(origin: .zero, size: display.frame.size)
@@ -379,10 +432,37 @@ final class MacDesktopHost: DesktopHosting {
         window.orderFrontRegardless()
 
         return HostedDisplay(
+            stableID: stableID,
             window: window,
             surface: surface,
             frame: display.frame
         )
+    }
+
+    private var displaySurfacesByStableID: [
+        DesktopDisplayID: any PlaybackRenderSurface
+    ] {
+        hostedDisplays.values.reduce(into: [:]) { result, hostedDisplay in
+            result[hostedDisplay.stableID] = hostedDisplay.surface
+        }
+    }
+
+    private func stableDisplayID(
+        for display: MacDesktopDisplay
+    ) -> DesktopDisplayID {
+        MacDesktopDisplayIdentityResolver.stableID(
+            for: display.id.rawValue
+        )
+    }
+
+    private func isEnabled(_ display: MacDesktopDisplay) -> Bool {
+        let displayID = stableDisplayID(for: display)
+        if scene.mode == .synchronized,
+           scene.appliesToAllConnectedDisplays,
+           scene.assignment(for: displayID) == nil {
+            return true
+        }
+        return scene.assignment(for: displayID)?.isEnabled == true
     }
 
     private func revealWhenReady(

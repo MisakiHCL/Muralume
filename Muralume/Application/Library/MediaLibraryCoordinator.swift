@@ -57,6 +57,12 @@ typealias RestoredPlaybackQueueShuffler = @MainActor (
 
 @MainActor
 final class MediaLibraryCoordinator: ObservableObject {
+    /// Desktop playback installs these hooks so security-scoped media access
+    /// remains open until independent display loads have fully unwound.
+    var mediaItemsWillBeRemovedHandler:
+        ((Set<LibraryMediaItem.ID>) async -> Void)?
+    var prepareForMediaScopeShutdownHandler: (() async -> Void)?
+
     private enum QueueChangeKind {
         case cursor
         case structure
@@ -203,6 +209,12 @@ final class MediaLibraryCoordinator: ObservableObject {
             return nil
         }
         return firstItem(matching: [url])
+    }
+
+    func mediaItem(
+        forPersistedID id: LibraryMediaItem.ID
+    ) -> LibraryMediaItem? {
+        visibleItemsByID[id]
     }
 
     var currentPosition: Int? {
@@ -1095,6 +1107,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         for task in loadTasksToDrain {
             await task.value
         }
+        await mediaItemsWillBeRemovedHandler?(removedItemIDs)
         await thumbnailDrainTask.value
         supersededThumbnailRootPaths.subtract(
             supersededRootPathsBeingRemoved
@@ -1616,6 +1629,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             await task.value
         }
 
+        await prepareForMediaScopeShutdownHandler?()
         mediaSession.stop()
         activeSources = []
         latestPreparedSources = []

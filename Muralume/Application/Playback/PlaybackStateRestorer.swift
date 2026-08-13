@@ -74,7 +74,9 @@ struct PlaybackStateRestorer {
 
         playback.setRate(playbackRate)
         playback.seek(to: state.currentTime)
-        desktopSession.setVideoContentMode(state.videoContentMode)
+        desktopSession.applyLegacyContentModeIfNeeded(
+            state.videoContentMode
+        )
 
         guard !Task.isCancelled else {
             return .cancelled

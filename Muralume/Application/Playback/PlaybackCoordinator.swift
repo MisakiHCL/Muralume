@@ -35,6 +35,11 @@ final class PlaybackCoordinator: ObservableObject {
             updateProgressCadence()
         }
     }
+    @Published private(set) var isDesktopEngineDetached = false {
+        didSet {
+            updateProgressCadence()
+        }
+    }
 
     var canPresentOnDesktop: Bool {
         readiness == .ready
@@ -435,7 +440,7 @@ final class PlaybackCoordinator: ObservableObject {
 
     func transitionToDesktop(_ surface: any PlaybackRenderSurface) async throws {
         guard canPresentOnDesktop else {
-            return
+            throw PlaybackEngineError.superseded
         }
 
         cancelTimelineSeek()
@@ -443,6 +448,7 @@ final class PlaybackCoordinator: ObservableObject {
         attachedPlayerSurface = nil
         transitionGeneration &+= 1
         let generation = transitionGeneration
+        isDesktopEngineDetached = false
         presentation = .switching(generation: generation, destination: .desktop)
         savedPlayerSettings = settings
 
@@ -481,6 +487,41 @@ final class PlaybackCoordinator: ObservableObject {
         }
     }
 
+    func transitionToIndependentDesktop() async throws {
+        guard canPresentOnDesktop else {
+            throw PlaybackEngineError.superseded
+        }
+
+        try Task.checkCancellation()
+        cancelTimelineSeek()
+        cancelPlayerSurfaceAttachment()
+        attachedPlayerSurface = nil
+        transitionGeneration &+= 1
+        let generation = transitionGeneration
+        presentation = .switching(
+            generation: generation,
+            destination: .desktop
+        )
+        savedPlayerSettings = settings
+
+        // Independent display engines own every desktop render surface. Keep
+        // the foreground engine's queue, time, and intent intact while making
+        // it completely inert until the player window is restored.
+        engine.setMuted(true)
+        engine.pause()
+        engine.detachAll()
+        isActuallyPlaying = false
+        isPlayerWindowDismissed = false
+
+        try Task.checkCancellation()
+        guard generation == transitionGeneration else {
+            throw PlaybackEngineError.superseded
+        }
+        isDesktopEngineDetached = true
+        presentation = .desktop
+        applyPlaybackGate()
+    }
+
     func transitionToPlayer() async throws {
         guard presentation == .desktop || isSwitching(to: .desktop) else {
             return
@@ -501,6 +542,7 @@ final class PlaybackCoordinator: ObservableObject {
                 throw PlaybackEngineError.superseded
             }
             attachedPlayerSurface = playerSurface
+            isDesktopEngineDetached = false
             restorePlayerSettings()
             presentation = .player
             applyPlaybackGate()
@@ -536,6 +578,7 @@ final class PlaybackCoordinator: ObservableObject {
         attachedPlayerSurface = nil
         restorePlayerSettings()
         presentation = .player
+        isDesktopEngineDetached = false
         engine.pause()
         engine.detachAll()
         isActuallyPlaying = false
@@ -580,6 +623,7 @@ final class PlaybackCoordinator: ObservableObject {
         hasPlayableMedia = false
         readiness = .empty
         presentation = .player
+        isDesktopEngineDetached = false
         currentTime = 0
         duration = 0
         isActuallyPlaying = false
@@ -599,6 +643,7 @@ final class PlaybackCoordinator: ObservableObject {
         transitionGeneration &+= 1
         mediaLoadGeneration &+= 1
         presentation = .terminating
+        isDesktopEngineDetached = false
         gate.terminate()
         isSystemSuspended = false
         isPlayerWindowDismissed = true
@@ -619,6 +664,7 @@ final class PlaybackCoordinator: ObservableObject {
         guard readiness == .ready,
               !isPlayerWindowDismissed,
               timelineSeekTarget == nil,
+              !isDesktopEngineDetached,
               !isWaitingForPlayerSurface else {
             engine.pause()
             isActuallyPlaying = false
@@ -766,6 +812,7 @@ final class PlaybackCoordinator: ObservableObject {
         hasPlayableMedia = false
         readiness = .failed(failure)
         presentation = .player
+        isDesktopEngineDetached = false
         currentTime = 0
         duration = 0
         isActuallyPlaying = false
@@ -888,6 +935,10 @@ final class PlaybackCoordinator: ObservableObject {
         switch presentation {
         case .player:
             return .visible
+        case .switching(_, .player) where isDesktopEngineDetached:
+            return .inactive
+        case .desktop where isDesktopEngineDetached:
+            return .inactive
         case .switching, .desktop:
             return .background
         case .terminating:
