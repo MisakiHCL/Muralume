@@ -104,7 +104,8 @@ unsigned = [header, payload].map { |part| base64url(JSON.generate(part)) }.join(
 key = OpenSSL::PKey::EC.new(File.binread(ENV.fetch("MURALUME_ASC_JWT_PRIVATE_KEY_PATH")))
 der_signature = key.dsa_sign_asn1(OpenSSL::Digest::SHA256.digest(unsigned))
 integers = OpenSSL::ASN1.decode(der_signature).value.map(&:value)
-signature = integers.map { |integer| integer.to_s(16).rjust(64, "0") }.pack("H*")
+signature_hex = integers.map { |integer| integer.to_s(16).rjust(64, "0") }.join
+signature = [signature_hex].pack("H*")
 puts "#{unsigned}.#{base64url(signature)}"
 '
 }

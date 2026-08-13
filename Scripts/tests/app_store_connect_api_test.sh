@@ -90,10 +90,15 @@ asc_test_jwt_segment_count="$(
 [[ "${asc_test_jwt}" \
     =~ ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$ ]] \
     || asc_test_fail 'JWT was not base64url encoded'
-ruby -rbase64 -rjson -e '
+ruby -rbase64 -rjson -ropenssl -e '
 def decode_segment(value)
   padding = "=" * ((4 - value.length % 4) % 4)
   JSON.parse(Base64.urlsafe_decode64(value + padding))
+end
+
+def decode_bytes(value)
+  padding = "=" * ((4 - value.length % 4) % 4)
+  Base64.urlsafe_decode64(value + padding)
 end
 
 segments = ARGV.fetch(0).split(".")
@@ -105,6 +110,18 @@ abort "unexpected JWT key ID" unless header["kid"] == ENV.fetch("MURALUME_ASC_KE
 abort "unexpected JWT issuer" unless payload["iss"] == ENV.fetch("MURALUME_ASC_ISSUER_ID")
 abort "unexpected JWT audience" unless payload["aud"] == "appstoreconnect-v1"
 abort "unexpected JWT lifetime" unless payload["exp"] - payload["iat"] == 600
+signature = decode_bytes(segments.fetch(2))
+abort "unexpected ES256 signature length" unless signature.bytesize == 64
+r = OpenSSL::BN.new(signature.byteslice(0, 32), 2)
+s = OpenSSL::BN.new(signature.byteslice(32, 32), 2)
+der_signature = OpenSSL::ASN1::Sequence.new([
+  OpenSSL::ASN1::Integer.new(r),
+  OpenSSL::ASN1::Integer.new(s),
+]).to_der
+unsigned = segments.first(2).join(".")
+digest = OpenSSL::Digest::SHA256.digest(unsigned)
+key = OpenSSL::PKey::EC.new(File.binread(ENV.fetch("MURALUME_ASC_PRIVATE_KEY_PATH")))
+abort "invalid ES256 signature" unless key.dsa_verify_asn1(digest, der_signature)
 ' "${asc_test_jwt}" \
     || asc_test_fail 'JWT claims did not match App Store Connect requirements'
 
