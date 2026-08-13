@@ -32,7 +32,7 @@ case "${workflow_name}" in
 esac
 
 cleanup() {
-    local status="$?"
+    local cleanup_status="$?"
 
     if [[ "${keep_log}" -eq 0 ]]; then
         rm -f -- "${log_file}"
@@ -41,7 +41,7 @@ cleanup() {
         "${log_file}"; then
         printf 'Warning: unable to rotate Muralume workflow logs.\n' >&2
     fi
-    return "${status}"
+    return "${cleanup_status}"
 }
 trap cleanup EXIT
 
@@ -49,7 +49,7 @@ if "$@" >"${log_file}" 2>&1; then
     printf '[PASS] %s completed in %ss\n' \
         "${workflow_name}" "$((SECONDS - start_seconds))"
 else
-    readonly status="$?"
+    readonly command_status="$?"
     keep_log=1
     printf '[FAIL] %s failed after %ss\n' \
         "${workflow_name}" "$((SECONDS - start_seconds))" >&2
@@ -67,5 +67,5 @@ else
         printf 'Run again with full output: make %s VERBOSE=1\n' \
             "${workflow_name}" >&2
     fi
-    exit "${status}"
+    exit "${command_status}"
 fi

@@ -17,6 +17,12 @@ readonly expected_derived_data="${expected_cache_scope}/DerivedData"
 active_pid=""
 active_release_marker=""
 
+# This test owns all of its fake artifact and cache paths. Release workflows
+# intentionally export their real paths to verify.sh, so never let those
+# caller-owned overrides leak into nested fixture invocations here.
+unset MURALUME_TEST_ARTIFACTS_DIR
+unset MURALUME_TEST_DERIVED_DATA_DIR
+
 cleanup() {
     if [[ -n "${active_release_marker}" ]]; then
         : >"${active_release_marker}" 2>/dev/null || true

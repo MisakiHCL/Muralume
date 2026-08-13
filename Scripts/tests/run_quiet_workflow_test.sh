@@ -54,6 +54,9 @@ grep -F 'signing metadata may be private' "${release_error_path}" >/dev/null \
 if grep -F 'VERBOSE=1' "${release_error_path}" >/dev/null; then
     fail_test 'release failure suggested a privacy-unsafe verbose rerun'
 fi
+if grep -F 'readonly variable' "${release_error_path}" >/dev/null; then
+    fail_test 'release cleanup emitted a shell variable error'
+fi
 
 release_log_path="$(
     sed -n 's/^Full log: //p' "${release_error_path}"
