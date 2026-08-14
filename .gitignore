@@ -1,5 +1,11 @@
 # Internal product and development documents
 /docs/
+/Docs/
+/Documentation/
+/AGENTS.md
+
+# Release descriptions are published through GitHub Releases
+/RELEASE_NOTES_*.md
 
 # macOS
 .DS_Store

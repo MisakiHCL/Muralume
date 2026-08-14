@@ -1,18 +1,17 @@
 ## Outcome
 
-Describe the user-visible result and why it belongs in Muralume.
+What user-visible result does this change provide?
 
 ## Scope
 
-- Product areas changed:
-- Explicitly unchanged:
+- What changed?
+- What was intentionally left unchanged?
 
 ## Verification
 
 - [ ] Focused tests passed
-- [ ] `make test` passed
-- [ ] English and Simplified Chinese were checked when user-visible text changed
-- [ ] Manual macOS validation is described below when system UI, Dynamic Desktop, playback surfaces, Sandbox access, or lifecycle behavior changed
+- [ ] `make test` passed, or the reason it was not run is documented
+- [ ] Manual macOS checks were completed, or remaining checks are listed below
 
 Commands and results:
 
@@ -20,13 +19,14 @@ Commands and results:
 
 ```
 
-## Lifecycle and privacy review
+## Quality and privacy
 
-- [ ] No second player, decoder, queue, or playback clock was introduced
-- [ ] Tasks, observers, windows, layers, and security-scoped access remain bounded and releasable
-- [ ] Source media remains read-only and no private path, bookmark, credential, or signing material is included
-- [ ] New persisted data has explicit validation, size bounds, and compatibility behavior
+- [ ] English and Simplified Chinese remain consistent
+- [ ] Keyboard and accessibility behavior were considered
+- [ ] Media access, persistence, cancellation, and teardown remain safe
+- [ ] No personal media, local paths, credentials, signing material, or private logs are included
 
 ## Screenshots or manual checks
 
-Include sanitized English and Simplified Chinese screenshots when relevant. List any device, macOS, display, signed Sandbox, or Instruments checks still required.
+Add screenshots for visual changes and describe any checks that still require
+real media, multiple displays, sleep/wake, or other macOS system behavior.

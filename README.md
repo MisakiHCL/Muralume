@@ -28,83 +28,50 @@
   >
 </p>
 
-Muralume is a private, native macOS Dynamic Desktop app that turns the videos and folders you choose into a living desktop. A focused local player, Media Library, and named playlists keep everything organized—without an account, cloud upload, or tracking.
+Muralume is a private, native macOS app that turns your own videos into a
+Dynamic Desktop. It combines a focused local player, a searchable Media
+Library, named playlists, and multi-display desktop playback without accounts,
+cloud uploads, advertising, or tracking.
 
 ## See it in motion
 
-Watch a 20-second tour from choosing a local video to placing the queue behind your desktop files and switching scenes without interrupting the desktop.
+This short tour shows how a local video becomes a Dynamic Desktop while files,
+widgets, and normal desktop interaction remain available.
 
 https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 
-## Why Muralume
+## Features
 
-| | |
-|---|---|
-| **Your videos, not a catalog** | Use pet moments, travel memories, timelapses, or generated clips you already own. |
-| **Organize your way** | Search the library and create ordered, named playlists such as Travel or Sky. |
-| **A desktop that stays usable** | Motion sits behind desktop files and widgets without taking over clicks or focus. |
-| **Private and native** | Read-only local access, macOS-native playback, no account, uploads, ads, or telemetry. |
+- **Your local media:** Add individual videos, folders, or both. Muralume keeps
+  source files in place and accesses only the items you choose.
+- **Media Library:** Browse thumbnails, sort your collection, search by name or
+  location, and automatically discover folder changes while the app is open.
+- **Named playlists:** Create custom groups, add and reorder videos, search
+  within a playlist, and continue from the same playlist after relaunch.
+- **Clear playback controls:** Use ordered playback, shuffle, Repeat Current Video,
+  seeking, volume, speed, fullscreen, and a separate Play Queue.
+- **Dynamic Desktop:** Place video behind desktop files and widgets, use one
+  synchronized queue across displays, or assign an independent loop to each
+  display.
+- **Private and native:** Local processing, read-only media access, no account,
+  no uploads, no product telemetry, and no automatic crash reporting.
+- **Session recovery:** Reopen Muralume to restore the current session; enable
+  Launch at Login to restore the Dynamic Desktop after signing in.
 
-## How it works
+## Get started
 
-1. Use the single Add Media picker to build a lasting library from videos, folders, or both, or drop them into Muralume from Finder.
-2. Open a supported video from Finder for a temporary viewing session, or play it directly from the library when it is already there.
-3. Search with `⌘F`, group videos into named playlists, then choose ordered playback, shuffle, or Repeat Current and preview the real upcoming queue.
-4. Press `⌘D` to apply the current Dynamic Desktop layout. Use `⇧⌘D` or **Actions → Customize Displays…** to choose synchronized or per-display playback.
-
-## Highlights
-
-### Private by design
-
-Your source videos stay exactly where you put them. Muralume receives read-only access only to the videos or folders you choose and never uploads, moves, renames, or deletes them. There is no account system, product telemetry, or automatic crash reporting.
-
-### An energy-aware Dynamic Desktop
-
-Use synchronized mode to place the current queue on enabled displays with one shared playback clock, or assign one independently looping video to each display. Every display has its own desktop fit. A disconnected display keeps its assignment, video, and fit so Muralume can restore its loop when that display reconnects. Displays can be connected, removed, rearranged, or resized without restarting the synchronized queue. Spanning one video as a single canvas across multiple displays is not currently supported. Muralume uses macOS-native playback, stays muted in desktop mode, and does not prevent display sleep. On battery or UPS power, in Low Power Mode, under elevated thermal pressure, or during sustained system load, it removes the decorative blurred fill. Dynamic Desktop pauses when every desktop window is occluded, the battery reaches its final warning, thermal pressure becomes serious, or normal sleep and session lifecycle events require it; critical thermal pressure pauses playback everywhere.
-
-By default, Muralume keeps the full video sharp and fills any remaining space with a softly blurred version of the same frame.
-
-### Build a Media Library from videos and folders
-
-Use one Add Media picker to choose individual videos, folders from your Mac or an external drive, or both in the same selection; you can also drop the same mix from Finder. Muralume recursively discovers AVFoundation-native MP4, MOV, M4V, MPEG, MPEG-2, MPEG-TS, 3GP, 3G2, AVI, and DV videos in folders, generates local thumbnails, and sorts everything by name, creation date, or file size—without reorganizing anything on disk. While Muralume is running, authorized folders are monitored so additions, deletions, and renames within a folder refresh automatically. A periodic full scan catches changes missed on removable drives, network folders, cloud placeholders, or FUSE-backed sources, while **Refresh Media Library** remains available for an immediate update.
-
-Unsupported file formats are rejected when you add or open them, with a concise explanation instead of a format list in Settings. Drops onto the video area remain available while Settings is open; accepted files are added without autoplaying behind the panel.
-
-Muralume also appears in Finder’s **Open With** menu for these supported video formats. A file already in the library plays from the library queue; other files open in a temporary queue and are saved only if you explicitly add them. Settings shows whether Muralume is the default player for all, some, or none of these formats and lets you set it explicitly.
-
-### A library and queue with different jobs
-
-The Media Library is your complete, persistent, sortable collection. The Play Queue shows the actual playback sequence, including shuffle order and temporary Finder items. Selecting another library video preserves valid Previous navigation, and refreshing the library reconciles additions and confirmed deletions without discarding the active queue.
-
-Large queues stay responsive: the current video is followed by a bounded upcoming window, with more loaded only when requested. The library itself continues to use a native virtualized table for full-collection browsing.
-
-### Search and named playlists
-
-Press `⌘F` to search by video name, source, folder, or relative path without changing the underlying library order. Create user-named playlists such as Travel or Sky, add videos from the library, drag to reorder, rename or delete the group, and search inside it. Selecting a filtered result still plays the complete playlist from that video. Entries remain visible with their last-known name when a drive is offline and reconnect through stable file identity after an unambiguous rename or move.
-
-### Focused native playback
-
-Seek, change volume or speed, enter fullscreen, and choose ordered playback, shuffle, or Repeat Current. Shuffle visits every available video once before starting a new round. A one-video queue loops efficiently by seeking the existing player item back to the beginning, while manual Previous and Next remain disabled. Controls stay out of the way while you watch, and global playback preferences return on the next launch.
-
-Quit and reopen Muralume to continue from the same video, position, play or pause state, and presentation. If you were using the Dynamic Desktop, Muralume restores it directly without briefly opening the player window.
-
-### Ready when you log in
-
-Optionally start Muralume with macOS and restore the current queue directly as a Dynamic Desktop. The app keeps the window out of the way and exposes playback controls through its menu bar item.
+1. Choose **Add Media…** or drag videos and folders from Finder.
+2. Browse or search the Media Library, then play a video or organize it into a
+   named playlist.
+3. Choose ordered playback, shuffle, or Repeat Current Video from the player.
+4. Press `⌘D` to use the current playback collection as a Dynamic Desktop, or
+   press `⇧⌘D` to customize displays.
 
 ## Download
 
-[Download `Muralume.dmg`](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg), open it, and drag Muralume into Applications.
-
-The latest release includes a Developer ID–signed and Apple-notarized DMG plus its [SHA-256 checksum](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg.sha256).
-
-> This page documents the current `main` branch. See the [latest release](https://github.com/MisakiHCL/Muralume/releases/latest) for the exact shipped scope.
-
-## Restore after login
-
-To restore the current queue automatically after login, open Settings and enable **Launch at Login** while a video queue is active. macOS may ask you to approve Muralume in Login Items.
-
-The menu bar item lets you pause, skip, choose a playback mode, change playback speed or desktop fit, return to the player, and quit Muralume.
+[Download `Muralume.dmg`](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg),
+open it, and drag Muralume into Applications. Official version notes and
+checksums are published with each [GitHub Release](https://github.com/MisakiHCL/Muralume/releases).
 
 ## Keyboard shortcuts
 
@@ -126,14 +93,15 @@ The menu bar item lets you pause, skip, choose a playback mode, change playback 
 
 - Apple silicon Mac
 - macOS 14 or later
-- AVFoundation-native MP4, MOV, M4V, MPEG, MPEG-2, MPEG-TS, 3GP, 3G2, AVI, or DV video
-- Multiple displays support either synchronized playback or one independently looping video per display, with per-display fit and reconnect restoration; cross-display spanning is not supported
+- A video in an AVFoundation-compatible format, including common MP4, MOV, M4V, MPEG,
+  MPEG-TS, 3GP, 3G2, AVI, and DV files
 
-Playback compatibility depends on the codecs available through macOS AVFoundation. H.264 and HEVC are common compatible choices.
+Playback compatibility depends on the codecs available through macOS.
 
 ## Build from source
 
-Install Xcode with Swift 6 support and [ripgrep](https://github.com/BurntSushi/ripgrep), then run:
+Install Xcode with Swift 6 support and
+[ripgrep](https://github.com/BurntSushi/ripgrep), then run:
 
 ```bash
 git clone https://github.com/MisakiHCL/Muralume.git
@@ -142,12 +110,14 @@ make test
 make package-macos
 ```
 
-`make package-macos` creates an ad-hoc signed DMG in `dist/macos-local/` for local installation testing only.
-
-The macOS UI suite needs one-time developer-tool authorization. If XCTest cannot enable automation mode, run `sudo /usr/sbin/DevToolsSecurity -enable`, approve the launcher under **Privacy & Security** if prompted, then rerun `./Scripts/verify.sh ui`.
-
-For the opt-in test that imports a local MP4 and exercises the complete Dynamic Desktop lifecycle, see [Real-Media UI Testing](Documentation/REAL_MEDIA_UI_TESTING.md). Personal media and its local path remain outside Git.
+`make package-macos` creates a local, ad-hoc signed DMG for development and
+installation testing. It is not an official distribution build.
 
 ## Open source
 
-Source code is available under the [MIT License](LICENSE). See [Contributing](CONTRIBUTING.md), the [Playback and Media Library architecture](Documentation/PLAYBACK_LIBRARY_ARCHITECTURE.md), the [Security Policy](SECURITY.md), and the [Community Code of Conduct](CODE_OF_CONDUCT.md) before participating. Vendored build-tool components retain their licenses in [Third-Party Notices](THIRD_PARTY_NOTICES.md). The Muralume name, logo, app icon, and menu bar icon are excluded from the MIT grant; see the [Brand Assets Notice](BRAND_ASSETS.md).
+Source code is available under the [MIT License](LICENSE). Before contributing,
+read [Contributing](CONTRIBUTING.md), the [Security Policy](SECURITY.md), and the
+[Community Code of Conduct](CODE_OF_CONDUCT.md). Vendored build components retain
+their licenses in [Third-Party Notices](THIRD_PARTY_NOTICES.md). The Muralume
+name and visual assets are excluded from the MIT grant; see the
+[Brand Assets Notice](BRAND_ASSETS.md).

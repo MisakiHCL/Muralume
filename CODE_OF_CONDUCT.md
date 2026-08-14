@@ -22,11 +22,11 @@ spaces.
 
 ## Reporting and enforcement
 
-Do not litigate sensitive conduct reports in a public issue. Use GitHub's
-private reporting or moderation tools to contact the maintainer. Reports will be
-reviewed in context, and maintainers may edit or remove content, close or lock
-threads, reject contributions, or temporarily or permanently restrict
-participation when necessary.
+Do not discuss sensitive conduct reports in a public issue. Contact the
+maintainer privately through GitHub, or use GitHub's abuse-reporting tools when
+appropriate. Reports will be reviewed in context, and maintainers may edit or
+remove content, close or lock threads, reject contributions, or temporarily or
+permanently restrict participation when necessary.
 
 This policy applies to repository issues, pull requests, discussions, review
 comments, and project-related communication.
