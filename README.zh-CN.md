@@ -9,28 +9,31 @@
 
 <h1 align="center">Muralume</h1>
 
-<p align="center"><strong>你的视频，你的 Mac，让桌面动起来。</strong></p>
+<p align="center"><strong>别让喜欢的影像，只在播放器里出现。</strong></p>
 
 <p align="center">
   <a href="README.md">English</a> · <strong>简体中文</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/MisakiHCL/Muralume/releases/latest"><strong>下载最新版本</strong></a>
-  · Apple 芯片 · macOS 14+
+  <a href="https://apps.apple.com/app/id6799577992"><strong>Mac App Store</strong></a>
+  ·
+  <a href="https://github.com/MisakiHCL/Muralume/releases/latest"><strong>GitHub Release</strong></a>
+  <br>
+  免费 · Apple 芯片 · macOS 14+
 </p>
 
 <p align="center">
   <img
-    src=".github/assets/muralume-player-v1-zh.png"
+    src=".github/assets/muralume-player-v1-zh.jpg"
     width="1200"
     alt="Muralume 正在播放本地视频并显示媒体库"
   >
 </p>
 
-Muralume 是一款私密、原生的 macOS 应用，可以把你自己的视频变成动态桌面。
-它将专注的本地播放器、可搜索的媒体库、自定义播放列表与多显示器桌面播放整合
-在一起，无需账号、云端上传、广告或行为追踪。
+Muralume 把宠物、旅途、延时摄影和每一段舍不得关掉的视频，送到每天都在看的
+桌面上。它小巧、原生，也足够安静：画面在文件和小组件后方流动，多块屏幕可以
+整齐同步，也可以各有性格。视频留在 Mac，隐私也留在你手里。
 
 ## 看看实际效果
 
@@ -41,18 +44,18 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 
 ## 功能
 
-- **使用本地媒体：** 添加单个视频、文件夹或两者的组合。源文件始终保留在原处，
+- **你的影像，不是平台的内容：** 添加单个视频、文件夹或两者的组合。源文件始终保留在原处，
   Muralume 只访问你主动选择的内容。
-- **媒体库：** 浏览缩略图、排序内容、按名称或位置搜索，并在应用运行期间自动发现
+- **会自己跟上变化的媒体库：** 浏览缩略图、排序内容、按名称或位置搜索，并在应用运行期间自动发现
   已授权文件夹中的变化。
-- **自定义播放列表：** 创建自定义分组，添加和排序视频，在播放列表内搜索，并在
+- **播放列表由你定义：** 创建自定义分组，添加和排序视频，在播放列表内搜索，并在
   重新打开应用后继续使用上次的播放列表。
-- **专注的播放体验：** 支持顺序播放、随机播放、循环当前视频、进度跳转、音量、
+- **下一段是什么，一目了然：** 支持顺序播放、随机播放、循环当前视频、进度跳转、音量、
   倍速、全屏，以及独立呈现真实顺序的播放队列。
-- **动态桌面：** 将视频放在桌面文件与小组件后方；多块显示器可以同步使用同一队列，
+- **一台 Mac，每块屏幕都精彩：** 将视频放在桌面文件与小组件后方；多块显示器可以同步使用同一队列，
   也可以分别循环不同视频。
-- **私密且原生：** 本地处理、只读媒体访问，无账号、上传、产品遥测或自动崩溃上报。
-- **会话恢复：** 重新打开 Muralume 后可恢复当前会话；启用“登录时启动”后，也可
+- **真正的私密：** 本地处理、只读媒体访问，无账号、上传、产品遥测或自动崩溃上报。
+- **离开再回来，精彩继续：** 重新打开 Muralume 后可恢复当前会话；启用“登录时启动”后，也可
   在登录系统时恢复动态桌面。
 
 ## 开始使用
@@ -64,9 +67,16 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 
 ## 下载
 
-[下载 `Muralume.dmg`](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg)，
-打开后将 Muralume 拖入“应用程序”文件夹。每个版本的正式说明与校验文件统一发布在
-[GitHub Releases](https://github.com/MisakiHCL/Muralume/releases) 页面。
+Muralume 通过两个官方渠道免费提供，核心功能一致：
+
+- [**Mac App Store**](https://apps.apple.com/app/id6799577992)：通过商店安装，
+  后续更新由 App Store 管理。
+- [**GitHub Release**](https://github.com/MisakiHCL/Muralume/releases/latest)：直接
+  [下载经过公证的 `Muralume.dmg`](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg)。
+  每个版本的正式说明与校验文件统一发布在
+  [GitHub Releases](https://github.com/MisakiHCL/Muralume/releases) 页面。
+
+使用 GitHub 版本时，打开 DMG 后将 Muralume 拖入“应用程序”文件夹即可。
 
 ## 快捷键
 

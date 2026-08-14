@@ -9,29 +9,32 @@
 
 <h1 align="center">Muralume</h1>
 
-<p align="center"><strong>Your videos. Your Mac. Your desktop in motion.</strong></p>
+<p align="center"><strong>Your desktop is too big to stand still.</strong></p>
 
 <p align="center">
   <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/MisakiHCL/Muralume/releases/latest"><strong>Download the latest release</strong></a>
-  · Apple silicon · macOS 14+
+  <a href="https://apps.apple.com/app/id6799577992"><strong>Mac App Store</strong></a>
+  ·
+  <a href="https://github.com/MisakiHCL/Muralume/releases/latest"><strong>GitHub Release</strong></a>
+  <br>
+  Free · Apple silicon · macOS 14+
 </p>
 
 <p align="center">
   <img
-    src=".github/assets/muralume-player-v1-en.png"
+    src=".github/assets/muralume-player-v1-en.jpg"
     width="1200"
     alt="Muralume playing a local video with the Media Library open"
   >
 </p>
 
-Muralume is a private, native macOS app that turns your own videos into a
-Dynamic Desktop. It combines a focused local player, a searchable Media
-Library, named playlists, and multi-display desktop playback without accounts,
-cloud uploads, advertising, or tracking.
+Set the videos you love loose across every display. Muralume is a featherlight,
+native macOS app that plays behind files and widgets, gives each screen its own
+personality, and keeps every frame on your Mac. No accounts. No uploads. No ads.
+No tracking. Just a desktop that finally feels alive.
 
 ## See it in motion
 
@@ -42,20 +45,20 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 
 ## Features
 
-- **Your local media:** Add individual videos, folders, or both. Muralume keeps
+- **Your videos. No catalog:** Add individual videos, folders, or both. Muralume keeps
   source files in place and accesses only the items you choose.
-- **Media Library:** Browse thumbnails, sort your collection, search by name or
+- **A library that keeps up:** Browse thumbnails, sort your collection, search by name or
   location, and automatically discover folder changes while the app is open.
-- **Named playlists:** Create custom groups, add and reorder videos, search
+- **Playlists, your way:** Create custom groups, add and reorder videos, search
   within a playlist, and continue from the same playlist after relaunch.
-- **Clear playback controls:** Use ordered playback, shuffle, Repeat Current Video,
+- **See exactly what plays next:** Use ordered playback, shuffle, Repeat Current Video,
   seeking, volume, speed, fullscreen, and a separate Play Queue.
-- **Dynamic Desktop:** Place video behind desktop files and widgets, use one
+- **One Mac. Every display:** Place video behind desktop files and widgets, use one
   synchronized queue across displays, or assign an independent loop to each
   display.
-- **Private and native:** Local processing, read-only media access, no account,
+- **Private means private:** Local processing, read-only media access, no account,
   no uploads, no product telemetry, and no automatic crash reporting.
-- **Session recovery:** Reopen Muralume to restore the current session; enable
+- **Pick up where you left off:** Reopen Muralume to restore the current session; enable
   Launch at Login to restore the Dynamic Desktop after signing in.
 
 ## Get started
@@ -69,9 +72,16 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 
 ## Download
 
-[Download `Muralume.dmg`](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg),
-open it, and drag Muralume into Applications. Official version notes and
-checksums are published with each [GitHub Release](https://github.com/MisakiHCL/Muralume/releases).
+Muralume is free through both official channels, with the same core features:
+
+- [**Mac App Store**](https://apps.apple.com/app/id6799577992) — install from the
+  store and receive updates through the App Store.
+- [**GitHub Release**](https://github.com/MisakiHCL/Muralume/releases/latest) —
+  [download the notarized `Muralume.dmg`](https://github.com/MisakiHCL/Muralume/releases/latest/download/Muralume.dmg)
+  directly. Version notes and checksums are published with each
+  [GitHub Release](https://github.com/MisakiHCL/Muralume/releases).
+
+For the GitHub version, open the DMG and drag Muralume into Applications.
 
 ## Keyboard shortcuts
 
