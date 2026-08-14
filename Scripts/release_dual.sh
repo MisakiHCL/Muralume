@@ -370,7 +370,7 @@ if [[ -f "${release_manifest_path}" && ! -L "${release_manifest_path}" ]]; then
 fi
 
 local_tag_object="$(
-    release_git -C "${project_root}" rev-parse \
+    release_git -C "${project_root}" rev-parse --verify --quiet \
         "refs/tags/${release_tag}" 2>/dev/null || true
 )"
 if [[ -n "${remote_tag_object}" ]]; then

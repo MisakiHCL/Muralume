@@ -180,6 +180,10 @@ printf '%s\n' \
     '        esac' \
     '    else' \
     '        release_state="$(cat "${FAKE_GITHUB_STATE_PATH}")"' \
+    '        if [[ "${release_state}" == "missing" ]]; then' \
+    '            printf "%s\n" "release not found" >&2' \
+    '            exit 1' \
+    '        fi' \
     '        draft=false' \
     '        [[ "${release_state}" != "draft" ]] || draft=true' \
     '        printf "%s\t%s\tfalse\thttps://example.invalid/release\n" \' \
@@ -472,5 +476,19 @@ run_release final exact VALID --status
 [[ "${release_exit_code}" -eq 0 ]] \
     || fail_test 'the migrated three-asset Release failed final status verification'
 
+git -C "${fixture_repository}" tag -d "${release_tag}" >/dev/null
+git -C "${fixture_repository}" push -q origin \
+    ":refs/tags/${release_tag}"
+run_release missing exact VALID --status
+[[ "${release_exit_code}" -ne 0 ]] \
+    || fail_test 'missing release state unexpectedly passed status'
+if printf '%s\n' "${release_output}" \
+    | grep -F "Unable to resolve local ${release_tag}." >/dev/null; then
+    fail_test 'an absent local tag was mistaken for a literal revision'
+fi
+printf '%s\n' "${release_output}" \
+    | grep -F '[MISS] Complete latest GitHub Release' >/dev/null \
+    || fail_test 'missing local and remote tags did not reach remote status reporting'
+
 printf '%s\n' \
-    'PASS: dual-release status, exact-draft, and legacy-provenance migration tests'
+    'PASS: dual-release status, exact-draft, legacy-provenance, and missing-tag tests'
