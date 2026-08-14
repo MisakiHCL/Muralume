@@ -34,6 +34,8 @@ final class MuralumeLaunchTests: XCTestCase {
         static let maximumSidebarHeaderTrailingInset: CGFloat = 64
         static let headerIconActionSize: CGFloat = 36
         static let sidebarStatusBarHeight: CGFloat = 32
+        static let searchFieldHeight: CGFloat = 32
+        static let searchFieldTopSpacing: CGFloat = 8
         static let maximumAdjacentElementOffset: CGFloat = 1
         static let minimumSidebarTitleMenuHeight: CGFloat = 36
         static let sidebarTitleMenuHitInset: CGFloat = 2
@@ -96,8 +98,12 @@ final class MuralumeLaunchTests: XCTestCase {
                 identifier: SidebarAccessibilityIdentifier.librarySummary
             )
             .firstMatch
+        let searchField = application.textFields[
+            SidebarAccessibilityIdentifier.librarySearchField
+        ]
 
         XCTAssertTrue(addMediaButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
         XCTAssertTrue(librarySummary.waitForExistence(timeout: 5))
         XCTAssertEqual(
             librarySummary.label,
@@ -109,7 +115,9 @@ final class MuralumeLaunchTests: XCTestCase {
         )
         XCTAssertEqual(
             librarySummary.frame.midY - addMediaButton.frame.maxY,
-            LayoutExpectation.sidebarStatusBarHeight / 2,
+            LayoutExpectation.searchFieldTopSpacing
+                + LayoutExpectation.searchFieldHeight
+                + LayoutExpectation.sidebarStatusBarHeight / 2,
             accuracy: LayoutExpectation.maximumAdjacentElementOffset
         )
     }
