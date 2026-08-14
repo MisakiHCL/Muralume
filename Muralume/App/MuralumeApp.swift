@@ -166,6 +166,7 @@ private struct MuralumePlayerRootView: View {
             desktopSession: coordinator.desktopSession,
             desktopScene: coordinator.desktopScene!,
             library: coordinator.library,
+            playlists: coordinator.playlists,
             dynamicDesktopStartup: coordinator.dynamicDesktopStartup,
             defaultVideoPlayer: coordinator.defaultVideoPlayer,
             canRestoreDynamicDesktop:
@@ -194,6 +195,15 @@ private struct MuralumePlayerRootView: View {
                 },
                 playLibraryItem: { item in
                     coordinator.playLibraryItem(item)
+                },
+                playCustomPlaylistItem: { item, playlistID in
+                    coordinator.playCustomPlaylistItem(
+                        item,
+                        playlistID: playlistID
+                    )
+                },
+                addLibraryItemToPlaylist: { item, playlistID in
+                    coordinator.addLibraryItem(item, to: playlistID)
                 },
                 revealMediaInFinder: { url in
                     NSWorkspace.shared.activateFileViewerSelecting([url])

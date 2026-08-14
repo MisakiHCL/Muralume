@@ -108,12 +108,23 @@ final class DesktopPresetControllerTests: XCTestCase {
             relativePath: "clip.mp4"
         )
         let queue = PlaybackQueue(items: [itemID])
+        let playlistID = CustomPlaylist.ID()
+        let mediaReference = MediaReference(
+            mediaItemID: itemID,
+            fileIdentity: MediaFileIdentity(
+                volumeIdentifier: Data([31]),
+                fileIdentifier: Data([32])
+            ),
+            lastKnownDisplayName: "clip"
+        )
         let preset = DesktopPreset(
             queue: try XCTUnwrap(queue.makeSnapshot()),
             currentTime: 12,
             isPlaybackRequested: true,
             playbackRate: PlaybackRate(rawValue: 0.5),
-            videoContentMode: .blurredBackground
+            videoContentMode: .blurredBackground,
+            playbackCollection: .customPlaylist(playlistID),
+            queueMediaReferences: [mediaReference]
         )
         let store = FileDesktopPresetStore(fileURL: fileURL)
 
@@ -305,7 +316,11 @@ final class DesktopPresetControllerTests: XCTestCase {
             fileURL: fileURL
         ).load()
 
-        XCTAssertEqual(restoredPreset?.schemaVersion, 1)
+        XCTAssertEqual(
+            restoredPreset?.schemaVersion,
+            DesktopPreset.currentSchemaVersion
+        )
+        XCTAssertEqual(restoredPreset?.playbackCollection, .mediaLibrary)
         XCTAssertEqual(restoredPreset?.videoContentMode, .cover)
         XCTAssertEqual(restoredPreset?.queue.currentItem.relativePath, "clip.mp4")
         XCTAssertTrue(restoredPreset?.isValid == true)

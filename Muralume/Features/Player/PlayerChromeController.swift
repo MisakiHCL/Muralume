@@ -99,9 +99,17 @@ final class PlayerChromeController: ObservableObject {
     @Published private(set) var presentedPanel: PlayerSidePanel? = .playlist
     @Published private(set) var isDesktopLayoutPresented = false
     @Published private(set) var libraryQueueMode: LibraryQueueMode = .browsing
-    @Published private(set) var librarySidebarSection:
-        LibrarySidebarSection = .mediaLibrary
-    @Published private(set) var playbackQueueFocusRequest: UInt64 = 0
+    let librarySidebarController: LibrarySidebarController
+
+    var librarySidebarSection: LibrarySidebarSection {
+        librarySidebarController.destination == .playQueue
+            ? .playQueue
+            : .mediaLibrary
+    }
+
+    var playbackQueueFocusRequest: UInt64 {
+        librarySidebarController.playbackQueueFocusRequest
+    }
 
     var isPlaylistPresented: Bool {
         presentedPanel == .playlist
@@ -127,10 +135,13 @@ final class PlayerChromeController: ObservableObject {
         autoHideDelayNanoseconds: UInt64 = MuralumeTheme.Motion
             .playerChromeAutoHideNanoseconds,
         autoHideScheduler: any PlayerChromeAutoHideScheduling =
-            RunLoopPlayerChromeAutoHideScheduler()
+            RunLoopPlayerChromeAutoHideScheduler(),
+        librarySidebarController: LibrarySidebarController =
+            LibrarySidebarController()
     ) {
         self.autoHideDelayNanoseconds = autoHideDelayNanoseconds
         self.autoHideScheduler = autoHideScheduler
+        self.librarySidebarController = librarySidebarController
     }
 
     isolated deinit {
@@ -168,7 +179,7 @@ final class PlayerChromeController: ObservableObject {
         setVisible(true)
         presentedPanel = .playlist
         libraryQueueMode = .editing
-        librarySidebarSection = .mediaLibrary
+        librarySidebarController.selectDestination(.mediaLibrary)
         refreshAutoHideSchedule()
     }
 
@@ -182,7 +193,7 @@ final class PlayerChromeController: ObservableObject {
         }
         libraryQueueMode = mode
         if isEditing {
-            librarySidebarSection = .mediaLibrary
+            librarySidebarController.selectDestination(.mediaLibrary)
         }
         setVisible(true)
         refreshAutoHideSchedule()
@@ -190,14 +201,40 @@ final class PlayerChromeController: ObservableObject {
 
     func selectLibrarySidebarSection(_ section: LibrarySidebarSection) {
         if section == .playQueue {
-            playbackQueueFocusRequest &+= 1
             libraryQueueMode = .browsing
         }
-        librarySidebarSection = section
+        librarySidebarController.selectDestination(
+            section == .playQueue ? .playQueue : .mediaLibrary
+        )
         if isPlaylistPresented {
             setVisible(true)
             refreshAutoHideSchedule()
         }
+    }
+
+    func selectLibrarySidebarDestination(
+        _ destination: LibrarySidebarDestination
+    ) {
+        if destination != .mediaLibrary {
+            libraryQueueMode = .browsing
+        }
+        librarySidebarController.selectDestination(destination)
+        setPlaylistPresented(true)
+    }
+
+    /// Restores persisted navigation without revealing or replacing the
+    /// currently presented panel.
+    func restoreLibrarySidebarDestination(
+        _ destination: LibrarySidebarDestination
+    ) {
+        libraryQueueMode = .browsing
+        librarySidebarController.selectDestination(destination)
+    }
+
+    func requestMediaSearch() {
+        libraryQueueMode = .browsing
+        setPlaylistPresented(true)
+        librarySidebarController.requestSearch()
     }
 
     func setSettingsPresented(_ isPresented: Bool) {

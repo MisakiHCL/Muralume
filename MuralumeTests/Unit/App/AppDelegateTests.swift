@@ -599,7 +599,7 @@ final class AppDelegateTests: XCTestCase {
             [.command, .shift]
         )
         XCTAssertEqual(
-            actionsMenu.items.prefix(6).map {
+            actionsMenu.items.prefix(7).map {
                 $0.isSeparatorItem ? "separator" : $0.title
             },
             [
@@ -607,6 +607,7 @@ final class AppDelegateTests: XCTestCase {
                 "Customize Displays…",
                 "separator",
                 "Add Media…",
+                "Search Videos",
                 "Edit",
                 "separator"
             ]
@@ -615,7 +616,13 @@ final class AppDelegateTests: XCTestCase {
             actionsMenu.items.first { $0.title == "Edit" }?.keyEquivalent,
             ""
         )
-
+        XCTAssertEqual(
+            actionsMenu.items.filter {
+                $0.keyEquivalent == "f"
+                    && $0.keyEquivalentModifierMask == [.command]
+            }.map(\.title),
+            ["Search Videos"]
+        )
         let activeState = MacMainMenuCommandState(
             isPlaybackRequested: true,
             isMuted: true,
@@ -632,7 +639,6 @@ final class AppDelegateTests: XCTestCase {
             state: activeState,
             hasPlayerFocus: true
         )
-
         XCTAssertTrue(
             actionsMenu.items
                 .filter { !$0.isSeparatorItem }
@@ -644,7 +650,6 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertNotNil(
             actionsMenu.items.first { $0.title == "Unmute" }
         )
-
         controller.refreshPlayerCommands(
             state: activeState,
             hasPlayerFocus: false
@@ -652,6 +657,23 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertTrue(
             actionsMenu.items
                 .filter { !$0.isSeparatorItem }
+                .allSatisfy { !$0.isEnabled }
+        )
+        controller.refreshPlayerCommands(
+            state: activeState,
+            hasPlayerFocus: false,
+            hasPlayerWindowFocus: true
+        )
+        XCTAssertEqual(
+            actionsMenu.items.first { $0.title == "Search Videos" }?
+                .isEnabled,
+            true
+        )
+        XCTAssertTrue(
+            actionsMenu.items
+                .filter {
+                    !$0.isSeparatorItem && $0.title != "Search Videos"
+                }
                 .allSatisfy { !$0.isEnabled }
         )
     }
@@ -759,7 +781,35 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(commandHandler.togglePlaybackCommandCount, 0)
         XCTAssertFalse(pauseItem.isEnabled)
     }
-
+    func testSearchMenuRevalidatesWindowFocusBeforeDispatch() throws {
+        let commandHandler = TestMainMenuCommandHandler()
+        let controller = makeMainMenuController(
+            commandHandler: commandHandler,
+            mainWindow: NSWindow()
+        )
+        let actionsMenu = try XCTUnwrap(
+            controller.canonicalMenu.items.first {
+                $0.title == "Actions"
+            }?.submenu
+        )
+        controller.refreshPlayerCommands(
+            state: commandHandler.mainMenuCommandState,
+            hasPlayerFocus: false,
+            hasPlayerWindowFocus: true
+        )
+        let searchItem = try XCTUnwrap(
+            actionsMenu.items.first { $0.title == "Search Videos" }
+        )
+        let action = try XCTUnwrap(searchItem.action)
+        XCTAssertEqual(searchItem.keyEquivalent, "f")
+        XCTAssertEqual(searchItem.keyEquivalentModifierMask, [.command])
+        XCTAssertTrue(searchItem.isEnabled)
+        XCTAssertTrue(
+            NSApp.sendAction(action, to: searchItem.target, from: searchItem)
+        )
+        XCTAssertEqual(commandHandler.searchMediaCommandCount, 0)
+        XCTAssertFalse(searchItem.isEnabled)
+    }
     func testDockMenuDispatchesDesktopCommandAfterPlayerWindowSoftClose() throws {
         let commandHandler = TestMainMenuCommandHandler()
         commandHandler.mainMenuCommandState = MacMainMenuCommandState(
@@ -792,7 +842,6 @@ final class AppDelegateTests: XCTestCase {
         )
         XCTAssertEqual(commandHandler.enterDesktopCommandCount, 1)
     }
-
     func testDockMenuRevalidatesDesktopAvailabilityBeforeDispatch() throws {
         let commandHandler = TestMainMenuCommandHandler()
         let availableState = MacMainMenuCommandState(
@@ -837,7 +886,6 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(commandHandler.enterDesktopCommandCount, 0)
         XCTAssertFalse(dockItem.isEnabled)
     }
-
     private func makeMainMenuController(
         commandHandler: TestMainMenuCommandHandler,
         mainWindow: NSWindow,
@@ -903,6 +951,7 @@ private final class TestMainMenuCommandHandler:
     private(set) var togglePlaybackCommandCount = 0
     private(set) var enterDesktopCommandCount = 0
     private(set) var configureDesktopCommandCount = 0
+    private(set) var searchMediaCommandCount = 0
 
     var mainMenuCommandState = MacMainMenuCommandState(
         isPlaybackRequested: false,
@@ -923,6 +972,9 @@ private final class TestMainMenuCommandHandler:
 
     func openSettings() {}
     func addMedia() {}
+    func searchMediaFromMenu() {
+        searchMediaCommandCount += 1
+    }
     func editLibraryFromMenu() {}
     func togglePlaybackFromMenu() {
         togglePlaybackCommandCount += 1

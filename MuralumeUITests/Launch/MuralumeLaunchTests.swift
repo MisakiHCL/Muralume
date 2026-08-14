@@ -7,9 +7,26 @@ final class MuralumeLaunchTests: XCTestCase {
             "muralume.library-sidebar.mode-picker"
         static let mediaLibraryMenuItem =
             "muralume.library-section.media-library"
+        static let playlistsMenuItem =
+            "muralume.library-section.playlists"
         static let playQueueMenuItem =
             "muralume.library-section.play-queue"
+        static let playlistOverview = "muralume.playlists-overview"
+        static let newPlaylistButton = "muralume.playlist-new"
+        static let playlistNameField = "muralume.playlist-name"
+        static let librarySearchField = "muralume.library-search"
         static let librarySummary = "muralume.library-summary"
+    }
+
+    private enum SidebarText {
+        static let mediaLibrary = "Media Library"
+        static let playlists = "Playlists"
+        static let playQueue = "Play Queue"
+        static let navigation =
+            "Switch between Media Library, Playlists, and Play Queue"
+        static let orderRequirement =
+            "Sidebar destinations must remain ordered as Media Library, "
+            + "Playlists, and Play Queue."
     }
 
     private enum LayoutExpectation {
@@ -98,6 +115,113 @@ final class MuralumeLaunchTests: XCTestCase {
     }
 
     @MainActor
+    func testSearchOnlyFocusesAfterExplicitFindCommand() {
+        let application = launchEmptyLibrary()
+        let searchField = application.textFields[
+            SidebarAccessibilityIdentifier.librarySearchField
+        ]
+
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+        XCTAssertEqual(
+            application.textFields.matching(
+                NSPredicate(
+                    format: "identifier == %@ AND hasKeyboardFocus == false",
+                    SidebarAccessibilityIdentifier.librarySearchField
+                )
+            ).count,
+            1
+        )
+
+        let sidebarToggle = application.buttons[
+            "muralume.media-library-toggle"
+        ]
+        XCTAssertTrue(sidebarToggle.waitForExistence(timeout: 2))
+        sidebarToggle.click()
+        XCTAssertTrue(searchField.waitForNonExistence(timeout: 2))
+        sidebarToggle.click()
+        XCTAssertTrue(searchField.waitForExistence(timeout: 2))
+        XCTAssertEqual(
+            application.textFields.matching(
+                NSPredicate(
+                    format: "identifier == %@ AND hasKeyboardFocus == false",
+                    SidebarAccessibilityIdentifier.librarySearchField
+                )
+            ).count,
+            1
+        )
+
+        let titleMenu = application
+            .descendants(matching: .any)
+            .matching(identifier: SidebarAccessibilityIdentifier.titleMenu)
+            .firstMatch
+        titleMenu.click()
+        let playlistsMenuItem = application.menuItems[
+            SidebarAccessibilityIdentifier.playlistsMenuItem
+        ]
+        XCTAssertTrue(playlistsMenuItem.waitForExistence(timeout: 2))
+        playlistsMenuItem.click()
+        XCTAssertTrue(searchField.waitForNonExistence(timeout: 2))
+
+        application.typeKey("f", modifierFlags: .command)
+
+        XCTAssertTrue(searchField.waitForExistence(timeout: 2))
+        let focused = NSPredicate(format: "hasKeyboardFocus == true")
+        let focusExpectation = expectation(
+            for: focused,
+            evaluatedWith: searchField
+        )
+        wait(for: [focusExpectation], timeout: 2)
+    }
+
+    @MainActor
+    func testPlaylistNameEditorCancelsWhenClickingOutside() {
+        let application = launchEmptyLibrary()
+        let titleMenu = application
+            .descendants(matching: .any)
+            .matching(identifier: SidebarAccessibilityIdentifier.titleMenu)
+            .firstMatch
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 5))
+        titleMenu.click()
+        let playlistsMenuItem = application.menuItems[
+            SidebarAccessibilityIdentifier.playlistsMenuItem
+        ]
+        XCTAssertTrue(playlistsMenuItem.waitForExistence(timeout: 2))
+        playlistsMenuItem.click()
+
+        let newPlaylistButton = application.buttons[
+            SidebarAccessibilityIdentifier.newPlaylistButton
+        ]
+        XCTAssertTrue(newPlaylistButton.waitForExistence(timeout: 2))
+        newPlaylistButton.click()
+
+        let nameField = application.textFields[
+            SidebarAccessibilityIdentifier.playlistNameField
+        ]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 2))
+        let focused = NSPredicate(format: "hasKeyboardFocus == true")
+        let focusExpectation = expectation(
+            for: focused,
+            evaluatedWith: nameField
+        )
+        wait(for: [focusExpectation], timeout: 2)
+        application.windows.firstMatch
+            .coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5))
+            .click()
+
+        XCTAssertTrue(nameField.waitForNonExistence(timeout: 2))
+        XCTAssertTrue(
+            application
+                .descendants(matching: .any)
+                .matching(
+                    identifier:
+                        SidebarAccessibilityIdentifier.playlistOverview
+                )
+                .firstMatch
+                .exists
+        )
+    }
+
+    @MainActor
     func testSidebarTitleMenuUsesStablePopupSpacing() {
         let application = launchEmptyLibrary()
         let titleMenu = application
@@ -111,53 +235,108 @@ final class MuralumeLaunchTests: XCTestCase {
         let mediaLibraryMenuItem = application.menuItems[
             SidebarAccessibilityIdentifier.mediaLibraryMenuItem
         ]
-        let playQueueMenuItem = application.menuItems[
+        let playlistsMenuItem = application.menuItems[
+            SidebarAccessibilityIdentifier.playlistsMenuItem
+        ]
+        let nowPlayingMenuItem = application.menuItems[
             SidebarAccessibilityIdentifier.playQueueMenuItem
         ]
         XCTAssertTrue(mediaLibraryMenuItem.waitForExistence(timeout: 2))
-        XCTAssertTrue(playQueueMenuItem.waitForExistence(timeout: 2))
+        XCTAssertTrue(playlistsMenuItem.waitForExistence(timeout: 2))
+        XCTAssertTrue(nowPlayingMenuItem.waitForExistence(timeout: 2))
+        let menuItems = [
+            mediaLibraryMenuItem,
+            playlistsMenuItem,
+            nowPlayingMenuItem
+        ]
+        assertSidebarMenuOrder(menuItems)
         let libraryTriggerFrame = titleMenu.frame
         let libraryPopupFrame = application.menus.firstMatch.frame
-        let libraryMediaItemFrame = mediaLibraryMenuItem.frame
-        let libraryQueueItemFrame = playQueueMenuItem.frame
-        playQueueMenuItem.click()
+        let libraryMenuItemFrames = menuItems.map(\.frame)
+        nowPlayingMenuItem.click()
 
         titleMenu.click()
         XCTAssertTrue(mediaLibraryMenuItem.waitForExistence(timeout: 2))
-        XCTAssertTrue(playQueueMenuItem.waitForExistence(timeout: 2))
-        let queueTriggerFrame = titleMenu.frame
-        let queuePopupFrame = application.menus.firstMatch.frame
+        XCTAssertTrue(playlistsMenuItem.waitForExistence(timeout: 2))
+        XCTAssertTrue(nowPlayingMenuItem.waitForExistence(timeout: 2))
+        assertSidebarMenuOrder(menuItems)
+        let nowPlayingTriggerFrame = titleMenu.frame
+        let nowPlayingPopupFrame = application.menus.firstMatch.frame
         XCTAssertEqual(
-            queueTriggerFrame.minY,
+            nowPlayingTriggerFrame.minY,
             libraryTriggerFrame.minY,
             accuracy: LayoutExpectation.maximumAdjacentElementOffset
         )
         XCTAssertEqual(
-            queueTriggerFrame.height,
+            nowPlayingTriggerFrame.height,
             libraryTriggerFrame.height,
             accuracy: LayoutExpectation.maximumAdjacentElementOffset
         )
         XCTAssertEqual(
-            queuePopupFrame.minY - queueTriggerFrame.maxY,
+            nowPlayingPopupFrame.minY - nowPlayingTriggerFrame.maxY,
             libraryPopupFrame.minY - libraryTriggerFrame.maxY,
             accuracy: LayoutExpectation.maximumAdjacentElementOffset
         )
         XCTAssertEqual(
-            queuePopupFrame.height,
+            nowPlayingPopupFrame.height,
             libraryPopupFrame.height,
             accuracy: LayoutExpectation.maximumAdjacentElementOffset
         )
+        assertSidebarMenuItemFrames(
+            menuItems.map(\.frame),
+            equalTo: libraryMenuItemFrames
+        )
+        playlistsMenuItem.click()
+
+        let playlistOverview = application
+            .descendants(matching: .any)
+            .matching(
+                identifier: SidebarAccessibilityIdentifier.playlistOverview
+            )
+            .firstMatch
+        XCTAssertTrue(playlistOverview.waitForExistence(timeout: 2))
+        let playlistsTitleMenu = application
+            .descendants(matching: .any)
+            .matching(identifier: SidebarAccessibilityIdentifier.titleMenu)
+            .firstMatch
+        XCTAssertTrue(playlistsTitleMenu.waitForExistence(timeout: 2))
+        XCTAssertEqual(playlistsTitleMenu.label, SidebarText.navigation)
         XCTAssertEqual(
-            mediaLibraryMenuItem.frame.minY,
-            libraryMediaItemFrame.minY,
+            playlistsTitleMenu.value as? String,
+            SidebarText.playlists
+        )
+        playlistsTitleMenu.click()
+        XCTAssertTrue(mediaLibraryMenuItem.waitForExistence(timeout: 2))
+        XCTAssertTrue(playlistsMenuItem.waitForExistence(timeout: 2))
+        XCTAssertTrue(nowPlayingMenuItem.waitForExistence(timeout: 2))
+        assertSidebarMenuOrder(menuItems)
+        let playlistsTriggerFrame = playlistsTitleMenu.frame
+        let playlistsPopupFrame = application.menus.firstMatch.frame
+        XCTAssertEqual(
+            playlistsTriggerFrame.minY,
+            libraryTriggerFrame.minY,
             accuracy: LayoutExpectation.maximumAdjacentElementOffset
         )
         XCTAssertEqual(
-            playQueueMenuItem.frame.minY,
-            libraryQueueItemFrame.minY,
+            playlistsTriggerFrame.height,
+            libraryTriggerFrame.height,
             accuracy: LayoutExpectation.maximumAdjacentElementOffset
         )
-        application.typeKey(.escape, modifierFlags: [])
+        XCTAssertEqual(
+            playlistsPopupFrame.minY - playlistsTriggerFrame.maxY,
+            libraryPopupFrame.minY - libraryTriggerFrame.maxY,
+            accuracy: LayoutExpectation.maximumAdjacentElementOffset
+        )
+        XCTAssertEqual(
+            playlistsPopupFrame.height,
+            libraryPopupFrame.height,
+            accuracy: LayoutExpectation.maximumAdjacentElementOffset
+        )
+        assertSidebarMenuItemFrames(
+            menuItems.map(\.frame),
+            equalTo: libraryMenuItemFrames
+        )
+        mediaLibraryMenuItem.click()
     }
 
     @MainActor
@@ -243,9 +422,12 @@ final class MuralumeLaunchTests: XCTestCase {
         )
         XCTAssertEqual(
             sidebarTitleMenu.label,
-            "Media Library or Play Queue"
+            SidebarText.navigation
         )
-        XCTAssertEqual(sidebarTitleMenu.value as? String, "Media Library")
+        XCTAssertEqual(
+            sidebarTitleMenu.value as? String,
+            SidebarText.mediaLibrary
+        )
         XCTAssertEqual(
             application
                 .descendants(matching: .any)
@@ -272,17 +454,29 @@ final class MuralumeLaunchTests: XCTestCase {
         let mediaLibraryMenuItem = application.menuItems[
             SidebarAccessibilityIdentifier.mediaLibraryMenuItem
         ]
-        let playQueueMenuItem = application.menuItems[
+        let playlistsMenuItem = application.menuItems[
+            SidebarAccessibilityIdentifier.playlistsMenuItem
+        ]
+        let nowPlayingMenuItem = application.menuItems[
             SidebarAccessibilityIdentifier.playQueueMenuItem
         ]
         XCTAssertTrue(mediaLibraryMenuItem.waitForExistence(timeout: 2))
-        XCTAssertTrue(playQueueMenuItem.waitForExistence(timeout: 2))
+        XCTAssertTrue(playlistsMenuItem.waitForExistence(timeout: 2))
+        XCTAssertTrue(nowPlayingMenuItem.waitForExistence(timeout: 2))
+        let sidebarMenuItems = [
+            mediaLibraryMenuItem,
+            playlistsMenuItem,
+            nowPlayingMenuItem
+        ]
+        assertSidebarMenuOrder(sidebarMenuItems)
         let librarySelectionTriggerFrame = sidebarTitleMenu.frame
-        let librarySelectionMediaItemFrame = mediaLibraryMenuItem.frame
-        let librarySelectionQueueItemFrame = playQueueMenuItem.frame
-        playQueueMenuItem.click()
+        let librarySelectionMenuItemFrames = sidebarMenuItems.map(\.frame)
+        nowPlayingMenuItem.click()
 
-        XCTAssertEqual(sidebarTitleMenu.value as? String, "Play Queue")
+        XCTAssertEqual(
+            sidebarTitleMenu.value as? String,
+            SidebarText.playQueue
+        )
         XCTAssertEqual(
             sidebarTitleMenu.frame.minX,
             mediaLibraryTitleX,
@@ -305,7 +499,9 @@ final class MuralumeLaunchTests: XCTestCase {
             )
             .click()
         XCTAssertTrue(mediaLibraryMenuItem.waitForExistence(timeout: 2))
-        XCTAssertTrue(playQueueMenuItem.waitForExistence(timeout: 2))
+        XCTAssertTrue(playlistsMenuItem.waitForExistence(timeout: 2))
+        XCTAssertTrue(nowPlayingMenuItem.waitForExistence(timeout: 2))
+        assertSidebarMenuOrder(sidebarMenuItems)
         XCTAssertEqual(
             sidebarTitleMenu.frame.minY,
             librarySelectionTriggerFrame.minY,
@@ -316,18 +512,15 @@ final class MuralumeLaunchTests: XCTestCase {
             librarySelectionTriggerFrame.height,
             accuracy: LayoutExpectation.maximumAdjacentElementOffset
         )
-        XCTAssertEqual(
-            mediaLibraryMenuItem.frame.minY,
-            librarySelectionMediaItemFrame.minY,
-            accuracy: LayoutExpectation.maximumAdjacentElementOffset
-        )
-        XCTAssertEqual(
-            playQueueMenuItem.frame.minY,
-            librarySelectionQueueItemFrame.minY,
-            accuracy: LayoutExpectation.maximumAdjacentElementOffset
+        assertSidebarMenuItemFrames(
+            sidebarMenuItems.map(\.frame),
+            equalTo: librarySelectionMenuItemFrames
         )
         mediaLibraryMenuItem.click()
-        XCTAssertEqual(sidebarTitleMenu.value as? String, "Media Library")
+        XCTAssertEqual(
+            sidebarTitleMenu.value as? String,
+            SidebarText.mediaLibrary
+        )
         XCTAssertTrue(application.sliders["Playback Position"].exists)
         assertApplicationMenuStructure(application)
 
@@ -339,7 +532,7 @@ final class MuralumeLaunchTests: XCTestCase {
         XCTAssertEqual(playbackModeButton.label, "Playback Mode")
         XCTAssertEqual(
             playbackModeButton.value as? String,
-            "Repeat in Shuffle"
+            "Shuffle and Repeat"
         )
         playbackModeButton.click()
         let orderedPlaybackMode = application.menuItems["Repeat in Order"]
@@ -968,6 +1161,62 @@ final class MuralumeLaunchTests: XCTestCase {
                 timeout: LifecycleExpectation.windowTransitionTimeout
             )
         )
+    }
+
+    @MainActor
+    private func assertSidebarMenuOrder(
+        _ menuItems: [XCUIElement],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(menuItems.count, 3, file: file, line: line)
+        guard menuItems.count == 3 else {
+            return
+        }
+
+        for index in 0..<(menuItems.count - 1) {
+            XCTAssertLessThan(
+                menuItems[index].frame.minY,
+                menuItems[index + 1].frame.minY,
+                SidebarText.orderRequirement,
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func assertSidebarMenuItemFrames(
+        _ frames: [CGRect],
+        equalTo expectedFrames: [CGRect],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(
+            frames.count,
+            expectedFrames.count,
+            file: file,
+            line: line
+        )
+        guard frames.count == expectedFrames.count else {
+            return
+        }
+
+        for (frame, expectedFrame) in zip(frames, expectedFrames) {
+            XCTAssertEqual(
+                frame.minY,
+                expectedFrame.minY,
+                accuracy: LayoutExpectation.maximumAdjacentElementOffset,
+                file: file,
+                line: line
+            )
+            XCTAssertEqual(
+                frame.height,
+                expectedFrame.height,
+                accuracy: LayoutExpectation.maximumAdjacentElementOffset,
+                file: file,
+                line: line
+            )
+        }
     }
 
     @MainActor

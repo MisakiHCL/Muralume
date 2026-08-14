@@ -6,6 +6,11 @@ import XCTest
 final class AppCoordinatorTests: XCTestCase {
     private enum TestPolicy {
         static let propagationAttempts = 1_000
+        static let automaticRefreshDebounceNanoseconds: UInt64 = 5_000_000
+        static let automaticRefreshReconciliationNanoseconds: UInt64 =
+            20_000_000
+        static let automaticRefreshPollNanoseconds: UInt64 = 1_000_000
+        static let automaticRefreshPollAttempts = 200
     }
 
     func testInteractiveLaunchUsesPlaybackSessionInsteadOfLoginPreset() async {
@@ -38,6 +43,145 @@ final class AppCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(sessionLoadCount, 1)
 
+        await fixture.coordinator.shutdown()
+    }
+
+    func testStartWiresRestoredFolderIntoAutomaticRefreshMonitor() async {
+        let monitor = AppCoordinatorMediaLibraryChangeMonitorSpy()
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            mediaLibraryChangeMonitor: monitor
+        )
+
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            monitor.updateCalls.last
+                == [fixture.item.rootURL.standardizedFileURL]
+                && fixture.library.scanState == .ready
+        }
+
+        XCTAssertEqual(
+            monitor.updateCalls.last,
+            [fixture.item.rootURL.standardizedFileURL]
+        )
+        await fixture.coordinator.shutdown()
+        XCTAssertEqual(monitor.stopCallCount, 1)
+    }
+
+    func testSilentFolderMonitorStillReconcilesThroughAppCoordinator()
+        async
+    {
+        let monitor = AppCoordinatorMediaLibraryChangeMonitorSpy()
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            mediaLibraryChangeMonitor: monitor,
+            automaticLibraryRefreshSchedule:
+                MediaLibraryAutomaticRefreshSchedule(
+                    debounceNanoseconds:
+                        TestPolicy.automaticRefreshDebounceNanoseconds,
+                    reconciliationNanoseconds:
+                        TestPolicy
+                            .automaticRefreshReconciliationNanoseconds
+                )
+        )
+
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.library.scanState == .ready
+                && fixture.library.items == [fixture.item]
+        }
+
+        let addedItem = LibraryMediaItem(
+            rootURL: fixture.item.rootURL,
+            rootName: fixture.item.rootName,
+            url: fixture.item.rootURL.appendingPathComponent("added.mp4"),
+            displayName: "Added",
+            relativePath: "added.mp4",
+            relativeDirectory: "",
+            creationDate: nil,
+            fileSize: 1
+        )
+        fixture.scanner.replaceSnapshot(
+            MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: fixture.item.rootURL,
+                        displayName: fixture.item.rootName
+                    )
+                ],
+                items: [fixture.item, addedItem]
+            )
+        )
+        await waitForAutomaticRefresh {
+            fixture.library.items.contains(addedItem)
+        }
+
+        XCTAssertTrue(fixture.library.items.contains(addedItem))
+        XCTAssertGreaterThanOrEqual(fixture.scanner.scannedRootURLs.count, 2)
+        await fixture.coordinator.shutdown()
+    }
+
+    func testInteractiveLaunchRestoresCustomPlaylistSidebar() async throws {
+        var collection = CustomPlaylistCollection.empty
+        let playlistID = try collection.createPlaylist(named: "旅行")
+        let rootURL = URL(
+            fileURLWithPath: "/tmp/AppCoordinatorTests/Library"
+        )
+        let item = LibraryMediaItem(
+            rootURL: rootURL,
+            rootName: "Library",
+            url: rootURL.appendingPathComponent("clip.mp4"),
+            displayName: "Clip",
+            relativePath: "clip.mp4",
+            relativeDirectory: "",
+            creationDate: nil,
+            fileSize: 1
+        )
+        try collection.add(items: [item], to: playlistID)
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            sessionPresentation: .player,
+            playlistCollection: collection,
+            restoredPlaybackCollection: .customPlaylist(playlistID)
+        )
+
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+                && fixture.library.activePlaybackCollection
+                    == .customPlaylist(playlistID)
+                && fixture.coordinator.playerChrome
+                    .librarySidebarController.destination
+                    == .playlist(playlistID)
+        }
+
+        XCTAssertEqual(
+            fixture.coordinator.playerChrome.librarySidebarController
+                .destination,
+            .playlist(playlistID)
+        )
+        await fixture.coordinator.shutdown()
+    }
+
+    func testMissingRestoredPlaylistKeepsMediaLibraryDestination() async {
+        let missingPlaylistID = CustomPlaylist.ID()
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            sessionPresentation: .player,
+            restoredPlaybackCollection: .customPlaylist(missingPlaylistID)
+        )
+
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+                && fixture.library.activePlaybackCollection == .fixed
+        }
+
+        XCTAssertEqual(
+            fixture.coordinator.playerChrome.librarySidebarController
+                .destination,
+            .mediaLibrary
+        )
         await fixture.coordinator.shutdown()
     }
 
@@ -1545,7 +1689,13 @@ final class AppCoordinatorTests: XCTestCase {
         selectedSources: [[URL]]? = nil,
         includeDesktopScene: Bool = false,
         desktopSceneSaveShouldFail: Bool = false,
-        desktopStoredScene: DesktopScene? = nil
+        desktopStoredScene: DesktopScene? = nil,
+        playlistCollection: CustomPlaylistCollection = .empty,
+        restoredPlaybackCollection: PlaybackCollection = .mediaLibrary,
+        mediaLibraryChangeMonitor: any MediaLibraryChangeMonitoring =
+            DisabledMediaLibraryChangeMonitor(),
+        automaticLibraryRefreshSchedule:
+            MediaLibraryAutomaticRefreshSchedule = .production
     ) -> AppCoordinatorFixture {
         let rootURL = URL(
             fileURLWithPath: "/tmp/AppCoordinatorTests/Library"
@@ -1566,7 +1716,9 @@ final class AppCoordinatorTests: XCTestCase {
             currentTime: 12,
             isPlaybackRequested: true,
             playbackRate: PlaybackPolicy.defaultRate,
-            videoContentMode: .cover
+            videoContentMode: .cover,
+            playbackCollection: restoredPlaybackCollection,
+            queueMediaReferences: [MediaReference(item: item)]
         )
         let engine = AppCoordinatorPlaybackEngine(
             blocksDesktopAttachment: blockDesktopAttachment
@@ -1601,6 +1753,11 @@ final class AppCoordinatorTests: XCTestCase {
             scanner: scanner,
             mediaThumbnailProvider: thumbnailProvider,
             playbackOrder: .ordered
+        )
+        let playlists = CustomPlaylistController(
+            store: AppCoordinatorCustomPlaylistStore(
+                collection: playlistCollection
+            )
         )
         let windowPresenter = MacMainWindowPresenter()
         let applicationPresence = TestApplicationPresenceController()
@@ -1681,6 +1838,7 @@ final class AppCoordinatorTests: XCTestCase {
             playback: playback,
             desktopSession: desktopSession,
             library: library,
+            playlists: playlists,
             mediaThumbnailProvider: thumbnailProvider,
             mainWindowPresenter: windowPresenter,
             applicationPresence: applicationPresence,
@@ -1690,6 +1848,9 @@ final class AppCoordinatorTests: XCTestCase {
             ),
             desktopPreset: desktopPreset,
             playbackSession: playbackSession,
+            mediaLibraryChangeMonitor: mediaLibraryChangeMonitor,
+            automaticLibraryRefreshSchedule:
+                automaticLibraryRefreshSchedule,
             desktopScene: desktopScene
         )
         let window = NSWindow(
@@ -1734,6 +1895,40 @@ final class AppCoordinatorTests: XCTestCase {
             await Task.yield()
         }
         XCTFail("Timed out waiting for coordinator state propagation")
+    }
+
+    private func waitForAutomaticRefresh(
+        _ condition: @escaping @MainActor () -> Bool
+    ) async {
+        for _ in 0..<TestPolicy.automaticRefreshPollAttempts {
+            if condition() {
+                return
+            }
+            try? await Task.sleep(
+                nanoseconds: TestPolicy.automaticRefreshPollNanoseconds
+            )
+        }
+        XCTFail("Timed out waiting for automatic folder reconciliation")
+    }
+}
+
+@MainActor
+private final class AppCoordinatorMediaLibraryChangeMonitorSpy:
+    MediaLibraryChangeMonitoring {
+    private(set) var updateCalls: [[URL]] = []
+    private(set) var stopCallCount = 0
+
+    @discardableResult
+    func update(
+        folderURLs: [URL],
+        onChange: @escaping @Sendable () -> Void
+    ) -> Bool {
+        updateCalls.append(folderURLs)
+        return true
+    }
+
+    func stop() {
+        stopCallCount += 1
     }
 }
 
@@ -2154,6 +2349,20 @@ private final class AppCoordinatorMediaScanner:
     ) async -> MediaLibraryItemAvailability {
         .available
     }
+}
+
+private actor AppCoordinatorCustomPlaylistStore: CustomPlaylistStoring {
+    private let collection: CustomPlaylistCollection
+
+    init(collection: CustomPlaylistCollection = .empty) {
+        self.collection = collection
+    }
+
+    func load() -> CustomPlaylistCollection {
+        collection
+    }
+
+    func save(_: CustomPlaylistCollection) {}
 }
 
 private actor AppCoordinatorPresetStore: DesktopPresetStoring {

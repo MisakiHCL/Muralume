@@ -15,6 +15,67 @@ private enum VirtualizedTableMemoryPolicy {
     static let indexCapacityRetentionDivisor = 4
 }
 
+struct VirtualizedTableUpdateTracker {
+    private(set) var appliedSnapshotToken: AnyHashable?
+    private(set) var appliedScrollToTopRequest: UInt64?
+
+    mutating func consumeSnapshotToken(_ token: AnyHashable) -> Bool {
+        guard appliedSnapshotToken != token else {
+            return false
+        }
+        appliedSnapshotToken = token
+        return true
+    }
+
+    mutating func consumeScrollToTopRequest(_ request: UInt64?) -> Bool {
+        guard let request else {
+            // Clearing search re-arms the same view for a later search. The
+            // request counter does not have to change before that first
+            // filtered snapshot arrives.
+            appliedScrollToTopRequest = nil
+            return false
+        }
+        guard appliedScrollToTopRequest != request else {
+            return false
+        }
+        appliedScrollToTopRequest = request
+        return true
+    }
+
+    mutating func shouldScrollToTop(
+        snapshotDidChange: Bool,
+        request: UInt64?
+    ) -> Bool {
+        let requestDidChange = consumeScrollToTopRequest(request)
+        return request != nil && (snapshotDidChange || requestDidChange)
+    }
+
+    mutating func reset() {
+        appliedSnapshotToken = nil
+        appliedScrollToTopRequest = nil
+    }
+}
+
+@MainActor
+enum VirtualizedTableScrollGeometry {
+    static func scrollToTop(
+        tableView: NSTableView,
+        scrollView: NSScrollView
+    ) {
+        guard tableView.numberOfRows > 0 else {
+            return
+        }
+
+        // After reloadData shrinks a deeply scrolled table, its clip view can
+        // temporarily retain an offset beyond the new document height. Asking
+        // NSTableView to reveal row zero first lets AppKit normalize both
+        // geometries; writing the clip offset directly can leave zero visible
+        // rows until a second search update.
+        tableView.scrollRowToVisible(0)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+}
+
 struct FixedHeightVirtualizedTable<
     Item: Identifiable,
     RowContent: View
@@ -26,9 +87,10 @@ struct FixedHeightVirtualizedTable<
     @Environment(\.locale) private var locale
 
     let items: [Item]
-    let snapshotRevision: UInt64
+    let snapshotRevision: AnyHashable
     let rowContentRevision: AnyHashable
     let scrollTargetID: Item.ID?
+    let scrollToTopRequest: UInt64?
     let rowHeight: CGFloat
     let rowSpacing: CGFloat
     let verticalContentInset: CGFloat
@@ -36,18 +98,20 @@ struct FixedHeightVirtualizedTable<
 
     init(
         items: [Item],
-        snapshotRevision: UInt64,
+        snapshotRevision: some Hashable,
         rowContentRevision: some Hashable,
         scrollTargetID: Item.ID?,
+        scrollToTopRequest: UInt64? = nil,
         rowHeight: CGFloat,
         rowSpacing: CGFloat,
         verticalContentInset: CGFloat,
         @ViewBuilder rowContent: @escaping (Item) -> RowContent
     ) {
         self.items = items
-        self.snapshotRevision = snapshotRevision
+        self.snapshotRevision = AnyHashable(snapshotRevision)
         self.rowContentRevision = AnyHashable(rowContentRevision)
         self.scrollTargetID = scrollTargetID
+        self.scrollToTopRequest = scrollToTopRequest
         self.rowHeight = rowHeight
         self.rowSpacing = rowSpacing
         self.verticalContentInset = verticalContentInset
@@ -146,6 +210,7 @@ struct FixedHeightVirtualizedTable<
             snapshotRevision: snapshotRevision,
             rowContentRevision: effectiveRowContentRevision,
             scrollTargetID: scrollTargetID,
+            scrollToTopRequest: scrollToTopRequest,
             tableView: tableView,
             scrollView: scrollView
         ) { item in
@@ -180,7 +245,7 @@ extension FixedHeightVirtualizedTable {
 
         private var items: [Item] = []
         private var itemIndices: [Item.ID: Int] = [:]
-        private var appliedSnapshotRevision: UInt64?
+        private var updateTracker = VirtualizedTableUpdateTracker()
         private var appliedRowContentRevision: AnyHashable?
         private var requestedScrollTarget: ScrollTarget?
         private var centeredScrollTarget: ScrollTarget?
@@ -236,19 +301,22 @@ extension FixedHeightVirtualizedTable {
 
         func update(
             items: [Item],
-            snapshotRevision: UInt64,
+            snapshotRevision: AnyHashable,
             rowContentRevision: AnyHashable,
             scrollTargetID: Item.ID?,
+            scrollToTopRequest: UInt64?,
             tableView: NSTableView,
             scrollView: NSScrollView,
             makeRowContent: @escaping (Item) -> AnyView
         ) {
             self.makeRowContent = makeRowContent
 
-            if appliedSnapshotRevision != snapshotRevision {
+            let snapshotDidChange = updateTracker.consumeSnapshotToken(
+                snapshotRevision
+            )
+            if snapshotDidChange {
                 applySnapshot(
                     items,
-                    revision: snapshotRevision,
                     to: tableView
                 )
                 appliedRowContentRevision = rowContentRevision
@@ -265,6 +333,15 @@ extension FixedHeightVirtualizedTable {
                 tableView: tableView,
                 scrollView: scrollView
             )
+            if updateTracker.shouldScrollToTop(
+                snapshotDidChange: snapshotDidChange,
+                request: scrollToTopRequest
+            ) {
+                scrollToTop(
+                    tableView: tableView,
+                    scrollView: scrollView
+                )
+            }
         }
 
         func dismantle(scrollView _: NSScrollView) {
@@ -277,7 +354,7 @@ extension FixedHeightVirtualizedTable {
             makeRowContent = nil
             items.removeAll(keepingCapacity: false)
             itemIndices.removeAll(keepingCapacity: false)
-            appliedSnapshotRevision = nil
+            updateTracker.reset()
             appliedRowContentRevision = nil
 
             tableView?.delegate = nil
@@ -287,7 +364,6 @@ extension FixedHeightVirtualizedTable {
 
         private func applySnapshot(
             _ items: [Item],
-            revision: UInt64,
             to tableView: NSTableView
         ) {
             self.items = items
@@ -302,8 +378,22 @@ extension FixedHeightVirtualizedTable {
             for (index, item) in items.enumerated() {
                 itemIndices[item.id] = index
             }
-            appliedSnapshotRevision = revision
             tableView.reloadData()
+        }
+
+        private func scrollToTop(
+            tableView: NSTableView,
+            scrollView: NSScrollView
+        ) {
+            pendingCenterTask?.cancel()
+            pendingCenterTask = nil
+            // An explicit top request wins over centering the current item
+            // until a different target is requested.
+            centeredScrollTarget = requestedScrollTarget
+            VirtualizedTableScrollGeometry.scrollToTop(
+                tableView: tableView,
+                scrollView: scrollView
+            )
         }
 
         private func refreshVisibleRows(in tableView: NSTableView) {

@@ -1,45 +1,5 @@
-import AppKit
 import Combine
 import SwiftUI
-
-private enum SidebarMenuImages {
-    static let checkmark: NSImage =
-        NSImage(
-            systemSymbolName: "checkmark",
-            accessibilityDescription: nil
-        ) ?? NSImage(
-            size: NSSize(
-                width: MuralumeTheme.Size.icon,
-                height: MuralumeTheme.Size.icon
-            )
-        )
-
-    static let emptyCheckmark: NSImage = {
-        let image = NSImage(size: checkmark.size)
-        image.isTemplate = true
-        return image
-    }()
-}
-
-private extension LibrarySidebarSection {
-    var localizedKey: LocalizedStringKey {
-        switch self {
-        case .mediaLibrary:
-            "library.playlist"
-        case .playQueue:
-            "queue.title"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .mediaLibrary:
-            "square.grid.2x2"
-        case .playQueue:
-            "list.bullet.rectangle"
-        }
-    }
-}
 
 struct LibraryQueueSidebar: View {
     @ObservedObject var library: MediaLibraryCoordinator
@@ -47,10 +7,15 @@ struct LibraryQueueSidebar: View {
     @EnvironmentObject private var localization: AppLocalizationController
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var pendingRootRemoval: MediaLibraryRoot?
-    @State private var isSidebarTitleHovered = false
     @State private var playbackStatus: LibraryPlaybackStatus
+    @State private var searchScrollToTopRequest: UInt64 = 0
+    @State private var searchProjectionCache =
+        MediaLibrarySearchProjectionCache()
     @Binding private var sidebarSection: LibrarySidebarSection
+    @Binding private var searchQuery: String
     let playbackQueueFocusRequest: UInt64
+    let searchFocusRequest: UInt64
+    let consumeSearchFocusRequest: (UInt64) -> Void
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let isEditing: Bool
     let setEditing: (Bool) -> Void
@@ -61,6 +26,11 @@ struct LibraryQueueSidebar: View {
     let addTemporaryItemsToLibrary: () -> Void
     let restoreDynamicDesktop: () -> Void
     let playLibraryItem: (LibraryMediaItem) -> Void
+    let customPlaylists: [CustomPlaylist]
+    let customPlaylistsRevision: UInt64
+    let showPlaylists: () -> Void
+    let addLibraryItemToPlaylist:
+        (LibraryMediaItem, CustomPlaylist.ID) -> Void
     let revealMediaInFinder: (URL) -> Void
     let dismiss: () -> Void
 
@@ -69,7 +39,10 @@ struct LibraryQueueSidebar: View {
         playback: PlaybackCoordinator,
         mediaThumbnailProvider: any MediaThumbnailProviding,
         sidebarSection: Binding<LibrarySidebarSection>,
+        searchQuery: Binding<String>,
         playbackQueueFocusRequest: UInt64,
+        searchFocusRequest: UInt64,
+        consumeSearchFocusRequest: @escaping (UInt64) -> Void,
         isEditing: Bool,
         setEditing: @escaping (Bool) -> Void,
         addMedia: @escaping () -> Void,
@@ -79,6 +52,13 @@ struct LibraryQueueSidebar: View {
         addTemporaryItemsToLibrary: @escaping () -> Void,
         restoreDynamicDesktop: @escaping () -> Void,
         playLibraryItem: @escaping (LibraryMediaItem) -> Void,
+        customPlaylists: [CustomPlaylist],
+        customPlaylistsRevision: UInt64,
+        showPlaylists: @escaping () -> Void,
+        addLibraryItemToPlaylist: @escaping (
+            LibraryMediaItem,
+            CustomPlaylist.ID
+        ) -> Void,
         revealMediaInFinder: @escaping (URL) -> Void,
         dismiss: @escaping () -> Void
     ) {
@@ -86,7 +66,10 @@ struct LibraryQueueSidebar: View {
         self.playback = playback
         self.mediaThumbnailProvider = mediaThumbnailProvider
         _sidebarSection = sidebarSection
+        _searchQuery = searchQuery
         self.playbackQueueFocusRequest = playbackQueueFocusRequest
+        self.searchFocusRequest = searchFocusRequest
+        self.consumeSearchFocusRequest = consumeSearchFocusRequest
         self.isEditing = isEditing
         self.setEditing = setEditing
         self.addMedia = addMedia
@@ -96,6 +79,10 @@ struct LibraryQueueSidebar: View {
         self.addTemporaryItemsToLibrary = addTemporaryItemsToLibrary
         self.restoreDynamicDesktop = restoreDynamicDesktop
         self.playLibraryItem = playLibraryItem
+        self.customPlaylists = customPlaylists
+        self.customPlaylistsRevision = customPlaylistsRevision
+        self.showPlaylists = showPlaylists
+        self.addLibraryItemToPlaylist = addLibraryItemToPlaylist
         self.revealMediaInFinder = revealMediaInFinder
         self.dismiss = dismiss
         _playbackStatus = State(
@@ -106,6 +93,19 @@ struct LibraryQueueSidebar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+
+            if !isEditing, sidebarSection == .mediaLibrary {
+                MediaSearchField(
+                    query: $searchQuery,
+                    focusRequest: searchFocusRequest,
+                    accessibilityLabel: localization.localized(
+                        "library.search.accessibility"
+                    ),
+                    consumeFocusRequest: consumeSearchFocusRequest,
+                    dismissSidebar: dismiss
+                )
+                .padding(.top, MuralumeTheme.Spacing.small)
+            }
 
             sidebarStatusBar
                 .frame(
@@ -157,6 +157,16 @@ struct LibraryQueueSidebar: View {
         }
         .onReceive(playbackStatusPublisher) { status in
             playbackStatus = status
+        }
+        .onChange(of: normalizedSearchQuery) {
+            if normalizedSearchQuery.isEmpty {
+                // Clearing search restores the existing current-item
+                // centering behavior instead of pinning the full library to
+                // its first row.
+                return
+            } else {
+                searchScrollToTopRequest &+= 1
+            }
         }
     }
 
@@ -260,119 +270,54 @@ struct LibraryQueueSidebar: View {
     @ViewBuilder
     private var sidebarTitle: some View {
         if isEditing {
-            sidebarTitleLabel(showsDisclosureIndicator: false)
+            HStack(spacing: MuralumeTheme.Spacing.xSmall) {
+                Image(systemName: navigationItem.systemImage)
+                    .font(
+                        .system(
+                            size: MuralumeTheme.Size.icon,
+                            weight: .semibold
+                        )
+                    )
+                    .symbolRenderingMode(.monochrome)
+                    .frame(
+                        width: MuralumeTheme.Size.sidebarTitleIconWidth,
+                        height: MuralumeTheme.Size.iconLarge,
+                        alignment: .center
+                    )
+                    .accessibilityHidden(true)
+
+                Text(navigationItem.localizedKey)
+                    .font(.headline)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(MuralumeTheme.Colors.textPrimary)
                 .padding(.horizontal, MuralumeTheme.Spacing.small)
                 .padding(.vertical, MuralumeTheme.Spacing.small)
                 .accessibilityIdentifier(
                     MuralumeAccessibilityIdentifier.libraryTitle
                 )
         } else {
-            Menu {
-                ForEach(LibrarySidebarSection.allCases, id: \.self) { section in
-                    Button {
-                        sidebarSection = section
-                    } label: {
-                        Label {
-                            Text(section.localizedKey)
-                        } icon: {
-                            Image(
-                                nsImage: sidebarSection == section
-                                    ? SidebarMenuImages.checkmark
-                                    : SidebarMenuImages.emptyCheckmark
-                            )
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    .accessibilityAddTraits(
-                        sidebarSection == section ? .isSelected : []
-                    )
-                    .accessibilityIdentifier(
-                        accessibilityIdentifier(for: section)
-                    )
+            LibrarySidebarNavigationMenu(selection: navigationItem) { item in
+                switch item {
+                case .mediaLibrary:
+                    sidebarSection = .mediaLibrary
+                case .playlists:
+                    showPlaylists()
+                case .nowPlaying:
+                    sidebarSection = .playQueue
                 }
-            } label: {
-                sidebarTitleLabel(showsDisclosureIndicator: true)
             }
-            .menuStyle(.button)
-            .buttonStyle(
-                MuralumeToolbarButtonStyle(
-                    kind: isSidebarTitleHovered ? .selected : .standard
-                )
-            )
-            .menuIndicator(.hidden)
-            .onHover { isHovered in
-                isSidebarTitleHovered = isHovered
-            }
-            .onDisappear {
-                isSidebarTitleHovered = false
-            }
-            .help(Text("queue.navigation"))
-            .accessibilityLabel(Text("queue.navigation"))
-            .accessibilityValue(Text(sidebarSection.localizedKey))
-            .accessibilityIdentifier(
-                MuralumeAccessibilityIdentifier.libraryTitle
-            )
         }
     }
 
-    private func sidebarTitleLabel(
-        showsDisclosureIndicator: Bool
-    ) -> some View {
-        HStack(spacing: MuralumeTheme.Spacing.xSmall) {
-            Image(systemName: sidebarSection.systemImage)
-                .font(
-                    .system(
-                        size: MuralumeTheme.Size.icon,
-                        weight: .semibold
-                    )
-                )
-                .symbolRenderingMode(.monochrome)
-                .frame(
-                    width: MuralumeTheme.Size.sidebarTitleIconWidth,
-                    height: MuralumeTheme.Size.iconLarge,
-                    alignment: .center
-                )
-                .accessibilityHidden(true)
-
-            Text(sidebarSection.localizedKey)
-                .font(.headline)
-                .lineLimit(1)
-
-            if showsDisclosureIndicator {
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(
-                        .system(
-                            size: MuralumeTheme.Size.menuIndicator,
-                            weight: .semibold
-                        )
-                    )
-                    .foregroundStyle(
-                        isSidebarTitleHovered
-                            ? MuralumeTheme.Colors.textPrimary
-                            : MuralumeTheme.Colors.textSecondary
-                    )
-                    .accessibilityHidden(true)
-            }
-        }
-        .foregroundStyle(MuralumeTheme.Colors.textPrimary)
-        .contentShape(Rectangle())
+    private var navigationItem: LibrarySidebarNavigationItem {
+        sidebarSection == .mediaLibrary ? .mediaLibrary : .nowPlaying
     }
 
     private var sidebarHideLabelKey: String {
         sidebarSection == .mediaLibrary
             ? "library.playlist.hide"
             : "queue.hide"
-    }
-
-    private func accessibilityIdentifier(
-        for section: LibrarySidebarSection
-    ) -> String {
-        switch section {
-        case .mediaLibrary:
-            MuralumeAccessibilityIdentifier.mediaLibrarySectionMenuItem
-        case .playQueue:
-            MuralumeAccessibilityIdentifier.playQueueSectionMenuItem
-        }
     }
 
     private var hasQueueActions: Bool {
@@ -579,103 +524,8 @@ struct LibraryQueueSidebar: View {
     }
 
     private var rootEditor: some View {
-        VStack(alignment: .leading) {
-            ScrollView {
-                LazyVStack(spacing: MuralumeTheme.Spacing.small) {
-                    ForEach(library.roots) { root in
-                        HStack(spacing: MuralumeTheme.Spacing.medium) {
-                            Image(systemName: sourceIcon(for: root))
-                                .font(.system(size: MuralumeTheme.Size.icon))
-                                .foregroundStyle(
-                                    MuralumeTheme.Colors.controlAccent
-                                )
-
-                            VStack(
-                                alignment: .leading,
-                                spacing: MuralumeTheme.Spacing.xSmall
-                            ) {
-                                Text(verbatim: root.displayName)
-                                    .font(.body.weight(.medium))
-                                    .foregroundStyle(
-                                        MuralumeTheme.Colors.textPrimary
-                                    )
-                                    .lineLimit(1)
-
-                                Text(verbatim: root.url.path)
-                                    .font(.caption)
-                                    .foregroundStyle(
-                                        MuralumeTheme.Colors.textTertiary
-                                    )
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-
-                            Spacer(minLength: MuralumeTheme.Spacing.small)
-
-                            Button {
-                                pendingRootRemoval = root
-                            } label: {
-                                Image(systemName: "minus.circle.fill")
-                                    .font(
-                                        .system(
-                                            size: MuralumeTheme.Size.iconLarge,
-                                            weight: .semibold
-                                        )
-                                    )
-                                    .foregroundStyle(
-                                        MuralumeTheme.Colors.error
-                                    )
-                                    .frame(
-                                        width: MuralumeTheme.Size.control,
-                                        height: MuralumeTheme.Size.control
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                            .contentShape(Rectangle())
-                            .help(
-                                Text(
-                                    LocalizedStringKey(
-                                        rootRemovalLabelKey(for: root)
-                                    )
-                                )
-                            )
-                            .accessibilityLabel(
-                                Text(
-                                    LocalizedStringKey(
-                                        rootRemovalLabelKey(for: root)
-                                    )
-                                )
-                            )
-                        }
-                        .padding(MuralumeTheme.Spacing.small)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background {
-                            RoundedRectangle(
-                                cornerRadius: MuralumeTheme.Radius.medium,
-                                style: .continuous
-                            )
-                            .fill(
-                                MuralumeTheme.Colors.controlFill.opacity(0.52)
-                            )
-                            .overlay {
-                                RoundedRectangle(
-                                    cornerRadius: MuralumeTheme.Radius.medium,
-                                    style: .continuous
-                                )
-                                .stroke(
-                                    MuralumeTheme.Colors.border,
-                                    lineWidth: 1
-                                )
-                            }
-                        }
-                    }
-                }
-                .padding(
-                    .vertical,
-                    MuralumeTheme.Size.playlistContentInset
-                )
-            }
-            .scrollIndicators(.visible)
+        LibraryRootEditor(roots: library.roots) { root in
+            pendingRootRemoval = root
         }
     }
 
@@ -853,17 +703,37 @@ struct LibraryQueueSidebar: View {
                 retrySourceAccess: retryUnavailableSourceAccess,
                 reauthorizeMediaSources: reauthorizeMediaSources
             )
+        } else if filteredLibraryItems.isEmpty {
+            LibrarySearchEmptyState {
+                searchQuery = ""
+            }
         } else {
             FixedHeightVirtualizedTable(
-                items: library.items,
-                snapshotRevision: library.itemsRevision,
+                items: filteredLibraryItems,
+                snapshotRevision: LibraryPlaylistSnapshotRevision(
+                    itemsRevision: library.itemsRevision,
+                    query: normalizedSearchQuery
+                ),
                 rowContentRevision: LibraryPlaylistRowContentRevision(
                     currentItemID: library.currentItemID,
                     unavailableItemsRevision:
                         library.unavailableItemsRevision,
-                    playbackState: playbackStatus.rowState
+                    playbackState: playbackStatus.rowState,
+                    playlistCollectionRevision:
+                        customPlaylistsRevision,
+                    playlistMenuEntries: customPlaylists.map {
+                        LibraryPlaylistMenuEntryRevision(
+                            id: $0.id,
+                            name: $0.name
+                        )
+                    }
                 ),
-                scrollTargetID: library.currentItemID,
+                scrollTargetID: normalizedSearchQuery.isEmpty
+                    ? library.currentItemID
+                    : nil,
+                scrollToTopRequest: normalizedSearchQuery.isEmpty
+                    ? nil
+                    : searchScrollToTopRequest,
                 rowHeight: playlistRowHeight,
                 rowSpacing: MuralumeTheme.Spacing.xSmall,
                 verticalContentInset:
@@ -881,6 +751,10 @@ struct LibraryQueueSidebar: View {
                     },
                     revealInFinder: {
                         revealMediaInFinder(item.url)
+                    },
+                    customPlaylists: customPlaylists,
+                    addToPlaylist: { playlistID in
+                        addLibraryItemToPlaylist(item, playlistID)
                     }
                 )
                 // NSHostingView is a separate SwiftUI root.
@@ -927,7 +801,14 @@ struct LibraryQueueSidebar: View {
     }
 
     private var videoCountText: String {
-        localization.localizedFormat(
+        if !normalizedSearchQuery.isEmpty {
+            return localization.localizedFormat(
+                "library.search.results",
+                filteredLibraryItems.count,
+                library.items.count
+            )
+        }
+        return localization.localizedFormat(
             library.items.count == 1
                 ? "library.video.count.one"
                 : "library.video.count",
@@ -935,22 +816,20 @@ struct LibraryQueueSidebar: View {
         )
     }
 
-    private func sourceIcon(for root: MediaLibraryRoot) -> String {
-        switch root.kind {
-        case .file:
-            "film.fill"
-        case .folder:
-            "folder.fill"
-        }
+    private var normalizedSearchQuery: String {
+        searchProjection.search.query
     }
 
-    private func rootRemovalLabelKey(for root: MediaLibraryRoot) -> String {
-        switch root.kind {
-        case .file:
-            "library.video.remove"
-        case .folder:
-            "library.folder.remove"
-        }
+    private var filteredLibraryItems: [LibraryMediaItem] {
+        searchProjection.items
+    }
+
+    private var searchProjection: MediaLibrarySearchProjection {
+        searchProjectionCache.projection(
+            query: searchQuery,
+            itemsRevision: library.itemsRevision,
+            items: library.items
+        )
     }
 
     private var rootRemovalTitleKey: String {
@@ -1016,409 +895,5 @@ struct LibraryQueueSidebar: View {
             library.sort.direction.localizedKey
         )
         return "\(field), \(direction)"
-    }
-}
-
-private struct LibraryPlaybackStatus: Equatable {
-    let rowState: LibraryMediaRowPlaybackState
-
-    @MainActor
-    init(playback: PlaybackCoordinator) {
-        self.init(
-            readiness: playback.readiness,
-            isPlaybackRequested: playback.isPlaybackRequested,
-            hasPlayableMedia: playback.hasPlayableMedia
-        )
-    }
-
-    init(
-        readiness: PlaybackReadiness,
-        isPlaybackRequested: Bool,
-        hasPlayableMedia: Bool
-    ) {
-        if hasPlayableMedia {
-            rowState = isPlaybackRequested ? .playing : .paused
-            return
-        }
-
-        switch readiness {
-        case .loading:
-            rowState = .loading
-        case .ready:
-            rowState = isPlaybackRequested ? .playing : .paused
-        case .empty, .failed:
-            rowState = .paused
-        }
-    }
-}
-
-private struct LibraryPlaylistRowContentRevision: Hashable {
-    let currentItemID: LibraryMediaItem.ID?
-    let unavailableItemsRevision: UInt64
-    let playbackState: LibraryMediaRowPlaybackState
-}
-
-enum LibraryMediaRowPlaybackState: Hashable {
-    case available
-    case loading
-    case playing
-    case paused
-    case unavailable
-
-    var accessibilityKey: String {
-        switch self {
-        case .available:
-            "queue.item.play"
-        case .loading:
-            "queue.item.loading"
-        case .playing:
-            "queue.item.playing"
-        case .paused:
-            "queue.item.paused"
-        case .unavailable:
-            "queue.item.unavailable"
-        }
-    }
-}
-
-private struct LibraryMediaRow: View {
-    @EnvironmentObject private var localization: AppLocalizationController
-
-    let item: LibraryMediaItem
-    let isCurrent: Bool
-    let playbackState: LibraryMediaRowPlaybackState
-    let rowHeight: CGFloat
-    let mediaThumbnailProvider: any MediaThumbnailProviding
-    let play: () -> Void
-    let revealInFinder: () -> Void
-
-    var body: some View {
-        let displayedLocation = locationText
-        let formattedFileSize = fileSizeText
-        let formattedCreationDate = creationDateText
-        let rowAccessibilityLabel = accessibilityLabel(
-            locationText: displayedLocation,
-            fileSizeText: formattedFileSize,
-            creationDateText: formattedCreationDate
-        )
-
-        Button(action: play) {
-            HStack(spacing: MuralumeTheme.Spacing.small) {
-                LibraryMediaThumbnail(
-                    item: item,
-                    isCurrent: isCurrent,
-                    provider: mediaThumbnailProvider
-                )
-
-                VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.xSmall) {
-                    Text(item.displayName)
-                        .font(.body.weight(isCurrent ? .semibold : .regular))
-                        .foregroundStyle(MuralumeTheme.Colors.textPrimary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    Text(displayedLocation)
-                        .font(.caption)
-                        .foregroundStyle(MuralumeTheme.Colors.textTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    HStack(spacing: MuralumeTheme.Spacing.xSmall) {
-                        Text(verbatim: formattedFileSize)
-                            .fixedSize(horizontal: true, vertical: false)
-
-                        Text(verbatim: "·")
-                            .accessibilityHidden(true)
-
-                        Text(verbatim: formattedCreationDate)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    }
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-                }
-
-                Spacer(minLength: MuralumeTheme.Spacing.xSmall)
-
-                ZStack {
-                    switch playbackState {
-                    case .unavailable:
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundStyle(MuralumeTheme.Colors.error)
-                            .help(Text("library.item.unavailable"))
-                    case .loading:
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(MuralumeTheme.Colors.controlAccent)
-                    case .playing:
-                        Image(systemName: "waveform")
-                            .foregroundStyle(
-                                MuralumeTheme.Colors.controlAccent
-                            )
-                    case .paused:
-                        Image(systemName: "play.fill")
-                            .foregroundStyle(
-                                MuralumeTheme.Colors.controlAccent
-                            )
-                    case .available:
-                        Color.clear
-                    }
-                }
-                .frame(
-                    width: MuralumeTheme.Size.iconLarge,
-                    height: MuralumeTheme.Size.iconLarge
-                )
-            }
-            .padding(MuralumeTheme.Spacing.small)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: rowHeight)
-            .background {
-                RoundedRectangle(
-                    cornerRadius: MuralumeTheme.Radius.medium,
-                    style: .continuous
-                )
-                .fill(
-                    isCurrent
-                        ? MuralumeTheme.Colors.controlHover
-                        : MuralumeTheme.Colors.controlFill.opacity(0.36)
-                )
-                .overlay {
-                    RoundedRectangle(
-                        cornerRadius: MuralumeTheme.Radius.medium,
-                        style: .continuous
-                    )
-                    .stroke(
-                        isCurrent
-                            ? MuralumeTheme.Colors.borderStrong
-                            : Color.clear,
-                        lineWidth: 1
-                    )
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
-        .contextMenu {
-            Button(action: revealInFinder) {
-                Label(
-                    "library.item.revealInFinder",
-                    systemImage: "folder"
-                )
-            }
-        }
-        .help(Text(verbatim: item.relativePath))
-        .accessibilityLabel(Text(verbatim: rowAccessibilityLabel))
-        .accessibilityValue(
-            Text(
-                LocalizedStringKey(playbackState.accessibilityKey)
-            )
-        )
-    }
-
-    private var locationText: String {
-        guard !item.relativeDirectory.isEmpty else {
-            return item.rootName
-        }
-        return "\(item.rootName) / \(item.relativeDirectory)"
-    }
-
-    private var fileSizeText: String {
-        ByteCountFormatStyle(
-            style: .file,
-            allowedUnits: .all,
-            spellsOutZero: false,
-            includesActualByteCount: false
-        )
-            .locale(localization.locale)
-            .format(max(item.fileSize, 0))
-    }
-
-    private var creationDateText: String {
-        guard let creationDate = item.creationDate else {
-            return localization.localized(
-                "library.item.creationDate.unavailable"
-            )
-        }
-
-        return Date.FormatStyle(
-            date: .numeric,
-            time: .shortened,
-            locale: localization.locale
-        )
-        .format(creationDate)
-    }
-
-    private func accessibilityLabel(
-        locationText: String,
-        fileSizeText: String,
-        creationDateText: String
-    ) -> String {
-        let metadata: String
-        if item.creationDate == nil {
-            metadata = localization.localizedFormat(
-                "library.item.metadata.accessibility.dateUnavailable",
-                fileSizeText
-            )
-        } else {
-            metadata = localization.localizedFormat(
-                "library.item.metadata.accessibility",
-                fileSizeText,
-                creationDateText
-            )
-        }
-        return "\(item.displayName), \(locationText), \(metadata)"
-    }
-}
-
-private struct LibrarySidebarEmptyState: View {
-    let scanState: MediaLibraryScanState
-    let sourceAccessState: MediaLibrarySourceAccessState
-    let canRetrySourceAccess: Bool
-    let retryScan: () -> Void
-    let retrySourceAccess: () -> Void
-    let reauthorizeMediaSources: () -> Void
-
-    private var sourceAccessIsUnavailable: Bool {
-        sourceAccessState.hasUnavailableSources
-    }
-
-    private var sourceAccessUnavailableTitleKey: String {
-        sourceAccessState == .partiallyUnavailable
-            ? "library.sourceAccess.partial"
-            : "library.sourceAccess.unavailable.title"
-    }
-
-    private var scanFailure: MediaLibraryScanFailure? {
-        guard case let .failed(failure) = scanState else {
-            return nil
-        }
-        return failure
-    }
-
-    private var iconName: String {
-        if sourceAccessIsUnavailable {
-            return "externaldrive.badge.exclamationmark"
-        }
-        if scanFailure != nil {
-            return "exclamationmark.triangle.fill"
-        }
-        if scanState == .scanning {
-            return "magnifyingglass"
-        }
-        return "plus.rectangle.on.folder"
-    }
-
-    var body: some View {
-        VStack(spacing: MuralumeTheme.Spacing.medium) {
-            Spacer(minLength: MuralumeTheme.Spacing.large)
-
-            Image(systemName: iconName)
-            .font(.system(size: 32, weight: .medium))
-            .foregroundStyle(MuralumeTheme.Colors.controlAccent)
-            .accessibilityHidden(true)
-
-            Text(
-                LocalizedStringKey(
-                    sourceAccessIsUnavailable
-                        && scanState != .scanning
-                        ? sourceAccessUnavailableTitleKey
-                        : scanFailure?.localizedTitleKey
-                            ?? "library.playlist.empty"
-                )
-            )
-            .font(.body.weight(.semibold))
-            .multilineTextAlignment(.center)
-
-            if sourceAccessIsUnavailable,
-               scanState != .scanning {
-                Text(
-                    LocalizedStringKey(
-                        sourceAccessState == .partiallyUnavailable
-                            ? "library.sourceAccess.partial.detail"
-                            : "library.sourceAccess.unavailable.detail"
-                    )
-                )
-                .font(.caption)
-                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-                .multilineTextAlignment(.center)
-            } else if let scanFailure {
-                Text(LocalizedStringKey(scanFailure.localizedDetailKey))
-                    .font(.caption)
-                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            if sourceAccessIsUnavailable,
-               scanState != .scanning {
-                HStack(spacing: MuralumeTheme.Spacing.small) {
-                    Button("library.sourceAccess.retry") {
-                        retrySourceAccess()
-                    }
-                    .buttonStyle(
-                        MuralumeToolbarButtonStyle(
-                            width: MuralumeTheme.Size
-                                .playlistRefreshActionWidth
-                        )
-                    )
-                    .disabled(!canRetrySourceAccess)
-                    .accessibilityIdentifier(
-                        MuralumeAccessibilityIdentifier
-                            .retrySourceAccessButton
-                    )
-
-                    Button("library.sourceAccess.reauthorize") {
-                        reauthorizeMediaSources()
-                    }
-                    .buttonStyle(
-                        MuralumeToolbarButtonStyle(
-                            width: MuralumeTheme.Size
-                                .playlistRefreshActionWidth
-                        )
-                    )
-                    .accessibilityIdentifier(
-                        MuralumeAccessibilityIdentifier
-                            .reauthorizeSourcesButton
-                    )
-                }
-            } else if scanFailure != nil {
-                Button("library.retry") {
-                    retryScan()
-                }
-                .buttonStyle(
-                    MuralumeToolbarButtonStyle(
-                        width: MuralumeTheme.Size
-                            .playlistRefreshActionWidth
-                    )
-                )
-            }
-
-            Spacer(minLength: MuralumeTheme.Spacing.large)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(MuralumeTheme.Spacing.medium)
-    }
-}
-
-private extension MediaLibrarySortField {
-    var localizedKey: String {
-        switch self {
-        case .name:
-            "library.sort.name"
-        case .creationDate:
-            "library.sort.creationDate"
-        case .fileSize:
-            "library.sort.fileSize"
-        }
-    }
-}
-
-private extension MediaLibrarySortDirection {
-    var localizedKey: String {
-        switch self {
-        case .ascending:
-            "library.sort.ascending"
-        case .descending:
-            "library.sort.descending"
-        }
     }
 }

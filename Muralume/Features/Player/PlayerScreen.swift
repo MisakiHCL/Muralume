@@ -6,6 +6,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
     @ObservedObject var desktopSession: DesktopSessionCoordinator
     @ObservedObject var desktopScene: DesktopSceneController
     @ObservedObject var library: MediaLibraryCoordinator
+    @ObservedObject var playlists: CustomPlaylistController
     @ObservedObject var dynamicDesktopStartup:
         DynamicDesktopStartupController
     @ObservedObject var defaultVideoPlayer: DefaultVideoPlayerController
@@ -17,6 +18,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
     let playerSurface: PlayerSurface
 
     @State private var isMediaDropTargeted = false
+    @State private var playlistNameEditor: PlaylistNameEditorRequest?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
     @EnvironmentObject private var localization: AppLocalizationController
@@ -109,14 +111,24 @@ struct PlayerScreen<PlayerSurface: View>: View {
                         .transition(.opacity)
                 }
             }
-            .allowsHitTesting(!chromeController.isDesktopLayoutPresented)
+            .allowsHitTesting(
+                !chromeController.isDesktopLayoutPresented
+                    && playlistNameEditor == nil
+            )
             .accessibilityHidden(
                 chromeController.isDesktopLayoutPresented
+                    || playlistNameEditor != nil
             )
 
             if chromeController.isDesktopLayoutPresented {
                 desktopLayoutOverlay
                     .zIndex(PlayerLayer.desktopLayout)
+                    .transition(.opacity)
+            }
+
+            if let request = playlistNameEditor {
+                playlistNameEditorOverlay(request)
+                    .zIndex(PlayerLayer.playlistNameEditor)
                     .transition(.opacity)
             }
         }
@@ -202,6 +214,55 @@ struct PlayerScreen<PlayerSurface: View>: View {
             .padding(MuralumeTheme.Spacing.xLarge)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func playlistNameEditorOverlay(
+        _ request: PlaylistNameEditorRequest
+    ) -> some View {
+        ZStack {
+            MuralumeTheme.Colors.modalScrim
+                .contentShape(Rectangle())
+                .ignoresSafeArea()
+                .onTapGesture {
+                    playlistNameEditor = nil
+                }
+
+            PlaylistNameEditor(
+                request: request,
+                save: { name in
+                    try savePlaylistName(name, for: request)
+                },
+                cancel: {
+                    playlistNameEditor = nil
+                },
+                complete: {
+                    playlistNameEditor = nil
+                }
+            )
+            .id(request.id)
+            .contentShape(Rectangle())
+            .onTapGesture {}
+            .environmentObject(localization)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onExitCommand {
+            playlistNameEditor = nil
+        }
+    }
+
+    private func savePlaylistName(
+        _ name: String,
+        for request: PlaylistNameEditorRequest
+    ) throws {
+        switch request {
+        case .create:
+            let playlistID = try playlists.createPlaylist(named: name)
+            chromeController.librarySidebarController.selectDestination(
+                .playlist(playlistID)
+            )
+        case let .rename(playlist):
+            try playlists.renamePlaylist(id: playlist.id, to: name)
+        }
     }
 
     private var playerChrome: some View {
@@ -305,18 +366,12 @@ struct PlayerScreen<PlayerSurface: View>: View {
     private func sidePanelContent(for panel: PlayerSidePanel) -> some View {
         switch panel {
         case .playlist:
-            LibraryQueueSidebar(
+            LibrarySidebar(
                 library: library,
+                playlists: playlists,
+                navigation: chromeController.librarySidebarController,
                 playback: playback,
                 mediaThumbnailProvider: mediaThumbnailProvider,
-                sidebarSection: Binding(
-                    get: { chromeController.librarySidebarSection },
-                    set: { section in
-                        chromeController.selectLibrarySidebarSection(section)
-                    }
-                ),
-                playbackQueueFocusRequest:
-                    chromeController.playbackQueueFocusRequest,
                 isEditing: chromeController.isLibraryEditing,
                 setEditing: { isEditing in
                     chromeController.setLibraryEditing(isEditing)
@@ -330,10 +385,15 @@ struct PlayerScreen<PlayerSurface: View>: View {
                     actions.addTemporaryItemsToLibrary,
                 restoreDynamicDesktop: actions.restoreDynamicDesktop,
                 playLibraryItem: actions.playLibraryItem,
+                playCustomPlaylistItem:
+                    actions.playCustomPlaylistItem,
+                addLibraryItemToPlaylist:
+                    actions.addLibraryItemToPlaylist,
                 revealMediaInFinder: actions.revealMediaInFinder,
                 dismiss: {
                     chromeController.setPlaylistPresented(false)
-                }
+                },
+                playlistNameEditor: $playlistNameEditor
             )
         case .settings:
             SettingsView(
@@ -402,6 +462,7 @@ private enum PlayerLayer {
     static let topBar = 6.0
     static let mediaDrop = 7.0
     static let desktopLayout = 8.0
+    static let playlistNameEditor = 9.0
 }
 
 private struct MediaDropOverlay: View {

@@ -52,7 +52,8 @@ func makeItem(
     rootURL: URL,
     name: String,
     path: String,
-    fileSize: Int64 = 0
+    fileSize: Int64 = 0,
+    fileIdentity: MediaFileIdentity? = nil
 ) -> LibraryMediaItem {
     LibraryMediaItem(
         rootURL: rootURL,
@@ -62,7 +63,8 @@ func makeItem(
         relativePath: path,
         relativeDirectory: "",
         creationDate: nil,
-        fileSize: fileSize
+        fileSize: fileSize,
+        fileIdentity: fileIdentity
     )
 }
 

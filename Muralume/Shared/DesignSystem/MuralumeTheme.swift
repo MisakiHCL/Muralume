@@ -24,6 +24,7 @@ enum MuralumeTheme {
         static let borderStrong = Color.white.opacity(0.18)
         static let controlFill = Color.white.opacity(0.07)
         static let controlHover = Color.white.opacity(0.12)
+        static let modalScrim = Color.black.opacity(0.28)
         static let timelineSliderFill = controlAccent
         static let timelineSliderTrack = borderStrong
         static let volumeSliderFill = Color.white.opacity(0.42)
@@ -76,6 +77,7 @@ enum MuralumeTheme {
         static let settingsPanelWidth: CGFloat = 400
         static let settingsRowMinimumHeight: CGFloat = 60
         static let playlistStatusBarHeight: CGFloat = 32
+        static let searchFieldHeight: CGFloat = 32
         static let playlistContentInset: CGFloat = 8
         static let playlistRefreshActionWidth: CGFloat = 112
         static let playerControlsMaximumWidth: CGFloat = 1_040
@@ -165,6 +167,15 @@ enum MuralumeAccessibilityIdentifier {
     static let mediaLibraryToggleButton = "muralume.media-library-toggle"
     static let librarySidebar = "muralume.library-sidebar"
     static let libraryTitle = "muralume.library-title"
+    static let librarySearchField = "muralume.library-search"
+    static let searchResultsSummary = "muralume.search-results-summary"
+    static let playlistsSectionMenuItem =
+        "muralume.library-section.playlists"
+    static let playlistOverview = "muralume.playlists-overview"
+    static let newPlaylistButton = "muralume.playlist-new"
+    static let playlistNameField = "muralume.playlist-name"
+    static let playlistDetail = "muralume.playlist-detail"
+    static let playlistActionsButton = "muralume.playlist-actions"
     static let mediaLibrarySectionMenuItem =
         "muralume.library-section.media-library"
     static let playQueueSectionMenuItem =
@@ -448,6 +459,38 @@ struct MuralumeBrandButtonStyle: ButtonStyle {
                 radius: configuration.isPressed ? 8 : 16,
                 y: 4
             )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .opacity(isEnabled ? 1 : 0.38)
+    }
+}
+
+struct MuralumeLightButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.body.weight(.semibold))
+            .foregroundStyle(MuralumeTheme.Colors.canvas.opacity(0.9))
+            .padding(.horizontal, MuralumeTheme.Spacing.large)
+            .frame(height: 40)
+            .background {
+                RoundedRectangle(
+                    cornerRadius: MuralumeTheme.Radius.medium,
+                    style: .continuous
+                )
+                .fill(
+                    Color.white.opacity(
+                        configuration.isPressed ? 0.72 : 0.9
+                    )
+                )
+                .overlay {
+                    RoundedRectangle(
+                        cornerRadius: MuralumeTheme.Radius.medium,
+                        style: .continuous
+                    )
+                    .stroke(Color.white.opacity(0.4), lineWidth: 1)
+                }
+            }
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .opacity(isEnabled ? 1 : 0.38)
     }

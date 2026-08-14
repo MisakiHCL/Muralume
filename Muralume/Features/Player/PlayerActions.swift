@@ -8,6 +8,10 @@ struct PlayerActions {
     let addTemporaryItemsToLibrary: () -> Void
     let restoreDynamicDesktop: () -> Void
     let playLibraryItem: (LibraryMediaItem) -> Void
+    let playCustomPlaylistItem:
+        (LibraryMediaItem, CustomPlaylist.ID) -> Void
+    let addLibraryItemToPlaylist:
+        (LibraryMediaItem, CustomPlaylist.ID) -> Void
     let revealMediaInFinder: (URL) -> Void
     let enterDesktop: () -> Void
     let enterDesktopSynchronized: () -> Void

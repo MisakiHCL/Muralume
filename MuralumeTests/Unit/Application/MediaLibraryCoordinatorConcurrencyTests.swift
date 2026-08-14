@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import Muralume
 
@@ -7,6 +8,73 @@ final class MediaLibraryCoordinatorConcurrencyTests: XCTestCase {
         static let propagationAttempts = 10_000
         static let largeItemCount = 10_000
         static let backgroundSortItemCount = 600
+    }
+
+    func testRefreshDoesNotPoisonActiveSearchProjectionCache() async {
+        let rootURL = URL(fileURLWithPath: "/tmp/Search Refresh Library")
+        let root = makeRoot(rootURL)
+        let existingItem = makeItem(
+            rootURL: rootURL,
+            name: "Existing",
+            path: "Existing.mov"
+        )
+        let addedItem = makeItem(
+            rootURL: rootURL,
+            name: "Northern Sky",
+            path: "Northern Sky.mov"
+        )
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [root],
+                items: [existingItem]
+            )
+        )
+
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+
+        let query = "northern sky"
+        let cache = MediaLibrarySearchProjectionCache()
+        XCTAssertTrue(
+            cache.projection(
+                query: query,
+                itemsRevision: fixture.coordinator.itemsRevision,
+                items: fixture.coordinator.items
+            ).items.isEmpty
+        )
+
+        // SwiftUI observes objectWillChange synchronously. Recompute here to
+        // catch any transient mismatch between the collection and its cache
+        // revision during @Published's will-set notification.
+        let observation = fixture.coordinator.objectWillChange.sink {
+            _ = cache.projection(
+                query: query,
+                itemsRevision: fixture.coordinator.itemsRevision,
+                items: fixture.coordinator.items
+            )
+        }
+
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(
+                roots: [root],
+                items: [existingItem, addedItem]
+            )
+        )
+        fixture.coordinator.refresh()
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertTrue(fixture.coordinator.items.contains(addedItem))
+        XCTAssertEqual(
+            cache.projection(
+                query: query,
+                itemsRevision: fixture.coordinator.itemsRevision,
+                items: fixture.coordinator.items
+            ).items,
+            [addedItem]
+        )
+        withExtendedLifetime(observation) {}
+        await fixture.coordinator.shutdown()
     }
 
     func testLargeSortRequestsAreAsynchronousAndLatestRequestWins() async {

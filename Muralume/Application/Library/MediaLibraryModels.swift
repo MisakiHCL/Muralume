@@ -131,6 +131,7 @@ struct LibraryMediaItem: Identifiable, Hashable, Sendable {
     let creationDate: Date?
     let modificationDate: Date?
     let fileSize: Int64
+    let fileIdentity: MediaFileIdentity?
 
     init(
         rootURL: URL,
@@ -142,7 +143,8 @@ struct LibraryMediaItem: Identifiable, Hashable, Sendable {
         relativeDirectory: String,
         creationDate: Date?,
         modificationDate: Date? = nil,
-        fileSize: Int64
+        fileSize: Int64,
+        fileIdentity: MediaFileIdentity? = nil
     ) {
         let standardizedRootURL = rootURL.standardizedFileURL
         let standardizedURL = url.standardizedFileURL
@@ -161,6 +163,9 @@ struct LibraryMediaItem: Identifiable, Hashable, Sendable {
         self.creationDate = creationDate
         self.modificationDate = modificationDate
         self.fileSize = fileSize
+        self.fileIdentity = fileIdentity?.isValid == true
+            ? fileIdentity
+            : nil
     }
 }
 

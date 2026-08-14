@@ -81,6 +81,26 @@ The regular UI suite explicitly skips this opt-in class:
 This keeps normal local runs and CI independent of **.env.test.local** and
 developer media.
 
+## Automatic folder-monitoring checks
+
+After the normal import succeeds, keep Muralume open and perform these checks
+in Finder without pressing Refresh:
+
+1. add a supported video at the top level and confirm it appears;
+2. create a nested directory, add a supported video, and confirm it appears;
+3. rename and move a listed video and confirm a named-playlist entry follows
+   it without duplicating or advancing current playback;
+4. delete a non-current item and confirm the queue reconciles after the
+   automatic scan; and
+5. generate a short burst of safe-save/rename operations and confirm the app
+   settles without repeated scans, leaked tasks, or lost final state.
+
+Also run a release-candidate pass with a removable local APFS volume: import a
+folder, unmount and remount it at the same path, then confirm existing playlist
+entries are retained and the library recovers after remount. Network volumes,
+cloud placeholders, and FUSE filesystems are best effort; verify that manual
+Refresh remains an effective fallback.
+
 ## Troubleshooting
 
 - “Set MURALUME_REAL_MEDIA_DIRECTORY…”: create **.env.test.local**, or pass the

@@ -114,6 +114,7 @@ protocol MacMainMenuCommandHandling: AnyObject {
 
     func openSettings()
     func addMedia()
+    func searchMediaFromMenu()
     func editLibraryFromMenu()
     func togglePlaybackFromMenu()
     func seekBackwardFromMenu()
@@ -180,6 +181,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private weak var commandHandler: (any MacMainMenuCommandHandling)?
     private weak var mainWindow: NSWindow?
     private let localization: AppLocalizationController
+    private let mediaSearchCommand: MacMediaSearchMenuCommand
 
     private var cancellables: Set<AnyCancellable> = []
     private var isObserving = false
@@ -238,6 +240,11 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         self.localization = localization
         self.commandHandler = commandHandler
         self.mainWindow = mainWindow
+        mediaSearchCommand = MacMediaSearchMenuCommand(
+            application: application,
+            mainWindow: mainWindow,
+            commandHandler: commandHandler
+        )
         super.init()
 
         configureMenuStructure()
@@ -283,10 +290,11 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             return
         }
 
-        let hasPlayerFocus = playerHasCommandFocus
+        let hasPlayerWindowFocus = playerWindowHasFocus
         refreshPlayerCommands(
             state: commandHandler.mainMenuCommandState,
-            hasPlayerFocus: hasPlayerFocus
+            hasPlayerFocus: playerHasCommandFocus,
+            hasPlayerWindowFocus: hasPlayerWindowFocus
         )
 
         let keyWindow = application.keyWindow
@@ -298,8 +306,13 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
 
     func refreshPlayerCommands(
         state: MacMainMenuCommandState,
-        hasPlayerFocus: Bool
+        hasPlayerFocus: Bool,
+        hasPlayerWindowFocus: Bool? = nil
     ) {
+        mediaSearchCommand.refresh(
+            state: state,
+            playerWindowHasFocus: hasPlayerWindowFocus ?? hasPlayerFocus
+        )
         addMediaItem.isEnabled =
             hasPlayerFocus && isEnabled(.addMedia, in: state)
         editLibraryItem.isEnabled =
@@ -492,6 +505,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         actionsMenu.addItem(configureDesktopItem)
         actionsMenu.addItem(.separator())
         actionsMenu.addItem(addMediaItem)
+        actionsMenu.addItem(mediaSearchCommand.menuItem)
         actionsMenu.addItem(editLibraryItem)
         actionsMenu.addItem(.separator())
         actionsMenu.addItem(togglePlaybackItem)
@@ -632,6 +646,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         )
 
         addMediaItem.title = localization.localized("library.add.media")
+        mediaSearchCommand.updateLocalizedTitle(using: localization)
         editLibraryItem.title = localization.localized("library.edit")
         seekBackwardItem.title = localization.localized("player.back")
         seekForwardItem.title = localization.localized("player.forward")
@@ -677,13 +692,21 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             dockEnterDesktopItem,
             toggleFullScreenItem
         ].forEach { $0.isEnabled = false }
+        mediaSearchCommand.disable()
     }
 
-    private var playerHasCommandFocus: Bool {
+    private var playerWindowHasFocus: Bool {
         guard let application,
               let mainWindow,
               application.keyWindow === mainWindow,
               mainWindow.isVisible else {
+            return false
+        }
+        return true
+    }
+
+    private var playerHasCommandFocus: Bool {
+        guard playerWindowHasFocus, let mainWindow else {
             return false
         }
         if let textView = mainWindow.firstResponder as? NSTextView,

@@ -52,6 +52,9 @@ enum AppCompositionRoot {
             sort: initialPreferences.librarySort,
             preferencesStore: preferencesStore
         )
+        let playlists = CustomPlaylistController(
+            store: FileCustomPlaylistStore()
+        )
         let launchAtLogin = LaunchAtLoginController(
             service: MacLaunchAtLoginService()
         )
@@ -96,6 +99,7 @@ enum AppCompositionRoot {
             playback: playback,
             desktopSession: desktopSession,
             library: library,
+            playlists: playlists,
             mediaThumbnailProvider: mediaThumbnailProvider,
             mainWindowPresenter: mainWindowPresenter,
             applicationPresence: applicationPresence,

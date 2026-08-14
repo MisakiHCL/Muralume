@@ -56,6 +56,8 @@ struct PlaybackStateRestorer {
         phaseHandler(.preparingPlayback)
         let queueRestoreResult = await library.restoreQueue(
             from: state.queue,
+            playbackCollection: state.playbackCollection,
+            queueMediaReferences: state.queueMediaReferences,
             attachToPlayerSurface: target == .player
         )
         guard !Task.isCancelled else {

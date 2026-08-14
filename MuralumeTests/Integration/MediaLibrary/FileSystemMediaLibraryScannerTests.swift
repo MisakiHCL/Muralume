@@ -210,6 +210,35 @@ final class FileSystemMediaLibraryScannerTests: XCTestCase {
         )
     }
 
+    func testFileIdentitySurvivesRenameAndEnablesStableReferenceResolution()
+        async throws {
+        let sandboxURL = try makeSandbox()
+        defer { removeSandbox(sandboxURL) }
+        let originalURL = sandboxURL.appendingPathComponent("Before.mp4")
+        let renamedURL = sandboxURL.appendingPathComponent("After.mp4")
+        try writeFile(at: originalURL, byteCount: 1)
+        let scanner = FileSystemMediaLibraryScanner()
+        let originalSnapshot = try await scanner.scan(
+            rootURLs: [sandboxURL]
+        )
+        let originalItem = try XCTUnwrap(originalSnapshot.items.first)
+
+        try FileManager.default.moveItem(at: originalURL, to: renamedURL)
+        let renamedSnapshot = try await scanner.scan(
+            rootURLs: [sandboxURL]
+        )
+        let renamedItem = try XCTUnwrap(renamedSnapshot.items.first)
+
+        XCTAssertNotEqual(originalItem.id, renamedItem.id)
+        XCTAssertNotNil(originalItem.fileIdentity)
+        XCTAssertEqual(originalItem.fileIdentity, renamedItem.fileIdentity)
+        XCTAssertEqual(
+            MediaReferenceResolutionIndex(items: [renamedItem])
+                .resolve(MediaReference(item: originalItem))?.id,
+            renamedItem.id
+        )
+    }
+
     func testScansSingleFileAndMixedSourcesWithPartialUnsupportedInput() async throws {
         let sandboxURL = try makeSandbox()
         defer { removeSandbox(sandboxURL) }

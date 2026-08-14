@@ -130,6 +130,24 @@ final class PlayerChromeControllerTests: XCTestCase {
         XCTAssertTrue(controller.isLibraryEditing)
     }
 
+    func testRestoringPlaylistDestinationDoesNotRevealOrReplacePanel() {
+        let playlistID = CustomPlaylist.ID()
+        let controller = PlayerChromeController()
+        controller.librarySidebarController.updateQuery("sky")
+        controller.setSettingsPresented(true)
+
+        controller.restoreLibrarySidebarDestination(.playlist(playlistID))
+
+        XCTAssertTrue(controller.isSettingsPresented)
+        XCTAssertFalse(controller.isPlaylistPresented)
+        XCTAssertEqual(
+            controller.librarySidebarController.destination,
+            .playlist(playlistID)
+        )
+        XCTAssertEqual(controller.librarySidebarController.query, "")
+        XCTAssertEqual(controller.libraryQueueMode, .browsing)
+    }
+
     func testTransientMediaSwitchDoesNotRevealHiddenChrome() {
         let scheduler = ControlledPlayerChromeAutoHideScheduler()
         let controller = makeController(scheduler: scheduler)

@@ -509,6 +509,49 @@ final class PlaybackQueueTests: XCTestCase {
         XCTAssertEqual(queue.items, ["c", "b", "a"])
     }
 
+    func testAuthoritativeOrderedSynchronizationReordersOnlyPendingItems()
+        throws {
+        var queue = PlaybackQueue(items: ["a", "b", "c", "d"])
+        XCTAssertEqual(queue.moveToNext(), "b")
+        let historyBefore = queue.history
+
+        XCTAssertTrue(
+            queue.synchronizeItems(
+                ["d", "a", "b", "c"],
+                pendingOrderPolicy: .authoritative
+            )
+        )
+
+        XCTAssertEqual(queue.currentItem, "b")
+        XCTAssertEqual(queue.history, historyBefore)
+        XCTAssertEqual(queue.upNextItems, ["d", "c"])
+        XCTAssertEqual(queue.moveToNext(), "d")
+        XCTAssertEqual(queue.moveToNext(), "c")
+    }
+
+    func testAuthoritativeSynchronizationLeavesShuffledPendingOrderStable()
+        throws {
+        var randomSource = SeededRandomNumberGenerator(seed: 44)
+        var queue = PlaybackQueue(
+            items: ["a", "b", "c", "d"],
+            startingAt: "b",
+            order: .shuffled,
+            using: &randomSource
+        )
+        let pendingBefore = queue.upNextItems
+
+        XCTAssertTrue(
+            queue.synchronizeItems(
+                ["d", "c", "b", "a"],
+                pendingOrderPolicy: .authoritative,
+                using: &randomSource
+            )
+        )
+
+        XCTAssertEqual(queue.currentItem, "b")
+        XCTAssertEqual(queue.upNextItems, pendingBefore)
+    }
+
     func testRemovingDeferredOrderedItemKeepsPendingPositionInBounds() throws {
         var queue = PlaybackQueue(items: ["a", "c"])
         XCTAssertEqual(queue.moveToNext(), "c")

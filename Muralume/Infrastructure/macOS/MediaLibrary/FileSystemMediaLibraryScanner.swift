@@ -469,7 +469,8 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                 ),
                 creationDate: values.creationDate,
                 modificationDate: values.contentModificationDate,
-                fileSize: Int64(values.fileSize ?? 0)
+                fileSize: Int64(values.fileSize ?? 0),
+                fileIdentity: stableFileIdentity(from: values)
             )
             try budget.reserveMemory(for: item)
             onItem(item)
@@ -489,11 +490,13 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         .creationDateKey,
         .contentModificationDateKey,
         .fileSizeKey,
+        .fileResourceIdentifierKey,
         .isDirectoryKey,
         .isHiddenKey,
         .isPackageKey,
         .isRegularFileKey,
-        .isSymbolicLinkKey
+        .isSymbolicLinkKey,
+        .volumeIdentifierKey
     ]
 
     private static func inspectFile(
@@ -518,7 +521,34 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
             relativeDirectory: "",
             creationDate: values.creationDate,
             modificationDate: values.contentModificationDate,
-            fileSize: Int64(values.fileSize ?? 0)
+            fileSize: Int64(values.fileSize ?? 0),
+            fileIdentity: stableFileIdentity(from: values)
+        )
+    }
+
+    private static func stableFileIdentity(
+        from values: URLResourceValues
+    ) -> MediaFileIdentity? {
+        guard let volumeIdentifier = archivedIdentifier(
+            values.volumeIdentifier
+        ), let fileIdentifier = archivedIdentifier(
+            values.fileResourceIdentifier
+        ) else {
+            return nil
+        }
+        return MediaFileIdentity(
+            volumeIdentifier: volumeIdentifier,
+            fileIdentifier: fileIdentifier
+        )
+    }
+
+    private static func archivedIdentifier(_ value: Any?) -> Data? {
+        guard let value = value as? NSSecureCoding else {
+            return nil
+        }
+        return try? NSKeyedArchiver.archivedData(
+            withRootObject: value,
+            requiringSecureCoding: true
         )
     }
 

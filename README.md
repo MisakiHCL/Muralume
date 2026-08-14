@@ -24,11 +24,11 @@
   <img
     src=".github/assets/muralume-player-v1-en.png"
     width="1200"
-    alt="Muralume playing a local video with the playlist open"
+    alt="Muralume playing a local video with the Media Library open"
   >
 </p>
 
-Muralume is a private, native macOS Dynamic Desktop app that turns the videos and folders you choose into a living desktop. A focused local player and playlist keep everything organized—without an account, cloud upload, or tracking.
+Muralume is a private, native macOS Dynamic Desktop app that turns the videos and folders you choose into a living desktop. A focused local player, Media Library, and named playlists keep everything organized—without an account, cloud upload, or tracking.
 
 ## See it in motion
 
@@ -41,7 +41,7 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 | | |
 |---|---|
 | **Your videos, not a catalog** | Use pet moments, travel memories, timelapses, or generated clips you already own. |
-| **Folders become playlists** | Add individual videos, entire folders, or drop either directly from Finder. |
+| **Organize your way** | Search the library and create ordered, named playlists such as Travel or Sky. |
 | **A desktop that stays usable** | Motion sits behind desktop files and widgets without taking over clicks or focus. |
 | **Private and native** | Read-only local access, macOS-native playback, no account, uploads, ads, or telemetry. |
 
@@ -49,7 +49,7 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 
 1. Use the single Add Media picker to build a lasting library from videos, folders, or both, or drop them into Muralume from Finder.
 2. Open a supported video from Finder for a temporary viewing session, or play it directly from the library when it is already there.
-3. Choose ordered playback, shuffle, or Repeat Current and preview the real upcoming queue in the built-in player.
+3. Search with `⌘F`, group videos into named playlists, then choose ordered playback, shuffle, or Repeat Current and preview the real upcoming queue.
 4. Press `⌘D` to apply the current Dynamic Desktop layout. Use `⇧⌘D` or **Actions → Customize Displays…** to choose synchronized or per-display playback.
 
 ## Highlights
@@ -64,9 +64,9 @@ Use synchronized mode to place the current queue on enabled displays with one sh
 
 By default, Muralume keeps the full video sharp and fills any remaining space with a softly blurred version of the same frame.
 
-### Videos and folders become playlists
+### Build a Media Library from videos and folders
 
-Use one Add Media picker to choose individual videos, folders from your Mac or an external drive, or both in the same selection; you can also drop the same mix from Finder. Muralume recursively discovers AVFoundation-native MP4, MOV, M4V, MPEG, MPEG-2, MPEG-TS, 3GP, 3G2, AVI, and DV videos in folders, generates local thumbnails, and sorts everything by name, creation date, or file size—without reorganizing anything on disk. If a folder changes in Finder, use **Edit → Refresh Data** in the playlist to rescan the access you already granted.
+Use one Add Media picker to choose individual videos, folders from your Mac or an external drive, or both in the same selection; you can also drop the same mix from Finder. Muralume recursively discovers AVFoundation-native MP4, MOV, M4V, MPEG, MPEG-2, MPEG-TS, 3GP, 3G2, AVI, and DV videos in folders, generates local thumbnails, and sorts everything by name, creation date, or file size—without reorganizing anything on disk. While Muralume is running, authorized folders are monitored so additions, deletions, and renames within a folder refresh automatically. A periodic full scan catches changes missed on removable drives, network folders, cloud placeholders, or FUSE-backed sources, while **Refresh Media Library** remains available for an immediate update.
 
 Unsupported file formats are rejected when you add or open them, with a concise explanation instead of a format list in Settings. Drops onto the video area remain available while Settings is open; accepted files are added without autoplaying behind the panel.
 
@@ -76,7 +76,11 @@ Muralume also appears in Finder’s **Open With** menu for these supported video
 
 The Media Library is your complete, persistent, sortable collection. The Play Queue shows the actual playback sequence, including shuffle order and temporary Finder items. Selecting another library video preserves valid Previous navigation, and refreshing the library reconciles additions and confirmed deletions without discarding the active queue.
 
-Large queues stay responsive: Now Playing is followed by a bounded upcoming window, with more loaded only when requested. The library itself continues to use a native virtualized table for full-collection browsing.
+Large queues stay responsive: the current video is followed by a bounded upcoming window, with more loaded only when requested. The library itself continues to use a native virtualized table for full-collection browsing.
+
+### Search and named playlists
+
+Press `⌘F` to search by video name, source, folder, or relative path without changing the underlying library order. Create user-named playlists such as Travel or Sky, add videos from the library, drag to reorder, rename or delete the group, and search inside it. Selecting a filtered result still plays the complete playlist from that video. Entries remain visible with their last-known name when a drive is offline and reconnect through stable file identity after an unambiguous rename or move.
 
 ### Focused native playback
 
@@ -107,6 +111,7 @@ The menu bar item lets you pause, skip, choose a playback mode, change playback 
 | Action | Shortcut |
 |---|---|
 | Add videos or folders | `⌘O` |
+| Search videos | `⌘F` |
 | Set as Dynamic Desktop | `⌘D` |
 | Customize display layout | `⇧⌘D` |
 | Play / pause | `Space` |

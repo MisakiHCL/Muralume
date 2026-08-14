@@ -757,7 +757,9 @@ final class DesktopPresetController: ObservableObject {
             currentTime: playback.currentTime,
             isPlaybackRequested: playback.isPlaybackRequested,
             playbackRate: playback.settings.rate,
-            videoContentMode: desktopSession.videoContentMode
+            videoContentMode: desktopSession.videoContentMode,
+            playbackCollection: library.activePlaybackCollection,
+            queueMediaReferences: library.activeQueueMediaReferences
         )
     }
 

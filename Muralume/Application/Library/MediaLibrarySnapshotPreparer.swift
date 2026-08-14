@@ -110,18 +110,14 @@ struct DefaultMediaLibrarySnapshotPreparer:
     ) async throws -> PreparedMediaLibraryQueueReconciliation {
         try Task.checkCancellation()
 
-        var reconciledItemsByID: [
-            LibraryMediaItem.ID: LibraryMediaItem
-        ] = [:]
-        reconciledItemsByID.reserveCapacity(queueItemsByID.count)
-        for (queuedItemID, queuedItem) in queueItemsByID {
-            let item = availableItemsByID[queuedItemID] ?? queuedItem
-            reconciledItemsByID[item.id] = item
-        }
+        let resolutionIndex = MediaReferenceResolutionIndex(
+            items: Array(availableItemsByID.values)
+        )
+        let resolution = resolutionIndex.resolveQueuedItems(queueItemsByID)
 
         let remappedSnapshot = remappedQueueSnapshot(
             snapshot,
-            using: availableItemsByID
+            using: resolution.resolvedItemsByQueuedID
         )
         try Task.checkCancellation()
         let requiresQueueReplacement = !queueRepresentationsMatch(
@@ -134,7 +130,7 @@ struct DefaultMediaLibrarySnapshotPreparer:
         try Task.checkCancellation()
 
         return PreparedMediaLibraryQueueReconciliation(
-            queueItemsByID: reconciledItemsByID,
+            queueItemsByID: resolution.canonicalItemsByID,
             requiresQueueReplacement: requiresQueueReplacement,
             replacementQueue: replacementQueue,
             currentItemID: remappedSnapshot.currentItem
@@ -169,14 +165,14 @@ struct DefaultMediaLibrarySnapshotPreparer:
 
     private func remappedQueueSnapshot(
         _ snapshot: PlaybackQueueSnapshot<LibraryMediaItem.ID>,
-        using availableItemsByID: [
+        using resolvedItemsByQueuedID: [
             LibraryMediaItem.ID: LibraryMediaItem
         ]
     ) -> PlaybackQueueSnapshot<LibraryMediaItem.ID> {
         func canonicalID(
             _ id: LibraryMediaItem.ID
         ) -> LibraryMediaItem.ID {
-            availableItemsByID[id]?.id ?? id
+            resolvedItemsByQueuedID[id]?.id ?? id
         }
         func remap(
             _ location: PlaybackQueueSnapshotLocation<LibraryMediaItem.ID>

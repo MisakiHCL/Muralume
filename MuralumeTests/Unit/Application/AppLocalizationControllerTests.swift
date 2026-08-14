@@ -103,7 +103,7 @@ final class AppLocalizationControllerTests: XCTestCase {
                 "3 个视频，1 个媒体来源",
                 "部分媒体来源暂时不可用"
             ),
-            "3 个视频，1 个媒体来源，部分媒体来源暂时不可用"
+            "3 个视频，1 个媒体来源。部分媒体来源暂时不可用。"
         )
     }
 
@@ -172,7 +172,8 @@ final class AppLocalizationControllerTests: XCTestCase {
         )
         XCTAssertEqual(
             controller.localized("media.none.detail"),
-            "Drop videos or folders here, or use Add in the media library."
+            "Drop videos or folders here, or choose Add Media in the "
+                + "Media Library."
         )
         XCTAssertEqual(
             controller.localized("library.summary.empty"),
@@ -207,7 +208,7 @@ final class AppLocalizationControllerTests: XCTestCase {
         )
         XCTAssertEqual(
             controller.localized("media.none.detail"),
-            "拖入视频或文件夹，或点按媒体库中的“添加”。"
+            "拖入视频或文件夹，或在媒体库中点按“添加媒体”。"
         )
         XCTAssertEqual(
             controller.localized("library.summary.empty"),
@@ -227,15 +228,15 @@ final class AppLocalizationControllerTests: XCTestCase {
         )
         XCTAssertEqual(
             controller.localized("library.drop.title"),
-            "松开添加视频"
+            "松开以添加视频"
         )
         XCTAssertEqual(
             controller.localized("library.media.picker.message"),
-            "选择视频或文件夹"
+            "选择视频或文件夹。"
         )
     }
 
-    func testMediaLibraryAndPlayQueueTerminologyIsLocalized() {
+    func testSidebarDestinationTerminologyIsLocalized() {
         let controller = AppLocalizationController(
             initialLanguage: .english
         )
@@ -252,6 +253,26 @@ final class AppLocalizationControllerTests: XCTestCase {
             controller.localized("library.playlist.hide"),
             "Hide Media Library"
         )
+        XCTAssertEqual(controller.localized("playlists.title"), "Playlists")
+        XCTAssertEqual(
+            controller.localized("playlists.name.placeholder"),
+            "Enter a name"
+        )
+        XCTAssertEqual(
+            controller.localized("playlists.empty.detail"),
+            "Create custom groups for your videos."
+        )
+        XCTAssertEqual(
+            controller.localizedFormat(
+                "playlists.added.accessibility",
+                "Travel"
+            ),
+            "Travel, already added"
+        )
+        XCTAssertEqual(
+            controller.localized("playlists.hide"),
+            "Hide Playlists"
+        )
         XCTAssertEqual(controller.localized("queue.title"), "Play Queue")
         XCTAssertEqual(controller.localized("queue.upNext"), "Up Next")
         XCTAssertEqual(controller.localized("queue.showMore"), "Show More")
@@ -265,7 +286,7 @@ final class AppLocalizationControllerTests: XCTestCase {
                 "queue.item.accessibility.temporary",
                 "Playing"
             ),
-            "Playing, temporary item"
+            "Playing, temporary video"
         )
         XCTAssertEqual(
             controller.localized("queue.addToLibrary"),
@@ -283,6 +304,23 @@ final class AppLocalizationControllerTests: XCTestCase {
             controller.localized("library.playlist.hide"),
             "隐藏媒体库"
         )
+        XCTAssertEqual(controller.localized("playlists.title"), "播放列表")
+        XCTAssertEqual(
+            controller.localized("playlists.name.placeholder"),
+            "输入名称"
+        )
+        XCTAssertEqual(
+            controller.localized("playlists.empty.detail"),
+            "为视频创建自定义分组。"
+        )
+        XCTAssertEqual(
+            controller.localizedFormat(
+                "playlists.added.accessibility",
+                "旅行"
+            ),
+            "旅行，已添加"
+        )
+        XCTAssertEqual(controller.localized("playlists.hide"), "隐藏播放列表")
         XCTAssertEqual(controller.localized("queue.title"), "播放队列")
         XCTAssertEqual(controller.localized("queue.upNext"), "接下来播放")
         XCTAssertEqual(controller.localized("queue.showMore"), "显示更多")
@@ -293,7 +331,7 @@ final class AppLocalizationControllerTests: XCTestCase {
                 "queue.item.accessibility.temporary",
                 "正在播放"
             ),
-            "正在播放，临时项目"
+            "正在播放，临时视频"
         )
         XCTAssertEqual(
             controller.localized("queue.addToLibrary"),
@@ -414,7 +452,7 @@ final class AppLocalizationControllerTests: XCTestCase {
         XCTAssertEqual(controller.localized("queue.hide"), "Hide Play Queue")
         XCTAssertEqual(
             controller.localized("queue.navigation"),
-            "Media Library or Play Queue"
+            "Switch between Media Library, Playlists, and Play Queue"
         )
         XCTAssertEqual(
             controller.localized("queue.empty"),
@@ -435,7 +473,7 @@ final class AppLocalizationControllerTests: XCTestCase {
         )
         XCTAssertEqual(
             controller.localized("queue.mode.shuffled"),
-            "Repeat in Shuffle"
+            "Shuffle and Repeat"
         )
         XCTAssertEqual(
             controller.localized("queue.mode.repeatCurrent"),
@@ -447,7 +485,7 @@ final class AppLocalizationControllerTests: XCTestCase {
         )
         XCTAssertEqual(
             controller.localized("external.open.none"),
-            "No supported video in this request could be played."
+            "Muralume could not play any of the selected files."
         )
         XCTAssertEqual(
             controller.localizedFormat("external.open.skipped", 2),
@@ -466,7 +504,7 @@ final class AppLocalizationControllerTests: XCTestCase {
         XCTAssertEqual(controller.localized("queue.hide"), "隐藏播放队列")
         XCTAssertEqual(
             controller.localized("queue.navigation"),
-            "媒体库或播放队列"
+            "在媒体库、播放列表和播放队列之间切换"
         )
         XCTAssertEqual(controller.localized("queue.empty"), "播放队列为空")
         XCTAssertEqual(
@@ -496,7 +534,7 @@ final class AppLocalizationControllerTests: XCTestCase {
         )
         XCTAssertEqual(
             controller.localized("external.open.none"),
-            "此次打开的文件中没有可播放的受支持视频。"
+            "Muralume 无法播放任何所选文件。"
         )
         XCTAssertEqual(
             controller.localizedFormat("external.open.skipped", 2),
@@ -563,7 +601,7 @@ final class AppLocalizationControllerTests: XCTestCase {
             "desktop.layout.accessibility.enabled": "Enabled",
             "desktop.layout.accessibility.disabled": "Disabled",
             "desktop.layout.accessibility.displayCard.hint":
-                "Select to edit this display."
+                "Select this display to edit it."
         ]
 
         for (key, expectedValue) in englishStrings {
@@ -668,7 +706,7 @@ final class AppLocalizationControllerTests: XCTestCase {
             "desktop.layout.accessibility.enabled": "已启用",
             "desktop.layout.accessibility.disabled": "未启用",
             "desktop.layout.accessibility.displayCard.hint":
-                "选择以编辑这台显示器。"
+                "选择这台显示器即可编辑。"
         ]
 
         for (key, expectedValue) in simplifiedChineseStrings {
@@ -730,6 +768,27 @@ final class AppLocalizationControllerTests: XCTestCase {
         )
     }
 
+    func testLocalizationTablesHaveMatchingKeysAndFormatArguments() throws {
+        let english = try localizationTable(for: "en")
+        let simplifiedChinese = try localizationTable(for: "zh-Hans")
+
+        XCTAssertEqual(Set(english.keys), Set(simplifiedChinese.keys))
+        XCTAssertFalse(english.values.contains(""))
+        XCTAssertFalse(simplifiedChinese.values.contains(""))
+
+        for key in english.keys.sorted() {
+            let englishValue = try XCTUnwrap(english[key])
+            let simplifiedChineseValue = try XCTUnwrap(
+                simplifiedChinese[key]
+            )
+            XCTAssertEqual(
+                formatArgumentCounts(in: englishValue),
+                formatArgumentCounts(in: simplifiedChineseValue),
+                "Mismatched format arguments for \(key)"
+            )
+        }
+    }
+
     func testSystemLocaleChangeRefreshesFollowSystemLanguage() async {
         var preferredLanguages = ["en"]
         let controller = AppLocalizationController(
@@ -750,5 +809,31 @@ final class AppLocalizationControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.localized("settings.title"), "设置")
         XCTAssertEqual(controller.locale.identifier, "zh-Hans")
+    }
+
+    private func localizationTable(
+        for localization: String
+    ) throws -> [String: String] {
+        let url = try XCTUnwrap(
+            Bundle.main.url(
+                forResource: "Localizable",
+                withExtension: "strings",
+                subdirectory: nil,
+                localization: localization
+            )
+        )
+        let data = try Data(contentsOf: url)
+        let propertyList = try PropertyListSerialization.propertyList(
+            from: data,
+            options: [],
+            format: nil
+        )
+        return try XCTUnwrap(propertyList as? [String: String])
+    }
+
+    private func formatArgumentCounts(in value: String) -> [String: Int] {
+        ["%@", "%d"].reduce(into: [:]) { counts, argument in
+            counts[argument] = value.components(separatedBy: argument).count - 1
+        }
     }
 }

@@ -1120,7 +1120,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             playbackModeItems.map(\.title),
             [
                 "Repeat in Order",
-                "Repeat in Shuffle",
+                "Shuffle and Repeat",
                 "Repeat Current Video"
             ]
         )

@@ -7,7 +7,7 @@ details of the current UI.
 
 ## Product model
 
-Muralume keeps five related concepts separate:
+Muralume keeps six related concepts separate:
 
 1. **Media library** — the durable set of videos and folders the user has
    explicitly added. Its sources use read-only security-scoped bookmarks and
@@ -27,6 +27,9 @@ Muralume keeps five related concepts separate:
    each display. Disconnecting a display removes its playback resources but
    not its assignment, so the same stable display restores its video and fit
    when it reconnects.
+6. **Named playlist** — a user-named, ordered set of durable media references.
+   A playlist stores no bookmark and owns no security scope; entries resolve
+   through the media library and remain visible when their source is offline.
 
 `isExternalPlaybackContext` and `temporaryItemIDs` are deliberately
 orthogonal. A Finder request can use an external presentation context while
@@ -186,6 +189,17 @@ clicks an item or refreshes the library:
 - `synchronizeItems` reconciles durable membership while preserving the
   current item, playback position, existing pending order, shuffle round, and
   navigation history whenever possible.
+- Queue and playlist references use exact paths first and an unambiguous
+  volume/file identity fallback second. A rename or move on the same volume
+  can therefore preserve the current item and history; ambiguous hard-link
+  identities are never guessed.
+- Desktop and playback-session state schema 2 persists one `MediaReference`
+  per available queue member, so the same fallback also works across process
+  restarts. Schema-1 state migrates as a media-library queue with path-only
+  references.
+- Named playlists use authoritative pending order for ordered playback. A
+  user reorder changes only unplayed items and preserves the current item and
+  history; shuffled rounds keep their existing randomized pending order.
 - Ordered additions enter the current pending schedule after the current
   position. Shuffled additions are interleaved into pending items without
   reshuffling survivors.
@@ -218,13 +232,30 @@ the selected playback mode. This avoids unnecessary asset loading and queue
 checkpoint work while preserving the user’s chosen mode for later multi-item
 playback. Failed or unavailable media never enter an infinite repeat loop.
 
-## Sidebar roles and performance
+## Search, named playlists, and sidebar roles
 
-The sidebar title menu switches between two views with distinct roles:
+The sidebar title menu switches between three views with distinct roles:
 
 - **Media Library** is the full, sortable, virtualized durable collection.
+- **Playlists** is the user-named collection overview and ordered playlist
+  detail. Names and ordered membership persist independently of the queue.
 - **Play Queue** is the actual playback sequence, including temporary items and
   shuffle order.
+
+Media Library and playlist detail share one search contract: leading and
+trailing whitespace is ignored; name, relative path, containing directory,
+and source name use localized standard matching; results preserve the original
+order. Search is a projection only. Selecting a result always starts from the
+complete library or playlist rather than turning the filtered result set into
+the queue. `Command-F` is owned by the app menu, remains available while the
+search field is editing text, and moves focus to the active searchable
+collection.
+
+Playlist entries keep their last-known name and path while unavailable. They
+can still be searched, reordered, or explicitly removed, but cannot be played
+until the media resolves again. Filtering disables drag reordering because a
+filtered index is not an authoritative playlist position; Move Up and Move
+Down remain accessibility actions when the full list is visible.
 
 The queue is not deduplicated against the library because that would hide the
 real upcoming order. Instead it shows Now Playing plus a bounded window of 40
@@ -241,6 +272,41 @@ Media Library and Play Queue rows share the same thumbnail geometry and 8-point
 content inset. Current playback is communicated through row treatment and the
 state icon rather than an additional colored leading bar.
 
+## Automatic folder monitoring
+
+Only active, user-authorized folder sources are monitored. Explicit single
+files are not watched, and Muralume does not install a helper or continue
+monitoring after the process exits. Startup still performs a complete scan, so
+changes made while the app was closed are reconciled when it next opens.
+
+One FSEvents stream covers the normalized, deduplicated folder roots. It uses
+`WatchRoot`, `UseCFTypes`, `SinceNow`, and coarse events with approximately one
+second of stream latency. An event is only a dirty signal: the existing scanner
+produces a complete authoritative snapshot, and the existing publish path
+reconciles the queue and current playback. Event flags never mutate the media
+library directly.
+
+The monitor starts after bookmark restoration has opened the security scopes
+and before the matching scan starts. A bounded coalescing window is anchored to
+the first uncovered event; later events join that refresh without moving its
+deadline, so a continuously busy root cannot starve scanning. If an event
+arrives during a scan, that scan is allowed to finish and exactly one follow-up
+scan is scheduled; later events during the follow-up can schedule one more
+round. While active folders exist, a low-frequency authoritative reconciliation
+runs one minute after the previous scan or monitor installation even when the
+event stream is silent. Event-driven, manual, and reconciliation scans reset
+that deadline, and scans never overlap. This bounds silent event loss without
+replacing the normal event path with frequent polling. Root-set generations
+discard callbacks from removed or replaced streams. Shutdown invalidates the
+generation, cancels the coalescing and reconciliation tasks, and stops and
+drains the stream before media scopes are released.
+
+FSEvents and mount behavior on network filesystems, cloud placeholders, and
+FUSE volumes is best effort. The one-minute reconciliation is the automatic
+fallback, while Manual Refresh remains the immediate recovery action. Local
+removable APFS volumes require release-candidate testing for unmount/remount and
+source-access state behavior.
+
 ## Persistence and security invariants
 
 - External playback must never overwrite the last known durable player session
@@ -253,6 +319,10 @@ state icon rather than an additional colored leading bar.
   caller-managed until ownership transfers.
 - Temporary scopes, thumbnail requests, scans, playback loads, and root removal
   remain balanced across cancellation and shutdown.
+- Named playlists persist only stable references, names, and ordering in an
+  atomically replaced, bounded Application Support JSON file. Corrupt input is
+  reported and not overwritten. Security-scoped bookmarks remain solely owned
+  by `UserSelectedMediaSession`.
 
 ## Verification expectations
 
@@ -293,6 +363,10 @@ Future changes to this subsystem should cover, as applicable:
   Spaces, Stage Manager, and hot-plugged surfaces that are not ready yet;
 - load-sampler activation, hysteresis, stale generations, stop, and teardown;
 - complete versus incomplete refresh reconciliation;
+- burst, scan-overlap, root-generation, removal, and shutdown behavior for
+  automatic folder monitoring;
+- named-playlist CRUD, offline entries, stable rename/move resolution,
+  filtered-result playback, ordering, and persistence round trips;
 - ordered and shuffled selection, history, forward history, and persistence
   round trips;
 - one-item completion and disabled manual navigation;

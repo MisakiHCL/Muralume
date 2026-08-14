@@ -9,6 +9,7 @@ struct TemporaryPlaybackResolution: Sendable {
 struct MediaLibraryPlaybackContext: Sendable {
     let queueSnapshot: PlaybackQueueSnapshot<LibraryMediaItem.ID>
     let queueItemsByID: [LibraryMediaItem.ID: LibraryMediaItem]
+    let playbackCollection: PlaybackCollection
     let currentTime: TimeInterval
     let playbackIntent: PlaybackIntent
 }

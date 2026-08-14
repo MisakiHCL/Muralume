@@ -8,6 +8,11 @@ enum PlaybackQueueSelectionHistoryBehavior: Equatable, Sendable {
     case skipCurrent
 }
 
+enum PlaybackQueuePendingOrderPolicy: Equatable, Sendable {
+    case preserve
+    case authoritative
+}
+
 enum PlaybackQueuePolicy {
     static let minimumHistoryCapacity = 64
 
@@ -647,6 +652,20 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
         var randomSource = SystemRandomNumberGenerator()
         return synchronizeItems(
             synchronizedItems,
+            pendingOrderPolicy: .preserve,
+            using: &randomSource
+        )
+    }
+
+    @discardableResult
+    mutating func synchronizeItems(
+        _ synchronizedItems: [Item],
+        pendingOrderPolicy: PlaybackQueuePendingOrderPolicy
+    ) -> Bool {
+        var randomSource = SystemRandomNumberGenerator()
+        return synchronizeItems(
+            synchronizedItems,
+            pendingOrderPolicy: pendingOrderPolicy,
             using: &randomSource
         )
     }
@@ -657,10 +676,16 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
     @discardableResult
     mutating func synchronizeItems<RandomSource: RandomNumberGenerator>(
         _ synchronizedItems: [Item],
+        pendingOrderPolicy: PlaybackQueuePendingOrderPolicy = .preserve,
         using randomSource: inout RandomSource
     ) -> Bool {
         let uniqueItems = Self.uniqued(synchronizedItems)
-        guard uniqueItems != items else {
+        let needsAuthoritativePendingReorder =
+            pendingOrderPolicy == .authoritative
+                && order == .ordered
+                && authoritativePendingItems(from: uniqueItems)
+                    != Array(remainingItems[remainingIndex...])
+        guard uniqueItems != items || needsAuthoritativePendingReorder else {
             return false
         }
 
@@ -702,6 +727,12 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
                 addedItems,
                 authoritativeItems: uniqueItems
             )
+            if pendingOrderPolicy == .authoritative {
+                remainingItems.replaceSubrange(
+                    remainingIndex...,
+                    with: authoritativePendingItems(from: uniqueItems)
+                )
+            }
         case .shuffled:
             insertShuffledAdditions(
                 addedItems,
@@ -709,6 +740,13 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
             )
         }
         return true
+    }
+
+    private func authoritativePendingItems(
+        from authoritativeItems: [Item]
+    ) -> [Item] {
+        let pendingItemSet = Set(remainingItems[remainingIndex...])
+        return authoritativeItems.filter(pendingItemSet.contains)
     }
 
     @discardableResult

@@ -11,6 +11,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     let playback: PlaybackCoordinator
     let desktopSession: DesktopSessionCoordinator
     let library: MediaLibraryCoordinator
+    let playlists: CustomPlaylistController
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let playerChrome: PlayerChromeController
     let dynamicDesktopStartup: DynamicDesktopStartupController
@@ -23,6 +24,11 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     private let applicationPresence: any ApplicationPresenceControlling
     private let desktopPreset: DesktopPresetController
     private let playbackSession: PlaybackSessionController
+    private let customPlaylistPlaybackBridge:
+        CustomPlaylistPlaybackBridge
+    private let automaticLibraryRefresh:
+        MediaLibraryAutomaticRefreshController
+    private var automaticLibraryRefreshCancellables: Set<AnyCancellable> = []
     private var initialRestoreTask: Task<Void, Never>?
     private var sourceAccessRetryTask: Task<Void, Never>?
     private var sourceAccessRetryGeneration: UInt64 = 0
@@ -36,6 +42,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         playback: PlaybackCoordinator,
         desktopSession: DesktopSessionCoordinator,
         library: MediaLibraryCoordinator,
+        playlists: CustomPlaylistController,
         mediaThumbnailProvider: any MediaThumbnailProviding,
         mainWindowPresenter: MacMainWindowPresenter,
         applicationPresence: any ApplicationPresenceControlling,
@@ -43,12 +50,17 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         defaultVideoPlayer: DefaultVideoPlayerController,
         desktopPreset: DesktopPresetController,
         playbackSession: PlaybackSessionController,
+        mediaLibraryChangeMonitor: any MediaLibraryChangeMonitoring =
+            FSEventsMediaLibraryChangeMonitor(),
+        automaticLibraryRefreshSchedule:
+            MediaLibraryAutomaticRefreshSchedule = .production,
         desktopScene: DesktopSceneController? = nil,
         playerChrome: PlayerChromeController = PlayerChromeController()
     ) {
         self.playback = playback
         self.desktopSession = desktopSession
         self.library = library
+        self.playlists = playlists
         self.mediaThumbnailProvider = mediaThumbnailProvider
         self.mainWindowPresenter = mainWindowPresenter
         self.applicationPresence = applicationPresence
@@ -56,6 +68,18 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         self.defaultVideoPlayer = defaultVideoPlayer
         self.desktopPreset = desktopPreset
         self.playbackSession = playbackSession
+        customPlaylistPlaybackBridge = CustomPlaylistPlaybackBridge(
+            playlists: playlists,
+            library: library
+        )
+        automaticLibraryRefresh = MediaLibraryAutomaticRefreshController(
+            monitor: mediaLibraryChangeMonitor,
+            target: library,
+            debounceNanoseconds:
+                automaticLibraryRefreshSchedule.debounceNanoseconds,
+            reconciliationNanoseconds:
+                automaticLibraryRefreshSchedule.reconciliationNanoseconds
+        )
         self.desktopScene = desktopScene
         self.playerChrome = playerChrome
 
@@ -117,6 +141,22 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             }
             isMainWindowFullScreen = state
         }
+
+        library.$monitoredFolderURLs
+            .removeDuplicates()
+            .sink { [weak automaticLibraryRefresh] folderURLs in
+                automaticLibraryRefresh?.update(folderURLs: folderURLs)
+            }
+            .store(in: &automaticLibraryRefreshCancellables)
+        library.$scanState
+            .removeDuplicates()
+            .sink { [weak automaticLibraryRefresh] scanState in
+                automaticLibraryRefresh?.scanStateDidChange(
+                    isScanning: scanState == .scanning,
+                    lastScanSucceeded: scanState == .ready
+                )
+            }
+            .store(in: &automaticLibraryRefreshCancellables)
     }
 
     func start(source: ApplicationLaunchSource) {
@@ -124,6 +164,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             return
         }
         hasStarted = true
+        automaticLibraryRefresh.start(
+            folderURLs: library.monitoredFolderURLs
+        )
         dynamicDesktopStartup.refresh()
         initialRestoreGeneration &+= 1
         let generation = initialRestoreGeneration
@@ -137,6 +180,12 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                     commitCurrentState: false
                 )
                 initialRestoreTask = nil
+            }
+
+            await customPlaylistPlaybackBridge.startAndWait()
+            guard generation == initialRestoreGeneration,
+                  !isShutDown else {
+                return
             }
 
             let libraryStart = await library.startAsync()
@@ -161,6 +210,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                 guard generation == initialRestoreGeneration,
                       !isShutDown else {
                     return
+                }
+                if didRestore {
+                    restoreLibrarySidebarForActivePlaybackCollection()
                 }
                 if !didRestore {
                     showMainWindowInStandardMode()
@@ -199,6 +251,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             guard generation == initialRestoreGeneration,
                   !isShutDown else {
                 return
+            }
+            if restoreResult == .restored {
+                restoreLibrarySidebarForActivePlaybackCollection()
             }
             if restoreResult != .restored
                 || plan.presentation == .player {
@@ -573,6 +628,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             return
         }
         isShutDown = true
+        automaticLibraryRefreshCancellables.removeAll()
+        automaticLibraryRefresh.stop()
         externalOpenGeneration &+= 1
         clearDynamicDesktopReturnContext()
 
@@ -590,6 +647,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         await pendingInitialRestore?.value
         await pendingSourceAccessRetry?.value
         await mediaThumbnailProvider.shutdown()
+        await customPlaylistPlaybackBridge.shutdown()
         await library.shutdown()
     }
 
@@ -633,7 +691,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     @discardableResult
-    private func cancelSourceAccessRetry() -> Task<Void, Never>? {
+    func cancelSourceAccessRetry() -> Task<Void, Never>? {
         guard let sourceAccessRetryTask else {
             return nil
         }
@@ -759,6 +817,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                   !isShutDown else {
                 return
             }
+            if restoreResult == .restored {
+                restoreLibrarySidebarForActivePlaybackCollection()
+            }
             if restoreResult != .restored
                 || playback.presentation == .player {
                 showMainWindowInStandardMode()
@@ -799,7 +860,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         return library.libraryItem(matching: url)
     }
 
-    private func clearDynamicDesktopReturnContext() {
+    func clearDynamicDesktopReturnContext() {
         dynamicDesktopReturnContext = nil
         canRestoreDynamicDesktop = false
     }
