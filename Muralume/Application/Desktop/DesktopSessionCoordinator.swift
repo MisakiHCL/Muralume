@@ -54,6 +54,16 @@ final class DesktopSessionCoordinator: ObservableObject {
     private var transitionTask: Task<Void, Never>?
     private var transitionGeneration: UInt64 = 0
     private var areDesktopEffectsConstrained = false
+    private var smartPausePreferences: SmartPausePreferences
+    private var currentEnergyConstraints: Set<SystemEnergyConstraintReason> = []
+    private var appliedConfigurableSuspensionReasons:
+        Set<PlaybackSuspensionReason> = []
+    private var automaticProtectionReasons: Set<PlaybackSuspensionReason> = []
+    private var desktopVisibilityStates: [
+        DesktopDisplayID: DesktopVisibilityState
+    ] = [:]
+    private var appliedOccludedDisplayIDs: Set<DesktopDisplayID> = []
+    private var isSynchronizedDesktopOccluded = false
     private var isDesktopMonitoringEnabled = false
     private var isShutDown = false
 
@@ -66,7 +76,8 @@ final class DesktopSessionCoordinator: ObservableObject {
         mainWindow: any MainWindowPresenting,
         applicationPresence: any ApplicationPresenceControlling,
         sceneController: DesktopSceneController? = nil,
-        independentPlayback: DesktopPlaybackOrchestrator? = nil
+        independentPlayback: DesktopPlaybackOrchestrator? = nil,
+        smartPausePreferences: SmartPausePreferences = .defaultValue
     ) {
         self.playback = playback
         self.desktopHost = desktopHost
@@ -79,6 +90,7 @@ final class DesktopSessionCoordinator: ObservableObject {
         self.applicationPresence = applicationPresence
         self.sceneController = sceneController
         self.independentPlayback = independentPlayback
+        self.smartPausePreferences = smartPausePreferences
 
         playback.playbackFailureHandler = { [weak self] failure in
             self?.handlePlaybackFailure(failure)
@@ -377,6 +389,16 @@ final class DesktopSessionCoordinator: ObservableObject {
         transientFailure = nil
     }
 
+    func updateSmartPausePreferences(
+        _ preferences: SmartPausePreferences
+    ) {
+        guard !isShutDown, smartPausePreferences != preferences else {
+            return
+        }
+        smartPausePreferences = preferences
+        reconcileSmartPauseSuspensions()
+    }
+
     func shutdown() {
         guard !isShutDown else {
             return
@@ -397,6 +419,7 @@ final class DesktopSessionCoordinator: ObservableObject {
         desktopHost.close()
         activeScene = nil
         desktopHost.desktopOcclusionHandler = nil
+        desktopHost.desktopVisibilityHandler = nil
     }
 
     private func configureStatusMenu() {
@@ -452,7 +475,8 @@ final class DesktopSessionCoordinator: ObservableObject {
                 } ?? 1,
                 failedDisplayCount: isIndependent
                     ? independentPlayback?.failedDisplayCount ?? 0
-                    : 0
+                    : 0,
+                smartPauseStatus: smartPauseStatus
             )
         }
         statusMenu.togglePlaybackHandler = { [weak self] in
@@ -486,6 +510,7 @@ final class DesktopSessionCoordinator: ObservableObject {
             guard let self, !isShutDown else {
                 return
             }
+            updateAutomaticProtectionReason(reason, suspended: suspended)
             playback.setSuspended(suspended, for: reason)
             independentPlayback?.setSuspended(
                 suspended,
@@ -499,15 +524,12 @@ final class DesktopSessionCoordinator: ObservableObject {
     }
 
     private func configureDesktopHost() {
-        desktopHost.desktopOcclusionHandler = { [weak self] isOccluded in
+        desktopHost.desktopVisibilityHandler = { [weak self] states in
             guard let self, !isShutDown else {
                 return
             }
-            playback.setSuspended(isOccluded, for: .desktopOccluded)
-            independentPlayback?.setSuspended(
-                isOccluded,
-                for: .desktopOccluded
-            )
+            desktopVisibilityStates = states
+            reconcileDesktopOcclusionSuspensions()
         }
         desktopHost.setDisplaySurfaceEventHandler { [weak self] event in
             guard let self,
@@ -557,12 +579,198 @@ final class DesktopSessionCoordinator: ObservableObject {
         guard !isShutDown else {
             return
         }
+        currentEnergyConstraints = constraints
         let shouldConstrainEffects = !constraints.isEmpty
-        guard areDesktopEffectsConstrained != shouldConstrainEffects else {
+        if areDesktopEffectsConstrained != shouldConstrainEffects {
+            areDesktopEffectsConstrained = shouldConstrainEffects
+            desktopHost.setEnergyConstrained(shouldConstrainEffects)
+        }
+        reconcileConfigurableEnergySuspensions()
+    }
+
+    private func reconcileSmartPauseSuspensions() {
+        reconcileConfigurableEnergySuspensions()
+        reconcileDesktopOcclusionSuspensions()
+    }
+
+    private func reconcileConfigurableEnergySuspensions() {
+        let desiredReasons = SmartPausePolicy.globalSuspensionReasons(
+            constraints: currentEnergyConstraints,
+            preferences: smartPausePreferences
+        )
+        let reasonsToRemove = appliedConfigurableSuspensionReasons
+            .subtracting(desiredReasons)
+        let reasonsToAdd = desiredReasons.subtracting(
+            appliedConfigurableSuspensionReasons
+        )
+        for reason in reasonsToRemove {
+            playback.setSuspended(false, for: reason)
+            independentPlayback?.setSuspended(false, for: reason)
+        }
+        for reason in reasonsToAdd {
+            playback.setSuspended(true, for: reason)
+            independentPlayback?.setSuspended(true, for: reason)
+        }
+        appliedConfigurableSuspensionReasons = desiredReasons
+    }
+
+    private func reconcileDesktopOcclusionSuspensions() {
+        let shouldPauseHiddenDisplays = smartPausePreferences.isEnabled
+            && smartPausePreferences.pauseWhenDesktopHidden
+        let desiredOccludedDisplayIDs: Set<DesktopDisplayID> =
+            shouldPauseHiddenDisplays
+            ? Set(
+                desktopVisibilityStates.compactMap { displayID, state in
+                    state == .occluded ? displayID : nil
+                }
+            )
+            : []
+
+        if activeScene?.mode == .perDisplay {
+            if isSynchronizedDesktopOccluded {
+                playback.setSuspended(false, for: .desktopOccluded)
+                isSynchronizedDesktopOccluded = false
+            }
+            let displayIDsToResume = appliedOccludedDisplayIDs
+                .subtracting(desiredOccludedDisplayIDs)
+            let displayIDsToPause = desiredOccludedDisplayIDs
+                .subtracting(appliedOccludedDisplayIDs)
+            for displayID in displayIDsToResume {
+                independentPlayback?.setSuspended(
+                    false,
+                    for: .desktopOccluded,
+                    displayID: displayID
+                )
+            }
+            for displayID in displayIDsToPause {
+                independentPlayback?.setSuspended(
+                    true,
+                    for: .desktopOccluded,
+                    displayID: displayID
+                )
+            }
+            appliedOccludedDisplayIDs = desiredOccludedDisplayIDs
             return
         }
-        areDesktopEffectsConstrained = shouldConstrainEffects
-        desktopHost.setEnergyConstrained(shouldConstrainEffects)
+
+        for displayID in appliedOccludedDisplayIDs {
+            independentPlayback?.setSuspended(
+                false,
+                for: .desktopOccluded,
+                displayID: displayID
+            )
+        }
+        appliedOccludedDisplayIDs.removeAll()
+        let shouldSuspendSynchronizedPlayback = shouldPauseHiddenDisplays
+            && !desktopVisibilityStates.isEmpty
+            && desktopVisibilityStates.values.allSatisfy {
+                $0 == .occluded
+            }
+        guard isSynchronizedDesktopOccluded
+                != shouldSuspendSynchronizedPlayback else {
+            return
+        }
+        isSynchronizedDesktopOccluded = shouldSuspendSynchronizedPlayback
+        playback.setSuspended(
+            shouldSuspendSynchronizedPlayback,
+            for: .desktopOccluded
+        )
+    }
+
+    private func updateAutomaticProtectionReason(
+        _ reason: PlaybackSuspensionReason,
+        suspended: Bool
+    ) {
+        guard Self.statusReason(for: reason) != nil else {
+            return
+        }
+        if suspended {
+            automaticProtectionReasons.insert(reason)
+        } else {
+            automaticProtectionReasons.remove(reason)
+        }
+    }
+
+    private var smartPauseStatus: DesktopSmartPauseStatus? {
+        guard playback.isPlaybackRequested,
+              let activeScene else {
+            return nil
+        }
+        let enabledDisplayCount = max(
+            enabledConnectedDisplayCount(in: activeScene),
+            1
+        )
+        let globalReasons = automaticProtectionReasons.union(
+            appliedConfigurableSuspensionReasons
+        )
+        for reason in Self.smartPauseReasonPriority {
+            guard globalReasons.contains(reason),
+                  let statusReason = Self.statusReason(for: reason) else {
+                continue
+            }
+            return DesktopSmartPauseStatus(
+                primaryReason: statusReason,
+                pausedDisplayCount: enabledDisplayCount,
+                enabledDisplayCount: enabledDisplayCount
+            )
+        }
+
+        let pausedDisplayCount: Int
+        switch activeScene.mode {
+        case .synchronized:
+            pausedDisplayCount = isSynchronizedDesktopOccluded
+                ? enabledDisplayCount
+                : 0
+        case .perDisplay:
+            let activeDisplayIDs = independentPlayback?.activeDisplayIDs ?? []
+            pausedDisplayCount = appliedOccludedDisplayIDs
+                .intersection(activeDisplayIDs)
+                .count
+        }
+        guard pausedDisplayCount > 0 else {
+            return nil
+        }
+        return DesktopSmartPauseStatus(
+            primaryReason: .desktopHidden,
+            pausedDisplayCount: pausedDisplayCount,
+            enabledDisplayCount: enabledDisplayCount
+        )
+    }
+
+    private static let smartPauseReasonPriority: [
+        PlaybackSuspensionReason
+    ] = [
+        .desktopThermalPressure,
+        .thermalPressure,
+        .lowBattery,
+        .desktopLowPowerMode,
+        .desktopLimitedPowerSource,
+        .desktopSustainedSystemLoad
+    ]
+
+    private static func statusReason(
+        for reason: PlaybackSuspensionReason
+    ) -> DesktopSmartPauseReason? {
+        switch reason {
+        case .desktopThermalPressure, .thermalPressure:
+            .thermalPressure
+        case .lowBattery:
+            .lowBattery
+        case .desktopLowPowerMode:
+            .lowPowerMode
+        case .desktopLimitedPowerSource:
+            .limitedPowerSource
+        case .desktopSustainedSystemLoad:
+            .sustainedSystemLoad
+        case .desktopOccluded:
+            .desktopHidden
+        case .playerWindowMiniaturized,
+             .screenLocked,
+             .displaySleeping,
+             .systemSleeping,
+             .sessionInactive:
+            nil
+        }
     }
 
     private func updateActiveState(_ isActive: Bool) {

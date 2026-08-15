@@ -615,6 +615,47 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(menu.items.first?.title, "1 / 2 台显示器可用")
     }
 
+    func testStatusMenuShowsLocalizedSmartPauseReasonAndPartialCount()
+        throws {
+        let localization = AppLocalizationController(
+            initialLanguage: .english
+        )
+        let controller = DesktopStatusMenuController(
+            localization: localization
+        )
+        var status = DesktopSmartPauseStatus(
+            primaryReason: .lowPowerMode,
+            pausedDisplayCount: 2,
+            enabledDisplayCount: 2
+        )
+        controller.stateProvider = {
+            DesktopStatusState(
+                sourceName: "Example",
+                isPlaying: true,
+                isTransitioning: false,
+                canPlayNext: false,
+                playbackOrder: .ordered,
+                canSetPlaybackOrder: false,
+                playbackRate: PlaybackPolicy.defaultRate,
+                videoContentMode: .contain,
+                smartPauseStatus: status
+            )
+        }
+
+        let menu = controller.makeMenu()
+        controller.menuNeedsUpdate(menu)
+        XCTAssertFalse(menu.items[1].isHidden)
+        XCTAssertEqual(menu.items[1].title, "Smart Pause · Low Power Mode")
+
+        status = DesktopSmartPauseStatus(
+            primaryReason: .desktopHidden,
+            pausedDisplayCount: 1,
+            enabledDisplayCount: 2
+        )
+        localization.selectLanguage(.simplifiedChinese)
+        XCTAssertEqual(menu.items[1].title, "智能暂停 · 1/2 块显示器不可见")
+    }
+
     func testLifecycleSuspensionPausesPlayerAndDesktopWithoutLosingIntent()
         async {
         let engine = TestPlaybackEngine()
@@ -686,7 +727,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             )
         )
 
-        lifecycleMonitor.emitEnergyConstrained(true)
+        lifecycleMonitor.emitEnergyConstraints([.thermalPressure])
         XCTAssertEqual(desktopHost.appliedEnergyConstraints, [true])
         XCTAssertTrue(engine.isPlaying)
         XCTAssertFalse(playback.isSystemSuspended)
@@ -695,7 +736,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         await waitUntil { session.isActive }
         XCTAssertTrue(engine.isPlaying)
 
-        lifecycleMonitor.emitEnergyConstrained(false)
+        lifecycleMonitor.emitEnergyConstraints([])
         XCTAssertEqual(desktopHost.appliedEnergyConstraints, [true, false])
         XCTAssertTrue(engine.isPlaying)
     }
@@ -1056,19 +1097,20 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         let menu = controller.makeMenu()
         controller.menuNeedsUpdate(menu)
 
-        XCTAssertEqual(menu.items.count, 9)
-        XCTAssertEqual(actionName(menu.items[1]), "togglePlayback")
-        XCTAssertEqual(actionName(menu.items[2]), "playNext")
-        XCTAssertEqual(actionName(menu.items[6]), "returnToPlayer")
-        XCTAssertTrue(menu.items[7].isSeparatorItem)
-        XCTAssertEqual(actionName(menu.items[8]), "quitApplication")
+        XCTAssertEqual(menu.items.count, 10)
+        XCTAssertTrue(menu.items[1].isHidden)
+        XCTAssertEqual(actionName(menu.items[2]), "togglePlayback")
+        XCTAssertEqual(actionName(menu.items[3]), "playNext")
+        XCTAssertEqual(actionName(menu.items[7]), "returnToPlayer")
+        XCTAssertTrue(menu.items[8].isSeparatorItem)
+        XCTAssertEqual(actionName(menu.items[9]), "quitApplication")
         XCTAssertFalse(
             menu.items.compactMap(\.action).map(NSStringFromSelector).contains {
                 $0.localizedCaseInsensitiveContains("stop")
             }
         )
 
-        menu.performActionForItem(at: 2)
+        menu.performActionForItem(at: 3)
         XCTAssertEqual(playNextCount, 1)
 
         statusState = DesktopStatusState(
@@ -1082,8 +1124,8 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             videoContentMode: .contain
         )
         controller.menuNeedsUpdate(menu)
-        XCTAssertFalse(menu.items[2].isEnabled)
         XCTAssertFalse(menu.items[3].isEnabled)
+        XCTAssertFalse(menu.items[4].isEnabled)
 
         statusState = DesktopStatusState(
             sourceName: "Example",
@@ -1096,9 +1138,9 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             videoContentMode: .contain
         )
         controller.menuNeedsUpdate(menu)
-        XCTAssertFalse(menu.items[2].isEnabled)
         XCTAssertFalse(menu.items[3].isEnabled)
         XCTAssertFalse(menu.items[4].isEnabled)
+        XCTAssertFalse(menu.items[5].isEnabled)
 
         statusState = DesktopStatusState(
             sourceName: "Example",
@@ -1111,7 +1153,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             videoContentMode: .contain
         )
         controller.menuNeedsUpdate(menu)
-        let playbackModeItems = try XCTUnwrap(menu.items[3].submenu?.items)
+        let playbackModeItems = try XCTUnwrap(menu.items[4].submenu?.items)
         XCTAssertEqual(
             playbackModeItems.compactMap { $0.representedObject as? String },
             PlaybackMode.allCases.map(\.rawValue)
@@ -1126,7 +1168,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         )
         XCTAssertEqual(playbackModeItems.map(\.state), [.on, .off, .off])
 
-        let playbackRateItems = try XCTUnwrap(menu.items[4].submenu?.items)
+        let playbackRateItems = try XCTUnwrap(menu.items[5].submenu?.items)
         XCTAssertEqual(
             playbackRateItems.compactMap {
                 ($0.representedObject as? NSNumber)?.floatValue
@@ -1138,7 +1180,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             [.off, .off, .off, .off, .on, .off]
         )
 
-        let contentModeItems = try XCTUnwrap(menu.items[5].submenu?.items)
+        let contentModeItems = try XCTUnwrap(menu.items[6].submenu?.items)
         XCTAssertEqual(
             contentModeItems.compactMap { $0.representedObject as? String },
             [
@@ -1172,29 +1214,29 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
 
         localization.selectLanguage(.simplifiedChinese)
 
-        XCTAssertEqual(menu.items[1].title, "暂停")
-        XCTAssertEqual(menu.items[2].title, "播放下一个")
-        XCTAssertEqual(menu.items[3].title, "播放模式")
-        XCTAssertEqual(menu.items[4].title, "播放速度")
-        XCTAssertEqual(menu.items[5].title, "桌面适配")
-        XCTAssertEqual(menu.items[6].title, "返回播放器")
-        XCTAssertEqual(menu.items[8].title, "退出 Muralume")
+        XCTAssertEqual(menu.items[2].title, "暂停")
+        XCTAssertEqual(menu.items[3].title, "播放下一个")
+        XCTAssertEqual(menu.items[4].title, "播放模式")
+        XCTAssertEqual(menu.items[5].title, "播放速度")
+        XCTAssertEqual(menu.items[6].title, "桌面适配")
+        XCTAssertEqual(menu.items[7].title, "返回播放器")
+        XCTAssertEqual(menu.items[9].title, "退出 Muralume")
         XCTAssertEqual(
-            menu.items[3].submenu?.items.map(\.title),
+            menu.items[4].submenu?.items.map(\.title),
             ["顺序循环", "随机循环", "循环当前视频"]
         )
         XCTAssertEqual(
-            menu.items[5].submenu?.items.map(\.title),
+            menu.items[6].submenu?.items.map(\.title),
             ["模糊背景", "填满屏幕", "完整显示"]
         )
 
-        menu.items[3].submenu?.performActionForItem(at: 2)
+        menu.items[4].submenu?.performActionForItem(at: 2)
         XCTAssertEqual(selectedPlaybackMode, .repeatCurrent)
 
-        menu.items[4].submenu?.performActionForItem(at: 5)
+        menu.items[5].submenu?.performActionForItem(at: 5)
         XCTAssertEqual(selectedPlaybackRate, PlaybackRate(rawValue: 2))
 
-        menu.items[5].submenu?.performActionForItem(at: 0)
+        menu.items[6].submenu?.performActionForItem(at: 0)
         XCTAssertEqual(selectedContentMode, .blurredBackground)
     }
 

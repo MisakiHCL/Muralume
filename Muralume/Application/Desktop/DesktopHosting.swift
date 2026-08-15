@@ -37,9 +37,43 @@ enum DesktopDisplaySurfaceEvent {
     case willRemove(displayID: DesktopDisplayID)
 }
 
+enum DesktopVisibilityState: Equatable, Sendable {
+    case visible
+    case occluded
+}
+
+enum SmartPausePolicy {
+    static func globalSuspensionReasons(
+        constraints: Set<SystemEnergyConstraintReason>,
+        preferences: SmartPausePreferences
+    ) -> Set<PlaybackSuspensionReason> {
+        guard preferences.isEnabled else {
+            return []
+        }
+
+        var reasons: Set<PlaybackSuspensionReason> = []
+        if preferences.pauseInLowPowerMode,
+           constraints.contains(.lowPowerMode) {
+            reasons.insert(.desktopLowPowerMode)
+        }
+        if preferences.pauseOnLimitedPowerSource,
+           constraints.contains(.limitedPowerSource) {
+            reasons.insert(.desktopLimitedPowerSource)
+        }
+        if preferences.pauseUnderSustainedSystemLoad,
+           constraints.contains(.sustainedSystemLoad) {
+            reasons.insert(.desktopSustainedSystemLoad)
+        }
+        return reasons
+    }
+}
+
 @MainActor
 protocol DesktopHosting: AnyObject {
     var desktopOcclusionHandler: ((Bool) -> Void)? { get set }
+    var desktopVisibilityHandler: (
+        ([DesktopDisplayID: DesktopVisibilityState]) -> Void
+    )? { get set }
 
     func prepare(
         contentMode: DesktopVideoContentMode

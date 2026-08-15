@@ -12,6 +12,15 @@ enum AppPreferencesStorageKey {
     static let librarySortDirection = "settings.library.sort-direction"
     // Keep the existing key so current installations retain their language.
     static let language = "settings.app-language"
+    static let smartPauseEnabled = "settings.smart-pause.enabled"
+    static let smartPauseDesktopHidden =
+        "settings.smart-pause.desktop-hidden"
+    static let smartPauseLowPowerMode =
+        "settings.smart-pause.low-power-mode"
+    static let smartPauseLimitedPowerSource =
+        "settings.smart-pause.limited-power-source"
+    static let smartPauseSustainedSystemLoad =
+        "settings.smart-pause.sustained-system-load"
 }
 
 private struct UserDefaultsAppPreferencesDTO {
@@ -24,6 +33,11 @@ private struct UserDefaultsAppPreferencesDTO {
     let librarySortField: String?
     let librarySortDirection: String?
     let language: String?
+    let smartPauseEnabled: Bool?
+    let smartPauseDesktopHidden: Bool?
+    let smartPauseLowPowerMode: Bool?
+    let smartPauseLimitedPowerSource: Bool?
+    let smartPauseSustainedSystemLoad: Bool?
 
     init(userDefaults: UserDefaults) {
         volume = Self.float(
@@ -56,6 +70,26 @@ private struct UserDefaultsAppPreferencesDTO {
         )
         language = userDefaults.string(
             forKey: AppPreferencesStorageKey.language
+        )
+        smartPauseEnabled = Self.bool(
+            userDefaults,
+            forKey: AppPreferencesStorageKey.smartPauseEnabled
+        )
+        smartPauseDesktopHidden = Self.bool(
+            userDefaults,
+            forKey: AppPreferencesStorageKey.smartPauseDesktopHidden
+        )
+        smartPauseLowPowerMode = Self.bool(
+            userDefaults,
+            forKey: AppPreferencesStorageKey.smartPauseLowPowerMode
+        )
+        smartPauseLimitedPowerSource = Self.bool(
+            userDefaults,
+            forKey: AppPreferencesStorageKey.smartPauseLimitedPowerSource
+        )
+        smartPauseSustainedSystemLoad = Self.bool(
+            userDefaults,
+            forKey: AppPreferencesStorageKey.smartPauseSustainedSystemLoad
         )
     }
 
@@ -142,7 +176,21 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
             language: loadRawRepresentable(
                 stored.language,
                 AppLanguage.self
-            ) ?? defaults.language
+            ) ?? defaults.language,
+            smartPause: SmartPausePreferences(
+                isEnabled: stored.smartPauseEnabled
+                    ?? defaults.smartPause.isEnabled,
+                pauseWhenDesktopHidden: stored.smartPauseDesktopHidden
+                    ?? defaults.smartPause.pauseWhenDesktopHidden,
+                pauseInLowPowerMode: stored.smartPauseLowPowerMode
+                    ?? defaults.smartPause.pauseInLowPowerMode,
+                pauseOnLimitedPowerSource:
+                    stored.smartPauseLimitedPowerSource
+                    ?? defaults.smartPause.pauseOnLimitedPowerSource,
+                pauseUnderSustainedSystemLoad:
+                    stored.smartPauseSustainedSystemLoad
+                    ?? defaults.smartPause.pauseUnderSustainedSystemLoad
+            )
         )
     }
 
@@ -199,6 +247,29 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
         userDefaults.set(
             language.rawValue,
             forKey: AppPreferencesStorageKey.language
+        )
+    }
+
+    func saveSmartPause(_ preferences: SmartPausePreferences) {
+        userDefaults.set(
+            preferences.isEnabled,
+            forKey: AppPreferencesStorageKey.smartPauseEnabled
+        )
+        userDefaults.set(
+            preferences.pauseWhenDesktopHidden,
+            forKey: AppPreferencesStorageKey.smartPauseDesktopHidden
+        )
+        userDefaults.set(
+            preferences.pauseInLowPowerMode,
+            forKey: AppPreferencesStorageKey.smartPauseLowPowerMode
+        )
+        userDefaults.set(
+            preferences.pauseOnLimitedPowerSource,
+            forKey: AppPreferencesStorageKey.smartPauseLimitedPowerSource
+        )
+        userDefaults.set(
+            preferences.pauseUnderSustainedSystemLoad,
+            forKey: AppPreferencesStorageKey.smartPauseSustainedSystemLoad
         )
     }
 

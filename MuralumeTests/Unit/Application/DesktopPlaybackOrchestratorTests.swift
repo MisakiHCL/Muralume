@@ -76,6 +76,48 @@ final class DesktopPlaybackOrchestratorTests: XCTestCase {
         XCTAssertTrue(engine.isPlaying)
     }
 
+    func testDisplaySuspensionOnlyPausesMatchingNodeAndComposesGlobally()
+        async {
+        var engines: [TestPlaybackEngine] = []
+        let orchestrator = DesktopPlaybackOrchestrator {
+            let engine = TestPlaybackEngine()
+            engines.append(engine)
+            return engine
+        }
+        let first = displayID("first")
+        let second = displayID("second")
+        try? await orchestrator.start(
+            assignments: [
+                assignment(first, itemID: itemID("first.mp4")),
+                assignment(second, itemID: itemID("second.mp4"))
+            ],
+            surfaces: [
+                first: TestPlaybackSurface(id: .desktop),
+                second: TestPlaybackSurface(id: .desktop)
+            ]
+        ) { self.source(for: $0) }
+        await waitUntil { engines.count == 2 && engines.allSatisfy(\.isPlaying) }
+
+        orchestrator.setSuspended(
+            true,
+            for: .desktopOccluded,
+            displayID: first
+        )
+        XCTAssertFalse(engines[0].isPlaying)
+        XCTAssertTrue(engines[1].isPlaying)
+
+        orchestrator.setSuspended(true, for: .desktopLowPowerMode)
+        orchestrator.setSuspended(
+            false,
+            for: .desktopOccluded,
+            displayID: first
+        )
+        XCTAssertTrue(engines.allSatisfy { !$0.isPlaying })
+
+        orchestrator.setSuspended(false, for: .desktopLowPowerMode)
+        XCTAssertTrue(engines.allSatisfy(\.isPlaying))
+    }
+
     func testOneDisplayFailureDoesNotStopAnotherDisplay() async {
         let firstEngine = TestPlaybackEngine()
         let secondEngine = TestPlaybackEngine()

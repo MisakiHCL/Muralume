@@ -10,6 +10,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
     @ObservedObject var dynamicDesktopStartup:
         DynamicDesktopStartupController
     @ObservedObject var defaultVideoPlayer: DefaultVideoPlayerController
+    @ObservedObject var smartPause: SmartPauseController
     let canRestoreDynamicDesktop: Bool
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let isFullScreen: Bool
@@ -398,7 +399,8 @@ struct PlayerScreen<PlayerSurface: View>: View {
         case .settings:
             SettingsView(
                 dynamicDesktopStartup: dynamicDesktopStartup,
-                defaultVideoPlayer: defaultVideoPlayer
+                defaultVideoPlayer: defaultVideoPlayer,
+                smartPause: smartPause
             ) {
                 chromeController.setSettingsPresented(false)
             }

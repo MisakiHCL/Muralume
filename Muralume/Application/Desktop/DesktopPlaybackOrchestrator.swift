@@ -97,6 +97,9 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
     private var playbackIntent: PlaybackIntent = .playing
     private var rate = PlaybackPolicy.defaultRate
     private var suspensionReasons: Set<PlaybackSuspensionReason> = []
+    private var displaySuspensionReasons: [
+        DesktopDisplayID: Set<PlaybackSuspensionReason>
+    ] = [:]
     private var suppressedMediaItemIDs: Set<LibraryMediaItem.ID> = []
     private var pendingDrains: [UInt64: PendingDrain] = [:]
     private var nextDrainID: UInt64 = 0
@@ -181,6 +184,7 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
             return
         }
         surfacesByDisplayID[displayID] = nil
+        displaySuspensionReasons[displayID] = nil
         removeNode(for: displayID)
     }
 
@@ -240,6 +244,32 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
         }
     }
 
+    func setSuspended(
+        _ suspended: Bool,
+        for reason: PlaybackSuspensionReason,
+        displayID: DesktopDisplayID
+    ) {
+        guard !isShutDown, reason.scope != .playerOnly else {
+            return
+        }
+        var reasons = displaySuspensionReasons[displayID] ?? []
+        let didChange: Bool
+        if suspended {
+            didChange = reasons.insert(reason).inserted
+        } else {
+            didChange = reasons.remove(reason) != nil
+        }
+        guard didChange else {
+            return
+        }
+        if reasons.isEmpty {
+            displaySuspensionReasons[displayID] = nil
+        } else {
+            displaySuspensionReasons[displayID] = reasons
+        }
+        nodes[displayID]?.node.setSuspended(suspended, for: reason)
+    }
+
     func stop() {
         guard !isShutDown else {
             return
@@ -247,6 +277,7 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
         lifecycleGeneration &+= 1
         isStarted = false
         hasCompletedInitialStart = false
+        displaySuspensionReasons.removeAll()
         removeAllNodes()
     }
 
@@ -263,6 +294,7 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
         surfacesByDisplayID.removeAll()
         sourceResolver = nil
         suspensionReasons.removeAll()
+        displaySuspensionReasons.removeAll()
         suppressedMediaItemIDs.removeAll()
         playbackStateDidChangeHandler = nil
     }
@@ -347,7 +379,10 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
             }
             publish(state, for: displayID)
         }
-        for reason in suspensionReasons {
+        let initialSuspensionReasons = suspensionReasons.union(
+            displaySuspensionReasons[displayID] ?? []
+        )
+        for reason in initialSuspensionReasons {
             node.setSuspended(true, for: reason)
         }
         nodes[displayID] = ActiveNode(

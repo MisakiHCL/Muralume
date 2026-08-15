@@ -28,6 +28,7 @@ struct SettingsView: View {
     @ObservedObject var dynamicDesktopStartup:
         DynamicDesktopStartupController
     @ObservedObject var defaultVideoPlayer: DefaultVideoPlayerController
+    @ObservedObject var smartPause: SmartPauseController
 
     let dismiss: () -> Void
 
@@ -181,7 +182,142 @@ struct SettingsView: View {
                     defaultVideoPlayerControl
                 }
             }
+
+            smartPauseSection
         }
+    }
+
+    private var smartPauseSection: some View {
+        SettingsSection(
+            title: "settings.smartPause.title",
+            accessibilityIdentifier:
+                MuralumeAccessibilityIdentifier.settingsSmartPauseSection
+        ) {
+            VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.medium) {
+                Text("settings.smartPause.description")
+                    .font(.callout)
+                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                SettingsRow(
+                    title: "settings.smartPause.enabled",
+                    accessibilityIdentifier:
+                        MuralumeAccessibilityIdentifier
+                            .settingsSmartPauseEnabledRow
+                ) {
+                    smartPauseToggle(
+                        label: "settings.smartPause.enabled",
+                        identifier: MuralumeAccessibilityIdentifier
+                            .smartPauseEnabledCheckbox,
+                        isOn: Binding(
+                            get: { smartPause.preferences.isEnabled },
+                            set: { smartPause.setEnabled($0) }
+                        )
+                    )
+                }
+
+                Group {
+                    smartPauseOptionRow(
+                        title: "settings.smartPause.desktopHidden",
+                        rowIdentifier: MuralumeAccessibilityIdentifier
+                            .settingsSmartPauseDesktopHiddenRow,
+                        checkboxIdentifier: MuralumeAccessibilityIdentifier
+                            .smartPauseDesktopHiddenCheckbox,
+                        isOn: Binding(
+                            get: {
+                                smartPause.preferences.pauseWhenDesktopHidden
+                            },
+                            set: {
+                                smartPause.setPauseWhenDesktopHidden($0)
+                            }
+                        )
+                    )
+                    smartPauseOptionRow(
+                        title: "settings.smartPause.lowPowerMode",
+                        rowIdentifier: MuralumeAccessibilityIdentifier
+                            .settingsSmartPauseLowPowerModeRow,
+                        checkboxIdentifier: MuralumeAccessibilityIdentifier
+                            .smartPauseLowPowerModeCheckbox,
+                        isOn: Binding(
+                            get: {
+                                smartPause.preferences.pauseInLowPowerMode
+                            },
+                            set: { smartPause.setPauseInLowPowerMode($0) }
+                        )
+                    )
+                    smartPauseOptionRow(
+                        title: "settings.smartPause.limitedPowerSource",
+                        rowIdentifier: MuralumeAccessibilityIdentifier
+                            .settingsSmartPauseLimitedPowerSourceRow,
+                        checkboxIdentifier: MuralumeAccessibilityIdentifier
+                            .smartPauseLimitedPowerSourceCheckbox,
+                        isOn: Binding(
+                            get: {
+                                smartPause.preferences
+                                    .pauseOnLimitedPowerSource
+                            },
+                            set: {
+                                smartPause.setPauseOnLimitedPowerSource($0)
+                            }
+                        )
+                    )
+                    smartPauseOptionRow(
+                        title: "settings.smartPause.sustainedSystemLoad",
+                        rowIdentifier: MuralumeAccessibilityIdentifier
+                            .settingsSmartPauseSustainedSystemLoadRow,
+                        checkboxIdentifier: MuralumeAccessibilityIdentifier
+                            .smartPauseSustainedSystemLoadCheckbox,
+                        isOn: Binding(
+                            get: {
+                                smartPause.preferences
+                                    .pauseUnderSustainedSystemLoad
+                            },
+                            set: {
+                                smartPause
+                                    .setPauseUnderSustainedSystemLoad($0)
+                            }
+                        )
+                    )
+                }
+                .disabled(!smartPause.preferences.isEnabled)
+
+                Text("settings.smartPause.protections")
+                    .font(.caption)
+                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func smartPauseOptionRow(
+        title: LocalizedStringKey,
+        rowIdentifier: String,
+        checkboxIdentifier: String,
+        isOn: Binding<Bool>
+    ) -> some View {
+        SettingsRow(
+            title: title,
+            accessibilityIdentifier: rowIdentifier
+        ) {
+            smartPauseToggle(
+                label: title,
+                identifier: checkboxIdentifier,
+                isOn: isOn
+            )
+        }
+    }
+
+    private func smartPauseToggle(
+        label: LocalizedStringKey,
+        identifier: String,
+        isOn: Binding<Bool>
+    ) -> some View {
+        Toggle(label, isOn: isOn)
+            .labelsHidden()
+            .toggleStyle(.checkbox)
+            .accessibilityLabel(Text(label))
+            .accessibilityHint(Text("settings.smartPause.accessibilityHint"))
+            .accessibilityIdentifier(identifier)
     }
 
     private var defaultVideoPlayerControl: some View {

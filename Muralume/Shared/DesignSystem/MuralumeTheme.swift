@@ -223,6 +223,8 @@ enum MuralumeAccessibilityIdentifier {
     static let desktopLayoutApplyButton =
         "muralume.desktop-layout.apply"
     static let desktopStatusItem = "muralume.desktop-status-item"
+    static let desktopSmartPauseStatus =
+        "muralume.desktop-smart-pause-status"
     static let librarySortButton = "muralume.library-sort"
     static let openSettingsButton = "muralume.open-settings"
     static let closeWindowButton = "muralume.window-close"
@@ -237,6 +239,28 @@ enum MuralumeAccessibilityIdentifier {
         "muralume.settings-row.launch-at-login"
     static let settingsDefaultVideoPlayerRow =
         "muralume.settings-row.default-video-player"
+    static let settingsSmartPauseSection =
+        "muralume.settings-section.smart-pause"
+    static let settingsSmartPauseEnabledRow =
+        "muralume.settings-row.smart-pause.enabled"
+    static let settingsSmartPauseDesktopHiddenRow =
+        "muralume.settings-row.smart-pause.desktop-hidden"
+    static let settingsSmartPauseLowPowerModeRow =
+        "muralume.settings-row.smart-pause.low-power-mode"
+    static let settingsSmartPauseLimitedPowerSourceRow =
+        "muralume.settings-row.smart-pause.limited-power-source"
+    static let settingsSmartPauseSustainedSystemLoadRow =
+        "muralume.settings-row.smart-pause.sustained-system-load"
+    static let smartPauseEnabledCheckbox =
+        "muralume.smart-pause.enabled"
+    static let smartPauseDesktopHiddenCheckbox =
+        "muralume.smart-pause.desktop-hidden"
+    static let smartPauseLowPowerModeCheckbox =
+        "muralume.smart-pause.low-power-mode"
+    static let smartPauseLimitedPowerSourceCheckbox =
+        "muralume.smart-pause.limited-power-source"
+    static let smartPauseSustainedSystemLoadCheckbox =
+        "muralume.smart-pause.sustained-system-load"
     static let setDefaultVideoPlayerButton =
         "muralume.settings.set-default-video-player"
     static let languagePicker = "muralume.language-picker"

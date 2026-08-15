@@ -1,4 +1,21 @@
+import Combine
 import Foundation
+
+struct SmartPausePreferences: Equatable, Sendable {
+    static let defaultValue = SmartPausePreferences(
+        isEnabled: true,
+        pauseWhenDesktopHidden: true,
+        pauseInLowPowerMode: true,
+        pauseOnLimitedPowerSource: false,
+        pauseUnderSustainedSystemLoad: false
+    )
+
+    var isEnabled: Bool
+    var pauseWhenDesktopHidden: Bool
+    var pauseInLowPowerMode: Bool
+    var pauseOnLimitedPowerSource: Bool
+    var pauseUnderSustainedSystemLoad: Bool
+}
 
 struct PlaybackAudioPreferences: Equatable, Sendable {
     static let defaultValue = PlaybackAudioPreferences(
@@ -36,7 +53,8 @@ struct AppPreferences: Equatable, Sendable {
         playbackOrder: .shuffled,
         playbackRepeatBehavior: .queue,
         librarySort: MediaLibrarySort(),
-        language: .system
+        language: .system,
+        smartPause: .defaultValue
     )
 
     let audio: PlaybackAudioPreferences
@@ -45,6 +63,25 @@ struct AppPreferences: Equatable, Sendable {
     let playbackRepeatBehavior: PlaybackRepeatBehavior
     let librarySort: MediaLibrarySort
     let language: AppLanguage
+    let smartPause: SmartPausePreferences
+
+    init(
+        audio: PlaybackAudioPreferences,
+        playbackRate: PlaybackRate,
+        playbackOrder: PlaybackOrder,
+        playbackRepeatBehavior: PlaybackRepeatBehavior,
+        librarySort: MediaLibrarySort,
+        language: AppLanguage,
+        smartPause: SmartPausePreferences = .defaultValue
+    ) {
+        self.audio = audio
+        self.playbackRate = playbackRate
+        self.playbackOrder = playbackOrder
+        self.playbackRepeatBehavior = playbackRepeatBehavior
+        self.librarySort = librarySort
+        self.language = language
+        self.smartPause = smartPause
+    }
 }
 
 @MainActor
@@ -56,4 +93,55 @@ protocol AppPreferencesStoring: AnyObject {
     func savePlaybackRepeatBehavior(_ behavior: PlaybackRepeatBehavior)
     func saveLibrarySort(_ sort: MediaLibrarySort)
     func saveLanguage(_ language: AppLanguage)
+    func saveSmartPause(_ preferences: SmartPausePreferences)
+}
+
+@MainActor
+final class SmartPauseController: ObservableObject {
+    @Published private(set) var preferences: SmartPausePreferences
+
+    var preferencesDidChangeHandler: ((SmartPausePreferences) -> Void)?
+
+    private let store: (any AppPreferencesStoring)?
+
+    init(
+        preferences: SmartPausePreferences = .defaultValue,
+        store: (any AppPreferencesStoring)? = nil
+    ) {
+        self.preferences = preferences
+        self.store = store
+    }
+
+    func setEnabled(_ isEnabled: Bool) {
+        update { $0.isEnabled = isEnabled }
+    }
+
+    func setPauseWhenDesktopHidden(_ isEnabled: Bool) {
+        update { $0.pauseWhenDesktopHidden = isEnabled }
+    }
+
+    func setPauseInLowPowerMode(_ isEnabled: Bool) {
+        update { $0.pauseInLowPowerMode = isEnabled }
+    }
+
+    func setPauseOnLimitedPowerSource(_ isEnabled: Bool) {
+        update { $0.pauseOnLimitedPowerSource = isEnabled }
+    }
+
+    func setPauseUnderSustainedSystemLoad(_ isEnabled: Bool) {
+        update { $0.pauseUnderSustainedSystemLoad = isEnabled }
+    }
+
+    private func update(
+        _ mutation: (inout SmartPausePreferences) -> Void
+    ) {
+        var updatedPreferences = preferences
+        mutation(&updatedPreferences)
+        guard updatedPreferences != preferences else {
+            return
+        }
+        preferences = updatedPreferences
+        store?.saveSmartPause(updatedPreferences)
+        preferencesDidChangeHandler?(updatedPreferences)
+    }
 }

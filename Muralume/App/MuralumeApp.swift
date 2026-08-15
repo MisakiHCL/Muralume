@@ -169,6 +169,7 @@ private struct MuralumePlayerRootView: View {
             playlists: coordinator.playlists,
             dynamicDesktopStartup: coordinator.dynamicDesktopStartup,
             defaultVideoPlayer: coordinator.defaultVideoPlayer,
+            smartPause: coordinator.smartPause,
             canRestoreDynamicDesktop:
                 coordinator.canRestoreDynamicDesktop,
             mediaThumbnailProvider: coordinator.mediaThumbnailProvider,

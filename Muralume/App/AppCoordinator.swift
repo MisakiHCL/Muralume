@@ -17,6 +17,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     let dynamicDesktopStartup: DynamicDesktopStartupController
     let defaultVideoPlayer: DefaultVideoPlayerController
     let desktopScene: DesktopSceneController?
+    let smartPause: SmartPauseController
     @Published private(set) var isMainWindowFullScreen = false
     @Published private(set) var canRestoreDynamicDesktop = false
 
@@ -55,6 +56,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         automaticLibraryRefreshSchedule:
             MediaLibraryAutomaticRefreshSchedule = .production,
         desktopScene: DesktopSceneController? = nil,
+        smartPause: SmartPauseController = SmartPauseController(),
         playerChrome: PlayerChromeController = PlayerChromeController()
     ) {
         self.playback = playback
@@ -81,6 +83,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                 automaticLibraryRefreshSchedule.reconciliationNanoseconds
         )
         self.desktopScene = desktopScene
+        self.smartPause = smartPause
         self.playerChrome = playerChrome
 
         desktopSession.quitHandler = { [weak self] in

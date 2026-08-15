@@ -188,6 +188,7 @@ final class TestAppPreferencesStore: AppPreferencesStoring {
         [PlaybackRepeatBehavior] = []
     private(set) var savedLibrarySorts: [MediaLibrarySort] = []
     private(set) var savedLanguages: [AppLanguage] = []
+    private(set) var savedSmartPausePreferences: [SmartPausePreferences] = []
 
     init(preferences: AppPreferences = .defaultValue) {
         self.preferences = preferences
@@ -222,6 +223,10 @@ final class TestAppPreferencesStore: AppPreferencesStoring {
 
     func saveLanguage(_ language: AppLanguage) {
         savedLanguages.append(language)
+    }
+
+    func saveSmartPause(_ preferences: SmartPausePreferences) {
+        savedSmartPausePreferences.append(preferences)
     }
 }
 
@@ -270,6 +275,9 @@ enum TestMediaFixture {
 @MainActor
 final class TestDesktopHost: DesktopHosting {
     var desktopOcclusionHandler: ((Bool) -> Void)?
+    var desktopVisibilityHandler: (
+        ([DesktopDisplayID: DesktopVisibilityState]) -> Void
+    )?
     var revealHandler: (() -> Void)?
     let surface = TestPlaybackSurface(id: .desktop)
     var scenePreparation: DesktopHostPreparation?
@@ -334,6 +342,16 @@ final class TestDesktopHost: DesktopHosting {
 
     func emitDesktopOcclusion(_ isOccluded: Bool) {
         desktopOcclusionHandler?(isOccluded)
+        emitDesktopVisibility([
+            DesktopDisplayID(rawValue: "test-display"):
+                isOccluded ? .occluded : .visible
+        ])
+    }
+
+    func emitDesktopVisibility(
+        _ states: [DesktopDisplayID: DesktopVisibilityState]
+    ) {
+        desktopVisibilityHandler?(states)
     }
 
     func emitDisplaySurfaceEvent(_ event: DesktopDisplaySurfaceEvent) {

@@ -32,6 +32,25 @@ private extension PlaybackMode {
     }
 }
 
+private extension DesktopSmartPauseReason {
+    var localizedKey: String {
+        switch self {
+        case .thermalPressure:
+            "desktop.smartPause.reason.thermalPressure"
+        case .lowBattery:
+            "desktop.smartPause.reason.lowBattery"
+        case .lowPowerMode:
+            "desktop.smartPause.reason.lowPowerMode"
+        case .limitedPowerSource:
+            "desktop.smartPause.reason.limitedPowerSource"
+        case .sustainedSystemLoad:
+            "desktop.smartPause.reason.sustainedSystemLoad"
+        case .desktopHidden:
+            "desktop.smartPause.reason.desktopHidden"
+        }
+    }
+}
+
 @MainActor
 final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatusPresenting {
     var stateProvider: (() -> DesktopStatusState)?
@@ -46,6 +65,7 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
 
     private var statusItem: NSStatusItem?
     private weak var currentItem: NSMenuItem?
+    private weak var smartPauseItem: NSMenuItem?
     private weak var togglePlaybackItem: NSMenuItem?
     private weak var playNextItem: NSMenuItem?
     private weak var playbackModeItem: NSMenuItem?
@@ -130,6 +150,18 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         currentItem.isEnabled = false
         menu.addItem(currentItem)
 
+        let smartPauseItem = NSMenuItem(
+            title: "",
+            action: nil,
+            keyEquivalent: ""
+        )
+        smartPauseItem.isEnabled = false
+        smartPauseItem.isHidden = true
+        smartPauseItem.setAccessibilityIdentifier(
+            MuralumeAccessibilityIdentifier.desktopSmartPauseStatus
+        )
+        menu.addItem(smartPauseItem)
+
         let togglePlaybackItem = NSMenuItem(
             title: "",
             action: #selector(togglePlayback),
@@ -174,6 +206,7 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         menu.addItem(quitItem)
 
         self.currentItem = currentItem
+        self.smartPauseItem = smartPauseItem
         self.togglePlaybackItem = togglePlaybackItem
         self.playNextItem = playNextItem
         self.playbackModeItem = playbackModeItem
@@ -190,6 +223,7 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         }
         statusItem = nil
         currentItem = nil
+        smartPauseItem = nil
         togglePlaybackItem = nil
         playNextItem = nil
         playbackModeItem = nil
@@ -311,6 +345,7 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
             }
             currentItem?.toolTip = fullCurrentTitle
             currentItem?.setAccessibilityLabel(fullCurrentTitle)
+            updateSmartPauseItem(state.smartPauseStatus)
             let toggleKey: String
             if state.sceneMode == .perDisplay {
                 toggleKey = state.isPlaying
@@ -366,6 +401,39 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         quitItem?.title = localized("desktop.quit")
         statusItem?.button?.toolTip = localized("app.name")
         statusItem?.button?.setAccessibilityLabel(localized("app.name"))
+    }
+
+    private func updateSmartPauseItem(
+        _ status: DesktopSmartPauseStatus?
+    ) {
+        guard let status else {
+            smartPauseItem?.isHidden = true
+            smartPauseItem?.title = ""
+            smartPauseItem?.toolTip = nil
+            return
+        }
+
+        let title: String
+        if status.primaryReason == .desktopHidden,
+           status.enabledDisplayCount > 1,
+           status.pausedDisplayCount < status.enabledDisplayCount {
+            title = String(
+                format: localized("desktop.smartPause.hiddenCount"),
+                locale: localization.locale,
+                status.pausedDisplayCount,
+                status.enabledDisplayCount
+            )
+        } else {
+            title = String(
+                format: localized("desktop.smartPause.reason"),
+                locale: localization.locale,
+                localized(status.primaryReason.localizedKey)
+            )
+        }
+        smartPauseItem?.title = title
+        smartPauseItem?.toolTip = title
+        smartPauseItem?.setAccessibilityLabel(title)
+        smartPauseItem?.isHidden = false
     }
 
     private func currentPlaybackTitle(sourceName: String) -> String {

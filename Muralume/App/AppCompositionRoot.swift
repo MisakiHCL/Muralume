@@ -23,6 +23,10 @@ enum AppCompositionRoot {
         let independentDesktopPlayback = DesktopPlaybackOrchestrator {
             AVFoundationPlaybackEngine()
         }
+        let smartPause = SmartPauseController(
+            preferences: initialPreferences.smartPause,
+            store: preferencesStore
+        )
         let desktopSession = DesktopSessionCoordinator(
             playback: playback,
             desktopHost: MacDesktopHost(),
@@ -34,8 +38,13 @@ enum AppCompositionRoot {
             mainWindow: mainWindowPresenter,
             applicationPresence: applicationPresence,
             sceneController: desktopScene,
-            independentPlayback: independentDesktopPlayback
+            independentPlayback: independentDesktopPlayback,
+            smartPausePreferences: smartPause.preferences
         )
+        smartPause.preferencesDidChangeHandler = {
+            [weak desktopSession] preferences in
+            desktopSession?.updateSmartPausePreferences(preferences)
+        }
         let library = MediaLibraryCoordinator(
             playback: playback,
             sourceSelector: MacMediaSourcePicker(
@@ -107,7 +116,8 @@ enum AppCompositionRoot {
             defaultVideoPlayer: defaultVideoPlayer,
             desktopPreset: desktopPreset,
             playbackSession: playbackSession,
-            desktopScene: desktopScene
+            desktopScene: desktopScene,
+            smartPause: smartPause
         )
     }
 }

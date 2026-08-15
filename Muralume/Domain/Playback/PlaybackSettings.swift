@@ -120,12 +120,20 @@ enum PlaybackSuspensionReason: Hashable, Sendable {
     case desktopOccluded
     case desktopThermalPressure
     case lowBattery
+    case desktopLowPowerMode
+    case desktopLimitedPowerSource
+    case desktopSustainedSystemLoad
 
     var scope: PlaybackSuspensionScope {
         switch self {
         case .playerWindowMiniaturized:
             .playerOnly
-        case .desktopOccluded, .desktopThermalPressure, .lowBattery:
+        case .desktopOccluded,
+             .desktopThermalPressure,
+             .lowBattery,
+             .desktopLowPowerMode,
+             .desktopLimitedPowerSource,
+             .desktopSustainedSystemLoad:
             .desktopOnly
         case .screenLocked,
              .displaySleeping,

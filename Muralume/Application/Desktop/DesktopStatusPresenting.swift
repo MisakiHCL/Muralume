@@ -1,3 +1,18 @@
+enum DesktopSmartPauseReason: Equatable, Sendable {
+    case thermalPressure
+    case lowBattery
+    case lowPowerMode
+    case limitedPowerSource
+    case sustainedSystemLoad
+    case desktopHidden
+}
+
+struct DesktopSmartPauseStatus: Equatable, Sendable {
+    let primaryReason: DesktopSmartPauseReason
+    let pausedDisplayCount: Int
+    let enabledDisplayCount: Int
+}
+
 struct DesktopStatusState {
     let sourceName: String
     let isPlaying: Bool
@@ -11,6 +26,7 @@ struct DesktopStatusState {
     var sceneMode: DesktopSceneMode = .synchronized
     var enabledDisplayCount: Int = 1
     var failedDisplayCount: Int = 0
+    var smartPauseStatus: DesktopSmartPauseStatus?
 
     var playbackMode: PlaybackMode {
         PlaybackMode(

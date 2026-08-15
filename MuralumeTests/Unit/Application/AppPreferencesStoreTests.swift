@@ -28,6 +28,13 @@ final class AppPreferencesStoreTests: XCTestCase {
                 field: .fileSize,
                 direction: .descending
             )
+            let smartPause = SmartPausePreferences(
+                isEnabled: false,
+                pauseWhenDesktopHidden: false,
+                pauseInLowPowerMode: false,
+                pauseOnLimitedPowerSource: true,
+                pauseUnderSustainedSystemLoad: true
+            )
 
             store.saveAudio(audio)
             store.savePlaybackRate(PlaybackRate(rawValue: 1.5))
@@ -35,6 +42,7 @@ final class AppPreferencesStoreTests: XCTestCase {
             store.savePlaybackRepeatBehavior(.currentItem)
             store.saveLibrarySort(sort)
             store.saveLanguage(.simplifiedChinese)
+            store.saveSmartPause(smartPause)
 
             let restored = UserDefaultsAppPreferencesStore(
                 userDefaults: defaults
@@ -52,6 +60,7 @@ final class AppPreferencesStoreTests: XCTestCase {
             )
             XCTAssertEqual(restored.librarySort, sort)
             XCTAssertEqual(restored.language, .simplifiedChinese)
+            XCTAssertEqual(restored.smartPause, smartPause)
             XCTAssertEqual(
                 defaults.string(
                     forKey: AppPreferencesStorageKey.language
@@ -99,6 +108,18 @@ final class AppPreferencesStoreTests: XCTestCase {
                 "unsupported",
                 forKey: AppPreferencesStorageKey.language
             )
+            defaults.set(
+                "invalid",
+                forKey: AppPreferencesStorageKey.smartPauseEnabled
+            )
+            defaults.set(
+                false,
+                forKey: AppPreferencesStorageKey.smartPauseDesktopHidden
+            )
+            defaults.set(
+                true,
+                forKey: AppPreferencesStorageKey.smartPauseLimitedPowerSource
+            )
 
             let restored = store.load()
 
@@ -112,7 +133,36 @@ final class AppPreferencesStoreTests: XCTestCase {
             XCTAssertEqual(restored.librarySort.field, .fileSize)
             XCTAssertEqual(restored.librarySort.direction, .ascending)
             XCTAssertEqual(restored.language, .system)
+            XCTAssertTrue(restored.smartPause.isEnabled)
+            XCTAssertFalse(restored.smartPause.pauseWhenDesktopHidden)
+            XCTAssertTrue(restored.smartPause.pauseInLowPowerMode)
+            XCTAssertTrue(restored.smartPause.pauseOnLimitedPowerSource)
+            XCTAssertFalse(
+                restored.smartPause.pauseUnderSustainedSystemLoad
+            )
         }
+    }
+
+    func testDisablingSmartPausePreservesOptionsAndNotifiesSession() {
+        let store = TestAppPreferencesStore()
+        let controller = SmartPauseController(store: store)
+        var observedPreferences: [SmartPausePreferences] = []
+        controller.preferencesDidChangeHandler = {
+            observedPreferences.append($0)
+        }
+
+        controller.setPauseOnLimitedPowerSource(true)
+        controller.setEnabled(false)
+        controller.setEnabled(true)
+
+        XCTAssertTrue(
+            controller.preferences.pauseOnLimitedPowerSource
+        )
+        XCTAssertEqual(
+            observedPreferences,
+            store.savedSmartPausePreferences
+        )
+        XCTAssertEqual(observedPreferences.count, 3)
     }
 
     func testBooleanAndNumericTypesAreNotCoercedAcrossPreferenceFields() throws {

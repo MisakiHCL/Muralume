@@ -28,6 +28,7 @@
 		2CC637A1BABB9D96CD6D1A53 /* DesktopMediaSelectionControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFBC0F3C13B2B9BDBAE873F5 /* DesktopMediaSelectionControl.swift */; };
 		353A5218136446D38C6974E8 /* PlayerActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C68D1172DDA349E29EDAE7B2 /* PlayerActions.swift */; };
 		38DAF1886E669E9AD8629B01 /* MacDesktopHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EADC3367C34613B9AB4302 /* MacDesktopHost.swift */; };
+		F16000000000000000000001 /* DesktopOcclusionMonitoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = F16000000000000000000002 /* DesktopOcclusionMonitoring.swift */; };
 		3F17219CF978658459118E51 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D3F2E5966FB709EA70C9D0D3 /* Cocoa.framework */; };
 		48F762B8D1EEAE1720420B00 /* LaunchAtLoginController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 122FC8442E8C165BB5468F59 /* LaunchAtLoginController.swift */; };
 		4B347BA8B5DD46B3D778F622 /* LibrarySidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175A64BC45FA05F76881C95C /* LibrarySidebar.swift */; };
@@ -218,6 +219,7 @@
 		531DB9F7981DA319BAC09428 /* MuralumeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MuralumeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		57303ACF6F0F43E7804B20A3 /* DesktopSessionCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopSessionCoordinator.swift; sourceTree = "<group>"; };
 		62EADC3367C34613B9AB4302 /* MacDesktopHost.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopHost.swift; sourceTree = "<group>"; };
+		F16000000000000000000002 /* DesktopOcclusionMonitoring.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopOcclusionMonitoring.swift; sourceTree = "<group>"; };
 		654368F2F8F46611FE1F0288 /* FileCustomPlaylistStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileCustomPlaylistStore.swift; sourceTree = "<group>"; };
 		655D9C53DF93C4399C148736 /* DesktopDisplayCanvasLayoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopDisplayCanvasLayoutTests.swift; sourceTree = "<group>"; };
 		6D32A61D760BE7B80916FCEB /* AppConfiguration.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
@@ -587,6 +589,7 @@
 		5ADA8945AD7A4637BD25F281 /* Desktop */ = {
 			isa = PBXGroup;
 			children = (
+				F16000000000000000000002 /* DesktopOcclusionMonitoring.swift */,
 				62EADC3367C34613B9AB4302 /* MacDesktopHost.swift */,
 				D2E5FCCB7B72B4DD3AFAF836 /* FileDesktopPresetStore.swift */,
 				0D6AF9AFA22C8D3E35AA6282 /* MacDesktopDisplayTopology.swift */,
@@ -1167,6 +1170,7 @@
 				A4D6BA374089486495FAEF0B /* PlaybackTimeline.swift in Sources */,
 				91DA9116CF36487AAF9244F6 /* VideoViewport.swift in Sources */,
 				38DAF1886E669E9AD8629B01 /* MacDesktopHost.swift in Sources */,
+				F16000000000000000000001 /* DesktopOcclusionMonitoring.swift in Sources */,
 				61F9D4963CFD4D2B81DF24E5 /* MacMediaSourcePicker.swift in Sources */,
 				D7A2E5C01A2B3C4D5E6F7001 /* UserSelectedMediaRestoreExecutor.swift in Sources */,
 				19C57C0C558AA0B34670E630 /* UserSelectedMediaSession.swift in Sources */,
