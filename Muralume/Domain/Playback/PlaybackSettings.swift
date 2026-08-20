@@ -49,6 +49,10 @@ struct PlaybackRate: Equatable, Hashable, Sendable {
     }
 }
 
+struct PlaybackRateOverrideToken: Equatable, Hashable, Sendable {
+    private let id = UUID()
+}
+
 struct PlaybackSettings: Equatable, Sendable {
     private(set) var volume: PlaybackVolume
     private(set) var isMuted: Bool

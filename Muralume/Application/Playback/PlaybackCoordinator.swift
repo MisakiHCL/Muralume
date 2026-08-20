@@ -25,6 +25,7 @@ final class PlaybackCoordinator: ObservableObject {
     @Published private(set) var isPlaybackRequested = false
     @Published private(set) var hasPlayableMedia = false
     @Published private(set) var settings: PlaybackSettings
+    @Published private(set) var temporaryPlaybackRate: PlaybackRate?
     @Published private(set) var isPlayerWindowDismissed = false {
         didSet {
             updateProgressCadence()
@@ -58,6 +59,7 @@ final class PlaybackCoordinator: ObservableObject {
     private var audioPreferencesSaveTask: Task<Void, Never>?
     private var pendingAudioPreferences: PlaybackAudioPreferences?
     private var savedPlayerSettings: PlaybackSettings?
+    private var playbackRateOverrideToken: PlaybackRateOverrideToken?
     private var transitionGeneration: UInt64 = 0
     private var mediaLoadGeneration: UInt64 = 0
     private var timelineSeekTarget: TimeInterval?
@@ -192,6 +194,7 @@ final class PlaybackCoordinator: ObservableObject {
         }
 
         cancelTimelineSeek()
+        clearTemporaryPlaybackRateOverride()
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
         attachedPlayerSurface = nil
@@ -438,6 +441,39 @@ final class PlaybackCoordinator: ObservableObject {
         applyPlaybackGate()
     }
 
+    @discardableResult
+    func beginTemporaryPlaybackRate(
+        _ rate: PlaybackRate
+    ) -> PlaybackRateOverrideToken? {
+        guard temporaryPlaybackRate == nil,
+              readiness == .ready,
+              presentation == .player,
+              isPlaybackRequested,
+              !isPlayerWindowDismissed,
+              !isSystemSuspended,
+              !isDesktopEngineDetached,
+              timelineSeekTarget == nil,
+              !isWaitingForPlayerSurface else {
+            return nil
+        }
+
+        let token = PlaybackRateOverrideToken()
+        playbackRateOverrideToken = token
+        temporaryPlaybackRate = rate
+        applyPlaybackGate()
+        return token
+    }
+
+    func endTemporaryPlaybackRate(
+        _ token: PlaybackRateOverrideToken
+    ) {
+        guard playbackRateOverrideToken == token else {
+            return
+        }
+        clearTemporaryPlaybackRateOverride()
+        applyPlaybackGate()
+    }
+
     func transitionToDesktop(_ surface: any PlaybackRenderSurface) async throws {
         guard canPresentOnDesktop else {
             throw PlaybackEngineError.superseded
@@ -611,6 +647,7 @@ final class PlaybackCoordinator: ObservableObject {
 
     func stop() {
         cancelTimelineSeek()
+        clearTemporaryPlaybackRateOverride()
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
         attachedPlayerSurface = nil
@@ -637,6 +674,7 @@ final class PlaybackCoordinator: ObservableObject {
             return
         }
         cancelTimelineSeek()
+        clearTemporaryPlaybackRateOverride()
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
         attachedPlayerSurface = nil
@@ -661,6 +699,9 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     private func applyPlaybackGate() {
+        if !canMaintainTemporaryPlaybackRateOverride {
+            clearTemporaryPlaybackRateOverride()
+        }
         guard readiness == .ready,
               !isPlayerWindowDismissed,
               timelineSeekTarget == nil,
@@ -672,7 +713,7 @@ final class PlaybackCoordinator: ObservableObject {
         }
 
         if shouldPlayForCurrentPresentation {
-            engine.play(at: settings.rate)
+            engine.play(at: temporaryPlaybackRate ?? settings.rate)
         } else {
             engine.pause()
             isActuallyPlaying = false
@@ -801,6 +842,7 @@ final class PlaybackCoordinator: ObservableObject {
 
     private func fail(with failure: PlaybackFailure) {
         cancelTimelineSeek()
+        clearTemporaryPlaybackRateOverride()
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
         attachedPlayerSurface = nil
@@ -822,6 +864,7 @@ final class PlaybackCoordinator: ObservableObject {
 
     private func failLoading(with failure: PlaybackFailure) {
         cancelTimelineSeek()
+        clearTemporaryPlaybackRateOverride()
         hasHandledCurrentItemEnd = false
         engine.pause()
         readiness = .failed(failure)
@@ -895,6 +938,22 @@ final class PlaybackCoordinator: ObservableObject {
         playerSurfaceAttachmentTask?.cancel()
         playerSurfaceAttachmentTask = nil
         attachingPlayerSurface = nil
+    }
+
+    private var canMaintainTemporaryPlaybackRateOverride: Bool {
+        readiness == .ready
+            && presentation == .player
+            && isPlaybackRequested
+            && !isPlayerWindowDismissed
+            && !isSystemSuspended
+            && !isDesktopEngineDetached
+            && timelineSeekTarget == nil
+            && !isWaitingForPlayerSurface
+    }
+
+    private func clearTemporaryPlaybackRateOverride() {
+        playbackRateOverrideToken = nil
+        temporaryPlaybackRate = nil
     }
 
     private func finishPlayerSurfaceAttachment(generation: UInt64) {

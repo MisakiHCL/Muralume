@@ -11,6 +11,9 @@ enum PlaybackPolicy {
     static let volumeStep: Float = 0.1
     static let audioPreferencesPersistenceDelay: Duration = .milliseconds(200)
     static let defaultRate = PlaybackRate(rawValue: 1)
+    static let temporaryFastForwardRate = PlaybackRate(rawValue: 2)
+    static let temporaryFastForwardPressDuration: TimeInterval = 0.35
+    static let temporaryFastForwardMaximumMovement: CGFloat = 12
     static let supportedRates: [PlaybackRate] = [
         PlaybackRate(rawValue: 0.5),
         PlaybackRate(rawValue: 0.75),

@@ -31,6 +31,7 @@
 "player.volumeUp" = "Volume Up";
 "player.volumeDown" = "Volume Down";
 "player.speed" = "Playback Speed";
+"player.temporarySpeed" = "Temporary Playback Speed";
 "player.timeline" = "Playback Position";
 "player.fullscreen" = "Toggle Full Screen";
 "player.desktop" = "Set as Dynamic Desktop";

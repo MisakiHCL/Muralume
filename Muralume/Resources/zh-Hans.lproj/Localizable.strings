@@ -31,6 +31,7 @@
 "player.volumeUp" = "调高音量";
 "player.volumeDown" = "调低音量";
 "player.speed" = "播放速度";
+"player.temporarySpeed" = "临时播放速度";
 "player.timeline" = "播放位置";
 "player.fullscreen" = "切换全屏模式";
 "player.desktop" = "设为动态桌面";

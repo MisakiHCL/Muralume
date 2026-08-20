@@ -7,6 +7,7 @@ struct VideoViewport<PlayerSurface: View>: View {
     let playerSurface: PlayerSurface
 
     @State private var viewportState: PlayerViewportState
+    @State private var temporaryRateToken: PlaybackRateOverrideToken?
 
     init(
         playback: PlaybackCoordinator,
@@ -47,6 +48,10 @@ struct VideoViewport<PlayerSurface: View>: View {
             case .ready:
                 EmptyView()
             }
+
+            if let rate = viewportState.temporaryPlaybackRate {
+                PlayerTemporaryPlaybackRateIndicator(rate: rate)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(minHeight: MuralumeTheme.Size.videoMinimumHeight)
@@ -59,41 +64,102 @@ struct VideoViewport<PlayerSurface: View>: View {
         .onReceive(viewportStatePublisher) { state in
             viewportState = state
         }
+        .onLongPressGesture(
+            minimumDuration:
+                PlaybackPolicy.temporaryFastForwardPressDuration,
+            maximumDistance:
+                PlaybackPolicy.temporaryFastForwardMaximumMovement,
+            perform: beginTemporaryFastForward,
+            onPressingChanged: handleTemporaryFastForwardPressing
+        )
+        .onDisappear {
+            endTemporaryFastForward()
+        }
     }
 
     private var viewportStatePublisher:
         AnyPublisher<PlayerViewportState, Never> {
-        Publishers.CombineLatest(
+        Publishers.CombineLatest3(
             playback.$readiness,
-            playback.$hasPlayableMedia
+            playback.$hasPlayableMedia,
+            playback.$temporaryPlaybackRate
         )
-        .map { readiness, hasPlayableMedia in
+        .map { readiness, hasPlayableMedia, temporaryPlaybackRate in
             PlayerViewportState(
                 readiness: readiness,
-                hasPlayableMedia: hasPlayableMedia
+                hasPlayableMedia: hasPlayableMedia,
+                temporaryPlaybackRate: temporaryPlaybackRate
             )
         }
         .removeDuplicates()
         .eraseToAnyPublisher()
+    }
+
+    private func beginTemporaryFastForward() {
+        temporaryRateToken = playback.beginTemporaryPlaybackRate(
+            PlaybackPolicy.temporaryFastForwardRate
+        )
+    }
+
+    private func handleTemporaryFastForwardPressing(_ isPressing: Bool) {
+        if !isPressing {
+            endTemporaryFastForward()
+        }
+    }
+
+    private func endTemporaryFastForward() {
+        guard let temporaryRateToken else {
+            return
+        }
+        self.temporaryRateToken = nil
+        playback.endTemporaryPlaybackRate(temporaryRateToken)
     }
 }
 
 private struct PlayerViewportState: Equatable {
     let readiness: PlaybackReadiness
     let hasPlayableMedia: Bool
+    let temporaryPlaybackRate: PlaybackRate?
 
     @MainActor
     init(playback: PlaybackCoordinator) {
         readiness = playback.readiness
         hasPlayableMedia = playback.hasPlayableMedia
+        temporaryPlaybackRate = playback.temporaryPlaybackRate
     }
 
     init(
         readiness: PlaybackReadiness,
-        hasPlayableMedia: Bool
+        hasPlayableMedia: Bool,
+        temporaryPlaybackRate: PlaybackRate?
     ) {
         self.readiness = readiness
         self.hasPlayableMedia = hasPlayableMedia
+        self.temporaryPlaybackRate = temporaryPlaybackRate
+    }
+}
+
+private struct PlayerTemporaryPlaybackRateIndicator: View {
+    let rate: PlaybackRate
+
+    var body: some View {
+        HStack(spacing: MuralumeTheme.Spacing.small) {
+            Image(systemName: "forward.fill")
+                .font(.system(size: MuralumeTheme.Size.icon))
+            Text(verbatim: PlayerFormatting.rate(rate))
+                .font(.title3.weight(.semibold).monospacedDigit())
+        }
+        .foregroundStyle(MuralumeTheme.Colors.textPrimary)
+        .padding(.horizontal, MuralumeTheme.Spacing.large)
+        .padding(.vertical, MuralumeTheme.Spacing.medium)
+        .muralumePanel(cornerRadius: MuralumeTheme.Radius.large)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("player.temporarySpeed"))
+        .accessibilityValue(Text(verbatim: PlayerFormatting.rate(rate)))
+        .accessibilityIdentifier(
+            MuralumeAccessibilityIdentifier.temporaryPlaybackRate
+        )
     }
 }
 
