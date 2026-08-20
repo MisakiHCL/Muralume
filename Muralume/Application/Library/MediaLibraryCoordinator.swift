@@ -223,6 +223,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         Set<LibraryMediaItem.ID> = []
     @Published private(set) var sourceAccessState:
         MediaLibrarySourceAccessState = .empty
+    @Published private(set) var unavailableSources:
+        [UnavailableMediaSource] = []
     /// The authoritative set used by coarse filesystem monitoring. Explicit
     /// file imports are deliberately excluded because FSEvents monitoring is
     /// recursive-folder based.
@@ -348,7 +350,10 @@ final class MediaLibraryCoordinator: ObservableObject {
         !isShutDown
             && rootIDsPendingRemoval.isEmpty
             && scanState != .scanning
-            && sourceAccessState.hasUnavailableSources
+            && (
+                sourceAccessState.hasUnavailableSources
+                    || mediaSession.hasUnavailablePersistedSources
+            )
     }
 
     var canMoveToPrevious: Bool {
@@ -506,7 +511,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             scanState = .idle
             return .noRestorableRoots(
                 hasTemporarilyUnavailableRoots:
-                    mediaSession.hasUnavailablePersistedSources
+                    !unavailableSources.isEmpty
             )
         }
         latestPreparedSources = restoredSources
@@ -609,7 +614,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             if restoredSources.isEmpty {
                 return .noRestorableRoots(
                     hasTemporarilyUnavailableRoots:
-                        mediaSession.hasUnavailablePersistedSources
+                        !unavailableSources.isEmpty
                 )
             }
             return .alreadyStarted
@@ -646,7 +651,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             if restoredSources.isEmpty {
                 return .noRestorableRoots(
                     hasTemporarilyUnavailableRoots:
-                        mediaSession.hasUnavailablePersistedSources
+                        !unavailableSources.isEmpty
                 )
             }
             return .alreadyStarted
@@ -1838,6 +1843,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         mediaSession.stop()
         installActiveSources([])
         latestPreparedSources = []
+        unavailableSources = []
         sourceAccessState = .empty
         preparedSourcesNeedRefresh = false
         supersededThumbnailRootPaths = []
@@ -2614,7 +2620,8 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     private func updateSourceAccessState(using sources: [MediaSource]) {
-        if mediaSession.hasUnavailablePersistedSources {
+        unavailableSources = mediaSession.unavailablePersistedSources
+        if !unavailableSources.isEmpty {
             sourceAccessState = sources.isEmpty
                 ? .temporarilyUnavailable
                 : .partiallyUnavailable

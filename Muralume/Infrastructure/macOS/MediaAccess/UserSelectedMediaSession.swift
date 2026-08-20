@@ -13,6 +13,9 @@ final class UserSelectedMediaSession: MediaAccessSession {
             static let schemaVersion = "schemaVersion"
             static let kind = "kind"
             static let bookmark = "bookmark"
+            static let identifier = "identifier"
+            static let displayName = "displayName"
+            static let lastKnownPath = "lastKnownPath"
         }
     }
 
@@ -20,11 +23,23 @@ final class UserSelectedMediaSession: MediaAccessSession {
         let schemaVersion: Int
         let kind: MediaSourceKind
         let bookmark: Data
+        let identifier: String?
+        let displayName: String?
+        let lastKnownPath: String?
 
-        init(kind: MediaSourceKind, bookmark: Data) {
+        init(
+            kind: MediaSourceKind,
+            bookmark: Data,
+            identifier: String? = nil,
+            displayName: String? = nil,
+            lastKnownPath: String? = nil
+        ) {
             schemaVersion = Storage.currentSchemaVersion
             self.kind = kind
             self.bookmark = bookmark
+            self.identifier = identifier
+            self.displayName = displayName
+            self.lastKnownPath = lastKnownPath
         }
 
         init?(storedValue: Any) {
@@ -43,14 +58,51 @@ final class UserSelectedMediaSession: MediaAccessSession {
             self.schemaVersion = schemaVersion
             self.kind = kind
             self.bookmark = bookmark
+            identifier = fields[Storage.RecordField.identifier] as? String
+            displayName = fields[Storage.RecordField.displayName] as? String
+            lastKnownPath = fields[Storage.RecordField.lastKnownPath] as? String
         }
 
         var storedValue: [String: Any] {
-            [
+            var fields: [String: Any] = [
                 Storage.RecordField.schemaVersion: schemaVersion,
                 Storage.RecordField.kind: kind.rawValue,
                 Storage.RecordField.bookmark: bookmark
             ]
+            fields[Storage.RecordField.identifier] = identifier
+            fields[Storage.RecordField.displayName] = displayName
+            fields[Storage.RecordField.lastKnownPath] = lastKnownPath
+            return fields
+        }
+
+        var unavailableSource: UnavailableMediaSource? {
+            guard let identifier,
+                  let displayName,
+                  !displayName.isEmpty,
+                  let lastKnownPath,
+                  !lastKnownPath.isEmpty else {
+                return nil
+            }
+            return UnavailableMediaSource(
+                id: .init(rawValue: identifier),
+                displayName: displayName,
+                lastKnownURL: URL(
+                    fileURLWithPath: lastKnownPath,
+                    isDirectory: kind == .folder
+                ),
+                kind: kind
+            )
+        }
+
+        func identified(at url: URL) -> PersistedSourceRecord {
+            let standardizedURL = url.standardizedFileURL
+            return PersistedSourceRecord(
+                kind: kind,
+                bookmark: bookmark,
+                identifier: identifier ?? UUID().uuidString,
+                displayName: standardizedURL.lastPathComponent,
+                lastKnownPath: standardizedURL.path
+            )
         }
     }
 
@@ -91,6 +143,21 @@ final class UserSelectedMediaSession: MediaAccessSession {
     private var didAttemptRestore = false
     private var lifecycleGeneration: UInt = 0
     private(set) var hasUnavailablePersistedSources = false
+
+    var unavailablePersistedSources: [UnavailableMediaSource] {
+        unavailableStoredRecordValues
+            .compactMap(PersistedSourceRecord.init(storedValue:))
+            .compactMap(\.unavailableSource)
+            .reduce(into: [UnavailableMediaSource.ID: UnavailableMediaSource]()) {
+                sourcesByID, source in
+                sourcesByID[source.id] = source
+            }
+            .values
+            .sorted {
+                $0.displayName.localizedStandardCompare($1.displayName)
+                    == .orderedAscending
+            }
+    }
 
     init(
         defaults: UserDefaults = .standard,
@@ -838,6 +905,15 @@ final class UserSelectedMediaSession: MediaAccessSession {
         }
     }
 
+    func removeUnavailableSource(_ source: UnavailableMediaSource) {
+        unavailableStoredRecordValues.removeAll { storedValue in
+            PersistedSourceRecord(storedValue: storedValue)?
+                .unavailableSource?.id == source.id
+        }
+        storeSourceRecords(currentStoredRecordValues)
+        refreshHasUnavailablePersistedSources()
+    }
+
     func stop() {
         lifecycleGeneration &+= 1
         for source in activeSourcesByKey.values {
@@ -1018,7 +1094,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
         _ source: MediaSource,
         bookmark: Data,
         replacingKeys: [String],
-        resourceIdentifier: NSObject?
+        resourceIdentifier: NSObject?,
+        persistedRecord: PersistedSourceRecord? = nil
     ) -> [URL] {
         let replacedURLs = replacingKeys.compactMap {
             activeSourcesByKey.removeValue(forKey: $0)?.url
@@ -1029,10 +1106,13 @@ final class UserSelectedMediaSession: MediaAccessSession {
         }
         let key = sourceKey(for: source.url)
         activeSourcesByKey[key] = source
-        activeRecordsByKey[key] = PersistedSourceRecord(
-            kind: source.kind,
-            bookmark: bookmark
-        )
+        activeRecordsByKey[key] = (
+            persistedRecord
+                ?? PersistedSourceRecord(
+                    kind: source.kind,
+                    bookmark: bookmark
+                )
+        ).identified(at: source.url)
         if source.kind == .folder {
             activeFolderKeys.insert(key)
         }
@@ -1220,7 +1300,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
                 source,
                 bookmark: refreshedCandidate.record.bookmark,
                 replacingKeys: replacingKeys,
-                resourceIdentifier: preparedRestore.resourceIdentifier
+                resourceIdentifier: preparedRestore.resourceIdentifier,
+                persistedRecord: refreshedCandidate.record
             )
             executorOwnedRestore?.transferScopeToSession()
             for replacedURL in replacedURLs {
@@ -1252,7 +1333,10 @@ final class UserSelectedMediaSession: MediaAccessSession {
         }
         let refreshedRecord = PersistedSourceRecord(
             kind: candidate.record.kind,
-            bookmark: refreshedBookmark
+            bookmark: refreshedBookmark,
+            identifier: candidate.record.identifier,
+            displayName: candidate.record.displayName,
+            lastKnownPath: candidate.record.lastKnownPath
         )
         let refreshedOrigin: RestoreOrigin = switch candidate.origin {
         case .typed:

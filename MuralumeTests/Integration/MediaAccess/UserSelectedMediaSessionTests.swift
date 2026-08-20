@@ -13,6 +13,9 @@ final class UserSelectedMediaSessionTests: XCTestCase {
             static let schemaVersion = "schemaVersion"
             static let kind = "kind"
             static let bookmark = "bookmark"
+            static let identifier = "identifier"
+            static let displayName = "displayName"
+            static let lastKnownPath = "lastKnownPath"
         }
     }
 
@@ -181,6 +184,88 @@ final class UserSelectedMediaSessionTests: XCTestCase {
 
         fixture.session.stop()
         XCTAssertEqual(fixture.recorder.stoppedURLs, [fileURL, fileURL])
+    }
+
+    func testNewSourcePersistsIdentityForSpecificOfflineRecovery() throws {
+        let fixture = makeSessionFixture()
+        defer { fixture.clearDefaults() }
+        let sandboxURL = try makeSandbox()
+        defer { try? FileManager.default.removeItem(at: sandboxURL) }
+        let fileURL = sandboxURL.appendingPathComponent("Identified.mp4")
+        try Data([0xA5]).write(to: fileURL)
+        let bookmark = fixture.recorder.bookmark(for: fileURL)
+        fixture.recorder.resolvedURLByBookmark[bookmark] = fileURL
+
+        _ = fixture.session.addSources([fileURL])
+
+        let fields = try XCTUnwrap(
+            fixture.defaults.array(forKey: TestStorage.sourceRecordKey)?
+                .first as? [String: Any]
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(
+                fields[TestStorage.RecordField.identifier] as? String
+            ).isEmpty
+        )
+        XCTAssertEqual(
+            fields[TestStorage.RecordField.displayName] as? String,
+            fileURL.lastPathComponent
+        )
+        XCTAssertEqual(
+            fields[TestStorage.RecordField.lastKnownPath] as? String,
+            fileURL.standardizedFileURL.path
+        )
+    }
+
+    func testAnonymousLegacyTypedRecordIsRetryableButNotUserFacing() {
+        let fixture = makeSessionFixture()
+        defer { fixture.clearDefaults() }
+        let record = StoredSourceRecord(
+            kind: .folder,
+            bookmark: Data("anonymous-offline".utf8)
+        )
+        fixture.defaults.set(
+            [record.storedValue],
+            forKey: TestStorage.sourceRecordKey
+        )
+
+        XCTAssertTrue(fixture.session.restoreSources().isEmpty)
+        XCTAssertTrue(fixture.session.hasUnavailablePersistedSources)
+        XCTAssertTrue(fixture.session.unavailablePersistedSources.isEmpty)
+    }
+
+    func testIdentifiedOfflineRecordExposesSpecificRecoverySource() throws {
+        let fixture = makeSessionFixture()
+        defer { fixture.clearDefaults() }
+        let sourceID = UUID().uuidString
+        let sourcePath = "/Volumes/Offline/Muralume Library"
+        var storedValue = StoredSourceRecord(
+            kind: .folder,
+            bookmark: Data("identified-offline".utf8)
+        ).storedValue
+        storedValue[TestStorage.RecordField.identifier] = sourceID
+        storedValue[TestStorage.RecordField.displayName] = "Muralume Library"
+        storedValue[TestStorage.RecordField.lastKnownPath] = sourcePath
+        fixture.defaults.set(
+            [storedValue],
+            forKey: TestStorage.sourceRecordKey
+        )
+
+        XCTAssertTrue(fixture.session.restoreSources().isEmpty)
+
+        let unavailableSource = try XCTUnwrap(
+            fixture.session.unavailablePersistedSources.first
+        )
+        XCTAssertEqual(unavailableSource.id.rawValue, sourceID)
+        XCTAssertEqual(unavailableSource.displayName, "Muralume Library")
+        XCTAssertEqual(unavailableSource.lastKnownURL.path, sourcePath)
+        XCTAssertEqual(unavailableSource.kind, .folder)
+
+        fixture.session.removeUnavailableSource(unavailableSource)
+
+        XCTAssertTrue(fixture.session.unavailablePersistedSources.isEmpty)
+        XCTAssertFalse(fixture.session.hasUnavailablePersistedSources)
+        XCTAssertTrue(storedSourceRecords(in: fixture.defaults).isEmpty)
     }
 
     func testTypedFileRecordRestoresAsFileAcrossSessions() throws {

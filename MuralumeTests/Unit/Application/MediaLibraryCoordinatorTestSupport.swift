@@ -372,6 +372,24 @@ final class TestMediaAccessSession: MediaAccessSession {
     private(set) var stopCount = 0
     var restoredURLs: [URL] = []
     var hasUnavailablePersistedSources = false
+    var exposesUnavailableSourceMetadata = true
+    var unavailablePersistedSources: [UnavailableMediaSource] {
+        guard hasUnavailablePersistedSources,
+              exposesUnavailableSourceMetadata else {
+            return []
+        }
+        return [
+            UnavailableMediaSource(
+                id: .init(rawValue: "test-unavailable-source"),
+                displayName: "Unavailable Source",
+                lastKnownURL: URL(
+                    fileURLWithPath: "/Volumes/Unavailable Source",
+                    isDirectory: true
+                ),
+                kind: .folder
+            )
+        ]
+    }
     var treatsFilesInsideActiveFoldersAsCovered = false
     var replacesFilesCoveredByAddedFolder = false
     var nextAddSourcesUpdate: MediaAccessUpdate?

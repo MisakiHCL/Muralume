@@ -23,6 +23,17 @@ struct MediaSource: Identifiable, Hashable, Sendable {
     }
 }
 
+struct UnavailableMediaSource: Identifiable, Hashable, Sendable {
+    struct ID: Hashable, Sendable {
+        let rawValue: String
+    }
+
+    let id: ID
+    let displayName: String
+    let lastKnownURL: URL
+    let kind: MediaSourceKind
+}
+
 struct MediaLibraryRoot: Identifiable, Hashable, Sendable {
     struct ID: Hashable, Sendable {
         let standardizedPath: String

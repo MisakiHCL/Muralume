@@ -64,6 +64,10 @@ protocol MediaAccessSession: AnyObject {
     /// process, for example because a removable volume is unavailable.
     var hasUnavailablePersistedFolders: Bool { get }
     var hasUnavailablePersistedSources: Bool { get }
+    /// Persisted grants with enough metadata to present a specific recovery
+    /// action. Anonymous legacy records remain retryable but are not shown as
+    /// user-facing unavailable sources.
+    var unavailablePersistedSources: [UnavailableMediaSource] { get }
 
     /// Legacy folder-only restore API.
     func restoreFolders() -> [URL]
@@ -98,11 +102,18 @@ protocol MediaAccessSession: AnyObject {
     func removeFolder(_ url: URL) -> [URL]
     /// Removes one persisted source grant without modifying files on disk.
     func removeSource(_ source: MediaSource) -> [MediaSource]
+    /// Forgets one unavailable persisted grant without modifying media on
+    /// disk or closing any active source scopes.
+    func removeUnavailableSource(_ source: UnavailableMediaSource)
 
     func stop()
 }
 
 extension MediaAccessSession {
+    var unavailablePersistedSources: [UnavailableMediaSource] {
+        []
+    }
+
     var hasUnavailablePersistedSources: Bool {
         hasUnavailablePersistedFolders
     }
@@ -175,5 +186,10 @@ extension MediaAccessSession {
 
     func removeFolder(_ url: URL) -> [URL] {
         restoreFolders()
+    }
+
+    func removeUnavailableSource(_ source: UnavailableMediaSource) {
+        // Compatibility default for sessions that do not expose persisted
+        // unavailable-source records.
     }
 }

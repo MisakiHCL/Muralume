@@ -3762,6 +3762,37 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         )
     }
 
+    func testAnonymousUnavailableBookmarkDoesNotWarnAboutVisibleSources()
+        async
+    {
+        let rootURL = URL(
+            fileURLWithPath: "/tmp/Visible Muralume Library",
+            isDirectory: true
+        )
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(
+                        url: rootURL,
+                        displayName: "Visible Muralume Library"
+                    )
+                ],
+                items: []
+            )
+        )
+        fixture.session.restoredURLs = [rootURL]
+        fixture.session.hasUnavailablePersistedSources = true
+        fixture.session.exposesUnavailableSourceMetadata = false
+
+        _ = fixture.coordinator.start()
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(fixture.coordinator.sourceAccessState, .available)
+        XCTAssertTrue(fixture.coordinator.unavailableSources.isEmpty)
+        XCTAssertTrue(fixture.coordinator.canRetrySourceAccess)
+    }
+
     func testCancelledAsyncSourceAccessRetryCannotPublishOrStartScan()
         async
     {
@@ -4316,6 +4347,22 @@ private func makeControlledRetryFixture(
 @MainActor
 private final class ControlledRetryMediaAccessSession: MediaAccessSession {
     var hasUnavailablePersistedSources = true
+    var unavailablePersistedSources: [UnavailableMediaSource] {
+        guard hasUnavailablePersistedSources else {
+            return []
+        }
+        return [
+            UnavailableMediaSource(
+                id: .init(rawValue: "controlled-unavailable-source"),
+                displayName: "Unavailable Source",
+                lastKnownURL: URL(
+                    fileURLWithPath: "/Volumes/Unavailable Source",
+                    isDirectory: true
+                ),
+                kind: .folder
+            )
+        ]
+    }
     var synchronousRetrySources: [MediaSource] = []
     private(set) var asyncRestoreDidBegin = false
     private(set) var asyncRetryDidBegin = false
