@@ -33,6 +33,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         CustomPlaylistPlaybackBridge
     private let automaticLibraryRefresh:
         MediaLibraryAutomaticRefreshController
+    private let sourceAccessRecoveryMonitor:
+        any MediaSourceAccessRecoveryMonitoring
     private var automaticLibraryRefreshCancellables: Set<AnyCancellable> = []
     private var initialRestoreTask: Task<Void, Never>?
     private var sourceAccessRetryTask: Task<Void, Never>?
@@ -59,6 +61,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             FSEventsMediaLibraryChangeMonitor(),
         automaticLibraryRefreshSchedule:
             MediaLibraryAutomaticRefreshSchedule = .production,
+        sourceAccessRecoveryMonitor:
+            any MediaSourceAccessRecoveryMonitoring =
+                MediaSourceAccessRecoveryMonitor(),
         desktopScene: DesktopSceneController? = nil,
         smartPause: SmartPauseController = SmartPauseController(),
         playerChrome: PlayerChromeController = PlayerChromeController(),
@@ -92,6 +97,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             reconciliationNanoseconds:
                 automaticLibraryRefreshSchedule.reconciliationNanoseconds
         )
+        self.sourceAccessRecoveryMonitor = sourceAccessRecoveryMonitor
         self.desktopScene = desktopScene
         self.smartPause = smartPause
         self.playerChrome = playerChrome
@@ -154,6 +160,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             }
             isMainWindowFullScreen = state
         }
+        sourceAccessRecoveryMonitor.recoveryHandler = { [weak self] in
+            self?.recoverUnavailableSourceAccessAutomatically()
+        }
 
         library.$monitoredFolderURLs
             .removeDuplicates()
@@ -177,6 +186,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             return
         }
         hasStarted = true
+        sourceAccessRecoveryMonitor.start()
         automaticLibraryRefresh.start(
             folderURLs: library.monitoredFolderURLs
         )
@@ -339,10 +349,29 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     func retryUnavailableSourceAccess() {
-        guard canImportMedia,
+        startSourceAccessRetry(
+            requiresInteractiveAvailability: true,
+            resumesDeferredPlayback: true
+        )
+    }
+
+    private func recoverUnavailableSourceAccessAutomatically() {
+        startSourceAccessRetry(
+            requiresInteractiveAvailability: false,
+            resumesDeferredPlayback: false
+        )
+    }
+
+    private func startSourceAccessRetry(
+        requiresInteractiveAvailability: Bool,
+        resumesDeferredPlayback: Bool
+    ) {
+        guard (!requiresInteractiveAvailability || canImportMedia),
               initialRestoreTask == nil,
               sourceAccessRetryTask == nil,
               !playbackSession.isRestoring,
+              !desktopSession.isTransitioning,
+              !isShutDown,
               library.canRetrySourceAccess else {
             return
         }
@@ -362,10 +391,12 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                   !isShutDown else {
                 return
             }
-            resumeDeferredPlaybackSession(
-                after: libraryStart,
-                overridingPresentation: .player
-            )
+            if resumesDeferredPlayback {
+                resumeDeferredPlaybackSession(
+                    after: libraryStart,
+                    overridingPresentation: .player
+                )
+            }
         }
     }
 
@@ -673,6 +704,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             return
         }
         isShutDown = true
+        sourceAccessRecoveryMonitor.stop()
+        sourceAccessRecoveryMonitor.recoveryHandler = nil
         automaticLibraryRefreshCancellables.removeAll()
         automaticLibraryRefresh.stop()
         videoScreenshotController?.cancel()
@@ -700,6 +733,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     func handleApplicationActivation(hasVisibleWindows: Bool) {
         dynamicDesktopStartup.refresh()
         defaultVideoPlayer.refresh()
+        recoverUnavailableSourceAccessAutomatically()
         guard !hasVisibleWindows,
               initialRestoreTask == nil,
               !playbackSession.isRestoring,

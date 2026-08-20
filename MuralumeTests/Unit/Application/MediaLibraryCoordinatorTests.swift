@@ -3793,6 +3793,25 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         XCTAssertTrue(fixture.coordinator.canRetrySourceAccess)
     }
 
+    func testAnonymousUnavailableBookmarkPreservesRetryableStartupState() {
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: .empty
+        )
+        fixture.session.hasUnavailablePersistedSources = true
+        fixture.session.exposesUnavailableSourceMetadata = false
+
+        let start = fixture.coordinator.start()
+
+        XCTAssertEqual(
+            start,
+            .noRestorableRoots(hasTemporarilyUnavailableRoots: true)
+        )
+        XCTAssertEqual(fixture.coordinator.sourceAccessState, .empty)
+        XCTAssertTrue(fixture.coordinator.unavailableSources.isEmpty)
+        XCTAssertTrue(fixture.coordinator.canRetrySourceAccess)
+    }
+
     func testCancelledAsyncSourceAccessRetryCannotPublishOrStartScan()
         async
     {

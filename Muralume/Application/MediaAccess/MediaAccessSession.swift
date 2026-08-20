@@ -109,6 +109,14 @@ protocol MediaAccessSession: AnyObject {
     func stop()
 }
 
+@MainActor
+protocol MediaSourceAccessRecoveryMonitoring: AnyObject {
+    var recoveryHandler: (() -> Void)? { get set }
+
+    func start()
+    func stop()
+}
+
 extension MediaAccessSession {
     var unavailablePersistedSources: [UnavailableMediaSource] {
         []

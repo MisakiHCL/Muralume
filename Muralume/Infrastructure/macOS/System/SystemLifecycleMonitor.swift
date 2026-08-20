@@ -5,6 +5,48 @@ import Foundation
 import IOKit.ps
 import notify
 
+@MainActor
+final class MediaSourceAccessRecoveryMonitor:
+    MediaSourceAccessRecoveryMonitoring {
+    var recoveryHandler: (() -> Void)?
+
+    private let workspaceCenter: NotificationCenter
+    private var volumeMountObserver: NSObjectProtocol?
+
+    init(
+        workspaceCenter: NotificationCenter = NSWorkspace.shared
+            .notificationCenter
+    ) {
+        self.workspaceCenter = workspaceCenter
+    }
+
+    isolated deinit {
+        stop()
+    }
+
+    func start() {
+        guard volumeMountObserver == nil else {
+            return
+        }
+        volumeMountObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.didMountNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.recoveryHandler?()
+            }
+        }
+    }
+
+    func stop() {
+        if let volumeMountObserver {
+            workspaceCenter.removeObserver(volumeMountObserver)
+        }
+        volumeMountObserver = nil
+    }
+}
+
 private enum SystemDisplayKey {
     static let screenNumber = NSDeviceDescriptionKey("NSScreenNumber")
 }

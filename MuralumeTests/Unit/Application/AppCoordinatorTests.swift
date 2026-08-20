@@ -121,6 +121,67 @@ final class AppCoordinatorTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
+    func testVolumeMountSilentlyRetriesUnavailableMediaSources() async {
+        let recoveryMonitor = AppCoordinatorSourceAccessRecoveryMonitorSpy()
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            sourceInitiallyAvailable: false,
+            sourceAccessRecoveryMonitor: recoveryMonitor
+        )
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+                && fixture.library.sourceAccessState
+                    == .temporarilyUnavailable
+        }
+
+        fixture.mediaSession.makePersistedSourceAvailable()
+        recoveryMonitor.emitRecoveryEvent()
+        await waitUntil {
+            fixture.mediaSession.asyncRetryReturnCount == 1
+                && fixture.library.sourceAccessState == .available
+                && fixture.library.roots.map(\.url)
+                    == [fixture.item.rootURL]
+        }
+
+        XCTAssertEqual(recoveryMonitor.startCallCount, 1)
+        XCTAssertEqual(fixture.library.roots.map(\.url), [fixture.item.rootURL])
+        XCTAssertFalse(fixture.playback.isPlaybackRequested)
+
+        await fixture.coordinator.shutdown()
+        XCTAssertEqual(recoveryMonitor.stopCallCount, 1)
+    }
+
+    func testApplicationActivationSilentlyRetriesUnavailableMediaSources()
+        async
+    {
+        let fixture = makeFixture(
+            launchStatus: .disabled,
+            sourceInitiallyAvailable: false
+        )
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil {
+            fixture.window.isVisible
+                && fixture.library.sourceAccessState
+                    == .temporarilyUnavailable
+        }
+
+        fixture.mediaSession.makePersistedSourceAvailable()
+        fixture.coordinator.handleApplicationActivation(
+            hasVisibleWindows: true
+        )
+        await waitUntil {
+            fixture.mediaSession.asyncRetryReturnCount == 1
+                && fixture.library.sourceAccessState == .available
+                && fixture.library.roots.map(\.url)
+                    == [fixture.item.rootURL]
+        }
+
+        XCTAssertEqual(fixture.library.roots.map(\.url), [fixture.item.rootURL])
+        XCTAssertFalse(fixture.playback.isPlaybackRequested)
+        await fixture.coordinator.shutdown()
+    }
+
     func testInteractiveLaunchRestoresCustomPlaylistSidebar() async throws {
         var collection = CustomPlaylistCollection.empty
         let playlistID = try collection.createPlaylist(named: "旅行")
@@ -1694,6 +1755,9 @@ final class AppCoordinatorTests: XCTestCase {
         restoredPlaybackCollection: PlaybackCollection = .mediaLibrary,
         mediaLibraryChangeMonitor: any MediaLibraryChangeMonitoring =
             DisabledMediaLibraryChangeMonitor(),
+        sourceAccessRecoveryMonitor:
+            any MediaSourceAccessRecoveryMonitoring =
+                AppCoordinatorSourceAccessRecoveryMonitorSpy(),
         automaticLibraryRefreshSchedule:
             MediaLibraryAutomaticRefreshSchedule = .production
     ) -> AppCoordinatorFixture {
@@ -1851,6 +1915,7 @@ final class AppCoordinatorTests: XCTestCase {
             mediaLibraryChangeMonitor: mediaLibraryChangeMonitor,
             automaticLibraryRefreshSchedule:
                 automaticLibraryRefreshSchedule,
+            sourceAccessRecoveryMonitor: sourceAccessRecoveryMonitor,
             desktopScene: desktopScene
         )
         let window = NSWindow(
@@ -1929,6 +1994,26 @@ private final class AppCoordinatorMediaLibraryChangeMonitorSpy:
 
     func stop() {
         stopCallCount += 1
+    }
+}
+
+@MainActor
+private final class AppCoordinatorSourceAccessRecoveryMonitorSpy:
+    MediaSourceAccessRecoveryMonitoring {
+    var recoveryHandler: (() -> Void)?
+    private(set) var startCallCount = 0
+    private(set) var stopCallCount = 0
+
+    func start() {
+        startCallCount += 1
+    }
+
+    func stop() {
+        stopCallCount += 1
+    }
+
+    func emitRecoveryEvent() {
+        recoveryHandler?()
     }
 }
 
@@ -2147,6 +2232,20 @@ private final class AppCoordinatorMediaSession: MediaAccessSession {
 
     var hasUnavailablePersistedSources: Bool {
         !persistedSourceIsAvailable
+    }
+
+    var unavailablePersistedSources: [UnavailableMediaSource] {
+        guard hasUnavailablePersistedSources else {
+            return []
+        }
+        return [
+            UnavailableMediaSource(
+                id: .init(rawValue: "app-coordinator-unavailable-source"),
+                displayName: persistedSource.url.lastPathComponent,
+                lastKnownURL: persistedSource.url,
+                kind: persistedSource.kind
+            )
+        ]
     }
 
     init(

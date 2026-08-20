@@ -8,6 +8,36 @@ final class SystemLifecycleMonitorTests: XCTestCase {
         static let eventPropagationAttempts = 20
     }
 
+    func testMediaSourceRecoveryMonitorEmitsOnlyWhileStarted() async {
+        let workspaceCenter = NotificationCenter()
+        let monitor = MediaSourceAccessRecoveryMonitor(
+            workspaceCenter: workspaceCenter
+        )
+        var recoveryCount = 0
+        monitor.recoveryHandler = {
+            recoveryCount += 1
+        }
+
+        monitor.start()
+        monitor.start()
+        workspaceCenter.post(
+            name: NSWorkspace.didMountNotification,
+            object: nil
+        )
+        await waitUntil { recoveryCount == 1 }
+
+        monitor.stop()
+        workspaceCenter.post(
+            name: NSWorkspace.didMountNotification,
+            object: nil
+        )
+        for _ in 0..<TestPolicy.eventPropagationAttempts {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(recoveryCount, 1)
+    }
+
     func testPublicWorkspaceNotificationsUpdateSuspensionState() async {
         let workspaceCenter = NotificationCenter()
         let defaultCenter = NotificationCenter()

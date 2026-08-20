@@ -10,6 +10,8 @@ enum MediaLibraryScanState: Equatable, Sendable {
 
 enum MediaLibraryStartDisposition: Equatable, Sendable {
     case scanStarted
+    /// Includes anonymous legacy grants that remain retryable even though
+    /// they are intentionally omitted from user-facing source warnings.
     case noRestorableRoots(hasTemporarilyUnavailableRoots: Bool)
     case alreadyStarted
 }
@@ -511,7 +513,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             scanState = .idle
             return .noRestorableRoots(
                 hasTemporarilyUnavailableRoots:
-                    !unavailableSources.isEmpty
+                    mediaSession.hasUnavailablePersistedSources
             )
         }
         latestPreparedSources = restoredSources
@@ -659,7 +661,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             if restoredSources.isEmpty {
                 return .noRestorableRoots(
                     hasTemporarilyUnavailableRoots:
-                        !unavailableSources.isEmpty
+                        mediaSession.hasUnavailablePersistedSources
                 )
             }
             return .alreadyStarted
@@ -696,7 +698,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             if restoredSources.isEmpty {
                 return .noRestorableRoots(
                     hasTemporarilyUnavailableRoots:
-                        !unavailableSources.isEmpty
+                        mediaSession.hasUnavailablePersistedSources
                 )
             }
             return .alreadyStarted
