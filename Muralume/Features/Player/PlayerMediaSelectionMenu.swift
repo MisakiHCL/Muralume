@@ -22,29 +22,38 @@ struct PlayerMediaSelectionMenu: View {
     var body: some View {
         if controller.state.showsTrackControls || controller.hasCurrentMedia {
             Menu {
-                if !controller.state.audioOptions.isEmpty {
+                if controller.state.showsAudioSection {
                     Section {
-                        Button {
-                            controller.selectAudio(.automatic)
-                        } label: {
-                            localizedSelectionLabel(
-                                "player.tracks.automatic",
-                                isSelected:
-                                    controller.state.audioSelection
-                                        == .automatic
-                            )
-                        }
-
-                        ForEach(controller.state.audioOptions) { option in
+                        if controller.state.showsAudioSelectionControls {
                             Button {
-                                controller.selectAudio(.option(option.id))
+                                controller.selectAudio(.automatic)
                             } label: {
-                                optionSelectionLabel(
-                                    option,
+                                localizedSelectionLabel(
+                                    "player.tracks.automatic",
                                     isSelected:
                                         controller.state.audioSelection
-                                            == .option(option.id)
+                                            == .automatic
                                 )
+                            }
+
+                            ForEach(controller.state.audioOptions) { option in
+                                Button {
+                                    controller.selectAudio(.option(option.id))
+                                } label: {
+                                    optionSelectionLabel(
+                                        option,
+                                        isSelected:
+                                            controller.state.audioSelection
+                                                == .option(option.id)
+                                    )
+                                }
+                            }
+                        } else if let option = controller.state
+                            .singleIdentifiedAudioOption {
+                            Label {
+                                Text(verbatim: option.displayName)
+                            } icon: {
+                                Image(systemName: "checkmark")
                             }
                         }
                     } header: {

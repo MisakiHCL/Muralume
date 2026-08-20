@@ -103,8 +103,29 @@ final class PlaybackMediaSelectionControllerTests: XCTestCase {
     }
 
     func testControlsAppearOnlyForUsefulAlternatives() {
-        let singleAudio = PlaybackMediaSelectionState(
-            audioOptions: [makeOption(id: "audio-0", name: "English")],
+        let unidentifiedSingleAudio = PlaybackMediaSelectionState(
+            audioOptions: [
+                makeOption(
+                    id: "audio-0",
+                    name: "Unknown Language",
+                    languageIdentifier: "und"
+                )
+            ],
+            subtitleOptions: [],
+            audioSelection: .automatic,
+            subtitleSelection: .automatic,
+            effectiveAudioOptionID: nil,
+            effectiveSubtitleOptionID: nil,
+            allowsEmptySubtitleSelection: true
+        )
+        let identifiedSingleAudio = PlaybackMediaSelectionState(
+            audioOptions: [
+                makeOption(
+                    id: "audio-0",
+                    name: "English",
+                    languageIdentifier: "en"
+                )
+            ],
             subtitleOptions: [],
             audioSelection: .automatic,
             subtitleSelection: .automatic,
@@ -113,12 +134,12 @@ final class PlaybackMediaSelectionControllerTests: XCTestCase {
             allowsEmptySubtitleSelection: true
         )
         let withSubtitles = PlaybackMediaSelectionState(
-            audioOptions: singleAudio.audioOptions,
+            audioOptions: unidentifiedSingleAudio.audioOptions,
             subtitleOptions: [
                 makeOption(id: "subtitle-0", name: "English")
             ],
-            audioSelection: singleAudio.audioSelection,
-            subtitleSelection: singleAudio.subtitleSelection,
+            audioSelection: unidentifiedSingleAudio.audioSelection,
+            subtitleSelection: unidentifiedSingleAudio.subtitleSelection,
             effectiveAudioOptionID: nil,
             effectiveSubtitleOptionID: nil,
             allowsEmptySubtitleSelection: true
@@ -128,8 +149,16 @@ final class PlaybackMediaSelectionControllerTests: XCTestCase {
         XCTAssertFalse(
             PlaybackMediaSelectionState.empty.showsSubtitleOffControl
         )
-        XCTAssertFalse(singleAudio.showsTrackControls)
-        XCTAssertFalse(singleAudio.showsSubtitleOffControl)
+        XCTAssertFalse(unidentifiedSingleAudio.showsTrackControls)
+        XCTAssertFalse(unidentifiedSingleAudio.showsAudioSection)
+        XCTAssertFalse(unidentifiedSingleAudio.showsSubtitleOffControl)
+        XCTAssertTrue(identifiedSingleAudio.showsTrackControls)
+        XCTAssertTrue(identifiedSingleAudio.showsAudioSection)
+        XCTAssertFalse(identifiedSingleAudio.showsAudioSelectionControls)
+        XCTAssertEqual(
+            identifiedSingleAudio.singleIdentifiedAudioOption?.displayName,
+            "English"
+        )
         XCTAssertTrue(withSubtitles.showsTrackControls)
         XCTAssertTrue(withSubtitles.showsSubtitleOffControl)
         XCTAssertTrue(makeState().showsTrackControls)
@@ -152,12 +181,13 @@ final class PlaybackMediaSelectionControllerTests: XCTestCase {
 
     private func makeOption(
         id: String,
-        name: String
+        name: String,
+        languageIdentifier: String? = nil
     ) -> PlaybackMediaOption {
         PlaybackMediaOption(
             id: PlaybackMediaOptionID(rawValue: id),
             displayName: name,
-            languageIdentifier: nil,
+            languageIdentifier: languageIdentifier,
             characteristics: []
         )
     }

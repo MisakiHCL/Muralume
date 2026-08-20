@@ -16,6 +16,15 @@ struct PlaybackMediaOption: Equatable, Identifiable, Sendable {
     let displayName: String
     let languageIdentifier: String?
     let characteristics: Set<PlaybackMediaOptionCharacteristic>
+
+    var hasIdentifiedLanguage: Bool {
+        guard let primaryLanguageSubtag = languageIdentifier?
+            .split(separator: "-", maxSplits: 1)
+            .first else {
+            return false
+        }
+        return primaryLanguageSubtag.lowercased() != "und"
+    }
 }
 
 enum PlaybackAudioSelection: Equatable, Sendable {
@@ -49,10 +58,27 @@ struct PlaybackMediaSelectionState: Equatable, Sendable {
     let allowsEmptySubtitleSelection: Bool
 
     var showsTrackControls: Bool {
-        audioOptions.count > 1 || !subtitleOptions.isEmpty
+        showsAudioSection || !subtitleOptions.isEmpty
     }
 
     var showsSubtitleOffControl: Bool {
         !subtitleOptions.isEmpty && allowsEmptySubtitleSelection
+    }
+
+    var showsAudioSelectionControls: Bool {
+        audioOptions.count > 1
+    }
+
+    var singleIdentifiedAudioOption: PlaybackMediaOption? {
+        guard audioOptions.count == 1,
+              let option = audioOptions.first,
+              option.hasIdentifiedLanguage else {
+            return nil
+        }
+        return option
+    }
+
+    var showsAudioSection: Bool {
+        showsAudioSelectionControls || singleIdentifiedAudioOption != nil
     }
 }
