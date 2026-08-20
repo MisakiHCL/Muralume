@@ -37,6 +37,7 @@ final class AppPreferencesStoreTests: XCTestCase {
             )
             let subtitleAppearance = SubtitleAppearancePreferences(
                 fontFamilyName: "Avenir Next",
+                fontSize: 32,
                 textColor: SubtitleColorValue(
                     red: 244,
                     green: 212,
@@ -129,6 +130,10 @@ final class AppPreferencesStoreTests: XCTestCase {
                 forKey: AppPreferencesStorageKey.language
             )
             defaults.set(
+                100,
+                forKey: AppPreferencesStorageKey.subtitleFontSize
+            )
+            defaults.set(
                 "not-a-color",
                 forKey: AppPreferencesStorageKey.subtitleTextColor
             )
@@ -208,17 +213,22 @@ final class AppPreferencesStoreTests: XCTestCase {
         )
 
         controller.setFontFamilyName("  Avenir Next  ")
+        controller.setFontSize(36)
         controller.setTextColor(textColor)
         controller.setTextColor(textColor)
         controller.restoreDefaults()
 
-        XCTAssertEqual(store.savedSubtitleAppearances.count, 3)
+        XCTAssertEqual(store.savedSubtitleAppearances.count, 4)
         XCTAssertEqual(
             store.savedSubtitleAppearances.first?.fontFamilyName,
             "Avenir Next"
         )
         XCTAssertEqual(
-            store.savedSubtitleAppearances[1].textColor,
+            store.savedSubtitleAppearances[1].fontSize,
+            36
+        )
+        XCTAssertEqual(
+            store.savedSubtitleAppearances[2].textColor,
             textColor
         )
         XCTAssertEqual(

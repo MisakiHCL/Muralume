@@ -157,7 +157,6 @@ enum MuralumeAsset {
 
 extension MuralumeTheme {
     enum Subtitle {
-        static let fontSize: CGFloat = 20
         static let shadowRadius: CGFloat = 1
         static let shadowOffset = CGSize(width: 2, height: 2)
     }
@@ -249,6 +248,8 @@ enum MuralumeAccessibilityIdentifier {
         "muralume.settings-section.subtitles"
     static let settingsSubtitleFontRow =
         "muralume.settings-row.subtitles.font"
+    static let settingsSubtitleFontSizeRow =
+        "muralume.settings-row.subtitles.font-size"
     static let settingsSubtitleTextColorRow =
         "muralume.settings-row.subtitles.text-color"
     static let settingsSubtitleShadowColorRow =

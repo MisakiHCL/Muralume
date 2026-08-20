@@ -175,8 +175,7 @@ private struct SubtitleOverlay: View {
     @ObservedObject var embeddedSubtitles: EmbeddedSubtitleController
     @ObservedObject var appearance: SubtitleAppearanceController
     @ScaledMetric(relativeTo: .title3) private var bottomInset: CGFloat = 96
-    @ScaledMetric(relativeTo: .title3) private var fontSize: CGFloat =
-        MuralumeTheme.Subtitle.fontSize
+    @ScaledMetric(relativeTo: .title3) private var fontScale: CGFloat = 1
 
     var body: some View {
         if let cueText, !cueText.isEmpty {
@@ -213,6 +212,7 @@ private struct SubtitleOverlay: View {
     }
 
     private var subtitleFont: Font {
+        let fontSize = CGFloat(appearance.preferences.fontSize) * fontScale
         if let fontFamilyName = appearance.preferences.fontFamilyName {
             return .custom(fontFamilyName, size: fontSize).weight(.semibold)
         }

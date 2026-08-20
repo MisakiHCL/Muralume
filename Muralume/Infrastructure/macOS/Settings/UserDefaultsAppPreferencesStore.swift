@@ -13,6 +13,7 @@ enum AppPreferencesStorageKey {
     // Keep the existing key so current installations retain their language.
     static let language = "settings.app-language"
     static let subtitleFontFamily = "settings.subtitles.font-family"
+    static let subtitleFontSize = "settings.subtitles.font-size"
     static let subtitleTextColor = "settings.subtitles.text-color"
     static let subtitleShadowColor = "settings.subtitles.shadow-color"
     static let smartPauseEnabled = "settings.smart-pause.enabled"
@@ -37,6 +38,7 @@ private struct UserDefaultsAppPreferencesDTO {
     let librarySortDirection: String?
     let language: String?
     let subtitleFontFamily: String?
+    let subtitleFontSize: Int?
     let subtitleTextColor: String?
     let subtitleShadowColor: String?
     let smartPauseEnabled: Bool?
@@ -79,6 +81,10 @@ private struct UserDefaultsAppPreferencesDTO {
         )
         subtitleFontFamily = userDefaults.string(
             forKey: AppPreferencesStorageKey.subtitleFontFamily
+        )
+        subtitleFontSize = Self.integer(
+            userDefaults,
+            forKey: AppPreferencesStorageKey.subtitleFontSize
         )
         subtitleTextColor = userDefaults.string(
             forKey: AppPreferencesStorageKey.subtitleTextColor
@@ -128,6 +134,22 @@ private struct UserDefaultsAppPreferencesDTO {
             return nil
         }
         return number.boolValue
+    }
+
+    private static func integer(
+        _ userDefaults: UserDefaults,
+        forKey key: String
+    ) -> Int? {
+        guard let number = userDefaults.object(forKey: key) as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else {
+            return nil
+        }
+        let value = number.doubleValue
+        guard value.isFinite, value.rounded() == value,
+              value >= Double(Int.min), value <= Double(Int.max) else {
+            return nil
+        }
+        return Int(value)
     }
 }
 
@@ -194,6 +216,10 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
             ) ?? defaults.language,
             subtitleAppearance: SubtitleAppearancePreferences(
                 fontFamilyName: stored.subtitleFontFamily,
+                fontSize: validInteger(
+                    stored.subtitleFontSize,
+                    in: SubtitleAppearancePreferences.fontSizeRange
+                ) ?? defaults.subtitleAppearance.fontSize,
                 textColor: stored.subtitleTextColor.flatMap(
                     SubtitleColorValue.init(storageValue:)
                 ) ?? defaults.subtitleAppearance.textColor,
@@ -288,6 +314,10 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
             )
         }
         userDefaults.set(
+            preferences.fontSize,
+            forKey: AppPreferencesStorageKey.subtitleFontSize
+        )
+        userDefaults.set(
             preferences.textColor.storageValue,
             forKey: AppPreferencesStorageKey.subtitleTextColor
         )
@@ -348,6 +378,16 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
             return nil
         }
         return value
+    }
+
+    private func validInteger(
+        _ storedValue: Int?,
+        in range: ClosedRange<Int>
+    ) -> Int? {
+        guard let storedValue, range.contains(storedValue) else {
+            return nil
+        }
+        return storedValue
     }
 
     private func loadRawRepresentable<Value>(

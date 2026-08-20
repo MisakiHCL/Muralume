@@ -264,10 +264,13 @@
 "settings.open" = "Open Settings";
 "settings.close" = "Close Settings";
 "settings.general" = "General";
+"settings.category" = "Settings Category";
 "settings.subtitles.title" = "Subtitle Style";
 "settings.subtitles.description" = "Supported embedded and external subtitles update immediately. Font choices come from those installed on this Mac.";
 "settings.subtitles.font" = "Font";
 "settings.subtitles.font.system" = "System Font";
+"settings.subtitles.fontSize" = "Text Size";
+"settings.subtitles.fontSize.unit" = "pt";
 "settings.subtitles.textColor" = "Text Color";
 "settings.subtitles.shadowColor" = "Shadow Color";
 "settings.subtitles.restoreDefaults" = "Restore Defaults";

@@ -264,10 +264,13 @@
 "settings.open" = "打开设置";
 "settings.close" = "关闭设置";
 "settings.general" = "通用";
+"settings.category" = "设置分类";
 "settings.subtitles.title" = "字幕样式";
 "settings.subtitles.description" = "支持的内嵌字幕与外部字幕会立即更新。字体选项来自这台 Mac。";
 "settings.subtitles.font" = "字体";
 "settings.subtitles.font.system" = "系统字体";
+"settings.subtitles.fontSize" = "字幕大小";
+"settings.subtitles.fontSize.unit" = "pt";
 "settings.subtitles.textColor" = "文字颜色";
 "settings.subtitles.shadowColor" = "投影颜色";
 "settings.subtitles.restoreDefaults" = "恢复默认";

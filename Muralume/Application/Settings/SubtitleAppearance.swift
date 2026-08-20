@@ -56,24 +56,33 @@ struct SubtitleColorValue: Equatable, Sendable {
 
 struct SubtitleAppearancePreferences: Equatable, Sendable {
     static let maximumFontFamilyNameLength = 128
+    static let fontSizeRange = 12...48
+    static let defaultFontSize = 20
 
     static let defaultValue = SubtitleAppearancePreferences(
         fontFamilyName: nil,
+        fontSize: defaultFontSize,
         textColor: .white,
         shadowColor: .black
     )
 
     let fontFamilyName: String?
+    let fontSize: Int
     let textColor: SubtitleColorValue
     let shadowColor: SubtitleColorValue
 
     init(
         fontFamilyName: String?,
+        fontSize: Int,
         textColor: SubtitleColorValue,
         shadowColor: SubtitleColorValue
     ) {
         self.fontFamilyName = Self.normalizedFontFamilyName(
             fontFamilyName
+        )
+        self.fontSize = min(
+            max(fontSize, Self.fontSizeRange.lowerBound),
+            Self.fontSizeRange.upperBound
         )
         self.textColor = textColor
         self.shadowColor = shadowColor
@@ -116,6 +125,18 @@ final class SubtitleAppearanceController: ObservableObject {
         update(
             SubtitleAppearancePreferences(
                 fontFamilyName: fontFamilyName,
+                fontSize: preferences.fontSize,
+                textColor: preferences.textColor,
+                shadowColor: preferences.shadowColor
+            )
+        )
+    }
+
+    func setFontSize(_ fontSize: Int) {
+        update(
+            SubtitleAppearancePreferences(
+                fontFamilyName: preferences.fontFamilyName,
+                fontSize: fontSize,
                 textColor: preferences.textColor,
                 shadowColor: preferences.shadowColor
             )
@@ -126,6 +147,7 @@ final class SubtitleAppearanceController: ObservableObject {
         update(
             SubtitleAppearancePreferences(
                 fontFamilyName: preferences.fontFamilyName,
+                fontSize: preferences.fontSize,
                 textColor: color,
                 shadowColor: preferences.shadowColor
             )
@@ -136,6 +158,7 @@ final class SubtitleAppearanceController: ObservableObject {
         update(
             SubtitleAppearancePreferences(
                 fontFamilyName: preferences.fontFamilyName,
+                fontSize: preferences.fontSize,
                 textColor: preferences.textColor,
                 shadowColor: color
             )

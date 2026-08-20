@@ -53,6 +53,15 @@ struct SubtitleAppearanceSettingsView: View {
                 }
 
                 SettingsRow(
+                    title: "settings.subtitles.fontSize",
+                    accessibilityIdentifier:
+                        MuralumeAccessibilityIdentifier
+                            .settingsSubtitleFontSizeRow
+                ) {
+                    fontSizeControl
+                }
+
+                SettingsRow(
                     title: "settings.subtitles.textColor",
                     accessibilityIdentifier:
                         MuralumeAccessibilityIdentifier
@@ -127,6 +136,42 @@ struct SubtitleAppearanceSettingsView: View {
         Binding(
             get: { appearance.preferences.fontFamilyName },
             set: { appearance.setFontFamilyName($0) }
+        )
+    }
+
+    private var fontSizeControl: some View {
+        HStack(spacing: MuralumeTheme.Spacing.small) {
+            Slider(
+                value: fontSizeBinding,
+                in: Double(
+                    SubtitleAppearancePreferences.fontSizeRange.lowerBound
+                )...Double(
+                    SubtitleAppearancePreferences.fontSizeRange.upperBound
+                ),
+                step: 1
+            )
+            .frame(width: 120)
+            .accessibilityLabel(Text("settings.subtitles.fontSize"))
+            .accessibilityValue(
+                Text(verbatim: String(appearance.preferences.fontSize))
+            )
+
+            HStack(spacing: MuralumeTheme.Spacing.xSmall) {
+                Text(verbatim: String(appearance.preferences.fontSize))
+                    .monospacedDigit()
+                Text("settings.subtitles.fontSize.unit")
+            }
+            .font(.callout)
+            .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+            .frame(width: 44, alignment: .trailing)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private var fontSizeBinding: Binding<Double> {
+        Binding(
+            get: { Double(appearance.preferences.fontSize) },
+            set: { appearance.setFontSize(Int($0.rounded())) }
         )
     }
 
@@ -206,11 +251,11 @@ private struct SubtitleAppearancePreview: View {
         if let fontFamilyName = preferences.fontFamilyName {
             return .custom(
                 fontFamilyName,
-                size: MuralumeTheme.Subtitle.fontSize
+                size: CGFloat(preferences.fontSize)
             ).weight(.semibold)
         }
         return .system(
-            size: MuralumeTheme.Subtitle.fontSize,
+            size: CGFloat(preferences.fontSize),
             weight: .semibold
         )
     }

@@ -46,7 +46,7 @@ struct SettingsView: View {
                 .overlay(MuralumeTheme.Colors.border)
 
             if SettingsCategory.allCases.count > 1 {
-                categoryMenu
+                categoryPicker
             }
 
             ScrollView {
@@ -98,56 +98,22 @@ struct SettingsView: View {
         )
     }
 
-    private var categoryMenu: some View {
-        Menu {
+    private var categoryPicker: some View {
+        Picker(
+            "settings.category",
+            selection: $selectedCategory
+        ) {
             ForEach(SettingsCategory.allCases) { category in
-                Button {
-                    selectedCategory = category
-                } label: {
-                    if category == selectedCategory {
-                        Label(
-                            category.localizedKey,
-                            systemImage: "checkmark"
-                        )
-                    } else {
-                        Text(category.localizedKey)
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: MuralumeTheme.Spacing.small) {
-                Image(systemName: selectedCategory.systemImage)
-                Text(selectedCategory.localizedKey)
-                    .font(.body.weight(.medium))
-                Spacer(minLength: MuralumeTheme.Spacing.small)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(
-                        .system(
-                            size: MuralumeTheme.Size.menuIndicator,
-                            weight: .semibold
-                        )
-                    )
-            }
-            .foregroundStyle(MuralumeTheme.Colors.textPrimary)
-            .padding(.horizontal, MuralumeTheme.Spacing.medium)
-            .frame(height: MuralumeTheme.Size.control)
-            .background {
-                RoundedRectangle(
-                    cornerRadius: MuralumeTheme.Radius.medium,
-                    style: .continuous
+                Label(
+                    category.localizedKey,
+                    systemImage: category.systemImage
                 )
-                .fill(MuralumeTheme.Colors.controlFill)
-                .overlay {
-                    RoundedRectangle(
-                        cornerRadius: MuralumeTheme.Radius.medium,
-                        style: .continuous
-                    )
-                    .stroke(MuralumeTheme.Colors.border, lineWidth: 1)
-                }
+                .tag(category)
             }
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .accessibilityLabel(Text("settings.category"))
         .accessibilityIdentifier(
             MuralumeAccessibilityIdentifier.settingsCategoryMenu
         )
