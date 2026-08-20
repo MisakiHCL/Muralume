@@ -76,6 +76,7 @@ enum MuralumeTheme {
         static let playlistOverlayWidth: CGFloat = 320
         static let settingsPanelWidth: CGFloat = 400
         static let settingsRowMinimumHeight: CGFloat = 60
+        static let settingsChildRowMinimumHeight: CGFloat = 44
         static let playlistStatusBarHeight: CGFloat = 32
         static let searchFieldHeight: CGFloat = 32
         static let playlistContentInset: CGFloat = 8
@@ -267,6 +268,8 @@ enum MuralumeAccessibilityIdentifier {
         "muralume.settings-section.smart-pause"
     static let settingsSmartPauseEnabledRow =
         "muralume.settings-row.smart-pause.enabled"
+    static let settingsSmartPauseOptionsGroup =
+        "muralume.settings-group.smart-pause.options"
     static let settingsSmartPauseDesktopHiddenRow =
         "muralume.settings-row.smart-pause.desktop-hidden"
     static let settingsSmartPauseLowPowerModeRow =

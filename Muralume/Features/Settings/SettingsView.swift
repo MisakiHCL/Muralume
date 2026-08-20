@@ -192,70 +192,7 @@ struct SettingsView: View {
                     )
                 }
 
-                Group {
-                    smartPauseOptionRow(
-                        title: "settings.smartPause.desktopHidden",
-                        rowIdentifier: MuralumeAccessibilityIdentifier
-                            .settingsSmartPauseDesktopHiddenRow,
-                        checkboxIdentifier: MuralumeAccessibilityIdentifier
-                            .smartPauseDesktopHiddenCheckbox,
-                        isOn: Binding(
-                            get: {
-                                smartPause.preferences.pauseWhenDesktopHidden
-                            },
-                            set: {
-                                smartPause.setPauseWhenDesktopHidden($0)
-                            }
-                        )
-                    )
-                    smartPauseOptionRow(
-                        title: "settings.smartPause.lowPowerMode",
-                        rowIdentifier: MuralumeAccessibilityIdentifier
-                            .settingsSmartPauseLowPowerModeRow,
-                        checkboxIdentifier: MuralumeAccessibilityIdentifier
-                            .smartPauseLowPowerModeCheckbox,
-                        isOn: Binding(
-                            get: {
-                                smartPause.preferences.pauseInLowPowerMode
-                            },
-                            set: { smartPause.setPauseInLowPowerMode($0) }
-                        )
-                    )
-                    smartPauseOptionRow(
-                        title: "settings.smartPause.limitedPowerSource",
-                        rowIdentifier: MuralumeAccessibilityIdentifier
-                            .settingsSmartPauseLimitedPowerSourceRow,
-                        checkboxIdentifier: MuralumeAccessibilityIdentifier
-                            .smartPauseLimitedPowerSourceCheckbox,
-                        isOn: Binding(
-                            get: {
-                                smartPause.preferences
-                                    .pauseOnLimitedPowerSource
-                            },
-                            set: {
-                                smartPause.setPauseOnLimitedPowerSource($0)
-                            }
-                        )
-                    )
-                    smartPauseOptionRow(
-                        title: "settings.smartPause.sustainedSystemLoad",
-                        rowIdentifier: MuralumeAccessibilityIdentifier
-                            .settingsSmartPauseSustainedSystemLoadRow,
-                        checkboxIdentifier: MuralumeAccessibilityIdentifier
-                            .smartPauseSustainedSystemLoadCheckbox,
-                        isOn: Binding(
-                            get: {
-                                smartPause.preferences
-                                    .pauseUnderSustainedSystemLoad
-                            },
-                            set: {
-                                smartPause
-                                    .setPauseUnderSustainedSystemLoad($0)
-                            }
-                        )
-                    )
-                }
-                .disabled(!smartPause.preferences.isEnabled)
+                smartPauseOptionsGroup
 
                 Text("settings.smartPause.protections")
                     .font(.caption)
@@ -265,22 +202,144 @@ struct SettingsView: View {
         }
     }
 
+    private var smartPauseOptionsGroup: some View {
+        VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.small) {
+            Text("settings.smartPause.conditions")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+                .padding(.horizontal, MuralumeTheme.Spacing.medium)
+
+            VStack(spacing: MuralumeTheme.Spacing.xSmall) {
+                smartPauseOptionRow(
+                    title: "settings.smartPause.desktopHidden",
+                    rowIdentifier: MuralumeAccessibilityIdentifier
+                        .settingsSmartPauseDesktopHiddenRow,
+                    checkboxIdentifier: MuralumeAccessibilityIdentifier
+                        .smartPauseDesktopHiddenCheckbox,
+                    isOn: Binding(
+                        get: {
+                            smartPause.preferences.pauseWhenDesktopHidden
+                        },
+                        set: {
+                            smartPause.setPauseWhenDesktopHidden($0)
+                        }
+                    )
+                )
+                smartPauseOptionRow(
+                    title: "settings.smartPause.lowPowerMode",
+                    rowIdentifier: MuralumeAccessibilityIdentifier
+                        .settingsSmartPauseLowPowerModeRow,
+                    checkboxIdentifier: MuralumeAccessibilityIdentifier
+                        .smartPauseLowPowerModeCheckbox,
+                    isOn: Binding(
+                        get: {
+                            smartPause.preferences.pauseInLowPowerMode
+                        },
+                        set: { smartPause.setPauseInLowPowerMode($0) }
+                    )
+                )
+                smartPauseOptionRow(
+                    title: "settings.smartPause.limitedPowerSource",
+                    rowIdentifier: MuralumeAccessibilityIdentifier
+                        .settingsSmartPauseLimitedPowerSourceRow,
+                    checkboxIdentifier: MuralumeAccessibilityIdentifier
+                        .smartPauseLimitedPowerSourceCheckbox,
+                    isOn: Binding(
+                        get: {
+                            smartPause.preferences.pauseOnLimitedPowerSource
+                        },
+                        set: {
+                            smartPause.setPauseOnLimitedPowerSource($0)
+                        }
+                    )
+                )
+                smartPauseOptionRow(
+                    title: "settings.smartPause.sustainedSystemLoad",
+                    rowIdentifier: MuralumeAccessibilityIdentifier
+                        .settingsSmartPauseSustainedSystemLoadRow,
+                    checkboxIdentifier: MuralumeAccessibilityIdentifier
+                        .smartPauseSustainedSystemLoadCheckbox,
+                    isOn: Binding(
+                        get: {
+                            smartPause.preferences
+                                .pauseUnderSustainedSystemLoad
+                        },
+                        set: {
+                            smartPause.setPauseUnderSustainedSystemLoad($0)
+                        }
+                    )
+                )
+            }
+        }
+        .padding(.leading, MuralumeTheme.Spacing.large)
+        .padding(.trailing, MuralumeTheme.Spacing.small)
+        .padding(.vertical, MuralumeTheme.Spacing.medium)
+        .background {
+            RoundedRectangle(
+                cornerRadius: MuralumeTheme.Radius.medium,
+                style: .continuous
+            )
+            .fill(MuralumeTheme.Colors.controlFill.opacity(0.28))
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: MuralumeTheme.Radius.medium,
+                    style: .continuous
+                )
+                .stroke(MuralumeTheme.Colors.border, lineWidth: 1)
+            }
+        }
+        .overlay(alignment: .leading) {
+            Capsule()
+                .fill(MuralumeTheme.Colors.controlAccent.opacity(0.32))
+                .frame(width: 2)
+                .padding(.vertical, MuralumeTheme.Spacing.medium)
+                .padding(.leading, MuralumeTheme.Spacing.small)
+        }
+        .disabled(!smartPause.preferences.isEnabled)
+        .opacity(smartPause.preferences.isEnabled ? 1 : 0.48)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(
+            MuralumeAccessibilityIdentifier.settingsSmartPauseOptionsGroup
+        )
+    }
+
     private func smartPauseOptionRow(
         title: LocalizedStringKey,
         rowIdentifier: String,
         checkboxIdentifier: String,
         isOn: Binding<Bool>
     ) -> some View {
-        SettingsRow(
-            title: title,
-            accessibilityIdentifier: rowIdentifier
-        ) {
+        HStack(spacing: MuralumeTheme.Spacing.medium) {
+            Text(title)
+                .font(.callout)
+                .foregroundStyle(MuralumeTheme.Colors.textPrimary)
+                .lineLimit(1)
+                .accessibilityHidden(true)
+
+            Spacer(minLength: MuralumeTheme.Spacing.medium)
+
             smartPauseToggle(
                 label: title,
                 identifier: checkboxIdentifier,
                 isOn: isOn
             )
         }
+        .padding(.horizontal, MuralumeTheme.Spacing.medium)
+        .padding(.vertical, MuralumeTheme.Spacing.small)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: MuralumeTheme.Size.settingsChildRowMinimumHeight,
+            alignment: .leading
+        )
+        .background {
+            RoundedRectangle(
+                cornerRadius: MuralumeTheme.Radius.small,
+                style: .continuous
+            )
+            .fill(MuralumeTheme.Colors.controlFill.opacity(0.4))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(rowIdentifier)
     }
 
     private func smartPauseToggle(

@@ -307,6 +307,7 @@
 "settings.smartPause.title" = "Smart Pause";
 "settings.smartPause.description" = "Automatically pause when the Dynamic Desktop isn’t visible or your Mac needs to conserve resources, then resume when conditions recover.";
 "settings.smartPause.enabled" = "Enable Smart Pause";
+"settings.smartPause.conditions" = "Pause Conditions";
 "settings.smartPause.desktopHidden" = "Pause when the desktop isn’t visible";
 "settings.smartPause.lowPowerMode" = "Pause in Low Power Mode";
 "settings.smartPause.limitedPowerSource" = "Pause on battery power";

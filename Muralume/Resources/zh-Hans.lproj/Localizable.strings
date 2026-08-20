@@ -307,6 +307,7 @@
 "settings.smartPause.title" = "智能暂停";
 "settings.smartPause.description" = "当动态桌面不可见或 Mac 需要节省资源时自动暂停，并在条件恢复后继续播放。";
 "settings.smartPause.enabled" = "启用智能暂停";
+"settings.smartPause.conditions" = "暂停条件";
 "settings.smartPause.desktopHidden" = "桌面不可见时暂停";
 "settings.smartPause.lowPowerMode" = "低电量模式开启时暂停";
 "settings.smartPause.limitedPowerSource" = "使用电池供电时暂停";
