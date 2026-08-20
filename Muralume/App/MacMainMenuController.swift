@@ -137,10 +137,8 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         static let togglePlayback = " "
         static let seekBackward = functionKey(NSLeftArrowFunctionKey)
         static let seekForward = functionKey(NSRightArrowFunctionKey)
-        static let previousItem = functionKey(NSLeftArrowFunctionKey)
-        static let nextItem = functionKey(NSRightArrowFunctionKey)
-        static let volumeUp = functionKey(NSUpArrowFunctionKey)
-        static let volumeDown = functionKey(NSDownArrowFunctionKey)
+        static let previousItem = functionKey(NSUpArrowFunctionKey)
+        static let nextItem = functionKey(NSDownArrowFunctionKey)
         static let toggleMute = "m"
         static let enterDesktop = "d"
         static let configureDesktop = "d"
@@ -459,24 +457,20 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         configure(
             previousItem,
             action: #selector(playPrevious(_:)),
-            keyEquivalent: Shortcut.previousItem,
-            modifiers: [.command]
+            keyEquivalent: Shortcut.previousItem
         )
         configure(
             nextItem,
             action: #selector(playNext(_:)),
-            keyEquivalent: Shortcut.nextItem,
-            modifiers: [.command]
+            keyEquivalent: Shortcut.nextItem
         )
         configure(
             volumeUpItem,
-            action: #selector(increaseVolume(_:)),
-            keyEquivalent: Shortcut.volumeUp
+            action: #selector(increaseVolume(_:))
         )
         configure(
             volumeDownItem,
-            action: #selector(decreaseVolume(_:)),
-            keyEquivalent: Shortcut.volumeDown
+            action: #selector(decreaseVolume(_:))
         )
         configure(
             toggleMuteItem,

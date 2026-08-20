@@ -93,8 +93,7 @@ For the GitHub version, open the DMG and drag Muralume into Applications.
 | Customize display layout | `⇧⌘D` |
 | Play / pause | `Space` |
 | Back / forward 10 seconds | `←` / `→` |
-| Previous / next video | `⌘←` / `⌘→` |
-| Volume down / up | `↓` / `↑` |
+| Previous / next video | `↑` / `↓` |
 | Mute / unmute | `M` |
 | Enter / exit fullscreen | `F` |
 | Open settings | `⌘,` |
