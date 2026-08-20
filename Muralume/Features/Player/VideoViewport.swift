@@ -8,6 +8,8 @@ struct VideoViewport<PlayerSurface: View>: View {
 
     @State private var viewportState: PlayerViewportState
     @State private var temporaryRateToken: PlaybackRateOverrideToken?
+    @State private var visibleTemporaryRate: PlaybackRate?
+    @State private var temporaryRateIndicatorTask: Task<Void, Never>?
 
     init(
         playback: PlaybackCoordinator,
@@ -53,8 +55,14 @@ struct VideoViewport<PlayerSurface: View>: View {
                 controller: playback.mediaSelection.externalSubtitles
             )
 
-            if let rate = viewportState.temporaryPlaybackRate {
-                PlayerTemporaryPlaybackRateIndicator(rate: rate)
+            if let rate = visibleTemporaryRate,
+               viewportState.temporaryPlaybackRate != nil {
+                VStack {
+                    PlayerTemporaryPlaybackRateIndicator(rate: rate)
+                    Spacer()
+                }
+                .padding(.top, MuralumeTheme.Spacing.xLarge)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -79,6 +87,12 @@ struct VideoViewport<PlayerSurface: View>: View {
         .onDisappear {
             endTemporaryFastForward()
         }
+        .animation(
+            .easeOut(
+                duration: MuralumeTheme.Motion.playerChromeTransitionDuration
+            ),
+            value: visibleTemporaryRate
+        )
     }
 
     private var viewportStatePublisher:
@@ -100,9 +114,12 @@ struct VideoViewport<PlayerSurface: View>: View {
     }
 
     private func beginTemporaryFastForward() {
-        temporaryRateToken = playback.beginTemporaryPlaybackRate(
-            PlaybackPolicy.temporaryFastForwardRate
-        )
+        let rate = PlaybackPolicy.temporaryFastForwardRate
+        guard let token = playback.beginTemporaryPlaybackRate(rate) else {
+            return
+        }
+        temporaryRateToken = token
+        showTemporaryRateIndicator(rate)
     }
 
     private func handleTemporaryFastForwardPressing(_ isPressing: Bool) {
@@ -112,11 +129,35 @@ struct VideoViewport<PlayerSurface: View>: View {
     }
 
     private func endTemporaryFastForward() {
+        hideTemporaryRateIndicator()
         guard let temporaryRateToken else {
             return
         }
         self.temporaryRateToken = nil
         playback.endTemporaryPlaybackRate(temporaryRateToken)
+    }
+
+    private func showTemporaryRateIndicator(_ rate: PlaybackRate) {
+        temporaryRateIndicatorTask?.cancel()
+        visibleTemporaryRate = rate
+        temporaryRateIndicatorTask = Task { @MainActor in
+            do {
+                try await Task.sleep(
+                    for: PlaybackPolicy
+                        .temporaryFastForwardIndicatorDuration
+                )
+            } catch {
+                return
+            }
+            visibleTemporaryRate = nil
+            temporaryRateIndicatorTask = nil
+        }
+    }
+
+    private func hideTemporaryRateIndicator() {
+        temporaryRateIndicatorTask?.cancel()
+        temporaryRateIndicatorTask = nil
+        visibleTemporaryRate = nil
     }
 }
 
@@ -192,7 +233,10 @@ private struct PlayerTemporaryPlaybackRateIndicator: View {
         .foregroundStyle(MuralumeTheme.Colors.textPrimary)
         .padding(.horizontal, MuralumeTheme.Spacing.large)
         .padding(.vertical, MuralumeTheme.Spacing.medium)
-        .muralumePanel(cornerRadius: MuralumeTheme.Radius.large)
+        .muralumePanel(
+            cornerRadius: MuralumeTheme.Radius.large,
+            style: .playerOverlay
+        )
         .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("player.temporarySpeed"))
