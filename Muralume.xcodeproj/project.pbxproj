@@ -130,6 +130,9 @@
 		C30000000000000000000013 /* PlaybackSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30000000000000000000003 /* PlaybackSessionController.swift */; };
 		C30000000000000000000014 /* FilePlaybackSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30000000000000000000004 /* FilePlaybackSessionStore.swift */; };
 		C30000000000000000000015 /* PlaybackSessionControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30000000000000000000005 /* PlaybackSessionControllerTests.swift */; };
+		D40000000000000000000011 /* PlaybackProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = D40000000000000000000001 /* PlaybackProgress.swift */; };
+		D40000000000000000000012 /* FilePlaybackProgressStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D40000000000000000000002 /* FilePlaybackProgressStore.swift */; };
+		D40000000000000000000013 /* PlaybackProgressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D40000000000000000000003 /* PlaybackProgressTests.swift */; };
 		C40000000000000000000011 /* FixedHeightVirtualizedTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000001 /* FixedHeightVirtualizedTable.swift */; };
 		C40000000000000000000012 /* MediaLibrarySnapshotPreparer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000002 /* MediaLibrarySnapshotPreparer.swift */; };
 		C50000000000000000000011 /* MediaLibraryCoordinatorConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C50000000000000000000001 /* MediaLibraryCoordinatorConcurrencyTests.swift */; };
@@ -331,6 +334,9 @@
 		C30000000000000000000003 /* PlaybackSessionController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackSessionController.swift; sourceTree = "<group>"; };
 		C30000000000000000000004 /* FilePlaybackSessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FilePlaybackSessionStore.swift; sourceTree = "<group>"; };
 		C30000000000000000000005 /* PlaybackSessionControllerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackSessionControllerTests.swift; sourceTree = "<group>"; };
+		D40000000000000000000001 /* PlaybackProgress.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackProgress.swift; sourceTree = "<group>"; };
+		D40000000000000000000002 /* FilePlaybackProgressStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FilePlaybackProgressStore.swift; sourceTree = "<group>"; };
+		D40000000000000000000003 /* PlaybackProgressTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackProgressTests.swift; sourceTree = "<group>"; };
 		C36D0D2427B94B699973E4B1 /* MuralumeSlider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MuralumeSlider.swift; sourceTree = "<group>"; };
 		C40000000000000000000001 /* FixedHeightVirtualizedTable.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FixedHeightVirtualizedTable.swift; sourceTree = "<group>"; };
 		C40000000000000000000002 /* MediaLibrarySnapshotPreparer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaLibrarySnapshotPreparer.swift; sourceTree = "<group>"; };
@@ -479,6 +485,7 @@
 				F19000000000000000000002 /* AVAssetVideoInformationLoader.swift */,
 				F17000000000000000000002 /* MacVideoScreenshotController.swift */,
 				D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */,
+				D40000000000000000000002 /* FilePlaybackProgressStore.swift */,
 				C30000000000000000000004 /* FilePlaybackSessionStore.swift */,
 				EB1000000000000000000006 /* MacExternalSubtitlePicker.swift */,
 				C6DA3CA7D3E688ED8F03C2D4 /* PlayerLayerSurfaceView.swift */,
@@ -574,6 +581,7 @@
 				E90000000000000000000002 /* PlaybackMediaSelectionController.swift */,
 				26FCE9077E4742A29B26FBC6 /* PlaybackPolicy.swift */,
 				024CA620068D40FBB0ADBA3B /* PlaybackRenderSurface.swift */,
+				D40000000000000000000001 /* PlaybackProgress.swift */,
 				C30000000000000000000001 /* PlaybackSession.swift */,
 				C30000000000000000000003 /* PlaybackSessionController.swift */,
 				7B45D5363784459EA36A0566 /* PlaybackState.swift */,
@@ -606,6 +614,7 @@
 				EB1000000000000000000007 /* ExternalSubtitleTests.swift */,
 				E81000000000000000000001 /* PlaybackEnergyPolicyTests.swift */,
 				E82000000000000000000001 /* DesktopEnergyPolicyTests.swift */,
+				D40000000000000000000003 /* PlaybackProgressTests.swift */,
 				C30000000000000000000005 /* PlaybackSessionControllerTests.swift */,
 				848B492C1513ACCE6930D647 /* LaunchAtLoginControllerTests.swift */,
 				A6D41A86D32688BAF7100FD3 /* DesktopPresetControllerTests.swift */,
@@ -1224,6 +1233,7 @@
 				EB1000000000000000000012 /* ExternalSubtitleController.swift in Sources */,
 				1115775F8C2E48549F71E259 /* PlaybackPolicy.swift in Sources */,
 				60083F2F8C964BFC9443A988 /* PlaybackRenderSurface.swift in Sources */,
+				D40000000000000000000011 /* PlaybackProgress.swift in Sources */,
 				C30000000000000000000011 /* PlaybackSession.swift in Sources */,
 				C30000000000000000000013 /* PlaybackSessionController.swift in Sources */,
 				CC34534632EF4E559B7A26E0 /* PlaybackState.swift in Sources */,
@@ -1274,6 +1284,7 @@
 				EB1000000000000000000015 /* UserDefaultsExternalSubtitleAssociationStore.swift in Sources */,
 				EB1000000000000000000016 /* MacExternalSubtitlePicker.swift in Sources */,
 				D60000000000000000000011 /* DesktopPlayerLayerSurfaceView.swift in Sources */,
+				D40000000000000000000012 /* FilePlaybackProgressStore.swift in Sources */,
 				C30000000000000000000014 /* FilePlaybackSessionStore.swift in Sources */,
 				A68650D9162A708D93F5F453 /* PlayerLayerSurfaceView.swift in Sources */,
 				E717858177BC0998AEFA7C6D /* SystemLifecycleMonitor.swift in Sources */,
@@ -1350,6 +1361,7 @@
 				EB1000000000000000000017 /* ExternalSubtitleTests.swift in Sources */,
 				E81000000000000000000011 /* PlaybackEnergyPolicyTests.swift in Sources */,
 				E82000000000000000000011 /* DesktopEnergyPolicyTests.swift in Sources */,
+				D40000000000000000000013 /* PlaybackProgressTests.swift in Sources */,
 				C30000000000000000000015 /* PlaybackSessionControllerTests.swift in Sources */,
 				628DEF8A0A9BCE74862C63C4 /* PlaybackGateTests.swift in Sources */,
 				AA0000000000000000000018 /* PlaybackQueueTests.swift in Sources */,

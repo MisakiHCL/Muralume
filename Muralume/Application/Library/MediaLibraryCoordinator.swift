@@ -99,6 +99,12 @@ final class MediaLibraryCoordinator: ObservableObject {
         let task: Task<Void, Never>
     }
 
+    private struct PlaybackProgressCheckpoint: Sendable {
+        let itemID: LibraryMediaItem.ID
+        let position: TimeInterval
+        let duration: TimeInterval
+    }
+
     private struct MediaPathDescriptor {
         let lexicalPathComponents: [String]
         let canonicalPathComponents: [String]
@@ -373,6 +379,7 @@ final class MediaLibraryCoordinator: ObservableObject {
     private let mediaThumbnailProvider: any MediaThumbnailProviding
     private let snapshotPreparer: any MediaLibrarySnapshotPreparing
     private let preferencesStore: (any AppPreferencesStoring)?
+    private let playbackProgressStore: (any PlaybackProgressStoring)?
     private let reshuffleRestoredQueue: RestoredPlaybackQueueShuffler
     private let temporaryPlaybackSession: TemporaryPlaybackSession
 
@@ -433,6 +440,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         playbackRepeatBehavior: PlaybackRepeatBehavior = .queue,
         sort: MediaLibrarySort = MediaLibrarySort(),
         preferencesStore: (any AppPreferencesStoring)? = nil,
+        playbackProgressStore: (any PlaybackProgressStoring)? = nil,
         reshuffleRestoredQueue: @escaping RestoredPlaybackQueueShuffler = {
             $0.reshufflePendingItems()
         }
@@ -450,6 +458,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         self.playbackRepeatBehavior = playbackRepeatBehavior
         self.sort = sort
         self.preferencesStore = preferencesStore
+        self.playbackProgressStore = playbackProgressStore
         self.reshuffleRestoredQueue = reshuffleRestoredQueue
 
         playback.itemEndedHandler = { [weak self] in
@@ -598,6 +607,16 @@ final class MediaLibraryCoordinator: ObservableObject {
         }
         mediaSession.removeUnavailableSource(source)
         updateSourceAccessState(using: activeSources)
+        guard let playbackProgressStore else {
+            return
+        }
+        let rootPath = source.lastKnownURL.standardizedFileURL.path
+        Task {
+            try? await playbackProgressStore.pruneProgress(
+                keeping: [],
+                withinRootPaths: [rootPath]
+            )
+        }
     }
 
     func unavailableSource(
@@ -1313,6 +1332,9 @@ final class MediaLibraryCoordinator: ObservableObject {
             await task.value
         }
         await mediaItemsWillBeRemovedHandler?(removedItemIDs)
+        try? await playbackProgressStore?.removeProgress(
+            for: removedItemIDs
+        )
         await thumbnailDrainTask.value
         supersededThumbnailRootPaths.subtract(
             supersededRootPathsBeingRemoved
@@ -2179,6 +2201,17 @@ final class MediaLibraryCoordinator: ObservableObject {
                 preparedSourcesNeedRefresh = false
             }
             scanState = .ready
+            let completeRootPaths = Set(
+                prepared.roots.lazy
+                    .map(\.id.standardizedPath)
+                    .filter {
+                        !prepared.incompleteRootPaths.contains($0)
+                    }
+            )
+            try? await playbackProgressStore?.pruneProgress(
+                keeping: Set(prepared.library.itemsByID.keys),
+                withinRootPaths: completeRootPaths
+            )
             return
         }
     }
@@ -2909,6 +2942,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         loadGeneration &+= 1
         let generation = loadGeneration
         cancelCurrentLoadTask()
+        let outgoingProgress = playbackProgressCheckpoint()
+        loadedItemID = nil
 
         let source = ResolvedMediaSource(
             url: item.url,
@@ -2921,6 +2956,14 @@ final class MediaLibraryCoordinator: ObservableObject {
             }
             defer {
                 finishLoadTask(taskID)
+            }
+            await savePlaybackProgress(outgoingProgress)
+            guard generation == loadGeneration, !isShutDown else {
+                return
+            }
+            let resumePosition = await resumablePosition(for: item.id)
+            guard generation == loadGeneration, !isShutDown else {
+                return
             }
             let result = await playback.load(
                 source,
@@ -2935,6 +2978,11 @@ final class MediaLibraryCoordinator: ObservableObject {
             case .loaded:
                 loadedItemID = item.id
                 markItemAvailable(item.id)
+                await restorePlaybackProgressIfNeeded(
+                    resumePosition,
+                    for: item.id,
+                    expectedGeneration: generation
+                )
             case let .mediaFailure(failure):
                 markItemUnavailable(item.id)
                 let didAdvance = advanceAfterFailedLoad(
@@ -2959,6 +3007,66 @@ final class MediaLibraryCoordinator: ObservableObject {
             task: task
         )
         currentLoadTaskID = taskID
+    }
+
+    private func playbackProgressCheckpoint()
+        -> PlaybackProgressCheckpoint? {
+        guard playbackProgressStore != nil,
+              let loadedItemID,
+              visibleItemsByID[loadedItemID] != nil else {
+            return nil
+        }
+        return PlaybackProgressCheckpoint(
+            itemID: loadedItemID,
+            position: playback.currentTime,
+            duration: playback.duration
+        )
+    }
+
+    private func savePlaybackProgress(
+        _ checkpoint: PlaybackProgressCheckpoint?
+    ) async {
+        guard let checkpoint, let playbackProgressStore else {
+            return
+        }
+        try? await playbackProgressStore.update(
+            position: checkpoint.position,
+            duration: checkpoint.duration,
+            for: checkpoint.itemID
+        )
+    }
+
+    private func resumablePosition(
+        for itemID: LibraryMediaItem.ID
+    ) async -> TimeInterval? {
+        guard visibleItemsByID[itemID] != nil,
+              let playbackProgressStore else {
+            return nil
+        }
+        return try? await playbackProgressStore.position(for: itemID)
+    }
+
+    private func restorePlaybackProgressIfNeeded(
+        _ storedPosition: TimeInterval?,
+        for itemID: LibraryMediaItem.ID,
+        expectedGeneration: UInt64
+    ) async {
+        guard let storedPosition else {
+            return
+        }
+        guard let resumePosition = PlaybackProgressPolicy.resumablePosition(
+            position: storedPosition,
+            duration: playback.duration
+        ) else {
+            try? await playbackProgressStore?.removeProgress(for: [itemID])
+            return
+        }
+        guard expectedGeneration == loadGeneration,
+              !isShutDown,
+              currentItemID == itemID else {
+            return
+        }
+        playback.seek(to: resumePosition)
     }
 
     private func loadRestoredQueueItem(

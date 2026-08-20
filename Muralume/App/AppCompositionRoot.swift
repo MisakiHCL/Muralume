@@ -31,6 +31,7 @@ enum AppCompositionRoot {
             preferences: initialPreferences.smartPause,
             store: preferencesStore
         )
+        let playbackProgressStore = FilePlaybackProgressStore()
         let desktopSession = DesktopSessionCoordinator(
             playback: playback,
             desktopHost: MacDesktopHost(),
@@ -63,7 +64,8 @@ enum AppCompositionRoot {
             playbackRepeatBehavior:
                 initialPreferences.playbackRepeatBehavior,
             sort: initialPreferences.librarySort,
-            preferencesStore: preferencesStore
+            preferencesStore: preferencesStore,
+            playbackProgressStore: playbackProgressStore
         )
         let playlists = CustomPlaylistController(
             store: FileCustomPlaylistStore()

@@ -14,6 +14,7 @@ func makeFixture(
         TestMediaThumbnailProvider(),
     snapshotPreparer: any MediaLibrarySnapshotPreparing =
         DefaultMediaLibrarySnapshotPreparer(),
+    playbackProgressStore: (any PlaybackProgressStoring)? = nil,
     reshuffleRestoredQueue: @escaping RestoredPlaybackQueueShuffler = {
         $0.reshufflePendingItems()
     }
@@ -35,6 +36,7 @@ func makeFixture(
         playbackOrder: playbackOrder,
         sort: sort,
         preferencesStore: preferencesStore,
+        playbackProgressStore: playbackProgressStore,
         reshuffleRestoredQueue: reshuffleRestoredQueue
     )
     return Fixture(
