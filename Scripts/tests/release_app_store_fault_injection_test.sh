@@ -192,6 +192,7 @@ chmod 600 "${fixture_root}/Config/AppStore.local.xcconfig"
 openssl genpkey \
     -algorithm EC \
     -pkeyopt ec_paramgen_curve:P-256 \
+    -pkeyopt ec_param_enc:named_curve \
     -out "${app_store_private_key_path}" \
     >/dev/null 2>&1 \
     || fail_test 'could not generate an isolated App Store Connect key'

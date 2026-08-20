@@ -395,7 +395,11 @@ final class DesktopSessionCoordinator: ObservableObject {
         guard !isShutDown, smartPausePreferences != preferences else {
             return
         }
+        let wasMonitoringDesktopVisibility = shouldMonitorDesktopVisibility
         smartPausePreferences = preferences
+        if wasMonitoringDesktopVisibility != shouldMonitorDesktopVisibility {
+            configureDesktopVisibilityMonitoring()
+        }
         reconcileSmartPauseSuspensions()
     }
 
@@ -524,13 +528,7 @@ final class DesktopSessionCoordinator: ObservableObject {
     }
 
     private func configureDesktopHost() {
-        desktopHost.desktopVisibilityHandler = { [weak self] states in
-            guard let self, !isShutDown else {
-                return
-            }
-            desktopVisibilityStates = states
-            reconcileDesktopOcclusionSuspensions()
-        }
+        configureDesktopVisibilityMonitoring()
         desktopHost.setDisplaySurfaceEventHandler { [weak self] event in
             guard let self,
                   !isShutDown,
@@ -546,6 +544,26 @@ final class DesktopSessionCoordinator: ObservableObject {
             case let .willRemove(displayID):
                 independentPlayback?.removeSurface(for: displayID)
             }
+        }
+    }
+
+    private var shouldMonitorDesktopVisibility: Bool {
+        smartPausePreferences.isEnabled
+            && smartPausePreferences.pauseWhenDesktopHidden
+    }
+
+    private func configureDesktopVisibilityMonitoring() {
+        guard shouldMonitorDesktopVisibility else {
+            desktopHost.desktopVisibilityHandler = nil
+            desktopVisibilityStates.removeAll()
+            return
+        }
+        desktopHost.desktopVisibilityHandler = { [weak self] states in
+            guard let self, !isShutDown else {
+                return
+            }
+            desktopVisibilityStates = states
+            reconcileDesktopOcclusionSuspensions()
         }
     }
 

@@ -94,6 +94,7 @@ final class MacDesktopHost: DesktopHosting {
 
     var desktopOcclusionHandler: ((Bool) -> Void)? {
         didSet {
+            updateDesktopVisibilityMonitoring()
             desktopOcclusionHandler?(isDesktopOccluded)
         }
     }
@@ -102,6 +103,7 @@ final class MacDesktopHost: DesktopHosting {
         ([DesktopDisplayID: DesktopVisibilityState]) -> Void
     )? {
         didSet {
+            updateDesktopVisibilityMonitoring()
             desktopVisibilityHandler?(desktopVisibilityStates)
         }
     }
@@ -109,6 +111,9 @@ final class MacDesktopHost: DesktopHosting {
     private(set) var isDesktopOccluded = false
     var isDesktopOcclusionDebouncePending: Bool {
         !occlusionDebounceTasks.isEmpty
+    }
+    var isDesktopVisibilityRefreshRunning: Bool {
+        visibilityRefreshTask != nil
     }
 
     var hostedDisplayIDs: Set<MacDesktopDisplayID> {
@@ -282,8 +287,7 @@ final class MacDesktopHost: DesktopHosting {
         }
         isRevealed = true
         reassertDesktopPlacement()
-        refreshDesktopVisibilityStates()
-        startVisibilityRefreshLoopIfNeeded()
+        updateDesktopVisibilityMonitoring()
     }
 
     func reassertDesktopPlacement() {
@@ -298,7 +302,11 @@ final class MacDesktopHost: DesktopHosting {
             }
         }
         hostedDisplays.values.forEach(Self.reassertPlacement)
-        hostedDisplays.values.forEach(Self.reassertProbePlacement)
+        if shouldMonitorDesktopVisibility {
+            hostedDisplays.values.forEach(Self.reassertProbePlacement)
+        } else {
+            hostedDisplays.values.forEach(Self.hideOcclusionProbes)
+        }
     }
 
     func close() {
@@ -514,7 +522,9 @@ final class MacDesktopHost: DesktopHosting {
             probe.isOpaque = false
             probe.isReleasedWhenClosed = false
             probe.level = Self.desktopVideoLevel
-            probe.order(.above, relativeTo: window.windowNumber)
+            if shouldMonitorDesktopVisibility {
+                probe.order(.above, relativeTo: window.windowNumber)
+            }
             return probe
         }
 
@@ -684,6 +694,10 @@ final class MacDesktopHost: DesktopHosting {
     }
 
     private func refreshDesktopVisibilityStates() {
+        guard shouldMonitorDesktopVisibility else {
+            stopDesktopVisibilityMonitoring()
+            return
+        }
         guard isRevealed, !hostedDisplays.isEmpty else {
             cancelAllOcclusionDebounces()
             cancelAllVisibilityRecoveries()
@@ -732,7 +746,10 @@ final class MacDesktopHost: DesktopHosting {
     }
 
     private func startVisibilityRefreshLoopIfNeeded() {
-        guard visibilityRefreshTask == nil else {
+        guard shouldMonitorDesktopVisibility,
+              isRevealed,
+              surface != nil,
+              visibilityRefreshTask == nil else {
             return
         }
         let intervalNanoseconds = visibilityRefreshIntervalNanoseconds
@@ -860,6 +877,35 @@ final class MacDesktopHost: DesktopHosting {
         }
     }
 
+    private var shouldMonitorDesktopVisibility: Bool {
+        desktopVisibilityHandler != nil || desktopOcclusionHandler != nil
+    }
+
+    private func updateDesktopVisibilityMonitoring() {
+        guard isRevealed, surface != nil else {
+            return
+        }
+        guard shouldMonitorDesktopVisibility else {
+            stopDesktopVisibilityMonitoring()
+            return
+        }
+        hostedDisplays.values.forEach(Self.reassertProbePlacement)
+        refreshDesktopVisibilityStates()
+        startVisibilityRefreshLoopIfNeeded()
+    }
+
+    private func stopDesktopVisibilityMonitoring() {
+        cancelAllOcclusionDebounces()
+        cancelAllVisibilityRecoveries()
+        visibilityRefreshTask?.cancel()
+        visibilityRefreshTask = nil
+        hostedDisplays.values.forEach(Self.hideOcclusionProbes)
+        for hostedDisplay in hostedDisplays.values {
+            desktopVisibilityStates[hostedDisplay.stableID] = .visible
+        }
+        isDesktopOccluded = false
+    }
+
     private static func reassertPlacement(
         _ hostedDisplay: HostedDisplay
     ) {
@@ -884,6 +930,10 @@ final class MacDesktopHost: DesktopHosting {
                 relativeTo: hostedDisplay.window.windowNumber
             )
         }
+    }
+
+    private static func hideOcclusionProbes(_ hostedDisplay: HostedDisplay) {
+        hostedDisplay.occlusionProbes.forEach { $0.orderOut(nil) }
     }
 
     private static func updateProbeFrames(

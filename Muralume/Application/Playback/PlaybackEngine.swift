@@ -45,6 +45,7 @@ protocol PlaybackEngine: AnyObject {
     func pause()
     func seek(to seconds: TimeInterval)
     func seek(to seconds: TimeInterval, mode: PlaybackSeekMode)
+    func seekBeforePlayback(to seconds: TimeInterval) async
     func setProgressCadence(_ cadence: PlaybackProgressCadence)
     func setVolume(_ volume: PlaybackVolume)
     func setMuted(_ isMuted: Bool)
@@ -72,6 +73,10 @@ extension PlaybackEngine {
 
     func seek(to seconds: TimeInterval, mode _: PlaybackSeekMode) {
         seek(to: seconds)
+    }
+
+    func seekBeforePlayback(to seconds: TimeInterval) async {
+        seek(to: seconds, mode: .exact)
     }
 
     func setProgressCadence(_: PlaybackProgressCadence) {}

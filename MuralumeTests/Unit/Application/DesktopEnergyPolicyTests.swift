@@ -132,6 +132,7 @@ final class DesktopEnergyPolicyTests: XCTestCase {
         )
         fixture.session.enterDesktop()
         await waitUntil { fixture.session.isActive }
+        XCTAssertNotNil(fixture.host.desktopVisibilityHandler)
 
         fixture.lifecycle.emitEnergyConstraints([.lowPowerMode])
         fixture.lifecycle.emit(.lowBattery, suspended: true)
@@ -146,6 +147,7 @@ final class DesktopEnergyPolicyTests: XCTestCase {
                 pauseUnderSustainedSystemLoad: false
             )
         )
+        XCTAssertNil(fixture.host.desktopVisibilityHandler)
         XCTAssertFalse(fixture.engine.isPlaying)
 
         fixture.lifecycle.emit(.lowBattery, suspended: false)

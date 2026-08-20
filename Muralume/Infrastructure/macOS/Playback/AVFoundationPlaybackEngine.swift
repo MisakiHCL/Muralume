@@ -52,6 +52,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
 
     func load(_ source: ResolvedMediaSource) async throws -> TimeInterval {
         seekCoalescer.invalidate()
+        player.pause()
         player.currentItem?.cancelPendingSeeks()
         if progressHandler != nil {
             installProgressObserver()
@@ -94,10 +95,17 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
                 audioGroup,
                 subtitleGroup
             )
-            let embeddedSubtitleTracks = await withTaskCancellationHandler {
-                (try? await embeddedSubtitleTask.value) ?? []
-            } onCancel: {
+            let embeddedSubtitleTracks: [EmbeddedSubtitleTrackData]
+            if let loadedSubtitleGroup,
+               !loadedSubtitleGroup.options.isEmpty {
+                embeddedSubtitleTracks = await withTaskCancellationHandler {
+                    (try? await embeddedSubtitleTask.value) ?? []
+                } onCancel: {
+                    embeddedSubtitleTask.cancel()
+                }
+            } else {
                 embeddedSubtitleTask.cancel()
+                embeddedSubtitleTracks = []
             }
 
             try Task.checkCancellation()
@@ -257,6 +265,24 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
 
     func seek(to seconds: TimeInterval, mode: PlaybackSeekMode) {
         seekCoalescer.seek(to: seconds, mode: mode)
+    }
+
+    func seekBeforePlayback(to seconds: TimeInterval) async {
+        seekCoalescer.invalidate()
+        player.currentItem?.cancelPendingSeeks()
+        let target = CMTime(
+            seconds: max(seconds, 0),
+            preferredTimescale: CMTimeScale(NSEC_PER_SEC)
+        )
+        await withCheckedContinuation { continuation in
+            player.seek(
+                to: target,
+                toleranceBefore: .zero,
+                toleranceAfter: .zero
+            ) { _ in
+                continuation.resume()
+            }
+        }
     }
 
     func setProgressCadence(_ cadence: PlaybackProgressCadence) {
@@ -675,17 +701,10 @@ private struct AVFoundationMediaSelectionContext {
         subtitleOptions = subtitleMappings.options
         subtitleOptionsByID = subtitleMappings.optionsByID
 
-        if embeddedSubtitleTracks.count == subtitleMappings.options.count,
-           embeddedSubtitleTracks.allSatisfy({ $0.timeline != nil }) {
-            embeddedSubtitleTimelinesByID = Dictionary(
-                uniqueKeysWithValues: zip(
-                    subtitleMappings.options.map(\.id),
-                    embeddedSubtitleTracks.compactMap(\.timeline)
-                )
-            )
-        } else {
-            embeddedSubtitleTimelinesByID = [:]
-        }
+        embeddedSubtitleTimelinesByID = Self.mapEmbeddedSubtitleTimelines(
+            options: subtitleMappings.options,
+            tracks: embeddedSubtitleTracks
+        )
     }
 
     var canRenderEmbeddedSubtitles: Bool {
@@ -836,6 +855,65 @@ private struct AVFoundationMediaSelectionContext {
         return group.options.filter {
             !associatedForcedOptionIDs.contains(ObjectIdentifier($0))
         }
+    }
+
+    private static func mapEmbeddedSubtitleTimelines(
+        options: [PlaybackMediaOption],
+        tracks: [EmbeddedSubtitleTrackData]
+    ) -> [PlaybackMediaOptionID: SubtitleTimeline] {
+        guard !options.isEmpty, options.count == tracks.count else {
+            return [:]
+        }
+        let tracksByLanguage = tracks.reduce(
+            into: [String: SubtitleTimeline]()
+        ) { result, track in
+            guard let language = primaryLanguageIdentifier(
+                track.languageIdentifier
+            ), let timeline = track.timeline,
+            result[language] == nil else {
+                return
+            }
+            result[language] = timeline
+        }
+        guard tracksByLanguage.count == tracks.count else {
+            return [:]
+        }
+
+        var timelinesByOptionID: [
+            PlaybackMediaOptionID: SubtitleTimeline
+        ] = [:]
+        var mappedLanguages: Set<String> = []
+        for option in options {
+            guard let language = primaryLanguageIdentifier(
+                option.languageIdentifier
+            ), mappedLanguages.insert(language).inserted,
+            let timeline = tracksByLanguage[language] else {
+                return [:]
+            }
+            timelinesByOptionID[option.id] = timeline
+        }
+        return timelinesByOptionID
+    }
+
+    private static func primaryLanguageIdentifier(
+        _ identifier: String?
+    ) -> String? {
+        guard let identifier else {
+            return nil
+        }
+        let normalizedIdentifier = identifier.replacingOccurrences(
+            of: "_",
+            with: "-"
+        )
+        guard let languageCode = Locale(identifier: normalizedIdentifier)
+            .language
+            .languageCode?
+            .identifier
+            .lowercased(),
+        languageCode != "und" else {
+            return nil
+        }
+        return languageCode
     }
 
     private static func characteristics(

@@ -206,7 +206,8 @@ final class PlaybackCoordinator: ObservableObject {
     func load(
         _ source: ResolvedMediaSource,
         autoplay: Bool = true,
-        attachToPlayerSurface: Bool = true
+        attachToPlayerSurface: Bool = true,
+        initialPosition: TimeInterval? = nil
     ) async -> PlaybackLoadResult {
         guard presentation != .terminating else {
             return .cancelled
@@ -256,6 +257,14 @@ final class PlaybackCoordinator: ObservableObject {
         }
 
         duration = loadedDuration
+        if let initialPosition,
+           let resumePosition = PlaybackProgressPolicy.resumablePosition(
+               position: initialPosition,
+               duration: loadedDuration
+           ) {
+            currentTime = resumePosition
+            await engine.seekBeforePlayback(to: resumePosition)
+        }
         let canBeginNewPlayback =
             canAutoplayWhenLoaded
             && presentationGeneration == transitionGeneration

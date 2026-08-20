@@ -60,6 +60,7 @@ final class MacDesktopHostEnergyTests: XCTestCase {
             workspaceCenter: NotificationCenter(),
             visibility: visibility
         )
+        host.desktopOcclusionHandler = { _ in }
         _ = host.prepare(contentMode: .contain)
         host.reveal()
         defer { host.close() }
@@ -80,6 +81,44 @@ final class MacDesktopHostEnergyTests: XCTestCase {
 
         try await waitForEventPropagation()
         XCTAssertTrue(host.isDesktopOccluded)
+    }
+
+    func testVisibilityPollingStopsWithoutAConsumer() async throws {
+        let visibility = TestDesktopWindowVisibility()
+        let host = makeHost(
+            notificationCenter: NotificationCenter(),
+            workspaceCenter: NotificationCenter(),
+            visibility: visibility
+        )
+        _ = host.prepare(contentMode: .contain)
+        host.reveal()
+        defer { host.close() }
+
+        XCTAssertFalse(host.isDesktopVisibilityRefreshRunning)
+        XCTAssertTrue(
+            host.hostedProbeWindows.values
+                .joined()
+                .allSatisfy { !$0.isVisible }
+        )
+
+        host.desktopOcclusionHandler = { _ in }
+        XCTAssertTrue(host.isDesktopVisibilityRefreshRunning)
+        XCTAssertTrue(
+            host.hostedProbeWindows.values
+                .joined()
+                .allSatisfy(\.isVisible)
+        )
+
+        host.desktopOcclusionHandler = nil
+        try await Task.sleep(
+            nanoseconds: TestConfiguration.refreshIntervalNanoseconds * 2
+        )
+        XCTAssertFalse(host.isDesktopVisibilityRefreshRunning)
+        XCTAssertTrue(
+            host.hostedProbeWindows.values
+                .joined()
+                .allSatisfy { !$0.isVisible }
+        )
     }
 
     func testTransientOcclusionIsCancelledDuringDebounce() async throws {

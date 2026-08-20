@@ -278,7 +278,14 @@ enum VideoInformationMetadataInterpreter {
             || normalizedTransfer.contains("pq") {
             return .hdr10
         }
-        return .sdr
+        if normalizedTransfer.contains("709")
+            || normalizedTransfer.contains("601")
+            || normalizedTransfer.contains("gamma")
+            || normalizedTransfer.contains("linear")
+            || normalizedTransfer.contains("240") {
+            return .sdr
+        }
+        return .unknown
     }
 
     static func colorSpace(

@@ -2967,7 +2967,8 @@ final class MediaLibraryCoordinator: ObservableObject {
             }
             let result = await playback.load(
                 source,
-                autoplay: autoplay
+                autoplay: autoplay,
+                initialPosition: resumePosition
             )
             guard generation == loadGeneration, !isShutDown else {
                 return
@@ -2978,11 +2979,11 @@ final class MediaLibraryCoordinator: ObservableObject {
             case .loaded:
                 loadedItemID = item.id
                 markItemAvailable(item.id)
-                await restorePlaybackProgressIfNeeded(
-                    resumePosition,
-                    for: item.id,
-                    expectedGeneration: generation
-                )
+                if resumePosition != nil, playback.currentTime == 0 {
+                    try? await playbackProgressStore?.removeProgress(
+                        for: [item.id]
+                    )
+                }
             case let .mediaFailure(failure):
                 markItemUnavailable(item.id)
                 let didAdvance = advanceAfterFailedLoad(
@@ -3044,29 +3045,6 @@ final class MediaLibraryCoordinator: ObservableObject {
             return nil
         }
         return try? await playbackProgressStore.position(for: itemID)
-    }
-
-    private func restorePlaybackProgressIfNeeded(
-        _ storedPosition: TimeInterval?,
-        for itemID: LibraryMediaItem.ID,
-        expectedGeneration: UInt64
-    ) async {
-        guard let storedPosition else {
-            return
-        }
-        guard let resumePosition = PlaybackProgressPolicy.resumablePosition(
-            position: storedPosition,
-            duration: playback.duration
-        ) else {
-            try? await playbackProgressStore?.removeProgress(for: [itemID])
-            return
-        }
-        guard expectedGeneration == loadGeneration,
-              !isShutDown,
-              currentItemID == itemID else {
-            return
-        }
-        playback.seek(to: resumePosition)
     }
 
     private func loadRestoredQueueItem(

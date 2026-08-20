@@ -349,6 +349,8 @@ struct VideoInformationPanel: View {
 
     private func dynamicRangeText(_ dynamicRange: VideoDynamicRange) -> String {
         let key = switch dynamicRange {
+        case .unknown:
+            "videoInfo.value.unknown"
         case .sdr:
             "videoInfo.value.sdr"
         case .hdr10:

@@ -41,7 +41,7 @@ final class VideoInformationTests: XCTestCase {
             try XCTUnwrap(information.videoBitRate),
             0
         )
-        XCTAssertEqual(information.dynamicRange, .sdr)
+        XCTAssertEqual(information.dynamicRange, .unknown)
         XCTAssertNil(information.colorSpace)
         XCTAssertEqual(information.audioCodecs, [])
         XCTAssertEqual(information.audioTrackCount, 0)
@@ -95,6 +95,20 @@ final class VideoInformationTests: XCTestCase {
     }
 
     func testClassifiesHDRAndCommonColorSpaces() {
+        XCTAssertEqual(
+            VideoInformationMetadataInterpreter.dynamicRange(
+                videoCodecIdentifiers: ["hvc1"],
+                transferFunction: nil
+            ),
+            .unknown
+        )
+        XCTAssertEqual(
+            VideoInformationMetadataInterpreter.dynamicRange(
+                videoCodecIdentifiers: ["avc1"],
+                transferFunction: "ITU_R_709_2"
+            ),
+            .sdr
+        )
         XCTAssertEqual(
             VideoInformationMetadataInterpreter.dynamicRange(
                 videoCodecIdentifiers: ["dvh1"],

@@ -78,6 +78,31 @@ final class PlaybackProgressStoreTests: XCTestCase {
         XCTAssertNil(removedPosition)
         XCTAssertEqual(unavailablePosition, 30)
     }
+
+    func testFileStoreReplacesCorruptedCacheOnNextUpdate() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directoryURL.appendingPathComponent("progress.json")
+        defer {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        try Data("not-json".utf8).write(to: fileURL)
+        let itemID = LibraryMediaItem.ID(
+            rootPath: "/Library",
+            relativePath: "Episode.mov"
+        )
+        let store = FilePlaybackProgressStore(fileURL: fileURL)
+
+        try await store.update(position: 24, duration: 120, for: itemID)
+
+        let restoredStore = FilePlaybackProgressStore(fileURL: fileURL)
+        let position = try await restoredStore.position(for: itemID)
+        XCTAssertEqual(position, 24)
+    }
 }
 
 @MainActor
@@ -160,6 +185,43 @@ final class PlaybackProgressIntegrationTests: XCTestCase {
         XCTAssertEqual(fixture.playback.currentTime, 0)
         let storedPosition = try? await store.position(for: first.id)
         XCTAssertNil(storedPosition)
+    }
+
+    func testResumePositionIsAppliedBeforeAutoplay() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/Ordered Progress Library")
+        let first = makeItem(
+            rootURL: rootURL,
+            name: "Episode 1",
+            path: "Episode 1.mov"
+        )
+        let second = makeItem(
+            rootURL: rootURL,
+            name: "Episode 2",
+            path: "Episode 2.mov"
+        )
+        let store = MemoryPlaybackProgressStore()
+        try await store.update(position: 48, duration: 120, for: second.id)
+        let fixture = makeProgressFixture(
+            rootURL: rootURL,
+            items: [first, second],
+            store: store
+        )
+
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.play(first)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+        fixture.engine.resetPlaybackEvents()
+
+        fixture.coordinator.play(second)
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+
+        XCTAssertEqual(
+            Array(fixture.engine.playbackEvents.prefix(2)),
+            [.seek(48), .play]
+        )
     }
 
     func testRemovingRootClearsAllProgressForItsVideos() async throws {

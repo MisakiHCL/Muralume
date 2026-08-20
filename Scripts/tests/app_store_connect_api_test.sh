@@ -36,6 +36,7 @@ asc_test_private_key_path="${asc_test_credentials_directory}/AuthKey_TESTKEY001.
 openssl genpkey \
     -algorithm EC \
     -pkeyopt ec_paramgen_curve:P-256 \
+    -pkeyopt ec_param_enc:named_curve \
     -out "${asc_test_private_key_path}" \
     >/dev/null 2>&1 \
     || asc_test_fail 'could not generate an isolated P-256 private key'

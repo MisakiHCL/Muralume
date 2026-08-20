@@ -29,6 +29,11 @@ final class TestAVPlayerSurface: AVPlayerRenderSurface {
 
 @MainActor
 final class TestPlaybackEngine: PlaybackEngine {
+    enum PlaybackEvent: Equatable {
+        case play
+        case seek(TimeInterval)
+    }
+
     private enum TestPolicy {
         static let blockedAttachmentNanoseconds: UInt64 = 5_000_000_000
     }
@@ -58,6 +63,7 @@ final class TestPlaybackEngine: PlaybackEngine {
     private(set) var stopCount = 0
     private(set) var playCount = 0
     private(set) var pauseCount = 0
+    private(set) var playbackEvents: [PlaybackEvent] = []
     var loadErrorsByURL: [URL: PlaybackEngineError] = [:]
     var attachmentErrorsBySurfaceID: [PlaybackSurfaceID: PlaybackEngineError] = [:]
     var shouldBlockLoads = false
@@ -133,6 +139,7 @@ final class TestPlaybackEngine: PlaybackEngine {
 
     func play(at rate: PlaybackRate) {
         playCount += 1
+        playbackEvents.append(.play)
         self.rate = rate
         isPlaying = true
         playbackActivityHandler?(true)
@@ -151,6 +158,11 @@ final class TestPlaybackEngine: PlaybackEngine {
     func seek(to seconds: TimeInterval, mode: PlaybackSeekMode) {
         soughtTimes.append(seconds)
         seekModes.append(mode)
+        playbackEvents.append(.seek(seconds))
+    }
+
+    func resetPlaybackEvents() {
+        playbackEvents.removeAll()
     }
 
     func setProgressCadence(_ cadence: PlaybackProgressCadence) {

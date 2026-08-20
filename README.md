@@ -53,16 +53,24 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
   within a playlist, and continue from the same playlist after relaunch.
 - **See exactly what plays next:** Use ordered playback, shuffle, Repeat Current Video,
   seeking, volume, speed, fullscreen, and a separate Play Queue.
+- **Hear and read the track you want:** Switch embedded audio and subtitle tracks,
+  load local SRT or WebVTT subtitles, and adjust subtitle size and appearance.
+- **Speed up only when you mean to:** Press and hold the video for temporary 2×
+  playback, then release to return to your chosen speed.
 - **Keep the frame, not the player:** Save the current video frame as a compact JPEG
   from the Actions menu or with `⇧⌘S`. Screenshots preserve the video's orientation
-  and aspect ratio without player controls or letterboxing.
+  and aspect ratio without player controls or letterboxing. A video information panel
+  keeps format, codec, resolution, frame rate, color, audio, and subtitle details close.
 - **One Mac. Every display:** Place video behind desktop files and widgets, use one
   synchronized queue across displays, or assign an independent loop to each
   display.
 - **Private means private:** Local processing, read-only media access, no account,
   no uploads, no product telemetry, and no automatic crash reporting.
-- **Pick up where you left off:** Reopen Muralume to restore the current session; enable
-  Launch at Login to restore the Dynamic Desktop after signing in.
+- **Pause when the desktop is out of sight:** Optional Smart Pause reacts to desktop
+  visibility and selected power or system conditions while preserving manual intent.
+- **Pick up where you left off:** Every video remembers its own position until it is
+  nearly finished. Reopen Muralume to restore the current session; enable Launch at
+  Login to restore the Dynamic Desktop after signing in.
 
 ## Get started
 

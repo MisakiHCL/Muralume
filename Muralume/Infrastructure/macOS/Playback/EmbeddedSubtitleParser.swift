@@ -3,6 +3,7 @@ import Foundation
 
 enum EmbeddedSubtitlePolicy {
     static let maximumTrackCount = 32
+    static let maximumSampleCount = 40_000
     static let textLengthPrefixByteCount = 2
     static let maximumUTF8BytesPerCharacter = 4
     static let maximumSampleBytes =
@@ -13,6 +14,7 @@ enum EmbeddedSubtitlePolicy {
 }
 
 struct EmbeddedSubtitleTrackData: Equatable, Sendable {
+    let languageIdentifier: String?
     let timeline: SubtitleTimeline?
 }
 
@@ -28,6 +30,15 @@ struct EmbeddedSubtitleParser: Sendable {
 
         for track in tracks.prefix(EmbeddedSubtitlePolicy.maximumTrackCount) {
             try Task.checkCancellation()
+            let extendedLanguageTag = try await track.load(
+                .extendedLanguageTag
+            )
+            let languageIdentifier: String?
+            if let extendedLanguageTag {
+                languageIdentifier = extendedLanguageTag
+            } else {
+                languageIdentifier = try await track.load(.languageCode)
+            }
             let formatDescriptions = try await track.load(
                 .formatDescriptions
             )
@@ -35,12 +46,18 @@ struct EmbeddedSubtitleParser: Sendable {
                 CMFormatDescriptionGetMediaSubType($0)
                     == kCMSubtitleFormatType_3GText
             }) else {
-                parsedTracks.append(EmbeddedSubtitleTrackData(timeline: nil))
+                parsedTracks.append(
+                    EmbeddedSubtitleTrackData(
+                        languageIdentifier: languageIdentifier,
+                        timeline: nil
+                    )
+                )
                 continue
             }
 
             parsedTracks.append(
                 EmbeddedSubtitleTrackData(
+                    languageIdentifier: languageIdentifier,
                     timeline: try timeline(for: track, in: asset)
                 )
             )
@@ -72,11 +89,19 @@ struct EmbeddedSubtitleParser: Sendable {
 
         var cues: [SubtitleCue] = []
         cues.reserveCapacity(256)
+        var inspectedSampleCount = 0
         while let sampleBuffer = output.copyNextSampleBuffer() {
             try Task.checkCancellation()
-            guard cues.count < ExternalSubtitlePolicy.maximumCueCount,
-                  let cue = cue(from: sampleBuffer) else {
+            guard inspectedSampleCount
+                    < EmbeddedSubtitlePolicy.maximumSampleCount else {
+                return nil
+            }
+            inspectedSampleCount += 1
+            guard let cue = cue(from: sampleBuffer) else {
                 continue
+            }
+            guard cues.count < ExternalSubtitlePolicy.maximumCueCount else {
+                return nil
             }
             cues.append(cue)
         }

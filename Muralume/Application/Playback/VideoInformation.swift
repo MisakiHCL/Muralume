@@ -31,6 +31,7 @@ struct VideoAspectRatio: Equatable, Sendable {
 }
 
 enum VideoDynamicRange: Equatable, Sendable {
+    case unknown
     case sdr
     case hdr10
     case hlg

@@ -94,19 +94,41 @@ actor FilePlaybackProgressStore: PlaybackProgressStoring {
             return positions
         }
 
-        let data = try readBoundedData()
-        let snapshot = try decoder.decode(
-            PlaybackProgressSnapshot.self,
-            from: data
-        )
-        guard snapshot.isValid else {
-            throw PlaybackProgressStoreError.invalidSnapshot
+        let snapshot: PlaybackProgressSnapshot
+        do {
+            let data = try readBoundedData()
+            snapshot = try decoder.decode(
+                PlaybackProgressSnapshot.self,
+                from: data
+            )
+            guard snapshot.isValid else {
+                throw PlaybackProgressStoreError.invalidSnapshot
+            }
+        } catch is DecodingError {
+            return try discardInvalidCache()
+        } catch let error as PlaybackProgressStoreError {
+            switch error {
+            case .invalidSnapshot, .fileTooLarge:
+                return try discardInvalidCache()
+            case .entryLimitExceeded:
+                throw error
+            }
         }
         let positions = Dictionary(
             uniqueKeysWithValues: snapshot.entries.map {
                 ($0.itemID, $0.position)
             }
         )
+        cachedPositions = positions
+        return positions
+    }
+
+    private func discardInvalidCache() throws
+        -> [LibraryMediaItem.ID: TimeInterval] {
+        if fileManager.fileExists(atPath: fileURL.path) {
+            try fileManager.removeItem(at: fileURL)
+        }
+        let positions: [LibraryMediaItem.ID: TimeInterval] = [:]
         cachedPositions = positions
         return positions
     }
