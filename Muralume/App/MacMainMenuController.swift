@@ -117,6 +117,7 @@ protocol MacMainMenuCommandHandling: AnyObject {
     func searchMediaFromMenu()
     func editLibraryFromMenu()
     func togglePlaybackFromMenu()
+    func captureScreenshotFromMenu()
     func seekBackwardFromMenu()
     func seekForwardFromMenu()
     func playPreviousFromMenu()
@@ -135,6 +136,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private enum Shortcut {
         static let addMedia = "o"
         static let togglePlayback = " "
+        static let captureScreenshot = "s"
         static let seekBackward = functionKey(NSLeftArrowFunctionKey)
         static let seekForward = functionKey(NSRightArrowFunctionKey)
         static let previousItem = functionKey(NSUpArrowFunctionKey)
@@ -162,6 +164,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         case addMedia
         case editLibrary
         case togglePlayback
+        case captureScreenshot
         case seekBackward
         case seekForward
         case playPrevious
@@ -208,6 +211,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private let addMediaItem = NSMenuItem()
     private let editLibraryItem = NSMenuItem()
     private let togglePlaybackItem = NSMenuItem()
+    private let captureScreenshotItem = NSMenuItem()
     private let seekBackwardItem = NSMenuItem()
     private let seekForwardItem = NSMenuItem()
     private let previousItem = NSMenuItem()
@@ -317,6 +321,8 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             hasPlayerFocus && isEnabled(.editLibrary, in: state)
         togglePlaybackItem.isEnabled =
             hasPlayerFocus && isEnabled(.togglePlayback, in: state)
+        captureScreenshotItem.isEnabled =
+            hasPlayerFocus && isEnabled(.captureScreenshot, in: state)
         seekBackwardItem.isEnabled =
             hasPlayerFocus && isEnabled(.seekBackward, in: state)
         seekForwardItem.isEnabled =
@@ -445,6 +451,12 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             keyEquivalent: Shortcut.togglePlayback
         )
         configure(
+            captureScreenshotItem,
+            action: #selector(captureScreenshot(_:)),
+            keyEquivalent: Shortcut.captureScreenshot,
+            modifiers: [.command, .shift]
+        )
+        configure(
             seekBackwardItem,
             action: #selector(seekBackward(_:)),
             keyEquivalent: Shortcut.seekBackward
@@ -507,6 +519,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         actionsMenu.addItem(seekForwardItem)
         actionsMenu.addItem(previousItem)
         actionsMenu.addItem(nextItem)
+        actionsMenu.addItem(captureScreenshotItem)
         actionsMenu.addItem(.separator())
         actionsMenu.addItem(volumeUpItem)
         actionsMenu.addItem(volumeDownItem)
@@ -642,6 +655,9 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         addMediaItem.title = localization.localized("library.add.media")
         mediaSearchCommand.updateLocalizedTitle(using: localization)
         editLibraryItem.title = localization.localized("library.edit")
+        captureScreenshotItem.title = localization.localized(
+            "screenshot.menu"
+        )
         seekBackwardItem.title = localization.localized("player.back")
         seekForwardItem.title = localization.localized("player.forward")
         previousItem.title = localization.localized("player.previousItem")
@@ -674,6 +690,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             addMediaItem,
             editLibraryItem,
             togglePlaybackItem,
+            captureScreenshotItem,
             seekBackwardItem,
             seekForwardItem,
             previousItem,
@@ -721,7 +738,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             state.canEditLibrary
         case .enterDesktop, .configureDesktop:
             state.canEnterDesktop
-        case .togglePlayback, .seekBackward, .seekForward:
+        case .togglePlayback, .captureScreenshot, .seekBackward, .seekForward:
             state.canControlPlayback
         case .toggleMute:
             state.canUseWindowActions
@@ -829,6 +846,13 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private func togglePlayback(_ sender: Any?) {
         performPlayerCommand(.togglePlayback) {
             $0.togglePlaybackFromMenu()
+        }
+    }
+
+    @objc
+    private func captureScreenshot(_ sender: Any?) {
+        performPlayerCommand(.captureScreenshot) {
+            $0.captureScreenshotFromMenu()
         }
     }
 

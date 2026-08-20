@@ -232,6 +232,7 @@
 "library.import.folderContainsActiveFolder" = "A selected folder contains one or more subfolders already added separately. Remove those subfolders from the library, then try again.";
 "library.import.folderCoveredByActiveFolder" = "The selected folder is already included in a folder in the library, so it does not need to be added again.";
 "action.cancel" = "Cancel";
+"action.ok" = "OK";
 "queue.title" = "Play Queue";
 "queue.hide" = "Hide Play Queue";
 "queue.navigation" = "Switch between Media Library, Playlists, and Play Queue";
@@ -318,3 +319,9 @@
 "menu.zoomWindow" = "Zoom";
 "menu.bringAllToFront" = "Bring All to Front";
 "menu.showHelp" = "Muralume Help";
+"screenshot.menu" = "Save Screenshot…";
+"screenshot.save.title" = "Save Screenshot";
+"screenshot.save.message" = "Choose where to save the current video frame.";
+"screenshot.save.prompt" = "Save";
+"screenshot.error.title" = "Couldn’t save the screenshot";
+"screenshot.error.message" = "Muralume couldn’t capture or write the current video frame.";

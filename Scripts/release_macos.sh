@@ -770,12 +770,12 @@ sandbox_enabled="$(
 [[ "${sandbox_enabled}" == "true" ]] \
     || fail "The release signature must enable App Sandbox."
 
-read_only_folder_access="$(
-    plutil -extract 'com\.apple\.security\.files\.user-selected\.read-only' raw -o - \
+user_selected_file_access="$(
+    plutil -extract 'com\.apple\.security\.files\.user-selected\.read-write' raw -o - \
         "${signed_entitlements_path}"
 )"
-[[ "${read_only_folder_access}" == "true" ]] \
-    || fail "The release signature must allow read-only user-selected folders."
+[[ "${user_selected_file_access}" == "true" ]] \
+    || fail "The release signature must allow access to user-selected files."
 
 app_scoped_bookmarks="$(
     plutil -extract 'com\.apple\.security\.files\.bookmarks\.app-scope' raw -o - \

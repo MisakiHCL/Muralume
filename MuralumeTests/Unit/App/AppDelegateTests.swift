@@ -570,6 +570,18 @@ final class AppDelegateTests: XCTestCase {
         )
         XCTAssertEqual(
             actionsMenu.items.first {
+                $0.title == "Save Screenshot…"
+            }?.keyEquivalent,
+            "s"
+        )
+        XCTAssertEqual(
+            actionsMenu.items.first {
+                $0.title == "Save Screenshot…"
+            }?.keyEquivalentModifierMask,
+            [.command, .shift]
+        )
+        XCTAssertEqual(
+            actionsMenu.items.first {
                 $0.title == "Toggle Full Screen"
             }?.keyEquivalent,
             "f"
@@ -726,6 +738,7 @@ final class AppDelegateTests: XCTestCase {
             "Forward 10 seconds",
             "Previous Video",
             "Next Video",
+            "Save Screenshot…",
             "Set as Dynamic Desktop",
             "Customize Displays…",
             "Edit"
@@ -979,6 +992,7 @@ private final class TestMainMenuCommandHandler:
     func togglePlaybackFromMenu() {
         togglePlaybackCommandCount += 1
     }
+    func captureScreenshotFromMenu() {}
     func seekBackwardFromMenu() {}
     func seekForwardFromMenu() {}
     func playPreviousFromMenu() {}

@@ -438,7 +438,7 @@ validate_xcode_developer_id_exported_app() (
     fi
     for entitlement_value in \
         'com\.apple\.security\.app-sandbox' \
-        'com\.apple\.security\.files\.user-selected\.read-only' \
+        'com\.apple\.security\.files\.user-selected\.read-write' \
         'com\.apple\.security\.files\.bookmarks\.app-scope'; do
         if [[ "$(
             plutil -extract "${entitlement_value}" raw -o - \

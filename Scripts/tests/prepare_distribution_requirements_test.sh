@@ -350,7 +350,7 @@ if [[ "${is_entitlements_display}" -eq 1 ]]; then
         '<?xml version="1.0" encoding="UTF-8"?>' \
         '<plist version="1.0"><dict>' \
         '<key>com.apple.security.app-sandbox</key><true/>' \
-        '<key>com.apple.security.files.user-selected.read-only</key><true/>' \
+        '<key>com.apple.security.files.user-selected.read-write</key><true/>' \
         "${bookmark_entry}" \
         '</dict></plist>'
     exit 0

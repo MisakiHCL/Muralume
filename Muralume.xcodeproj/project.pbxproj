@@ -29,6 +29,9 @@
 		353A5218136446D38C6974E8 /* PlayerActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C68D1172DDA349E29EDAE7B2 /* PlayerActions.swift */; };
 		38DAF1886E669E9AD8629B01 /* MacDesktopHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EADC3367C34613B9AB4302 /* MacDesktopHost.swift */; };
 		F16000000000000000000001 /* DesktopOcclusionMonitoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = F16000000000000000000002 /* DesktopOcclusionMonitoring.swift */; };
+		F17000000000000000000011 /* VideoScreenshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17000000000000000000001 /* VideoScreenshot.swift */; };
+		F17000000000000000000012 /* MacVideoScreenshotController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17000000000000000000002 /* MacVideoScreenshotController.swift */; };
+		F17000000000000000000013 /* VideoScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17000000000000000000003 /* VideoScreenshotTests.swift */; };
 		3F17219CF978658459118E51 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D3F2E5966FB709EA70C9D0D3 /* Cocoa.framework */; };
 		48F762B8D1EEAE1720420B00 /* LaunchAtLoginController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 122FC8442E8C165BB5468F59 /* LaunchAtLoginController.swift */; };
 		4B347BA8B5DD46B3D778F622 /* LibrarySidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175A64BC45FA05F76881C95C /* LibrarySidebar.swift */; };
@@ -235,6 +238,9 @@
 		57303ACF6F0F43E7804B20A3 /* DesktopSessionCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopSessionCoordinator.swift; sourceTree = "<group>"; };
 		62EADC3367C34613B9AB4302 /* MacDesktopHost.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopHost.swift; sourceTree = "<group>"; };
 		F16000000000000000000002 /* DesktopOcclusionMonitoring.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopOcclusionMonitoring.swift; sourceTree = "<group>"; };
+		F17000000000000000000001 /* VideoScreenshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoScreenshot.swift; sourceTree = "<group>"; };
+		F17000000000000000000002 /* MacVideoScreenshotController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacVideoScreenshotController.swift; sourceTree = "<group>"; };
+		F17000000000000000000003 /* VideoScreenshotTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoScreenshotTests.swift; sourceTree = "<group>"; };
 		654368F2F8F46611FE1F0288 /* FileCustomPlaylistStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileCustomPlaylistStore.swift; sourceTree = "<group>"; };
 		655D9C53DF93C4399C148736 /* DesktopDisplayCanvasLayoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopDisplayCanvasLayoutTests.swift; sourceTree = "<group>"; };
 		6D32A61D760BE7B80916FCEB /* AppConfiguration.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
@@ -455,6 +461,7 @@
 			isa = PBXGroup;
 			children = (
 				C7D4159ECB84CD3F4C1A1703 /* AVFoundationPlaybackEngine.swift */,
+				F17000000000000000000002 /* MacVideoScreenshotController.swift */,
 				D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */,
 				C30000000000000000000004 /* FilePlaybackSessionStore.swift */,
 				EB1000000000000000000006 /* MacExternalSubtitlePicker.swift */,
@@ -556,6 +563,7 @@
 				7B45D5363784459EA36A0566 /* PlaybackState.swift */,
 				C30000000000000000000002 /* PlaybackStateRestorer.swift */,
 				31A7E6B1E1B0450EA9D35735 /* ResolvedMediaSource.swift */,
+				F17000000000000000000001 /* VideoScreenshot.swift */,
 			);
 			name = Playback;
 			path = Playback;
@@ -915,6 +923,7 @@
 			isa = PBXGroup;
 			children = (
 				25EA2A620F0248ECAA3D369A /* AVFoundationPlaybackEngineTests.swift */,
+				F17000000000000000000003 /* VideoScreenshotTests.swift */,
 				AEAFFBCADB9C4DDF8A43DB08 /* RealAVPlayerLayerRoundTripTests.swift */,
 			);
 			name = Playback;
@@ -1184,6 +1193,7 @@
 				AA0000000000000000000014 /* MediaLibrarySort.swift in Sources */,
 				AF1000000000000000000011 /* MediaThumbnailProviding.swift in Sources */,
 				7853A770F99714259B9C1495 /* PlaybackCoordinator.swift in Sources */,
+				F17000000000000000000011 /* VideoScreenshot.swift in Sources */,
 				D411CD1097024403912B986C /* PlaybackEngine.swift in Sources */,
 				E90000000000000000000011 /* PlaybackMediaSelection.swift in Sources */,
 				E90000000000000000000012 /* PlaybackMediaSelectionController.swift in Sources */,
@@ -1231,6 +1241,7 @@
 				AF1000000000000000000012 /* QuickLookMediaThumbnailProvider.swift in Sources */,
 				AC0000000000000000000013 /* UserDefaultsAppPreferencesStore.swift in Sources */,
 				4B9EC4249AD1406990161515 /* AVFoundationPlaybackEngine.swift in Sources */,
+				F17000000000000000000012 /* MacVideoScreenshotController.swift in Sources */,
 				EB1000000000000000000013 /* SubtitleFileParser.swift in Sources */,
 				EB1000000000000000000014 /* SubtitleSidecarDiscovery.swift in Sources */,
 				EB1000000000000000000015 /* UserDefaultsExternalSubtitleAssociationStore.swift in Sources */,
@@ -1318,6 +1329,7 @@
 				AA000000000000000000001B /* FileSystemMediaLibraryScannerTests.swift in Sources */,
 				AB0000000000000000000002 /* UserSelectedMediaSessionTests.swift in Sources */,
 				004C99C5AE9B45B3AE32AB2A /* AVFoundationPlaybackEngineTests.swift in Sources */,
+				F17000000000000000000013 /* VideoScreenshotTests.swift in Sources */,
 				9DDE2F09B8C64CF4AB689811 /* RealAVPlayerLayerRoundTripTests.swift in Sources */,
 				AC0000000000000000000016 /* MacMainWindowPresenterTests.swift in Sources */,
 				E83000000000000000000011 /* MacDesktopHostEnergyTests.swift in Sources */,
@@ -1433,7 +1445,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Muralume/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
@@ -1454,7 +1466,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Muralume/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
@@ -1475,7 +1487,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Muralume/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";

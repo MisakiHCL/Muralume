@@ -27,6 +27,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     private let playbackSession: PlaybackSessionController
     private let externalSubtitlePicker:
         (any ExternalSubtitleSelecting)?
+    private let videoScreenshotController:
+        (any VideoScreenshotControlling)?
     private let customPlaylistPlaybackBridge:
         CustomPlaylistPlaybackBridge
     private let automaticLibraryRefresh:
@@ -61,7 +63,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         smartPause: SmartPauseController = SmartPauseController(),
         playerChrome: PlayerChromeController = PlayerChromeController(),
         externalSubtitlePicker:
-            (any ExternalSubtitleSelecting)? = nil
+            (any ExternalSubtitleSelecting)? = nil,
+        videoScreenshotController:
+            (any VideoScreenshotControlling)? = nil
     ) {
         self.playback = playback
         self.desktopSession = desktopSession
@@ -75,6 +79,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         self.desktopPreset = desktopPreset
         self.playbackSession = playbackSession
         self.externalSubtitlePicker = externalSubtitlePicker
+        self.videoScreenshotController = videoScreenshotController
         customPlaylistPlaybackBridge = CustomPlaylistPlaybackBridge(
             playlists: playlists,
             library: library
@@ -646,6 +651,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         isShutDown = true
         automaticLibraryRefreshCancellables.removeAll()
         automaticLibraryRefresh.stop()
+        videoScreenshotController?.cancel()
         externalOpenGeneration &+= 1
         clearDynamicDesktopReturnContext()
 
@@ -1008,6 +1014,17 @@ extension AppCoordinator: MacMainMenuCommandHandling {
 
     func togglePlaybackFromMenu() {
         playback.togglePlayback()
+    }
+
+    func captureScreenshotFromMenu() {
+        guard mainMenuCommandState.canControlPlayback,
+              let source = playback.source else {
+            return
+        }
+        videoScreenshotController?.capture(
+            source: source,
+            at: playback.currentTime
+        )
     }
 
     func seekBackwardFromMenu() {

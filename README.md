@@ -53,6 +53,9 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
   within a playlist, and continue from the same playlist after relaunch.
 - **See exactly what plays next:** Use ordered playback, shuffle, Repeat Current Video,
   seeking, volume, speed, fullscreen, and a separate Play Queue.
+- **Keep the frame, not the player:** Save the current video frame as a compact JPEG
+  from the Actions menu or with `⇧⌘S`. Screenshots preserve the video's orientation
+  and aspect ratio without player controls or letterboxing.
 - **One Mac. Every display:** Place video behind desktop files and widgets, use one
   synchronized queue across displays, or assign an independent loop to each
   display.
@@ -89,6 +92,7 @@ For the GitHub version, open the DMG and drag Muralume into Applications.
 |---|---|
 | Add videos or folders | `⌘O` |
 | Search videos | `⌘F` |
+| Save current video frame as JPEG | `⇧⌘S` |
 | Set as Dynamic Desktop | `⌘D` |
 | Customize display layout | `⇧⌘D` |
 | Play / pause | `Space` |

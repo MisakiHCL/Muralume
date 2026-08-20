@@ -124,6 +124,9 @@ enum AppCompositionRoot {
             smartPause: smartPause,
             externalSubtitlePicker: MacExternalSubtitlePicker(
                 localization: localization
+            ),
+            videoScreenshotController: MacVideoScreenshotController(
+                localization: localization
             )
         )
     }

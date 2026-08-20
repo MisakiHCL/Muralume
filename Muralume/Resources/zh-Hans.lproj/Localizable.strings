@@ -232,6 +232,7 @@
 "library.import.folderContainsActiveFolder" = "所选文件夹包含一个或多个已单独添加的子文件夹。请先从媒体库移除这些子文件夹，然后重试。";
 "library.import.folderCoveredByActiveFolder" = "所选文件夹已位于媒体库的现有文件夹内，无需重复添加。";
 "action.cancel" = "取消";
+"action.ok" = "好";
 "queue.title" = "播放队列";
 "queue.hide" = "隐藏播放队列";
 "queue.navigation" = "在媒体库、播放列表和播放队列之间切换";
@@ -318,3 +319,9 @@
 "menu.zoomWindow" = "缩放";
 "menu.bringAllToFront" = "前置全部窗口";
 "menu.showHelp" = "Muralume 帮助";
+"screenshot.menu" = "保存截图…";
+"screenshot.save.title" = "保存截图";
+"screenshot.save.message" = "选择当前视频画面的保存位置。";
+"screenshot.save.prompt" = "保存";
+"screenshot.error.title" = "无法保存截图";
+"screenshot.error.message" = "Muralume 无法截取或写入当前视频画面。";

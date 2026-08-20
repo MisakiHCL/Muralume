@@ -31,7 +31,7 @@ import sys
 expected = {
     "com.apple.security.app-sandbox": True,
     "com.apple.security.files.bookmarks.app-scope": True,
-    "com.apple.security.files.user-selected.read-only": True,
+    "com.apple.security.files.user-selected.read-write": True,
 }
 with open(sys.argv[1], "wb") as stream:
     plistlib.dump(expected, stream)
