@@ -7,6 +7,7 @@ final class PlaybackMediaSelectionController: ObservableObject {
     @Published private(set) var hasCurrentMedia = false
 
     let externalSubtitles: ExternalSubtitleController
+    let embeddedSubtitles: EmbeddedSubtitleController
 
     private let engine: any PlaybackEngine
     private var savedPlayerSubtitleSelection: PlaybackSubtitleSelection?
@@ -27,6 +28,7 @@ final class PlaybackMediaSelectionController: ObservableObject {
             discovery: externalSubtitleDiscovery,
             associationStore: externalSubtitleAssociationStore
         )
+        embeddedSubtitles = EmbeddedSubtitleController(engine: engine)
     }
 
     func refresh() {
@@ -35,6 +37,7 @@ final class PlaybackMediaSelectionController: ObservableObject {
 
     func reset() {
         externalSubtitles.reset()
+        embeddedSubtitles.reset()
         savedPlayerSubtitleSelection = nil
         savedExternalSubtitleSelection = nil
         hasCurrentMedia = false
@@ -118,5 +121,22 @@ final class PlaybackMediaSelectionController: ObservableObject {
         } else {
             state = engine.selectSubtitles(savedExternalSubtitleSelection)
         }
+    }
+}
+
+@MainActor
+final class EmbeddedSubtitleController: ObservableObject {
+    @Published private(set) var cueText: String?
+
+    init(engine: any PlaybackEngine) {
+        engine.setEmbeddedSubtitleCueHandler { [weak self] cueText in
+            if self?.cueText != cueText {
+                self?.cueText = cueText
+            }
+        }
+    }
+
+    func reset() {
+        cueText = nil
     }
 }

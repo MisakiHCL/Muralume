@@ -400,7 +400,8 @@ struct PlayerScreen<PlayerSurface: View>: View {
             SettingsView(
                 dynamicDesktopStartup: dynamicDesktopStartup,
                 defaultVideoPlayer: defaultVideoPlayer,
-                smartPause: smartPause
+                smartPause: smartPause,
+                subtitleAppearance: playback.subtitleAppearance
             ) {
                 chromeController.setSettingsPresented(false)
             }

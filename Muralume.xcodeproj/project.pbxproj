@@ -32,6 +32,9 @@
 		F17000000000000000000011 /* VideoScreenshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17000000000000000000001 /* VideoScreenshot.swift */; };
 		F17000000000000000000012 /* MacVideoScreenshotController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17000000000000000000002 /* MacVideoScreenshotController.swift */; };
 		F17000000000000000000013 /* VideoScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17000000000000000000003 /* VideoScreenshotTests.swift */; };
+		F18000000000000000000001 /* SubtitleAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18000000000000000000002 /* SubtitleAppearance.swift */; };
+		F18000000000000000000003 /* EmbeddedSubtitleParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18000000000000000000004 /* EmbeddedSubtitleParser.swift */; };
+		F18000000000000000000005 /* SubtitleAppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18000000000000000000006 /* SubtitleAppearanceSettingsView.swift */; };
 		3F17219CF978658459118E51 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D3F2E5966FB709EA70C9D0D3 /* Cocoa.framework */; };
 		48F762B8D1EEAE1720420B00 /* LaunchAtLoginController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 122FC8442E8C165BB5468F59 /* LaunchAtLoginController.swift */; };
 		4B347BA8B5DD46B3D778F622 /* LibrarySidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175A64BC45FA05F76881C95C /* LibrarySidebar.swift */; };
@@ -366,6 +369,9 @@
 		EB1000000000000000000001 /* ExternalSubtitle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExternalSubtitle.swift; sourceTree = "<group>"; };
 		EB1000000000000000000002 /* ExternalSubtitleController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExternalSubtitleController.swift; sourceTree = "<group>"; };
 		EB1000000000000000000003 /* SubtitleFileParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SubtitleFileParser.swift; sourceTree = "<group>"; };
+		F18000000000000000000002 /* SubtitleAppearance.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SubtitleAppearance.swift; sourceTree = "<group>"; };
+		F18000000000000000000004 /* EmbeddedSubtitleParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EmbeddedSubtitleParser.swift; sourceTree = "<group>"; };
+		F18000000000000000000006 /* SubtitleAppearanceSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SubtitleAppearanceSettingsView.swift; sourceTree = "<group>"; };
 		EB1000000000000000000004 /* SubtitleSidecarDiscovery.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SubtitleSidecarDiscovery.swift; sourceTree = "<group>"; };
 		EB1000000000000000000005 /* UserDefaultsExternalSubtitleAssociationStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserDefaultsExternalSubtitleAssociationStore.swift; sourceTree = "<group>"; };
 		EB1000000000000000000006 /* MacExternalSubtitlePicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacExternalSubtitlePicker.swift; sourceTree = "<group>"; };
@@ -461,6 +467,7 @@
 			isa = PBXGroup;
 			children = (
 				C7D4159ECB84CD3F4C1A1703 /* AVFoundationPlaybackEngine.swift */,
+				F18000000000000000000004 /* EmbeddedSubtitleParser.swift */,
 				F17000000000000000000002 /* MacVideoScreenshotController.swift */,
 				D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */,
 				C30000000000000000000004 /* FilePlaybackSessionStore.swift */,
@@ -864,6 +871,7 @@
 				AC0000000000000000000001 /* AppLanguage.swift */,
 				AC0000000000000000000002 /* AppLocalizationController.swift */,
 				B30000000000000000000001 /* AppPreferences.swift */,
+				F18000000000000000000002 /* SubtitleAppearance.swift */,
 				FA0000000000000000000001 /* DefaultVideoPlayerController.swift */,
 				122FC8442E8C165BB5468F59 /* LaunchAtLoginController.swift */,
 			);
@@ -875,6 +883,7 @@
 			isa = PBXGroup;
 			children = (
 				AC0000000000000000000004 /* SettingsView.swift */,
+				F18000000000000000000006 /* SubtitleAppearanceSettingsView.swift */,
 			);
 			name = Settings;
 			path = Settings;
@@ -1184,6 +1193,7 @@
 				AC0000000000000000000011 /* AppLanguage.swift in Sources */,
 				AC0000000000000000000012 /* AppLocalizationController.swift in Sources */,
 				B30000000000000000000011 /* AppPreferences.swift in Sources */,
+				F18000000000000000000001 /* SubtitleAppearance.swift in Sources */,
 				FB5A108E387E4C458059F7EC /* MediaAccessSession.swift in Sources */,
 				B9EC7ACAFF914BACAE9DAD42 /* MediaSourceSelecting.swift in Sources */,
 				AA0000000000000000000015 /* MediaLibraryCoordinator.swift in Sources */,
@@ -1220,6 +1230,7 @@
 				F11000000000000000000015 /* LibraryQueueSidebarSupport.swift in Sources */,
 				F13000000000000000000001 /* MediaLibraryChangeMonitoring.swift in Sources */,
 				AC0000000000000000000014 /* SettingsView.swift in Sources */,
+				F18000000000000000000005 /* SubtitleAppearanceSettingsView.swift in Sources */,
 				74CB2874C8E84DCB9FB68E95 /* PlaybackFailure+Localization.swift in Sources */,
 				353A5218136446D38C6974E8 /* PlayerActions.swift in Sources */,
 				03DFE42FCA314D64B3B0A234 /* PlayerControlBar.swift in Sources */,
@@ -1241,6 +1252,7 @@
 				AF1000000000000000000012 /* QuickLookMediaThumbnailProvider.swift in Sources */,
 				AC0000000000000000000013 /* UserDefaultsAppPreferencesStore.swift in Sources */,
 				4B9EC4249AD1406990161515 /* AVFoundationPlaybackEngine.swift in Sources */,
+				F18000000000000000000003 /* EmbeddedSubtitleParser.swift in Sources */,
 				F17000000000000000000012 /* MacVideoScreenshotController.swift in Sources */,
 				EB1000000000000000000013 /* SubtitleFileParser.swift in Sources */,
 				EB1000000000000000000014 /* SubtitleSidecarDiscovery.swift in Sources */,

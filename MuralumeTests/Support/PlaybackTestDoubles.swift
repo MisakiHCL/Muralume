@@ -38,6 +38,7 @@ final class TestPlaybackEngine: PlaybackEngine {
     var failureHandler: ((PlaybackEngineError) -> Void)?
     var playbackActivityHandler: ((Bool) -> Void)?
     var externalSubtitleTimeHandler: ((TimeInterval) -> Void)?
+    var embeddedSubtitleCueHandler: ((String?) -> Void)?
     private(set) var attachedSurfaceIDs: [PlaybackSurfaceID] = []
     private(set) var attachmentReadinessPolicies:
         [PlaybackSurfaceReadinessPolicy] = []
@@ -241,6 +242,12 @@ final class TestPlaybackEngine: PlaybackEngine {
         externalSubtitleTimeHandler = handler
     }
 
+    func setEmbeddedSubtitleCueHandler(
+        _ handler: ((String?) -> Void)?
+    ) {
+        embeddedSubtitleCueHandler = handler
+    }
+
     func publishExternalSubtitleTime(_ time: TimeInterval) {
         externalSubtitleTimeHandler?(time)
     }
@@ -250,6 +257,7 @@ final class TestPlaybackEngine: PlaybackEngine {
         attachedSurfaceID = nil
         isPlaying = false
         externalSubtitleTimeHandler = nil
+        embeddedSubtitleCueHandler?(nil)
         mediaSelectionState = .empty
         playbackActivityHandler?(false)
     }
@@ -274,6 +282,8 @@ final class TestAppPreferencesStore: AppPreferencesStoring {
         [PlaybackRepeatBehavior] = []
     private(set) var savedLibrarySorts: [MediaLibrarySort] = []
     private(set) var savedLanguages: [AppLanguage] = []
+    private(set) var savedSubtitleAppearances:
+        [SubtitleAppearancePreferences] = []
     private(set) var savedSmartPausePreferences: [SmartPausePreferences] = []
 
     init(preferences: AppPreferences = .defaultValue) {
@@ -309,6 +319,12 @@ final class TestAppPreferencesStore: AppPreferencesStoring {
 
     func saveLanguage(_ language: AppLanguage) {
         savedLanguages.append(language)
+    }
+
+    func saveSubtitleAppearance(
+        _ preferences: SubtitleAppearancePreferences
+    ) {
+        savedSubtitleAppearances.append(preferences)
     }
 
     func saveSmartPause(_ preferences: SmartPausePreferences) {

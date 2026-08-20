@@ -35,6 +35,21 @@ final class AppPreferencesStoreTests: XCTestCase {
                 pauseOnLimitedPowerSource: true,
                 pauseUnderSustainedSystemLoad: true
             )
+            let subtitleAppearance = SubtitleAppearancePreferences(
+                fontFamilyName: "Avenir Next",
+                textColor: SubtitleColorValue(
+                    red: 244,
+                    green: 212,
+                    blue: 64,
+                    alpha: 255
+                ),
+                shadowColor: SubtitleColorValue(
+                    red: 24,
+                    green: 32,
+                    blue: 40,
+                    alpha: 192
+                )
+            )
 
             store.saveAudio(audio)
             store.savePlaybackRate(PlaybackRate(rawValue: 1.5))
@@ -42,6 +57,7 @@ final class AppPreferencesStoreTests: XCTestCase {
             store.savePlaybackRepeatBehavior(.currentItem)
             store.saveLibrarySort(sort)
             store.saveLanguage(.simplifiedChinese)
+            store.saveSubtitleAppearance(subtitleAppearance)
             store.saveSmartPause(smartPause)
 
             let restored = UserDefaultsAppPreferencesStore(
@@ -60,6 +76,10 @@ final class AppPreferencesStoreTests: XCTestCase {
             )
             XCTAssertEqual(restored.librarySort, sort)
             XCTAssertEqual(restored.language, .simplifiedChinese)
+            XCTAssertEqual(
+                restored.subtitleAppearance,
+                subtitleAppearance
+            )
             XCTAssertEqual(restored.smartPause, smartPause)
             XCTAssertEqual(
                 defaults.string(
@@ -109,6 +129,14 @@ final class AppPreferencesStoreTests: XCTestCase {
                 forKey: AppPreferencesStorageKey.language
             )
             defaults.set(
+                "not-a-color",
+                forKey: AppPreferencesStorageKey.subtitleTextColor
+            )
+            defaults.set(
+                "1234",
+                forKey: AppPreferencesStorageKey.subtitleShadowColor
+            )
+            defaults.set(
                 "invalid",
                 forKey: AppPreferencesStorageKey.smartPauseEnabled
             )
@@ -133,6 +161,10 @@ final class AppPreferencesStoreTests: XCTestCase {
             XCTAssertEqual(restored.librarySort.field, .fileSize)
             XCTAssertEqual(restored.librarySort.direction, .ascending)
             XCTAssertEqual(restored.language, .system)
+            XCTAssertEqual(
+                restored.subtitleAppearance,
+                .defaultValue
+            )
             XCTAssertTrue(restored.smartPause.isEnabled)
             XCTAssertFalse(restored.smartPause.pauseWhenDesktopHidden)
             XCTAssertTrue(restored.smartPause.pauseInLowPowerMode)
@@ -163,6 +195,36 @@ final class AppPreferencesStoreTests: XCTestCase {
             store.savedSmartPausePreferences
         )
         XCTAssertEqual(observedPreferences.count, 3)
+    }
+
+    func testSubtitleAppearanceControllerPersistsOnlyChanges() {
+        let store = TestAppPreferencesStore()
+        let controller = SubtitleAppearanceController(store: store)
+        let textColor = SubtitleColorValue(
+            red: 240,
+            green: 180,
+            blue: 32,
+            alpha: 255
+        )
+
+        controller.setFontFamilyName("  Avenir Next  ")
+        controller.setTextColor(textColor)
+        controller.setTextColor(textColor)
+        controller.restoreDefaults()
+
+        XCTAssertEqual(store.savedSubtitleAppearances.count, 3)
+        XCTAssertEqual(
+            store.savedSubtitleAppearances.first?.fontFamilyName,
+            "Avenir Next"
+        )
+        XCTAssertEqual(
+            store.savedSubtitleAppearances[1].textColor,
+            textColor
+        )
+        XCTAssertEqual(
+            store.savedSubtitleAppearances.last,
+            .defaultValue
+        )
     }
 
     func testBooleanAndNumericTypesAreNotCoercedAcrossPreferenceFields() throws {

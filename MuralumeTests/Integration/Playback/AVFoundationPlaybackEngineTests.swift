@@ -158,6 +158,50 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
         XCTAssertGreaterThan(player.currentTime().seconds, 0)
     }
 
+    func testParsesAndPublishesEmbeddedMP4SubtitleCues() async throws {
+        let url = try XCTUnwrap(
+            Bundle(for: Self.self).url(
+                forResource: "alternate-tracks-5s",
+                withExtension: "mp4"
+            )
+        )
+        let tracks = try await EmbeddedSubtitleParser().parse(url)
+
+        XCTAssertEqual(tracks.count, 2)
+        XCTAssertEqual(
+            tracks[0].timeline?.text(at: 0.75),
+            "First caption"
+        )
+        XCTAssertEqual(
+            tracks[1].timeline?.text(at: 0.75),
+            "第一条字幕"
+        )
+
+        let engine = AVFoundationPlaybackEngine()
+        defer { engine.stop() }
+        var displayedCue: String?
+        engine.setEmbeddedSubtitleCueHandler { displayedCue = $0 }
+        _ = try await engine.load(
+            ResolvedMediaSource(url: url, displayName: "Alternate Tracks")
+        )
+        let state = engine.currentMediaSelectionState()
+        let chineseSubtitleID = try XCTUnwrap(
+            state.subtitleOptions.first {
+                $0.languageIdentifier == "zh"
+            }?.id
+        )
+        _ = engine.selectSubtitles(.option(chineseSubtitleID))
+        engine.seek(to: 0.75)
+
+        for _ in 0..<PlaybackExpectation.pollAttempts
+            where displayedCue != "第一条字幕" {
+            try await Task.sleep(
+                nanoseconds: PlaybackExpectation.pollIntervalNanoseconds
+            )
+        }
+        XCTAssertEqual(displayedCue, "第一条字幕")
+    }
+
     func testRapidInteractiveSeekEndsAtExactReleaseTarget() async throws {
         let engine = AVFoundationPlaybackEngine()
         var latestProgress: TimeInterval?

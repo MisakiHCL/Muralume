@@ -58,6 +58,7 @@ protocol PlaybackEngine: AnyObject {
     func setExternalSubtitleTimeHandler(
         _ handler: ((TimeInterval) -> Void)?
     )
+    func setEmbeddedSubtitleCueHandler(_ handler: ((String?) -> Void)?)
     func stop()
 }
 
@@ -94,6 +95,8 @@ extension PlaybackEngine {
     func setExternalSubtitleTimeHandler(
         _: ((TimeInterval) -> Void)?
     ) {}
+
+    func setEmbeddedSubtitleCueHandler(_: ((String?) -> Void)?) {}
 }
 
 @MainActor

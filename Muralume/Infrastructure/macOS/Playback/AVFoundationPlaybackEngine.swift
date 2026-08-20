@@ -20,11 +20,15 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         }
     }
     private var externalSubtitleTimeHandler: ((TimeInterval) -> Void)?
+    private var embeddedSubtitleCueHandler: ((String?) -> Void)?
 
     private let player: AVPlayer
     private weak var attachedSurface: (any AVPlayerRenderSurface)?
     private var timeObserver: Any?
-    private var externalSubtitleTimeObserver: Any?
+    private var subtitleTimeObserver: Any?
+    private var selectedEmbeddedSubtitleTimeline: SubtitleTimeline?
+    private var publishedEmbeddedSubtitleCueText: String?
+    private var legibleOutput: AVPlayerItemLegibleOutput?
     private var timeControlObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
@@ -59,8 +63,13 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         let generation = loadGeneration
         removeItemObservers()
         mediaSelectionContext = nil
+        legibleOutput = nil
+        updateSelectedEmbeddedSubtitleTimeline(nil)
 
         let asset = AVURLAsset(url: source.url)
+        let embeddedSubtitleTask = Task.detached(priority: .utility) {
+            try await EmbeddedSubtitleParser().parse(source.url)
+        }
 
         do {
             async let playable = asset.load(.isPlayable)
@@ -85,6 +94,11 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
                 audioGroup,
                 subtitleGroup
             )
+            let embeddedSubtitleTracks = await withTaskCancellationHandler {
+                (try? await embeddedSubtitleTask.value) ?? []
+            } onCancel: {
+                embeddedSubtitleTask.cancel()
+            }
 
             try Task.checkCancellation()
             guard generation == loadGeneration else {
@@ -95,23 +109,35 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             }
 
             let item = AVPlayerItem(asset: asset)
-            player.replaceCurrentItem(with: item)
-            try await waitUntilReadyToPlay(item, generation: generation)
-            installItemObservers(for: item)
-            mediaSelectionContext = AVFoundationMediaSelectionContext(
+            let selectionContext = AVFoundationMediaSelectionContext(
                 item: item,
                 audioGroup: loadedAudioGroup,
                 subtitleGroup: loadedSubtitleGroup,
+                embeddedSubtitleTracks: embeddedSubtitleTracks,
                 generation: generation
             )
+            if selectionContext.canRenderEmbeddedSubtitles {
+                let output = AVPlayerItemLegibleOutput()
+                output.suppressesPlayerRendering = true
+                item.add(output)
+                legibleOutput = output
+            }
+            player.replaceCurrentItem(with: item)
+            try await waitUntilReadyToPlay(item, generation: generation)
+            installItemObservers(for: item)
+            mediaSelectionContext = selectionContext
+            refreshSelectedEmbeddedSubtitleTimeline()
 
             let seconds = assetDuration.seconds
             return seconds.isFinite && seconds > 0 ? seconds : 0
         } catch let error as PlaybackEngineError {
+            embeddedSubtitleTask.cancel()
             throw error
         } catch is CancellationError {
+            embeddedSubtitleTask.cancel()
             throw PlaybackEngineError.superseded
         } catch {
+            embeddedSubtitleTask.cancel()
             throw PlaybackEngineError.cannotOpen
         }
     }
@@ -305,6 +331,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         }
         context.selectSubtitles(selection)
         mediaSelectionContext = context
+        refreshSelectedEmbeddedSubtitleTimeline()
         return context.state
     }
 
@@ -312,8 +339,16 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         _ handler: ((TimeInterval) -> Void)?
     ) {
         externalSubtitleTimeHandler = handler
-        refreshExternalSubtitleTimeObserver()
+        refreshSubtitleTimeObserver()
         publishCurrentExternalSubtitleTimeIfAvailable()
+    }
+
+    func setEmbeddedSubtitleCueHandler(
+        _ handler: ((String?) -> Void)?
+    ) {
+        embeddedSubtitleCueHandler = handler
+        refreshSubtitleTimeObserver()
+        publishCurrentEmbeddedSubtitleCueIfAvailable()
     }
 
     func stop() {
@@ -325,10 +360,12 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         player.pause()
         player.replaceCurrentItem(with: nil)
         mediaSelectionContext = nil
+        legibleOutput = nil
         externalSubtitleTimeHandler = nil
+        updateSelectedEmbeddedSubtitleTimeline(nil)
         removeItemObservers()
         removeProgressObserver()
-        removeExternalSubtitleTimeObserver()
+        removeSubtitleTimeObserver()
         removeTimeControlObservation()
         detachAll()
     }
@@ -364,9 +401,13 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         }
     }
 
-    private func installExternalSubtitleTimeObserver() {
-        guard externalSubtitleTimeObserver == nil,
-              externalSubtitleTimeHandler != nil,
+    private func installSubtitleTimeObserver() {
+        guard subtitleTimeObserver == nil,
+              externalSubtitleTimeHandler != nil
+                || (
+                    embeddedSubtitleCueHandler != nil
+                        && selectedEmbeddedSubtitleTimeline != nil
+                ),
               player.currentItem != nil else {
             return
         }
@@ -374,7 +415,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             seconds: ExternalSubtitlePolicy.timeUpdateInterval,
             preferredTimescale: CMTimeScale(NSEC_PER_SEC)
         )
-        externalSubtitleTimeObserver = player.addPeriodicTimeObserver(
+        subtitleTimeObserver = player.addPeriodicTimeObserver(
             forInterval: interval,
             queue: .main
         ) { [weak self] time in
@@ -384,20 +425,21 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             }
             MainActor.assumeIsolated {
                 self?.externalSubtitleTimeHandler?(seconds)
+                self?.publishEmbeddedSubtitleCue(at: seconds)
             }
         }
     }
 
-    private func removeExternalSubtitleTimeObserver() {
-        if let externalSubtitleTimeObserver {
-            player.removeTimeObserver(externalSubtitleTimeObserver)
-            self.externalSubtitleTimeObserver = nil
+    private func removeSubtitleTimeObserver() {
+        if let subtitleTimeObserver {
+            player.removeTimeObserver(subtitleTimeObserver)
+            self.subtitleTimeObserver = nil
         }
     }
 
-    private func refreshExternalSubtitleTimeObserver() {
-        removeExternalSubtitleTimeObserver()
-        installExternalSubtitleTimeObserver()
+    private func refreshSubtitleTimeObserver() {
+        removeSubtitleTimeObserver()
+        installSubtitleTimeObserver()
     }
 
     private func publishCurrentExternalSubtitleTimeIfAvailable() {
@@ -410,6 +452,51 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             return
         }
         externalSubtitleTimeHandler?(seconds)
+    }
+
+    private func publishCurrentEmbeddedSubtitleCueIfAvailable() {
+        guard embeddedSubtitleCueHandler != nil else {
+            return
+        }
+        guard selectedEmbeddedSubtitleTimeline != nil,
+              player.currentItem != nil else {
+            publishEmbeddedSubtitleCueText(nil)
+            return
+        }
+        let seconds = player.currentTime().seconds
+        guard seconds.isFinite else {
+            return
+        }
+        publishEmbeddedSubtitleCue(at: seconds)
+    }
+
+    private func publishEmbeddedSubtitleCue(at seconds: TimeInterval) {
+        publishEmbeddedSubtitleCueText(
+            selectedEmbeddedSubtitleTimeline?.text(at: seconds)
+        )
+    }
+
+    private func publishEmbeddedSubtitleCueText(_ cueText: String?) {
+        guard cueText != publishedEmbeddedSubtitleCueText else {
+            return
+        }
+        publishedEmbeddedSubtitleCueText = cueText
+        embeddedSubtitleCueHandler?(cueText)
+    }
+
+    private func refreshSelectedEmbeddedSubtitleTimeline() {
+        updateSelectedEmbeddedSubtitleTimeline(
+            mediaSelectionContext?.selectedEmbeddedSubtitleTimeline
+        )
+    }
+
+    private func updateSelectedEmbeddedSubtitleTimeline(
+        _ timeline: SubtitleTimeline?
+    ) {
+        selectedEmbeddedSubtitleTimeline = timeline
+        publishEmbeddedSubtitleCueText(nil)
+        refreshSubtitleTimeObserver()
+        publishCurrentEmbeddedSubtitleCueIfAvailable()
     }
 
     private func refreshProgressObserver() {
@@ -556,6 +643,9 @@ private struct AVFoundationMediaSelectionContext {
     private let subtitleOptionsByID: [
         PlaybackMediaOptionID: AVMediaSelectionOption
     ]
+    private let embeddedSubtitleTimelinesByID: [
+        PlaybackMediaOptionID: SubtitleTimeline
+    ]
     private(set) var audioSelection: PlaybackAudioSelection = .automatic
     private(set) var subtitleSelection: PlaybackSubtitleSelection = .automatic
 
@@ -563,6 +653,7 @@ private struct AVFoundationMediaSelectionContext {
         item: AVPlayerItem,
         audioGroup: AVMediaSelectionGroup?,
         subtitleGroup: AVMediaSelectionGroup?,
+        embeddedSubtitleTracks: [EmbeddedSubtitleTrackData],
         generation: UInt64
     ) {
         self.item = item
@@ -583,6 +674,34 @@ private struct AVFoundationMediaSelectionContext {
         )
         subtitleOptions = subtitleMappings.options
         subtitleOptionsByID = subtitleMappings.optionsByID
+
+        if embeddedSubtitleTracks.count == subtitleMappings.options.count,
+           embeddedSubtitleTracks.allSatisfy({ $0.timeline != nil }) {
+            embeddedSubtitleTimelinesByID = Dictionary(
+                uniqueKeysWithValues: zip(
+                    subtitleMappings.options.map(\.id),
+                    embeddedSubtitleTracks.compactMap(\.timeline)
+                )
+            )
+        } else {
+            embeddedSubtitleTimelinesByID = [:]
+        }
+    }
+
+    var canRenderEmbeddedSubtitles: Bool {
+        !subtitleOptions.isEmpty
+            && embeddedSubtitleTimelinesByID.count == subtitleOptions.count
+    }
+
+    var selectedEmbeddedSubtitleTimeline: SubtitleTimeline? {
+        guard canRenderEmbeddedSubtitles,
+              let selectedOptionID = selectedOptionID(
+                group: subtitleGroup,
+                optionsByID: subtitleOptionsByID
+              ) else {
+            return nil
+        }
+        return embeddedSubtitleTimelinesByID[selectedOptionID]
     }
 
     var state: PlaybackMediaSelectionState {

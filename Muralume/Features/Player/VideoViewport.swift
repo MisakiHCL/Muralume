@@ -51,8 +51,12 @@ struct VideoViewport<PlayerSurface: View>: View {
                 EmptyView()
             }
 
-            ExternalSubtitleOverlay(
-                controller: playback.mediaSelection.externalSubtitles
+            SubtitleOverlay(
+                externalSubtitles:
+                    playback.mediaSelection.externalSubtitles,
+                embeddedSubtitles:
+                    playback.mediaSelection.embeddedSubtitles,
+                appearance: playback.subtitleAppearance
             )
 
             if let rate = visibleTemporaryRate {
@@ -166,30 +170,33 @@ struct VideoViewport<PlayerSurface: View>: View {
     }
 }
 
-private struct ExternalSubtitleOverlay: View {
-    @ObservedObject var controller: ExternalSubtitleController
+private struct SubtitleOverlay: View {
+    @ObservedObject var externalSubtitles: ExternalSubtitleController
+    @ObservedObject var embeddedSubtitles: EmbeddedSubtitleController
+    @ObservedObject var appearance: SubtitleAppearanceController
     @ScaledMetric(relativeTo: .title3) private var bottomInset: CGFloat = 96
+    @ScaledMetric(relativeTo: .title3) private var fontSize: CGFloat =
+        MuralumeTheme.Subtitle.fontSize
 
     var body: some View {
-        if let cueText = controller.cueText, !cueText.isEmpty {
+        if let cueText, !cueText.isEmpty {
             VStack {
                 Spacer(minLength: MuralumeTheme.Spacing.xxLarge)
 
                 Text(verbatim: cueText)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .font(subtitleFont)
+                    .foregroundStyle(
+                        appearance.preferences.textColor.swiftUIColor
+                    )
                     .multilineTextAlignment(.center)
                     .lineLimit(6)
                     .padding(.horizontal, MuralumeTheme.Spacing.medium)
-                    .padding(.vertical, MuralumeTheme.Spacing.small)
-                    .background {
-                        RoundedRectangle(
-                            cornerRadius: MuralumeTheme.Radius.small,
-                            style: .continuous
-                        )
-                        .fill(.black.opacity(0.72))
-                    }
-                    .shadow(color: .black.opacity(0.5), radius: 4, y: 2)
+                    .shadow(
+                        color: appearance.preferences.shadowColor.swiftUIColor,
+                        radius: MuralumeTheme.Subtitle.shadowRadius,
+                        x: MuralumeTheme.Subtitle.shadowOffset.width,
+                        y: MuralumeTheme.Subtitle.shadowOffset.height
+                    )
                     .frame(maxWidth: 720)
                     .padding(.horizontal, MuralumeTheme.Spacing.xxLarge)
                     .padding(.bottom, bottomInset)
@@ -199,6 +206,29 @@ private struct ExternalSubtitleOverlay: View {
             }
             .allowsHitTesting(false)
         }
+    }
+
+    private var cueText: String? {
+        externalSubtitles.cueText ?? embeddedSubtitles.cueText
+    }
+
+    private var subtitleFont: Font {
+        if let fontFamilyName = appearance.preferences.fontFamilyName {
+            return .custom(fontFamilyName, size: fontSize).weight(.semibold)
+        }
+        return .system(size: fontSize, weight: .semibold)
+    }
+}
+
+extension SubtitleColorValue {
+    var swiftUIColor: Color {
+        Color(
+            .sRGB,
+            red: Double(red) / 255,
+            green: Double(green) / 255,
+            blue: Double(blue) / 255,
+            opacity: Double(alpha) / 255
+        )
     }
 }
 

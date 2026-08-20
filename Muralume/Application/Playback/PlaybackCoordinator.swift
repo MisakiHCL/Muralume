@@ -43,6 +43,7 @@ final class PlaybackCoordinator: ObservableObject {
     }
 
     let mediaSelection: PlaybackMediaSelectionController
+    let subtitleAppearance: SubtitleAppearanceController
 
     var canPresentOnDesktop: Bool {
         readiness == .ready
@@ -87,6 +88,10 @@ final class PlaybackCoordinator: ObservableObject {
             externalSubtitleDiscovery: externalSubtitleDiscovery,
             externalSubtitleAssociationStore:
                 externalSubtitleAssociationStore
+        )
+        subtitleAppearance = SubtitleAppearanceController(
+            preferences: initialPreferences.subtitleAppearance,
+            store: preferencesStore
         )
         self.preferencesStore = preferencesStore
         self.audioPreferencesPersistenceDelay =

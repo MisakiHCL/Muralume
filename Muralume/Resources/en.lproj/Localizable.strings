@@ -264,6 +264,15 @@
 "settings.open" = "Open Settings";
 "settings.close" = "Close Settings";
 "settings.general" = "General";
+"settings.subtitles.title" = "Subtitle Style";
+"settings.subtitles.description" = "Supported embedded and external subtitles update immediately. Font choices come from those installed on this Mac.";
+"settings.subtitles.font" = "Font";
+"settings.subtitles.font.system" = "System Font";
+"settings.subtitles.textColor" = "Text Color";
+"settings.subtitles.shadowColor" = "Shadow Color";
+"settings.subtitles.restoreDefaults" = "Restore Defaults";
+"settings.subtitles.preview" = "Subtitle preview";
+"settings.subtitles.preview.text" = "A quiet night, a clear story.";
 "settings.language" = "Language";
 "settings.language.description" = "Choose the language used by Muralume. Changes apply immediately.";
 "settings.language.system" = "Follow System";

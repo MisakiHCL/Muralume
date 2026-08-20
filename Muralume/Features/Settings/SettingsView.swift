@@ -2,6 +2,7 @@ import SwiftUI
 
 enum SettingsCategory: String, CaseIterable, Identifiable {
     case general
+    case subtitles
 
     var id: Self {
         self
@@ -11,6 +12,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .general:
             "settings.general"
+        case .subtitles:
+            "settings.subtitles.title"
         }
     }
 
@@ -18,6 +21,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .general:
             "gearshape"
+        case .subtitles:
+            "captions.bubble"
         }
     }
 }
@@ -29,6 +34,7 @@ struct SettingsView: View {
         DynamicDesktopStartupController
     @ObservedObject var defaultVideoPlayer: DefaultVideoPlayerController
     @ObservedObject var smartPause: SmartPauseController
+    @ObservedObject var subtitleAppearance: SubtitleAppearanceController
 
     let dismiss: () -> Void
 
@@ -184,6 +190,10 @@ struct SettingsView: View {
             }
 
             smartPauseSection
+        case .subtitles:
+            SubtitleAppearanceSettingsView(
+                appearance: subtitleAppearance
+            )
         }
     }
 
@@ -557,7 +567,7 @@ struct SettingsView: View {
     }
 }
 
-private struct SettingsSection<Content: View>: View {
+struct SettingsSection<Content: View>: View {
     let title: LocalizedStringKey
     let accessibilityIdentifier: String
     let content: Content
@@ -587,7 +597,7 @@ private struct SettingsSection<Content: View>: View {
     }
 }
 
-private struct SettingsRow<Control: View>: View {
+struct SettingsRow<Control: View>: View {
     let title: LocalizedStringKey
     let accessibilityIdentifier: String
     let control: Control

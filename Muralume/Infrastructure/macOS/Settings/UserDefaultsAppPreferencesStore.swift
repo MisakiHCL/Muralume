@@ -12,6 +12,9 @@ enum AppPreferencesStorageKey {
     static let librarySortDirection = "settings.library.sort-direction"
     // Keep the existing key so current installations retain their language.
     static let language = "settings.app-language"
+    static let subtitleFontFamily = "settings.subtitles.font-family"
+    static let subtitleTextColor = "settings.subtitles.text-color"
+    static let subtitleShadowColor = "settings.subtitles.shadow-color"
     static let smartPauseEnabled = "settings.smart-pause.enabled"
     static let smartPauseDesktopHidden =
         "settings.smart-pause.desktop-hidden"
@@ -33,6 +36,9 @@ private struct UserDefaultsAppPreferencesDTO {
     let librarySortField: String?
     let librarySortDirection: String?
     let language: String?
+    let subtitleFontFamily: String?
+    let subtitleTextColor: String?
+    let subtitleShadowColor: String?
     let smartPauseEnabled: Bool?
     let smartPauseDesktopHidden: Bool?
     let smartPauseLowPowerMode: Bool?
@@ -70,6 +76,15 @@ private struct UserDefaultsAppPreferencesDTO {
         )
         language = userDefaults.string(
             forKey: AppPreferencesStorageKey.language
+        )
+        subtitleFontFamily = userDefaults.string(
+            forKey: AppPreferencesStorageKey.subtitleFontFamily
+        )
+        subtitleTextColor = userDefaults.string(
+            forKey: AppPreferencesStorageKey.subtitleTextColor
+        )
+        subtitleShadowColor = userDefaults.string(
+            forKey: AppPreferencesStorageKey.subtitleShadowColor
         )
         smartPauseEnabled = Self.bool(
             userDefaults,
@@ -177,6 +192,15 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
                 stored.language,
                 AppLanguage.self
             ) ?? defaults.language,
+            subtitleAppearance: SubtitleAppearancePreferences(
+                fontFamilyName: stored.subtitleFontFamily,
+                textColor: stored.subtitleTextColor.flatMap(
+                    SubtitleColorValue.init(storageValue:)
+                ) ?? defaults.subtitleAppearance.textColor,
+                shadowColor: stored.subtitleShadowColor.flatMap(
+                    SubtitleColorValue.init(storageValue:)
+                ) ?? defaults.subtitleAppearance.shadowColor
+            ),
             smartPause: SmartPausePreferences(
                 isEnabled: stored.smartPauseEnabled
                     ?? defaults.smartPause.isEnabled,
@@ -247,6 +271,29 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
         userDefaults.set(
             language.rawValue,
             forKey: AppPreferencesStorageKey.language
+        )
+    }
+
+    func saveSubtitleAppearance(
+        _ preferences: SubtitleAppearancePreferences
+    ) {
+        if let fontFamilyName = preferences.fontFamilyName {
+            userDefaults.set(
+                fontFamilyName,
+                forKey: AppPreferencesStorageKey.subtitleFontFamily
+            )
+        } else {
+            userDefaults.removeObject(
+                forKey: AppPreferencesStorageKey.subtitleFontFamily
+            )
+        }
+        userDefaults.set(
+            preferences.textColor.storageValue,
+            forKey: AppPreferencesStorageKey.subtitleTextColor
+        )
+        userDefaults.set(
+            preferences.shadowColor.storageValue,
+            forKey: AppPreferencesStorageKey.subtitleShadowColor
         )
     }
 

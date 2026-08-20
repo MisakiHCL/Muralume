@@ -155,6 +155,14 @@ enum MuralumeAsset {
     static let menuBarMark = "MenuBarMark"
 }
 
+extension MuralumeTheme {
+    enum Subtitle {
+        static let fontSize: CGFloat = 20
+        static let shadowRadius: CGFloat = 1
+        static let shadowOffset = CGSize(width: 2, height: 2)
+    }
+}
+
 enum MuralumeAccessibilityIdentifier {
     static let brandMark = "muralume.brand-mark"
     static let playerTopBar = "muralume.player-top-bar"
@@ -237,6 +245,18 @@ enum MuralumeAccessibilityIdentifier {
     static let settingsCloseButton = "muralume.settings-close"
     static let settingsCategoryMenu = "muralume.settings-category-menu"
     static let settingsGeneralSection = "muralume.settings-section.general"
+    static let settingsSubtitleSection =
+        "muralume.settings-section.subtitles"
+    static let settingsSubtitleFontRow =
+        "muralume.settings-row.subtitles.font"
+    static let settingsSubtitleTextColorRow =
+        "muralume.settings-row.subtitles.text-color"
+    static let settingsSubtitleShadowColorRow =
+        "muralume.settings-row.subtitles.shadow-color"
+    static let subtitleAppearancePreview =
+        "muralume.settings.subtitles.preview"
+    static let subtitleRestoreDefaultsButton =
+        "muralume.settings.subtitles.restore-defaults"
     static let settingsLanguageRow = "muralume.settings-row.language"
     static let settingsLaunchAtLoginRow =
         "muralume.settings-row.launch-at-login"

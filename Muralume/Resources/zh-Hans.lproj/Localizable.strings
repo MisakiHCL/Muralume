@@ -264,6 +264,15 @@
 "settings.open" = "打开设置";
 "settings.close" = "关闭设置";
 "settings.general" = "通用";
+"settings.subtitles.title" = "字幕样式";
+"settings.subtitles.description" = "支持的内嵌字幕与外部字幕会立即更新。字体选项来自这台 Mac。";
+"settings.subtitles.font" = "字体";
+"settings.subtitles.font.system" = "系统字体";
+"settings.subtitles.textColor" = "文字颜色";
+"settings.subtitles.shadowColor" = "投影颜色";
+"settings.subtitles.restoreDefaults" = "恢复默认";
+"settings.subtitles.preview" = "字幕预览";
+"settings.subtitles.preview.text" = "这是一段字幕预览";
 "settings.language" = "语言";
 "settings.language.description" = "选择 Muralume 使用的语言。更改会立即生效。";
 "settings.language.system" = "跟随系统";

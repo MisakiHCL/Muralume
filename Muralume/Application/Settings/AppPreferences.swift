@@ -54,6 +54,7 @@ struct AppPreferences: Equatable, Sendable {
         playbackRepeatBehavior: .queue,
         librarySort: MediaLibrarySort(),
         language: .system,
+        subtitleAppearance: .defaultValue,
         smartPause: .defaultValue
     )
 
@@ -63,6 +64,7 @@ struct AppPreferences: Equatable, Sendable {
     let playbackRepeatBehavior: PlaybackRepeatBehavior
     let librarySort: MediaLibrarySort
     let language: AppLanguage
+    let subtitleAppearance: SubtitleAppearancePreferences
     let smartPause: SmartPausePreferences
 
     init(
@@ -72,6 +74,7 @@ struct AppPreferences: Equatable, Sendable {
         playbackRepeatBehavior: PlaybackRepeatBehavior,
         librarySort: MediaLibrarySort,
         language: AppLanguage,
+        subtitleAppearance: SubtitleAppearancePreferences = .defaultValue,
         smartPause: SmartPausePreferences = .defaultValue
     ) {
         self.audio = audio
@@ -80,6 +83,7 @@ struct AppPreferences: Equatable, Sendable {
         self.playbackRepeatBehavior = playbackRepeatBehavior
         self.librarySort = librarySort
         self.language = language
+        self.subtitleAppearance = subtitleAppearance
         self.smartPause = smartPause
     }
 }
@@ -93,6 +97,7 @@ protocol AppPreferencesStoring: AnyObject {
     func savePlaybackRepeatBehavior(_ behavior: PlaybackRepeatBehavior)
     func saveLibrarySort(_ sort: MediaLibrarySort)
     func saveLanguage(_ language: AppLanguage)
+    func saveSubtitleAppearance(_ preferences: SubtitleAppearancePreferences)
     func saveSmartPause(_ preferences: SmartPausePreferences)
 }
 
