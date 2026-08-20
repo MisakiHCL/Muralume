@@ -125,8 +125,13 @@ final class PlaybackMediaSelectionControllerTests: XCTestCase {
         )
 
         XCTAssertFalse(PlaybackMediaSelectionState.empty.showsTrackControls)
+        XCTAssertFalse(
+            PlaybackMediaSelectionState.empty.showsSubtitleOffControl
+        )
         XCTAssertFalse(singleAudio.showsTrackControls)
+        XCTAssertFalse(singleAudio.showsSubtitleOffControl)
         XCTAssertTrue(withSubtitles.showsTrackControls)
+        XCTAssertTrue(withSubtitles.showsSubtitleOffControl)
         XCTAssertTrue(makeState().showsTrackControls)
     }
 

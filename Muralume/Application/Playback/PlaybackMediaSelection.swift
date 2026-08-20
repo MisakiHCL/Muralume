@@ -51,4 +51,8 @@ struct PlaybackMediaSelectionState: Equatable, Sendable {
     var showsTrackControls: Bool {
         audioOptions.count > 1 || !subtitleOptions.isEmpty
     }
+
+    var showsSubtitleOffControl: Bool {
+        !subtitleOptions.isEmpty && allowsEmptySubtitleSelection
+    }
 }

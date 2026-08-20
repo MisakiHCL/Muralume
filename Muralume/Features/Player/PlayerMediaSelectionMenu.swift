@@ -54,7 +54,7 @@ struct PlayerMediaSelectionMenu: View {
 
                 if controller.hasCurrentMedia {
                     Section {
-                        if controller.state.allowsEmptySubtitleSelection {
+                        if controller.state.showsSubtitleOffControl {
                             Button {
                                 controller.selectSubtitles(.off)
                             } label: {

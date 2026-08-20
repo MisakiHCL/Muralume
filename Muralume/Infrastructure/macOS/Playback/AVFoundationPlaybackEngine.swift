@@ -43,6 +43,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
 
     init(player: AVPlayer = AVPlayer()) {
         self.player = player
+        player.appliesMediaSelectionCriteriaAutomatically = false
     }
 
     func load(_ source: ResolvedMediaSource) async throws -> TimeInterval {

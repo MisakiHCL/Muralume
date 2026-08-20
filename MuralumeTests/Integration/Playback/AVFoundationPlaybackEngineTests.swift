@@ -124,6 +124,41 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
         XCTAssertNil(offState.effectiveSubtitleOptionID)
     }
 
+    func testManualSubtitleSelectionRemainsActiveDuringPlayback()
+        async throws {
+        let player = AVPlayer()
+        let engine = AVFoundationPlaybackEngine(player: player)
+        defer { engine.stop() }
+        let url = try XCTUnwrap(
+            Bundle(for: Self.self).url(
+                forResource: "alternate-tracks-5s",
+                withExtension: "mp4"
+            )
+        )
+
+        _ = try await engine.load(
+            ResolvedMediaSource(url: url, displayName: "Alternate Tracks")
+        )
+        let state = engine.currentMediaSelectionState()
+        let englishSubtitleID = try XCTUnwrap(
+            state.subtitleOptions.first {
+                $0.languageIdentifier == "en"
+                    && !$0.characteristics.contains(.forcedSubtitles)
+            }?.id
+        )
+        _ = engine.selectSubtitles(.option(englishSubtitleID))
+        engine.play(at: PlaybackPolicy.defaultRate)
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+
+        let playingState = engine.currentMediaSelectionState()
+        XCTAssertFalse(player.appliesMediaSelectionCriteriaAutomatically)
+        XCTAssertEqual(
+            playingState.effectiveSubtitleOptionID,
+            englishSubtitleID
+        )
+        XCTAssertGreaterThan(player.currentTime().seconds, 0)
+    }
+
     func testRapidInteractiveSeekEndsAtExactReleaseTarget() async throws {
         let engine = AVFoundationPlaybackEngine()
         var latestProgress: TimeInterval?
