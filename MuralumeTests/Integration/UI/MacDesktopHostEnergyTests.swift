@@ -212,13 +212,17 @@ final class MacDesktopHostEnergyTests: XCTestCase {
 
         let windows = Array(host.hostedProbeWindows.values)
         windows.forEach { visibility.setVisible(false, for: $0) }
-        try await waitForEventPropagation()
+        await waitUntil {
+            host.isDesktopOccluded
+        }
 
         XCTAssertTrue(host.isDesktopOccluded)
         XCTAssertEqual(states, [true])
 
         visibility.setVisible(true, for: windows[0])
-        try await Task.sleep(nanoseconds: 500_000_000)
+        await waitUntil {
+            !host.isDesktopOccluded
+        }
 
         XCTAssertFalse(host.isDesktopOccluded)
         XCTAssertEqual(states, [true, false])
