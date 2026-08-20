@@ -86,12 +86,11 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
 
         let initialState = engine.currentMediaSelectionState()
         XCTAssertEqual(initialState.audioOptions.count, 2)
-        XCTAssertEqual(initialState.subtitleOptions.count, 4)
-        XCTAssertEqual(
-            initialState.subtitleOptions.filter {
+        XCTAssertEqual(initialState.subtitleOptions.count, 2)
+        XCTAssertFalse(
+            initialState.subtitleOptions.contains {
                 $0.characteristics.contains(.forcedSubtitles)
-            }.count,
-            2
+            }
         )
         XCTAssertEqual(initialState.audioSelection, .automatic)
         XCTAssertEqual(initialState.subtitleSelection, .automatic)

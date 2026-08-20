@@ -578,7 +578,8 @@ private struct AVFoundationMediaSelectionContext {
 
         let subtitleMappings = Self.makeOptions(
             group: subtitleGroup,
-            prefix: "subtitle-\(generation)"
+            prefix: "subtitle-\(generation)",
+            hidesAssociatedForcedSubtitleOptions: true
         )
         subtitleOptions = subtitleMappings.options
         subtitleOptionsByID = subtitleMappings.optionsByID
@@ -658,7 +659,8 @@ private struct AVFoundationMediaSelectionContext {
 
     private static func makeOptions(
         group: AVMediaSelectionGroup?,
-        prefix: String
+        prefix: String,
+        hidesAssociatedForcedSubtitleOptions: Bool = false
     ) -> (
         options: [PlaybackMediaOption],
         optionsByID: [PlaybackMediaOptionID: AVMediaSelectionOption]
@@ -667,12 +669,15 @@ private struct AVFoundationMediaSelectionContext {
             return ([], [:])
         }
 
+        let groupOptions = hidesAssociatedForcedSubtitleOptions
+            ? userSelectableSubtitleOptions(in: group)
+            : group.options
         var options: [PlaybackMediaOption] = []
         var optionsByID: [PlaybackMediaOptionID: AVMediaSelectionOption] = [:]
-        options.reserveCapacity(group.options.count)
-        optionsByID.reserveCapacity(group.options.count)
+        options.reserveCapacity(groupOptions.count)
+        optionsByID.reserveCapacity(groupOptions.count)
 
-        for (index, option) in group.options.enumerated() {
+        for (index, option) in groupOptions.enumerated() {
             let id = PlaybackMediaOptionID(
                 rawValue: "\(prefix)-\(index)"
             )
@@ -688,6 +693,30 @@ private struct AVFoundationMediaSelectionContext {
             optionsByID[id] = option
         }
         return (options, optionsByID)
+    }
+
+    private static func userSelectableSubtitleOptions(
+        in group: AVMediaSelectionGroup
+    ) -> [AVMediaSelectionOption] {
+        let associatedForcedOptionIDs = Set(
+            group.options.compactMap { option -> ObjectIdentifier? in
+                guard !option.hasMediaCharacteristic(
+                    .containsOnlyForcedSubtitles
+                ),
+                let associatedOption = option.associatedMediaSelectionOption(
+                    in: group
+                ),
+                associatedOption.hasMediaCharacteristic(
+                    .containsOnlyForcedSubtitles
+                ) else {
+                    return nil
+                }
+                return ObjectIdentifier(associatedOption)
+            }
+        )
+        return group.options.filter {
+            !associatedForcedOptionIDs.contains(ObjectIdentifier($0))
+        }
     }
 
     private static func characteristics(
