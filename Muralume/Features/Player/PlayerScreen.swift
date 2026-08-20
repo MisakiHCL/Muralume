@@ -405,6 +405,9 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 retryUnavailableSourceAccess:
                     actions.retryUnavailableSourceAccess,
                 reauthorizeMediaSources: actions.reauthorizeMediaSources,
+                reauthorizeMediaSource: actions.reauthorizeMediaSource,
+                removeUnavailableMediaSource:
+                    actions.removeUnavailableMediaSource,
                 canRestoreDynamicDesktop: canRestoreDynamicDesktop,
                 addTemporaryItemsToLibrary:
                     actions.addTemporaryItemsToLibrary,

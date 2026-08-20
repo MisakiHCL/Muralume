@@ -314,6 +314,30 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         )
     }
 
+    func reauthorizeMediaSource(_ source: UnavailableMediaSource) {
+        guard canImportMedia,
+              initialRestoreTask == nil,
+              !playbackSession.isRestoring else {
+            return
+        }
+        guard let libraryStart = library.reauthorizeMediaSource(source) else {
+            return
+        }
+        resumeDeferredPlaybackSession(
+            after: libraryStart,
+            overridingPresentation: .player
+        )
+    }
+
+    func removeUnavailableMediaSource(_ source: UnavailableMediaSource) {
+        guard canImportMedia,
+              initialRestoreTask == nil,
+              !playbackSession.isRestoring else {
+            return
+        }
+        library.removeUnavailableSource(source)
+    }
+
     func retryUnavailableSourceAccess() {
         guard canImportMedia,
               initialRestoreTask == nil,

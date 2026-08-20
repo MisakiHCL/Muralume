@@ -5,6 +5,8 @@ struct PlayerActions {
     let loadExternalSubtitle: () -> Void
     let retryUnavailableSourceAccess: () -> Void
     let reauthorizeMediaSources: () -> Void
+    let reauthorizeMediaSource: (UnavailableMediaSource) -> Void
+    let removeUnavailableMediaSource: (UnavailableMediaSource) -> Void
     let importDroppedURLs: ([URL]) -> Bool
     let addTemporaryItemsToLibrary: () -> Void
     let restoreDynamicDesktop: () -> Void

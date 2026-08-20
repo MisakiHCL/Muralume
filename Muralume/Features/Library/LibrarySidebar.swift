@@ -11,6 +11,8 @@ struct LibrarySidebar: View {
     let addMedia: () -> Void
     let retryUnavailableSourceAccess: () -> Void
     let reauthorizeMediaSources: () -> Void
+    let reauthorizeMediaSource: (UnavailableMediaSource) -> Void
+    let removeUnavailableMediaSource: (UnavailableMediaSource) -> Void
     let canRestoreDynamicDesktop: Bool
     let addTemporaryItemsToLibrary: () -> Void
     let restoreDynamicDesktop: () -> Void
@@ -44,6 +46,9 @@ struct LibrarySidebar: View {
                 retryUnavailableSourceAccess:
                     retryUnavailableSourceAccess,
                 reauthorizeMediaSources: reauthorizeMediaSources,
+                reauthorizeMediaSource: reauthorizeMediaSource,
+                removeUnavailableMediaSource:
+                    removeUnavailableMediaSource,
                 canRestoreDynamicDesktop: canRestoreDynamicDesktop,
                 addTemporaryItemsToLibrary:
                     addTemporaryItemsToLibrary,

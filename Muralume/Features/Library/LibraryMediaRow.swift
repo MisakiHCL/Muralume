@@ -34,6 +34,7 @@ struct LibraryMediaRow: View {
     let play: () -> Void
     let revealInFinder: () -> Void
     let showInformation: () -> Void
+    let reauthorizeSource: (() -> Void)?
     let customPlaylists: [CustomPlaylist]
     let addToPlaylist: (CustomPlaylist.ID) -> Void
 
@@ -164,6 +165,17 @@ struct LibraryMediaRow: View {
 
     @ViewBuilder
     private var contextMenuContent: some View {
+        if let reauthorizeSource {
+            Button(action: reauthorizeSource) {
+                Label(
+                    "library.item.reauthorizeSource",
+                    systemImage: "folder.badge.questionmark"
+                )
+            }
+
+            Divider()
+        }
+
         Button(action: showInformation) {
             Label("videoInfo.menu", systemImage: "info.circle")
         }

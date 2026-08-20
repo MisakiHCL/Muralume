@@ -3,6 +3,7 @@ import Foundation
 enum MediaSourceSelectionIntent: Equatable, Sendable {
     case addingMedia
     case reauthorizingSources
+    case reauthorizingSource(UnavailableMediaSource)
 }
 
 @MainActor

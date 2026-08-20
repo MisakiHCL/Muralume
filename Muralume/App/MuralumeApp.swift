@@ -191,6 +191,12 @@ private struct MuralumePlayerRootView: View {
                 reauthorizeMediaSources: {
                     coordinator.reauthorizeMediaSources()
                 },
+                reauthorizeMediaSource: { source in
+                    coordinator.reauthorizeMediaSource(source)
+                },
+                removeUnavailableMediaSource: { source in
+                    coordinator.removeUnavailableMediaSource(source)
+                },
                 importDroppedURLs: { urls in
                     coordinator.importDroppedURLs(urls)
                 },

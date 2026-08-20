@@ -369,6 +369,8 @@ final class TestMediaAccessSession: MediaAccessSession {
         [MediaAccessIncomingScopePolicy] = []
     private(set) var preparedRemovalURLs: [URL] = []
     private(set) var removedURLs: [URL] = []
+    private(set) var removedUnavailableSources:
+        [UnavailableMediaSource] = []
     private(set) var stopCount = 0
     var restoredURLs: [URL] = []
     var hasUnavailablePersistedSources = false
@@ -454,6 +456,11 @@ final class TestMediaAccessSession: MediaAccessSession {
 
     func prepareToRemoveSource(_ source: MediaSource) {
         preparedRemovalURLs.append(source.url)
+    }
+
+    func removeUnavailableSource(_ source: UnavailableMediaSource) {
+        removedUnavailableSources.append(source)
+        hasUnavailablePersistedSources = false
     }
 
     func removeSource(_ source: MediaSource) -> [MediaSource] {

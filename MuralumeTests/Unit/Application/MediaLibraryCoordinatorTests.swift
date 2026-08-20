@@ -4313,6 +4313,84 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         )
     }
 
+    func testSpecificUnavailableSourceReauthorizationReplacesOnlyThatRecord()
+        async throws
+    {
+        let reauthorizedURL = URL(
+            fileURLWithPath: "/Volumes/Reconnected Library",
+            isDirectory: true
+        )
+        let fixture = makeFixture(
+            selectedURLs: [reauthorizedURL],
+            snapshot: .empty
+        )
+        fixture.session.hasUnavailablePersistedSources = true
+        _ = fixture.coordinator.start()
+        let unavailableSource = try XCTUnwrap(
+            fixture.coordinator.unavailableSources.first
+        )
+
+        let disposition = fixture.coordinator.reauthorizeMediaSource(
+            unavailableSource
+        )
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(disposition, .scanStarted)
+        XCTAssertEqual(
+            fixture.sourceSelector.intents,
+            [.reauthorizingSource(unavailableSource)]
+        )
+        XCTAssertEqual(fixture.session.addedURLs, [reauthorizedURL])
+        XCTAssertEqual(
+            fixture.session.removedUnavailableSources,
+            [unavailableSource]
+        )
+        XCTAssertTrue(fixture.coordinator.unavailableSources.isEmpty)
+        XCTAssertEqual(fixture.coordinator.sourceAccessState, .available)
+    }
+
+    func testSpecificUnavailableSourceCancelKeepsPersistedRecord() throws {
+        let fixture = makeFixture(selectedURLs: [], snapshot: .empty)
+        fixture.session.hasUnavailablePersistedSources = true
+        _ = fixture.coordinator.start()
+        let unavailableSource = try XCTUnwrap(
+            fixture.coordinator.unavailableSources.first
+        )
+
+        XCTAssertNil(
+            fixture.coordinator.reauthorizeMediaSource(unavailableSource)
+        )
+
+        XCTAssertTrue(fixture.session.removedUnavailableSources.isEmpty)
+        XCTAssertEqual(
+            fixture.coordinator.unavailableSources,
+            [unavailableSource]
+        )
+        XCTAssertEqual(
+            fixture.coordinator.sourceAccessState,
+            .temporarilyUnavailable
+        )
+    }
+
+    func testUnavailableSourceCanBeRemovedWithoutTouchingMedia() throws {
+        let fixture = makeFixture(selectedURLs: [], snapshot: .empty)
+        fixture.session.hasUnavailablePersistedSources = true
+        _ = fixture.coordinator.start()
+        let unavailableSource = try XCTUnwrap(
+            fixture.coordinator.unavailableSources.first
+        )
+
+        fixture.coordinator.removeUnavailableSource(unavailableSource)
+
+        XCTAssertEqual(
+            fixture.session.removedUnavailableSources,
+            [unavailableSource]
+        )
+        XCTAssertTrue(fixture.session.removedURLs.isEmpty)
+        XCTAssertTrue(fixture.coordinator.unavailableSources.isEmpty)
+        XCTAssertEqual(fixture.coordinator.sourceAccessState, .empty)
+    }
+
 }
 
 @MainActor

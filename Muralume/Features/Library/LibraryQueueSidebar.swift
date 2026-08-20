@@ -7,6 +7,8 @@ struct LibraryQueueSidebar: View {
     @EnvironmentObject private var localization: AppLocalizationController
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var pendingRootRemoval: MediaLibraryRoot?
+    @State private var pendingUnavailableSourceRemoval:
+        UnavailableMediaSource?
     @State private var playbackStatus: LibraryPlaybackStatus
     @State private var searchScrollToTopRequest: UInt64 = 0
     @State private var searchProjectionCache =
@@ -22,6 +24,8 @@ struct LibraryQueueSidebar: View {
     let addMedia: () -> Void
     let retryUnavailableSourceAccess: () -> Void
     let reauthorizeMediaSources: () -> Void
+    let reauthorizeMediaSource: (UnavailableMediaSource) -> Void
+    let removeUnavailableMediaSource: (UnavailableMediaSource) -> Void
     let canRestoreDynamicDesktop: Bool
     let addTemporaryItemsToLibrary: () -> Void
     let restoreDynamicDesktop: () -> Void
@@ -49,6 +53,10 @@ struct LibraryQueueSidebar: View {
         addMedia: @escaping () -> Void,
         retryUnavailableSourceAccess: @escaping () -> Void,
         reauthorizeMediaSources: @escaping () -> Void,
+        reauthorizeMediaSource: @escaping (UnavailableMediaSource) -> Void,
+        removeUnavailableMediaSource: @escaping (
+            UnavailableMediaSource
+        ) -> Void,
         canRestoreDynamicDesktop: Bool,
         addTemporaryItemsToLibrary: @escaping () -> Void,
         restoreDynamicDesktop: @escaping () -> Void,
@@ -77,6 +85,8 @@ struct LibraryQueueSidebar: View {
         self.addMedia = addMedia
         self.retryUnavailableSourceAccess = retryUnavailableSourceAccess
         self.reauthorizeMediaSources = reauthorizeMediaSources
+        self.reauthorizeMediaSource = reauthorizeMediaSource
+        self.removeUnavailableMediaSource = removeUnavailableMediaSource
         self.canRestoreDynamicDesktop = canRestoreDynamicDesktop
         self.addTemporaryItemsToLibrary = addTemporaryItemsToLibrary
         self.restoreDynamicDesktop = restoreDynamicDesktop
@@ -158,6 +168,33 @@ struct LibraryQueueSidebar: View {
                 )
             )
         }
+        .alert(
+            "library.source.unavailable.remove.title",
+            isPresented: unavailableSourceRemovalAlertIsPresented,
+            presenting: pendingUnavailableSourceRemoval
+        ) { source in
+            Button(
+                "library.source.unavailable.remove.confirm",
+                role: .destructive
+            ) {
+                pendingUnavailableSourceRemoval = nil
+                removeUnavailableMediaSource(source)
+                if library.roots.isEmpty,
+                   library.unavailableSources.isEmpty {
+                    setEditing(false)
+                }
+            }
+            Button("action.cancel", role: .cancel) {
+                pendingUnavailableSourceRemoval = nil
+            }
+        } message: { source in
+            Text(
+                verbatim: localization.localizedFormat(
+                    "library.source.unavailable.remove.message",
+                    source.displayName
+                )
+            )
+        }
         .onReceive(playbackStatusPublisher) { status in
             playbackStatus = status
         }
@@ -214,7 +251,8 @@ struct LibraryQueueSidebar: View {
                 }
             }
 
-            if sidebarSection == .mediaLibrary, !library.roots.isEmpty {
+            if sidebarSection == .mediaLibrary,
+               !library.roots.isEmpty || !library.unavailableSources.isEmpty {
                 Button {
                     setEditing(!isEditing)
                 } label: {
@@ -402,37 +440,6 @@ struct LibraryQueueSidebar: View {
             librarySummary(showsInlineRetry: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            if !library.items.isEmpty,
-               library.sourceAccessState.hasUnavailableSources {
-                Button {
-                    retryUnavailableSourceAccess()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(
-                            .system(
-                                size: MuralumeTheme.Size.icon,
-                                weight: .semibold
-                            )
-                        )
-                        .frame(
-                            width: MuralumeTheme.Size.compactControl,
-                            height: MuralumeTheme.Size.compactControl
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(!library.canRetrySourceAccess)
-                .help(Text("library.sourceAccess.retry"))
-                .accessibilityLabel(Text("library.sourceAccess.retry"))
-                .accessibilityIdentifier(
-                    MuralumeAccessibilityIdentifier.retrySourceAccessButton
-                )
-            }
-
-            if !library.items.isEmpty,
-               library.sourceAccessState == .partiallyUnavailable {
-                reauthorizeSourceAccessButton
-            }
-
             sortMenu
         }
     }
@@ -495,41 +502,21 @@ struct LibraryQueueSidebar: View {
         HStack(spacing: MuralumeTheme.Spacing.small) {
             librarySummary(showsInlineRetry: false)
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-            if library.sourceAccessState == .partiallyUnavailable {
-                reauthorizeSourceAccessButton
-            }
         }
-    }
-
-    private var reauthorizeSourceAccessButton: some View {
-        Button {
-            reauthorizeMediaSources()
-        } label: {
-            Image(systemName: "key.horizontal")
-                .font(
-                    .system(
-                        size: MuralumeTheme.Size.icon,
-                        weight: .semibold
-                    )
-                )
-                .frame(
-                    width: MuralumeTheme.Size.compactControl,
-                    height: MuralumeTheme.Size.compactControl
-                )
-        }
-        .buttonStyle(.plain)
-        .help(Text("library.sourceAccess.reauthorize"))
-        .accessibilityLabel(Text("library.sourceAccess.reauthorize"))
-        .accessibilityIdentifier(
-            MuralumeAccessibilityIdentifier.reauthorizeSourcesButton
-        )
     }
 
     private var rootEditor: some View {
-        LibraryRootEditor(roots: library.roots) { root in
-            pendingRootRemoval = root
-        }
+        LibraryRootEditor(
+            roots: library.roots,
+            unavailableSources: library.unavailableSources,
+            requestRemoval: { root in
+                pendingRootRemoval = root
+            },
+            requestReauthorization: reauthorizeMediaSource,
+            requestUnavailableRemoval: { source in
+                pendingUnavailableSourceRemoval = source
+            }
+        )
     }
 
     private var rootRemovalAlertIsPresented: Binding<Bool> {
@@ -540,6 +527,19 @@ struct LibraryQueueSidebar: View {
             set: { isPresented in
                 if !isPresented {
                     pendingRootRemoval = nil
+                }
+            }
+        )
+    }
+
+    private var unavailableSourceRemovalAlertIsPresented: Binding<Bool> {
+        Binding(
+            get: {
+                pendingUnavailableSourceRemoval != nil
+            },
+            set: { isPresented in
+                if !isPresented {
+                    pendingUnavailableSourceRemoval = nil
                 }
             }
         )
@@ -599,12 +599,6 @@ struct LibraryQueueSidebar: View {
                 .foregroundStyle(MuralumeTheme.Colors.textTertiary)
                 .truncationMode(.tail)
 
-            if library.sourceAccessState == .partiallyUnavailable {
-                Image(systemName: "externaldrive.badge.exclamationmark")
-                    .foregroundStyle(MuralumeTheme.Colors.warning)
-                    .help(Text("library.sourceAccess.partial"))
-                    .accessibilityLabel(Text("library.sourceAccess.partial"))
-            }
         }
         .font(.caption.monospacedDigit())
         .lineLimit(1)
@@ -759,6 +753,7 @@ struct LibraryQueueSidebar: View {
                     showInformation: {
                         showVideoInformation(item)
                     },
+                    reauthorizeSource: reauthorizeSourceAction(for: item),
                     customPlaylists: customPlaylists,
                     addToPlaylist: { playlistID in
                         addLibraryItemToPlaylist(item, playlistID)
@@ -783,6 +778,18 @@ struct LibraryQueueSidebar: View {
         }
 
         return playbackStatus.rowState
+    }
+
+    private func reauthorizeSourceAction(
+        for item: LibraryMediaItem
+    ) -> (() -> Void)? {
+        guard library.unavailableItemIDs.contains(item.id),
+              let source = library.unavailableSource(for: item) else {
+            return nil
+        }
+        return {
+            reauthorizeMediaSource(source)
+        }
     }
 
     private var playlistRowHeight: CGFloat {
@@ -870,11 +877,13 @@ struct LibraryQueueSidebar: View {
     }
 
     private var sourceCountText: String {
+        let sourceCount = library.roots.count
+            + library.unavailableSources.count
         return localization.localizedFormat(
-            library.roots.count == 1
+            sourceCount == 1
                 ? "library.source.count.one"
                 : "library.source.count",
-            library.roots.count
+            sourceCount
         )
     }
 
@@ -884,14 +893,7 @@ struct LibraryQueueSidebar: View {
             videoCountText,
             sourceCountText
         )
-        guard library.sourceAccessState == .partiallyUnavailable else {
-            return counts
-        }
-        return localization.localizedFormat(
-            "library.summary.accessibility.warning",
-            counts,
-            localization.localized("library.sourceAccess.partial")
-        )
+        return counts
     }
 
     private var sortAccessibilityValue: String {

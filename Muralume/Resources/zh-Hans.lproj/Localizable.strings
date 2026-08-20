@@ -124,6 +124,8 @@
 "library.media.picker.prompt" = "添加";
 "library.media.picker.reauthorize.message" = "再次选择原来的视频或文件夹以恢复访问。此操作不会开始播放。";
 "library.media.picker.reauthorize.prompt" = "再次选择";
+"library.media.picker.reauthorize.folder.message" = "再次选择文件夹“%@”以恢复访问。此操作不会开始播放。";
+"library.media.picker.reauthorize.video.message" = "再次选择视频“%@”以恢复访问。此操作不会开始播放。";
 "library.playlist" = "媒体库";
 "library.playlist.show" = "显示媒体库";
 "library.playlist.hide" = "隐藏媒体库";
@@ -183,6 +185,12 @@
 "library.sourceAccess.unavailable.detail" = "媒体库仍会保留。请重新连接磁盘后重试，或再次选择原来的视频和文件夹。";
 "library.sourceAccess.retry" = "重试";
 "library.sourceAccess.reauthorize" = "再次选择…";
+"library.source.unavailable.status" = "暂时不可用";
+"library.source.unavailable.remove" = "移除来源";
+"library.source.unavailable.remove.title" = "移除这个不可用来源？";
+"library.source.unavailable.remove.message" = "“%@”将从 Muralume 移除，但不会删除原文件。";
+"library.source.unavailable.remove.confirm" = "移除来源";
+"library.item.reauthorizeSource" = "重新选择这个来源…";
 "library.scanning" = "正在扫描媒体…";
 "library.scanning.detail" = "Muralume 正在媒体来源中查找可播放的视频。";
 "library.scan.failed" = "媒体扫描失败";

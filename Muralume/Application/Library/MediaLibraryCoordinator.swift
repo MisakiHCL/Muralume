@@ -571,15 +571,50 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     @discardableResult
+    func reauthorizeMediaSource(
+        _ source: UnavailableMediaSource
+    ) -> MediaLibraryStartDisposition? {
+        guard unavailableSources.contains(where: { $0.id == source.id }) else {
+            return nil
+        }
+        guard let preparation = selectMediaSourcesForPreparation(
+            intent: .reauthorizingSource(source)
+        ) else {
+            return nil
+        }
+        mediaSession.removeUnavailableSource(source)
+        updateSourceAccessState(using: latestPreparedSources)
+        commitImport(preparation, autoplayExplicitFiles: false)
+        return scanState == .scanning ? .scanStarted : .alreadyStarted
+    }
+
+    func removeUnavailableSource(_ source: UnavailableMediaSource) {
+        guard !isShutDown,
+              rootIDsPendingRemoval.isEmpty,
+              unavailableSources.contains(where: { $0.id == source.id }) else {
+            return
+        }
+        mediaSession.removeUnavailableSource(source)
+        updateSourceAccessState(using: activeSources)
+    }
+
+    func unavailableSource(
+        for item: LibraryMediaItem
+    ) -> UnavailableMediaSource? {
+        let rootPath = item.rootURL.standardizedFileURL.path
+        return unavailableSources.first {
+            $0.lastKnownURL.standardizedFileURL.path == rootPath
+        }
+    }
+
+    @discardableResult
     private func selectMediaSources(
         intent: MediaSourceSelectionIntent,
         autoplayExplicitFiles: Bool
     ) -> MediaLibraryStartDisposition? {
-        guard !isShutDown, rootIDsPendingRemoval.isEmpty else {
-            return nil
-        }
-        let selectedURLs = sourceSelector.selectSources(for: intent)
-        guard let preparation = prepareImport(selectedURLs) else {
+        guard let preparation = selectMediaSourcesForPreparation(
+            intent: intent
+        ) else {
             return nil
         }
         commitImport(
@@ -587,6 +622,16 @@ final class MediaLibraryCoordinator: ObservableObject {
             autoplayExplicitFiles: autoplayExplicitFiles
         )
         return scanState == .scanning ? .scanStarted : .alreadyStarted
+    }
+
+    private func selectMediaSourcesForPreparation(
+        intent: MediaSourceSelectionIntent
+    ) -> MediaLibraryImportPreparation? {
+        guard !isShutDown, rootIDsPendingRemoval.isEmpty else {
+            return nil
+        }
+        let selectedURLs = sourceSelector.selectSources(for: intent)
+        return prepareImport(selectedURLs)
     }
 
     @discardableResult

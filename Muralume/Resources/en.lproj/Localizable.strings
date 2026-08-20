@@ -124,6 +124,8 @@
 "library.media.picker.prompt" = "Add";
 "library.media.picker.reauthorize.message" = "Choose the original supported videos or folders again to restore access. This will not start playback.";
 "library.media.picker.reauthorize.prompt" = "Choose Again";
+"library.media.picker.reauthorize.folder.message" = "Choose the folder “%@” again to restore access. This will not start playback.";
+"library.media.picker.reauthorize.video.message" = "Choose the video “%@” again to restore access. This will not start playback.";
 "library.playlist" = "Media Library";
 "library.playlist.show" = "Show Media Library";
 "library.playlist.hide" = "Hide Media Library";
@@ -183,6 +185,12 @@
 "library.sourceAccess.unavailable.detail" = "Your media library is still saved. Reconnect the drive and try again, or choose the original videos and folders again.";
 "library.sourceAccess.retry" = "Try Again";
 "library.sourceAccess.reauthorize" = "Choose Again…";
+"library.source.unavailable.status" = "Unavailable";
+"library.source.unavailable.remove" = "Remove Source";
+"library.source.unavailable.remove.title" = "Remove this unavailable source?";
+"library.source.unavailable.remove.message" = "“%@” will be removed from Muralume. Original files will not be deleted.";
+"library.source.unavailable.remove.confirm" = "Remove Source";
+"library.item.reauthorizeSource" = "Choose This Source Again…";
 "library.scanning" = "Scanning media…";
 "library.scanning.detail" = "Muralume is looking for supported videos in your media sources.";
 "library.scan.failed" = "Media scan failed";
