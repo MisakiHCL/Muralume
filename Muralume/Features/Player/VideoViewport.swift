@@ -55,14 +55,13 @@ struct VideoViewport<PlayerSurface: View>: View {
                 controller: playback.mediaSelection.externalSubtitles
             )
 
-            if let rate = visibleTemporaryRate,
-               viewportState.temporaryPlaybackRate != nil {
+            if let rate = visibleTemporaryRate {
                 VStack {
                     PlayerTemporaryPlaybackRateIndicator(rate: rate)
                     Spacer()
                 }
                 .padding(.top, MuralumeTheme.Spacing.xLarge)
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -87,12 +86,6 @@ struct VideoViewport<PlayerSurface: View>: View {
         .onDisappear {
             endTemporaryFastForward()
         }
-        .animation(
-            .easeOut(
-                duration: MuralumeTheme.Motion.playerChromeTransitionDuration
-            ),
-            value: visibleTemporaryRate
-        )
     }
 
     private var viewportStatePublisher:
@@ -139,7 +132,9 @@ struct VideoViewport<PlayerSurface: View>: View {
 
     private func showTemporaryRateIndicator(_ rate: PlaybackRate) {
         temporaryRateIndicatorTask?.cancel()
-        visibleTemporaryRate = rate
+        withAnimation(temporaryRateIndicatorAnimation) {
+            visibleTemporaryRate = rate
+        }
         temporaryRateIndicatorTask = Task { @MainActor in
             do {
                 try await Task.sleep(
@@ -149,7 +144,9 @@ struct VideoViewport<PlayerSurface: View>: View {
             } catch {
                 return
             }
-            visibleTemporaryRate = nil
+            withAnimation(temporaryRateIndicatorAnimation) {
+                visibleTemporaryRate = nil
+            }
             temporaryRateIndicatorTask = nil
         }
     }
@@ -157,7 +154,15 @@ struct VideoViewport<PlayerSurface: View>: View {
     private func hideTemporaryRateIndicator() {
         temporaryRateIndicatorTask?.cancel()
         temporaryRateIndicatorTask = nil
-        visibleTemporaryRate = nil
+        withAnimation(temporaryRateIndicatorAnimation) {
+            visibleTemporaryRate = nil
+        }
+    }
+
+    private var temporaryRateIndicatorAnimation: Animation {
+        .easeInOut(
+            duration: MuralumeTheme.Motion.playerChromeTransitionDuration
+        )
     }
 }
 
