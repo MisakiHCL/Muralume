@@ -13,6 +13,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
     @ObservedObject var smartPause: SmartPauseController
     let canRestoreDynamicDesktop: Bool
     let mediaThumbnailProvider: any MediaThumbnailProviding
+    let videoInformationLoader: any VideoInformationLoading
     let isFullScreen: Bool
     @ObservedObject var chromeController: PlayerChromeController
     let actions: PlayerActions
@@ -20,6 +21,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
 
     @State private var isMediaDropTargeted = false
     @State private var playlistNameEditor: PlaylistNameEditorRequest?
+    @State private var videoInformationItem: LibraryMediaItem?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
     @EnvironmentObject private var localization: AppLocalizationController
@@ -34,6 +36,18 @@ struct PlayerScreen<PlayerSurface: View>: View {
                     library: library,
                     playerSurface: playerSurface
                 )
+                .contextMenu {
+                    if let currentItem = library.currentItem {
+                        Button {
+                            videoInformationItem = currentItem
+                        } label: {
+                            Label(
+                                "videoInfo.menu",
+                                systemImage: "info.circle"
+                            )
+                        }
+                    }
+                }
 
                 if chromeController.presentedPanel != nil {
                     Color.clear
@@ -172,6 +186,16 @@ struct PlayerScreen<PlayerSurface: View>: View {
         }
         .onAppear {
             chromeController.updateFullScreen(isFullScreen)
+        }
+        .sheet(item: $videoInformationItem) { item in
+            VideoInformationPanel(
+                item: item,
+                loader: videoInformationLoader
+            )
+            .environmentObject(localization)
+            .environment(\.locale, localization.locale)
+            .preferredColorScheme(.dark)
+            .presentationBackground(.clear)
         }
         .foregroundStyle(MuralumeTheme.Colors.textPrimary)
     }
@@ -391,6 +415,9 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 addLibraryItemToPlaylist:
                     actions.addLibraryItemToPlaylist,
                 revealMediaInFinder: actions.revealMediaInFinder,
+                showVideoInformation: { item in
+                    videoInformationItem = item
+                },
                 dismiss: {
                     chromeController.setPlaylistPresented(false)
                 },

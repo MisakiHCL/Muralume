@@ -8,6 +8,7 @@ struct CustomPlaylistSidebarContent: View {
     let playCustomPlaylistItem:
         (LibraryMediaItem, CustomPlaylist.ID) -> Void
     let revealMediaInFinder: (URL) -> Void
+    let showVideoInformation: (LibraryMediaItem) -> Void
     let dismiss: () -> Void
     @Binding var nameEditor: PlaylistNameEditorRequest?
 
@@ -292,6 +293,10 @@ struct CustomPlaylistSidebarContent: View {
                 revealInFinder: {
                     guard let item else { return }
                     revealMediaInFinder(item.url)
+                },
+                showInformation: {
+                    guard let item else { return }
+                    showVideoInformation(item)
                 },
                 remove: { try? playlists.removeEntry(entry.id, from: playlist.id) },
                 moveUp: { move(entry, by: -1, in: playlist) },
@@ -697,6 +702,7 @@ private struct CustomPlaylistMediaRow: View {
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let play: () -> Void
     let revealInFinder: () -> Void
+    let showInformation: () -> Void
     let remove: () -> Void
     let moveUp: () -> Void
     let moveDown: () -> Void
@@ -707,6 +713,7 @@ private struct CustomPlaylistMediaRow: View {
         rowControl
         .contextMenu {
             if item != nil {
+                Button("videoInfo.menu", action: showInformation)
                 Button("library.item.revealInFinder", action: revealInFinder)
             }
             if canMoveUp {

@@ -32,6 +32,10 @@
 		F17000000000000000000011 /* VideoScreenshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17000000000000000000001 /* VideoScreenshot.swift */; };
 		F17000000000000000000012 /* MacVideoScreenshotController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17000000000000000000002 /* MacVideoScreenshotController.swift */; };
 		F17000000000000000000013 /* VideoScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17000000000000000000003 /* VideoScreenshotTests.swift */; };
+		F19000000000000000000011 /* VideoInformation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F19000000000000000000001 /* VideoInformation.swift */; };
+		F19000000000000000000012 /* AVAssetVideoInformationLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F19000000000000000000002 /* AVAssetVideoInformationLoader.swift */; };
+		F19000000000000000000013 /* VideoInformationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F19000000000000000000003 /* VideoInformationPanel.swift */; };
+		F19000000000000000000014 /* VideoInformationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F19000000000000000000004 /* VideoInformationTests.swift */; };
 		F18000000000000000000001 /* SubtitleAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18000000000000000000002 /* SubtitleAppearance.swift */; };
 		F18000000000000000000003 /* EmbeddedSubtitleParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18000000000000000000004 /* EmbeddedSubtitleParser.swift */; };
 		F18000000000000000000005 /* SubtitleAppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18000000000000000000006 /* SubtitleAppearanceSettingsView.swift */; };
@@ -244,6 +248,10 @@
 		F17000000000000000000001 /* VideoScreenshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoScreenshot.swift; sourceTree = "<group>"; };
 		F17000000000000000000002 /* MacVideoScreenshotController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacVideoScreenshotController.swift; sourceTree = "<group>"; };
 		F17000000000000000000003 /* VideoScreenshotTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoScreenshotTests.swift; sourceTree = "<group>"; };
+		F19000000000000000000001 /* VideoInformation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoInformation.swift; sourceTree = "<group>"; };
+		F19000000000000000000002 /* AVAssetVideoInformationLoader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AVAssetVideoInformationLoader.swift; sourceTree = "<group>"; };
+		F19000000000000000000003 /* VideoInformationPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoInformationPanel.swift; sourceTree = "<group>"; };
+		F19000000000000000000004 /* VideoInformationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoInformationTests.swift; sourceTree = "<group>"; };
 		654368F2F8F46611FE1F0288 /* FileCustomPlaylistStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileCustomPlaylistStore.swift; sourceTree = "<group>"; };
 		655D9C53DF93C4399C148736 /* DesktopDisplayCanvasLayoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopDisplayCanvasLayoutTests.swift; sourceTree = "<group>"; };
 		6D32A61D760BE7B80916FCEB /* AppConfiguration.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
@@ -468,6 +476,7 @@
 			children = (
 				C7D4159ECB84CD3F4C1A1703 /* AVFoundationPlaybackEngine.swift */,
 				F18000000000000000000004 /* EmbeddedSubtitleParser.swift */,
+				F19000000000000000000002 /* AVAssetVideoInformationLoader.swift */,
 				F17000000000000000000002 /* MacVideoScreenshotController.swift */,
 				D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */,
 				C30000000000000000000004 /* FilePlaybackSessionStore.swift */,
@@ -570,6 +579,7 @@
 				7B45D5363784459EA36A0566 /* PlaybackState.swift */,
 				C30000000000000000000002 /* PlaybackStateRestorer.swift */,
 				31A7E6B1E1B0450EA9D35735 /* ResolvedMediaSource.swift */,
+				F19000000000000000000001 /* VideoInformation.swift */,
 				F17000000000000000000001 /* VideoScreenshot.swift */,
 			);
 			name = Playback;
@@ -825,6 +835,7 @@
 				F11000000000000000000004 /* LibrarySidebarPlaybackState.swift */,
 				F11000000000000000000005 /* LibraryQueueSidebarSupport.swift */,
 				FC0000000000000000000001 /* PlaybackQueueSidebarContent.swift */,
+				F19000000000000000000003 /* VideoInformationPanel.swift */,
 				E183F55CBEB81361A9A2EC1F /* MediaSearchField.swift */,
 				175A64BC45FA05F76881C95C /* LibrarySidebar.swift */,
 				D8F8D8CCD2D9D7C7DD18F764 /* CustomPlaylistSidebarContent.swift */,
@@ -932,6 +943,7 @@
 			isa = PBXGroup;
 			children = (
 				25EA2A620F0248ECAA3D369A /* AVFoundationPlaybackEngineTests.swift */,
+				F19000000000000000000004 /* VideoInformationTests.swift */,
 				F17000000000000000000003 /* VideoScreenshotTests.swift */,
 				AEAFFBCADB9C4DDF8A43DB08 /* RealAVPlayerLayerRoundTripTests.swift */,
 			);
@@ -1203,6 +1215,7 @@
 				AA0000000000000000000014 /* MediaLibrarySort.swift in Sources */,
 				AF1000000000000000000011 /* MediaThumbnailProviding.swift in Sources */,
 				7853A770F99714259B9C1495 /* PlaybackCoordinator.swift in Sources */,
+				F19000000000000000000011 /* VideoInformation.swift in Sources */,
 				F17000000000000000000011 /* VideoScreenshot.swift in Sources */,
 				D411CD1097024403912B986C /* PlaybackEngine.swift in Sources */,
 				E90000000000000000000011 /* PlaybackMediaSelection.swift in Sources */,
@@ -1228,6 +1241,7 @@
 				F11000000000000000000013 /* LibrarySidebarEmptyState.swift in Sources */,
 				F11000000000000000000014 /* LibrarySidebarPlaybackState.swift in Sources */,
 				F11000000000000000000015 /* LibraryQueueSidebarSupport.swift in Sources */,
+				F19000000000000000000013 /* VideoInformationPanel.swift in Sources */,
 				F13000000000000000000001 /* MediaLibraryChangeMonitoring.swift in Sources */,
 				AC0000000000000000000014 /* SettingsView.swift in Sources */,
 				F18000000000000000000005 /* SubtitleAppearanceSettingsView.swift in Sources */,
@@ -1253,6 +1267,7 @@
 				AC0000000000000000000013 /* UserDefaultsAppPreferencesStore.swift in Sources */,
 				4B9EC4249AD1406990161515 /* AVFoundationPlaybackEngine.swift in Sources */,
 				F18000000000000000000003 /* EmbeddedSubtitleParser.swift in Sources */,
+				F19000000000000000000012 /* AVAssetVideoInformationLoader.swift in Sources */,
 				F17000000000000000000012 /* MacVideoScreenshotController.swift in Sources */,
 				EB1000000000000000000013 /* SubtitleFileParser.swift in Sources */,
 				EB1000000000000000000014 /* SubtitleSidecarDiscovery.swift in Sources */,
@@ -1341,6 +1356,7 @@
 				AA000000000000000000001B /* FileSystemMediaLibraryScannerTests.swift in Sources */,
 				AB0000000000000000000002 /* UserSelectedMediaSessionTests.swift in Sources */,
 				004C99C5AE9B45B3AE32AB2A /* AVFoundationPlaybackEngineTests.swift in Sources */,
+				F19000000000000000000014 /* VideoInformationTests.swift in Sources */,
 				F17000000000000000000013 /* VideoScreenshotTests.swift in Sources */,
 				9DDE2F09B8C64CF4AB689811 /* RealAVPlayerLayerRoundTripTests.swift in Sources */,
 				AC0000000000000000000016 /* MacMainWindowPresenterTests.swift in Sources */,

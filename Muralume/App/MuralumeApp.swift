@@ -79,7 +79,8 @@ final class MacApplicationRuntime {
 
         let rootView = MuralumePlayerRootView(
             coordinator: coordinator,
-            localization: localization
+            localization: localization,
+            videoInformationLoader: AVAssetVideoInformationLoader()
         )
         mainWindow.contentViewController = NSHostingController(
             rootView: rootView
@@ -159,6 +160,7 @@ final class MacApplicationRuntime {
 private struct MuralumePlayerRootView: View {
     @ObservedObject var coordinator: AppCoordinator
     @ObservedObject var localization: AppLocalizationController
+    let videoInformationLoader: any VideoInformationLoading
 
     var body: some View {
         PlayerScreen(
@@ -173,6 +175,7 @@ private struct MuralumePlayerRootView: View {
             canRestoreDynamicDesktop:
                 coordinator.canRestoreDynamicDesktop,
             mediaThumbnailProvider: coordinator.mediaThumbnailProvider,
+            videoInformationLoader: videoInformationLoader,
             isFullScreen: coordinator.isMainWindowFullScreen,
             chromeController: coordinator.playerChrome,
             actions: PlayerActions(

@@ -20,6 +20,7 @@ struct LibrarySidebar: View {
     let addLibraryItemToPlaylist:
         (LibraryMediaItem, CustomPlaylist.ID) -> Void
     let revealMediaInFinder: (URL) -> Void
+    let showVideoInformation: (LibraryMediaItem) -> Void
     let dismiss: () -> Void
     @Binding var playlistNameEditor: PlaylistNameEditorRequest?
 
@@ -56,6 +57,7 @@ struct LibrarySidebar: View {
                 addLibraryItemToPlaylist:
                     addLibraryItemToPlaylist,
                 revealMediaInFinder: revealMediaInFinder,
+                showVideoInformation: showVideoInformation,
                 dismiss: dismiss
             )
         case .playlists, .playlist:
@@ -66,6 +68,7 @@ struct LibrarySidebar: View {
                 mediaThumbnailProvider: mediaThumbnailProvider,
                 playCustomPlaylistItem: playCustomPlaylistItem,
                 revealMediaInFinder: revealMediaInFinder,
+                showVideoInformation: showVideoInformation,
                 dismiss: dismiss,
                 nameEditor: $playlistNameEditor
             )

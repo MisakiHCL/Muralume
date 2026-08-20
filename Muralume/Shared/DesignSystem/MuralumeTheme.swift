@@ -75,6 +75,9 @@ enum MuralumeTheme {
         static let sliderHitTargetHeight: CGFloat = 28
         static let playlistOverlayWidth: CGFloat = 320
         static let settingsPanelWidth: CGFloat = 400
+        static let videoInformationPanelWidth: CGFloat = 520
+        static let videoInformationPanelMinimumHeight: CGFloat = 520
+        static let videoInformationLabelWidth: CGFloat = 152
         static let settingsRowMinimumHeight: CGFloat = 60
         static let settingsChildRowMinimumHeight: CGFloat = 44
         static let playlistStatusBarHeight: CGFloat = 32
@@ -130,6 +133,7 @@ enum MuralumeTheme {
     enum Glass {
         static let standardTintOpacity = 0.42
         static let playerOverlayTintOpacity = 0.14
+        static let videoInformationTintOpacity = 0.28
     }
 
     enum Shadow {

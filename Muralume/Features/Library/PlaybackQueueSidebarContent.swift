@@ -30,6 +30,7 @@ struct PlaybackQueueSidebarContent: View {
     let playbackState: LibraryMediaRowPlaybackState
     let focusRequest: UInt64
     let revealMediaInFinder: (URL) -> Void
+    let showVideoInformation: (LibraryMediaItem) -> Void
     let addCurrentTemporaryToLibrary: () -> Void
     let play: (LibraryMediaItem) -> Void
     @State private var visibleUpNextCount =
@@ -160,6 +161,9 @@ struct PlaybackQueueSidebarContent: View {
             addToLibrary: addCurrentTemporaryToLibrary,
             revealInFinder: {
                 revealMediaInFinder(entry.item.url)
+            },
+            showInformation: {
+                showVideoInformation(entry.item)
             }
         )
     }
@@ -197,6 +201,7 @@ private struct PlaybackQueueRow: View {
     let play: () -> Void
     let addToLibrary: () -> Void
     let revealInFinder: () -> Void
+    let showInformation: () -> Void
 
     var body: some View {
         Button(action: play) {
@@ -269,6 +274,9 @@ private struct PlaybackQueueRow: View {
                 Button(action: addToLibrary) {
                     Label("queue.addToLibrary", systemImage: "plus")
                 }
+            }
+            Button(action: showInformation) {
+                Label("videoInfo.menu", systemImage: "info.circle")
             }
             Button(action: revealInFinder) {
                 Label("library.item.revealInFinder", systemImage: "folder")

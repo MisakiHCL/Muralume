@@ -33,6 +33,7 @@ struct LibraryMediaRow: View {
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let play: () -> Void
     let revealInFinder: () -> Void
+    let showInformation: () -> Void
     let customPlaylists: [CustomPlaylist]
     let addToPlaylist: (CustomPlaylist.ID) -> Void
 
@@ -163,6 +164,10 @@ struct LibraryMediaRow: View {
 
     @ViewBuilder
     private var contextMenuContent: some View {
+        Button(action: showInformation) {
+            Label("videoInfo.menu", systemImage: "info.circle")
+        }
+
         Button(action: revealInFinder) {
             Label("library.item.revealInFinder", systemImage: "folder")
         }

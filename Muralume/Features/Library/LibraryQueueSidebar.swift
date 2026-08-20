@@ -32,6 +32,7 @@ struct LibraryQueueSidebar: View {
     let addLibraryItemToPlaylist:
         (LibraryMediaItem, CustomPlaylist.ID) -> Void
     let revealMediaInFinder: (URL) -> Void
+    let showVideoInformation: (LibraryMediaItem) -> Void
     let dismiss: () -> Void
 
     init(
@@ -60,6 +61,7 @@ struct LibraryQueueSidebar: View {
             CustomPlaylist.ID
         ) -> Void,
         revealMediaInFinder: @escaping (URL) -> Void,
+        showVideoInformation: @escaping (LibraryMediaItem) -> Void,
         dismiss: @escaping () -> Void
     ) {
         self.library = library
@@ -84,6 +86,7 @@ struct LibraryQueueSidebar: View {
         self.showPlaylists = showPlaylists
         self.addLibraryItemToPlaylist = addLibraryItemToPlaylist
         self.revealMediaInFinder = revealMediaInFinder
+        self.showVideoInformation = showVideoInformation
         self.dismiss = dismiss
         _playbackStatus = State(
             initialValue: LibraryPlaybackStatus(playback: playback)
@@ -686,6 +689,7 @@ struct LibraryQueueSidebar: View {
                 playbackState: playbackStatus.rowState,
                 focusRequest: playbackQueueFocusRequest,
                 revealMediaInFinder: revealMediaInFinder,
+                showVideoInformation: showVideoInformation,
                 addCurrentTemporaryToLibrary: {
                     _ = library.addCurrentTemporaryItemToLibrary()
                 },
@@ -751,6 +755,9 @@ struct LibraryQueueSidebar: View {
                     },
                     revealInFinder: {
                         revealMediaInFinder(item.url)
+                    },
+                    showInformation: {
+                        showVideoInformation(item)
                     },
                     customPlaylists: customPlaylists,
                     addToPlaylist: { playlistID in
