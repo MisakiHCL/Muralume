@@ -338,7 +338,8 @@ struct PlayerControlBar: View {
         HStack(spacing: MuralumeTheme.Spacing.small) {
             PlayerMediaSelectionMenu(
                 controller: playback.mediaSelection,
-                isEnabled: mediaControlsEnabled
+                isEnabled: mediaControlsEnabled,
+                loadExternalSubtitle: actions.loadExternalSubtitle
             )
 
             playbackRateMenu

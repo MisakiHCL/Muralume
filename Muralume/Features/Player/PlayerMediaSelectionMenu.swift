@@ -2,10 +2,25 @@ import SwiftUI
 
 struct PlayerMediaSelectionMenu: View {
     @ObservedObject var controller: PlaybackMediaSelectionController
+    @ObservedObject private var externalSubtitles: ExternalSubtitleController
     let isEnabled: Bool
+    let loadExternalSubtitle: () -> Void
+
+    init(
+        controller: PlaybackMediaSelectionController,
+        isEnabled: Bool,
+        loadExternalSubtitle: @escaping () -> Void
+    ) {
+        self.controller = controller
+        _externalSubtitles = ObservedObject(
+            wrappedValue: controller.externalSubtitles
+        )
+        self.isEnabled = isEnabled
+        self.loadExternalSubtitle = loadExternalSubtitle
+    }
 
     var body: some View {
-        if controller.state.showsTrackControls {
+        if controller.state.showsTrackControls || controller.hasCurrentMedia {
             Menu {
                 if !controller.state.audioOptions.isEmpty {
                     Section {
@@ -37,19 +52,8 @@ struct PlayerMediaSelectionMenu: View {
                     }
                 }
 
-                if !controller.state.subtitleOptions.isEmpty {
+                if controller.hasCurrentMedia {
                     Section {
-                        Button {
-                            controller.selectSubtitles(.automatic)
-                        } label: {
-                            localizedSelectionLabel(
-                                "player.tracks.automatic",
-                                isSelected:
-                                    controller.state.subtitleSelection
-                                        == .automatic
-                            )
-                        }
-
                         if controller.state.allowsEmptySubtitleSelection {
                             Button {
                                 controller.selectSubtitles(.off)
@@ -57,8 +61,23 @@ struct PlayerMediaSelectionMenu: View {
                                 localizedSelectionLabel(
                                     "player.tracks.off",
                                     isSelected:
-                                        controller.state.subtitleSelection
-                                            == .off
+                                        externalSubtitles.track == nil
+                                            && controller.state
+                                                .subtitleSelection == .off
+                                )
+                            }
+                        }
+
+                        if !controller.state.subtitleOptions.isEmpty {
+                            Button {
+                                controller.selectSubtitles(.automatic)
+                            } label: {
+                                localizedSelectionLabel(
+                                    "player.tracks.automatic",
+                                    isSelected:
+                                        externalSubtitles.track == nil
+                                        && controller.state
+                                            .subtitleSelection == .automatic
                                 )
                             }
                         }
@@ -70,9 +89,45 @@ struct PlayerMediaSelectionMenu: View {
                                 optionSelectionLabel(
                                     option,
                                     isSelected:
-                                        controller.state.subtitleSelection
-                                            == .option(option.id)
+                                        externalSubtitles.track == nil
+                                            && controller.state
+                                                .subtitleSelection
+                                                == .option(option.id)
                                 )
+                            }
+                        }
+
+                        Divider()
+
+                        if let track = externalSubtitles.track {
+                            Label {
+                                Text(verbatim: track.displayName)
+                            } icon: {
+                                Image(systemName: "checkmark")
+                            }
+
+                            Button("player.tracks.external.remove") {
+                                controller.removeExternalSubtitles()
+                            }
+                        }
+
+                        Button(
+                            "player.tracks.external.load",
+                            action: loadExternalSubtitle
+                        )
+
+                        if externalSubtitles.isLoading {
+                            Label(
+                                "player.tracks.external.loading",
+                                systemImage: "hourglass"
+                            )
+                        }
+
+                        if let failure = externalSubtitles.failure {
+                            Label {
+                                Text(LocalizedStringKey(failure.localizedKey))
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle")
                             }
                         }
                     } header: {

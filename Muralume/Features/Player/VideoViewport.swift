@@ -49,6 +49,10 @@ struct VideoViewport<PlayerSurface: View>: View {
                 EmptyView()
             }
 
+            ExternalSubtitleOverlay(
+                controller: playback.mediaSelection.externalSubtitles
+            )
+
             if let rate = viewportState.temporaryPlaybackRate {
                 PlayerTemporaryPlaybackRateIndicator(rate: rate)
             }
@@ -113,6 +117,42 @@ struct VideoViewport<PlayerSurface: View>: View {
         }
         self.temporaryRateToken = nil
         playback.endTemporaryPlaybackRate(temporaryRateToken)
+    }
+}
+
+private struct ExternalSubtitleOverlay: View {
+    @ObservedObject var controller: ExternalSubtitleController
+    @ScaledMetric(relativeTo: .title3) private var bottomInset: CGFloat = 96
+
+    var body: some View {
+        if let cueText = controller.cueText, !cueText.isEmpty {
+            VStack {
+                Spacer(minLength: MuralumeTheme.Spacing.xxLarge)
+
+                Text(verbatim: cueText)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(6)
+                    .padding(.horizontal, MuralumeTheme.Spacing.medium)
+                    .padding(.vertical, MuralumeTheme.Spacing.small)
+                    .background {
+                        RoundedRectangle(
+                            cornerRadius: MuralumeTheme.Radius.small,
+                            style: .continuous
+                        )
+                        .fill(.black.opacity(0.72))
+                    }
+                    .shadow(color: .black.opacity(0.5), radius: 4, y: 2)
+                    .frame(maxWidth: 720)
+                    .padding(.horizontal, MuralumeTheme.Spacing.xxLarge)
+                    .padding(.bottom, bottomInset)
+                    .accessibilityIdentifier(
+                        MuralumeAccessibilityIdentifier.externalSubtitle
+                    )
+            }
+            .allowsHitTesting(false)
+        }
     }
 }
 

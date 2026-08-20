@@ -72,11 +72,22 @@ final class PlaybackCoordinator: ObservableObject {
         engine: any PlaybackEngine,
         initialPreferences: AppPreferences = .defaultValue,
         preferencesStore: (any AppPreferencesStoring)? = nil,
+        externalSubtitleParser: (any SubtitleFileParsing)? = nil,
+        externalSubtitleDiscovery:
+            (any ExternalSubtitleDiscovering)? = nil,
+        externalSubtitleAssociationStore:
+            (any ExternalSubtitleAssociationStoring)? = nil,
         audioPreferencesPersistenceDelay: Duration =
             PlaybackPolicy.audioPreferencesPersistenceDelay
     ) {
         self.engine = engine
-        mediaSelection = PlaybackMediaSelectionController(engine: engine)
+        mediaSelection = PlaybackMediaSelectionController(
+            engine: engine,
+            externalSubtitleParser: externalSubtitleParser,
+            externalSubtitleDiscovery: externalSubtitleDiscovery,
+            externalSubtitleAssociationStore:
+                externalSubtitleAssociationStore
+        )
         self.preferencesStore = preferencesStore
         self.audioPreferencesPersistenceDelay =
             audioPreferencesPersistenceDelay
@@ -234,6 +245,7 @@ final class PlaybackCoordinator: ObservableObject {
         }
 
         mediaSelection.refresh()
+        mediaSelection.prepareExternalSubtitles(for: source.url)
         if presentation == .desktop || isSwitching(to: .desktop) {
             mediaSelection.suppressSubtitlesForDesktop()
         }
@@ -681,6 +693,17 @@ final class PlaybackCoordinator: ObservableObject {
         isActuallyPlaying = false
         isPlaybackRequested = false
         savedPlayerSettings = nil
+    }
+
+    func loadExternalSubtitle(_ subtitleURL: URL) {
+        guard hasPlayableMedia,
+              let mediaURL = source?.url else {
+            return
+        }
+        mediaSelection.loadExternalSubtitle(
+            subtitleURL,
+            for: mediaURL
+        )
     }
 
     func shutdown() {

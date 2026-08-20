@@ -8,7 +8,11 @@ enum AppCompositionRoot {
         let playback = PlaybackCoordinator(
             engine: AVFoundationPlaybackEngine(),
             initialPreferences: initialPreferences,
-            preferencesStore: preferencesStore
+            preferencesStore: preferencesStore,
+            externalSubtitleParser: SubtitleFileParser(),
+            externalSubtitleDiscovery: SubtitleSidecarDiscovery(),
+            externalSubtitleAssociationStore:
+                UserDefaultsExternalSubtitleAssociationStore()
         )
         let mainWindowPresenter = MacMainWindowPresenter()
         let applicationPresence = MacApplicationPresenceController()
@@ -117,7 +121,10 @@ enum AppCompositionRoot {
             desktopPreset: desktopPreset,
             playbackSession: playbackSession,
             desktopScene: desktopScene,
-            smartPause: smartPause
+            smartPause: smartPause,
+            externalSubtitlePicker: MacExternalSubtitlePicker(
+                localization: localization
+            )
         )
     }
 }

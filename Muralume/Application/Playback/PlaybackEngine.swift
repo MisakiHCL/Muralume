@@ -55,6 +55,9 @@ protocol PlaybackEngine: AnyObject {
     func selectSubtitles(
         _ selection: PlaybackSubtitleSelection
     ) -> PlaybackMediaSelectionState
+    func setExternalSubtitleTimeHandler(
+        _ handler: ((TimeInterval) -> Void)?
+    )
     func stop()
 }
 
@@ -87,6 +90,10 @@ extension PlaybackEngine {
     ) -> PlaybackMediaSelectionState {
         currentMediaSelectionState()
     }
+
+    func setExternalSubtitleTimeHandler(
+        _: ((TimeInterval) -> Void)?
+    ) {}
 }
 
 @MainActor

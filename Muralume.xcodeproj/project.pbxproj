@@ -160,6 +160,13 @@
 		EA0000000000000000000011 /* alternate-tracks-5s.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000001 /* alternate-tracks-5s.mp4 */; };
 		EA0000000000000000000012 /* english-5s.srt in Resources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000002 /* english-5s.srt */; };
 		EA0000000000000000000013 /* chinese-5s.srt in Resources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000003 /* chinese-5s.srt */; };
+		EB1000000000000000000011 /* ExternalSubtitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB1000000000000000000001 /* ExternalSubtitle.swift */; };
+		EB1000000000000000000012 /* ExternalSubtitleController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB1000000000000000000002 /* ExternalSubtitleController.swift */; };
+		EB1000000000000000000013 /* SubtitleFileParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB1000000000000000000003 /* SubtitleFileParser.swift */; };
+		EB1000000000000000000014 /* SubtitleSidecarDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB1000000000000000000004 /* SubtitleSidecarDiscovery.swift */; };
+		EB1000000000000000000015 /* UserDefaultsExternalSubtitleAssociationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB1000000000000000000005 /* UserDefaultsExternalSubtitleAssociationStore.swift */; };
+		EB1000000000000000000016 /* MacExternalSubtitlePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB1000000000000000000006 /* MacExternalSubtitlePicker.swift */; };
+		EB1000000000000000000017 /* ExternalSubtitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB1000000000000000000007 /* ExternalSubtitleTests.swift */; };
 		EC1CFBA860414E00B01FF30C /* PlayerSurfaceRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD7D228FCC544D595B5400F /* PlayerSurfaceRepresentable.swift */; };
 		F52129EF7CDA0DFCABB9582F /* DesktopStatusMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C29C21DB3FE1DEF3EE73B56A /* DesktopStatusMenuController.swift */; };
 		F53454E4DD4EAD1FBA7DDD3D /* AppCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08363CE1AF64721E4BB431EB /* AppCoordinator.swift */; };
@@ -350,6 +357,13 @@
 		EA0000000000000000000001 /* alternate-tracks-5s.mp4 */ = {isa = PBXFileReference; includeInIndex = 1; path = "alternate-tracks-5s.mp4"; sourceTree = "<group>"; };
 		EA0000000000000000000002 /* english-5s.srt */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; path = "english-5s.srt"; sourceTree = "<group>"; };
 		EA0000000000000000000003 /* chinese-5s.srt */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; path = "chinese-5s.srt"; sourceTree = "<group>"; };
+		EB1000000000000000000001 /* ExternalSubtitle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExternalSubtitle.swift; sourceTree = "<group>"; };
+		EB1000000000000000000002 /* ExternalSubtitleController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExternalSubtitleController.swift; sourceTree = "<group>"; };
+		EB1000000000000000000003 /* SubtitleFileParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SubtitleFileParser.swift; sourceTree = "<group>"; };
+		EB1000000000000000000004 /* SubtitleSidecarDiscovery.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SubtitleSidecarDiscovery.swift; sourceTree = "<group>"; };
+		EB1000000000000000000005 /* UserDefaultsExternalSubtitleAssociationStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserDefaultsExternalSubtitleAssociationStore.swift; sourceTree = "<group>"; };
+		EB1000000000000000000006 /* MacExternalSubtitlePicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacExternalSubtitlePicker.swift; sourceTree = "<group>"; };
+		EB1000000000000000000007 /* ExternalSubtitleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExternalSubtitleTests.swift; sourceTree = "<group>"; };
 		EC57C2D5C1B19433C063C606 /* WindowReader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WindowReader.swift; sourceTree = "<group>"; };
 		ED645770F764AF0E6A40DE45 /* PlayerScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerScreen.swift; sourceTree = "<group>"; };
 		EFA3097D1700774EB9025522 /* DesktopSceneController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopSceneController.swift; sourceTree = "<group>"; };
@@ -443,7 +457,11 @@
 				C7D4159ECB84CD3F4C1A1703 /* AVFoundationPlaybackEngine.swift */,
 				D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */,
 				C30000000000000000000004 /* FilePlaybackSessionStore.swift */,
+				EB1000000000000000000006 /* MacExternalSubtitlePicker.swift */,
 				C6DA3CA7D3E688ED8F03C2D4 /* PlayerLayerSurfaceView.swift */,
+				EB1000000000000000000003 /* SubtitleFileParser.swift */,
+				EB1000000000000000000004 /* SubtitleSidecarDiscovery.swift */,
+				EB1000000000000000000005 /* UserDefaultsExternalSubtitleAssociationStore.swift */,
 			);
 			name = Playback;
 			path = Playback;
@@ -525,6 +543,8 @@
 		49A7297DA7DA49C9ADDD8910 /* Playback */ = {
 			isa = PBXGroup;
 			children = (
+				EB1000000000000000000001 /* ExternalSubtitle.swift */,
+				EB1000000000000000000002 /* ExternalSubtitleController.swift */,
 				9766A9110451BE38E5212969 /* PlaybackCoordinator.swift */,
 				82C43CDEEC83437E807E0533 /* PlaybackEngine.swift */,
 				E90000000000000000000001 /* PlaybackMediaSelection.swift */,
@@ -558,6 +578,7 @@
 				F2D6934434FD592F47EA3C97 /* PlaybackCoordinatorTests.swift */,
 				D90000000000000000000001 /* TemporaryPlaybackRateTests.swift */,
 				E90000000000000000000004 /* PlaybackMediaSelectionControllerTests.swift */,
+				EB1000000000000000000007 /* ExternalSubtitleTests.swift */,
 				E81000000000000000000001 /* PlaybackEnergyPolicyTests.swift */,
 				E82000000000000000000001 /* DesktopEnergyPolicyTests.swift */,
 				C30000000000000000000005 /* PlaybackSessionControllerTests.swift */,
@@ -1166,6 +1187,8 @@
 				D411CD1097024403912B986C /* PlaybackEngine.swift in Sources */,
 				E90000000000000000000011 /* PlaybackMediaSelection.swift in Sources */,
 				E90000000000000000000012 /* PlaybackMediaSelectionController.swift in Sources */,
+				EB1000000000000000000011 /* ExternalSubtitle.swift in Sources */,
+				EB1000000000000000000012 /* ExternalSubtitleController.swift in Sources */,
 				1115775F8C2E48549F71E259 /* PlaybackPolicy.swift in Sources */,
 				60083F2F8C964BFC9443A988 /* PlaybackRenderSurface.swift in Sources */,
 				C30000000000000000000011 /* PlaybackSession.swift in Sources */,
@@ -1208,6 +1231,10 @@
 				AF1000000000000000000012 /* QuickLookMediaThumbnailProvider.swift in Sources */,
 				AC0000000000000000000013 /* UserDefaultsAppPreferencesStore.swift in Sources */,
 				4B9EC4249AD1406990161515 /* AVFoundationPlaybackEngine.swift in Sources */,
+				EB1000000000000000000013 /* SubtitleFileParser.swift in Sources */,
+				EB1000000000000000000014 /* SubtitleSidecarDiscovery.swift in Sources */,
+				EB1000000000000000000015 /* UserDefaultsExternalSubtitleAssociationStore.swift in Sources */,
+				EB1000000000000000000016 /* MacExternalSubtitlePicker.swift in Sources */,
 				D60000000000000000000011 /* DesktopPlayerLayerSurfaceView.swift in Sources */,
 				C30000000000000000000014 /* FilePlaybackSessionStore.swift in Sources */,
 				A68650D9162A708D93F5F453 /* PlayerLayerSurfaceView.swift in Sources */,
@@ -1282,6 +1309,7 @@
 				CD94D20452E0790A183D3EC0 /* PlaybackCoordinatorTests.swift in Sources */,
 				D90000000000000000000011 /* TemporaryPlaybackRateTests.swift in Sources */,
 				E90000000000000000000014 /* PlaybackMediaSelectionControllerTests.swift in Sources */,
+				EB1000000000000000000017 /* ExternalSubtitleTests.swift in Sources */,
 				E81000000000000000000011 /* PlaybackEnergyPolicyTests.swift in Sources */,
 				E82000000000000000000011 /* DesktopEnergyPolicyTests.swift in Sources */,
 				C30000000000000000000015 /* PlaybackSessionControllerTests.swift in Sources */,

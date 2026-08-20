@@ -37,6 +37,16 @@
 "player.tracks.subtitles" = "字幕";
 "player.tracks.automatic" = "自动";
 "player.tracks.off" = "关闭";
+"player.tracks.external.load" = "载入字幕文件…";
+"player.tracks.external.remove" = "移除外部字幕";
+"player.tracks.external.loading" = "正在载入字幕…";
+"player.tracks.external.picker.message" = "请选择 SRT 或 WebVTT 字幕文件。";
+"player.tracks.external.picker.prompt" = "载入字幕";
+"player.tracks.external.error.cannotRead" = "无法读取字幕文件。";
+"player.tracks.external.error.fileTooLarge" = "字幕文件过大。";
+"player.tracks.external.error.encoding" = "不支持此字幕文本编码。";
+"player.tracks.external.error.format" = "字幕格式无效。";
+"player.tracks.external.error.tooManyCues" = "字幕条目数量过多。";
 "player.timeline" = "播放位置";
 "player.fullscreen" = "切换全屏模式";
 "player.desktop" = "设为动态桌面";

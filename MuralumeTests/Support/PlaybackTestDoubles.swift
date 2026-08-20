@@ -37,6 +37,7 @@ final class TestPlaybackEngine: PlaybackEngine {
     var itemEndedHandler: (() -> Void)?
     var failureHandler: ((PlaybackEngineError) -> Void)?
     var playbackActivityHandler: ((Bool) -> Void)?
+    var externalSubtitleTimeHandler: ((TimeInterval) -> Void)?
     private(set) var attachedSurfaceIDs: [PlaybackSurfaceID] = []
     private(set) var attachmentReadinessPolicies:
         [PlaybackSurfaceReadinessPolicy] = []
@@ -234,10 +235,21 @@ final class TestPlaybackEngine: PlaybackEngine {
         return mediaSelectionState
     }
 
+    func setExternalSubtitleTimeHandler(
+        _ handler: ((TimeInterval) -> Void)?
+    ) {
+        externalSubtitleTimeHandler = handler
+    }
+
+    func publishExternalSubtitleTime(_ time: TimeInterval) {
+        externalSubtitleTimeHandler?(time)
+    }
+
     func stop() {
         stopCount += 1
         attachedSurfaceID = nil
         isPlaying = false
+        externalSubtitleTimeHandler = nil
         mediaSelectionState = .empty
         playbackActivityHandler?(false)
     }

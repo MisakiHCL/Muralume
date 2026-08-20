@@ -179,6 +179,9 @@ private struct MuralumePlayerRootView: View {
                 addMedia: {
                     coordinator.addMedia()
                 },
+                loadExternalSubtitle: {
+                    coordinator.loadExternalSubtitle()
+                },
                 retryUnavailableSourceAccess: {
                     coordinator.retryUnavailableSourceAccess()
                 },

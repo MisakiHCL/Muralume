@@ -37,6 +37,16 @@
 "player.tracks.subtitles" = "Subtitles";
 "player.tracks.automatic" = "Automatic";
 "player.tracks.off" = "Off";
+"player.tracks.external.load" = "Load Subtitle File…";
+"player.tracks.external.remove" = "Remove External Subtitle";
+"player.tracks.external.loading" = "Loading subtitle…";
+"player.tracks.external.picker.message" = "Choose an SRT or WebVTT subtitle file.";
+"player.tracks.external.picker.prompt" = "Load Subtitle";
+"player.tracks.external.error.cannotRead" = "The subtitle file could not be read.";
+"player.tracks.external.error.fileTooLarge" = "The subtitle file is too large.";
+"player.tracks.external.error.encoding" = "The subtitle text encoding is not supported.";
+"player.tracks.external.error.format" = "The subtitle format is invalid.";
+"player.tracks.external.error.tooManyCues" = "The subtitle file contains too many cues.";
 "player.timeline" = "Playback Position";
 "player.fullscreen" = "Toggle Full Screen";
 "player.desktop" = "Set as Dynamic Desktop";

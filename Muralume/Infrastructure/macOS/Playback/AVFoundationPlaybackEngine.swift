@@ -19,10 +19,12 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             }
         }
     }
+    private var externalSubtitleTimeHandler: ((TimeInterval) -> Void)?
 
     private let player: AVPlayer
     private weak var attachedSurface: (any AVPlayerRenderSurface)?
     private var timeObserver: Any?
+    private var externalSubtitleTimeObserver: Any?
     private var timeControlObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
@@ -305,6 +307,14 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         return context.state
     }
 
+    func setExternalSubtitleTimeHandler(
+        _ handler: ((TimeInterval) -> Void)?
+    ) {
+        externalSubtitleTimeHandler = handler
+        refreshExternalSubtitleTimeObserver()
+        publishCurrentExternalSubtitleTimeIfAvailable()
+    }
+
     func stop() {
         loadGeneration &+= 1
         surfaceGeneration &+= 1
@@ -314,8 +324,10 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         player.pause()
         player.replaceCurrentItem(with: nil)
         mediaSelectionContext = nil
+        externalSubtitleTimeHandler = nil
         removeItemObservers()
         removeProgressObserver()
+        removeExternalSubtitleTimeObserver()
         removeTimeControlObservation()
         detachAll()
     }
@@ -349,6 +361,54 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             player.removeTimeObserver(timeObserver)
             self.timeObserver = nil
         }
+    }
+
+    private func installExternalSubtitleTimeObserver() {
+        guard externalSubtitleTimeObserver == nil,
+              externalSubtitleTimeHandler != nil,
+              player.currentItem != nil else {
+            return
+        }
+        let interval = CMTime(
+            seconds: ExternalSubtitlePolicy.timeUpdateInterval,
+            preferredTimescale: CMTimeScale(NSEC_PER_SEC)
+        )
+        externalSubtitleTimeObserver = player.addPeriodicTimeObserver(
+            forInterval: interval,
+            queue: .main
+        ) { [weak self] time in
+            let seconds = time.seconds
+            guard seconds.isFinite else {
+                return
+            }
+            MainActor.assumeIsolated {
+                self?.externalSubtitleTimeHandler?(seconds)
+            }
+        }
+    }
+
+    private func removeExternalSubtitleTimeObserver() {
+        if let externalSubtitleTimeObserver {
+            player.removeTimeObserver(externalSubtitleTimeObserver)
+            self.externalSubtitleTimeObserver = nil
+        }
+    }
+
+    private func refreshExternalSubtitleTimeObserver() {
+        removeExternalSubtitleTimeObserver()
+        installExternalSubtitleTimeObserver()
+    }
+
+    private func publishCurrentExternalSubtitleTimeIfAvailable() {
+        guard externalSubtitleTimeHandler != nil,
+              player.currentItem != nil else {
+            return
+        }
+        let seconds = player.currentTime().seconds
+        guard seconds.isFinite else {
+            return
+        }
+        externalSubtitleTimeHandler?(seconds)
     }
 
     private func refreshProgressObserver() {

@@ -25,6 +25,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     private let applicationPresence: any ApplicationPresenceControlling
     private let desktopPreset: DesktopPresetController
     private let playbackSession: PlaybackSessionController
+    private let externalSubtitlePicker:
+        (any ExternalSubtitleSelecting)?
     private let customPlaylistPlaybackBridge:
         CustomPlaylistPlaybackBridge
     private let automaticLibraryRefresh:
@@ -57,7 +59,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             MediaLibraryAutomaticRefreshSchedule = .production,
         desktopScene: DesktopSceneController? = nil,
         smartPause: SmartPauseController = SmartPauseController(),
-        playerChrome: PlayerChromeController = PlayerChromeController()
+        playerChrome: PlayerChromeController = PlayerChromeController(),
+        externalSubtitlePicker:
+            (any ExternalSubtitleSelecting)? = nil
     ) {
         self.playback = playback
         self.desktopSession = desktopSession
@@ -70,6 +74,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         self.defaultVideoPlayer = defaultVideoPlayer
         self.desktopPreset = desktopPreset
         self.playbackSession = playbackSession
+        self.externalSubtitlePicker = externalSubtitlePicker
         customPlaylistPlaybackBridge = CustomPlaylistPlaybackBridge(
             playlists: playlists,
             library: library
@@ -279,6 +284,14 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             }
             library.addMedia()
         }
+    }
+
+    func loadExternalSubtitle() {
+        guard playback.hasPlayableMedia,
+              let subtitleURL = externalSubtitlePicker?.selectSubtitle() else {
+            return
+        }
+        playback.loadExternalSubtitle(subtitleURL)
     }
 
     func reauthorizeMediaSources() {
