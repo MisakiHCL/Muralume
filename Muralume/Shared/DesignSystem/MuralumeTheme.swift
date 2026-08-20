@@ -162,6 +162,7 @@ enum MuralumeAccessibilityIdentifier {
     static let playerControls = "muralume.player-controls"
     static let playbackTimeline = "muralume.playback-timeline"
     static let temporaryPlaybackRate = "muralume.temporary-playback-rate"
+    static let mediaSelectionButton = "muralume.media-selection"
     static let volumeSlider = "muralume.volume-slider"
     static let playerControlBar = "muralume.player-control-bar"
     static let playerTransportControls = "muralume.player-transport-controls"

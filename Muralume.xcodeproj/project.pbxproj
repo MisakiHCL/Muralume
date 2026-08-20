@@ -153,6 +153,13 @@
 		E82000000000000000000011 /* DesktopEnergyPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82000000000000000000001 /* DesktopEnergyPolicyTests.swift */; };
 		E83000000000000000000011 /* MacDesktopHostEnergyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83000000000000000000001 /* MacDesktopHostEnergyTests.swift */; };
 		E970F932ED084EA2B4F95281 /* MuralumeTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F8A5E9E12614B138608DC0E /* MuralumeTheme.swift */; };
+		E90000000000000000000011 /* PlaybackMediaSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90000000000000000000001 /* PlaybackMediaSelection.swift */; };
+		E90000000000000000000012 /* PlaybackMediaSelectionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90000000000000000000002 /* PlaybackMediaSelectionController.swift */; };
+		E90000000000000000000013 /* PlayerMediaSelectionMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90000000000000000000003 /* PlayerMediaSelectionMenu.swift */; };
+		E90000000000000000000014 /* PlaybackMediaSelectionControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90000000000000000000004 /* PlaybackMediaSelectionControllerTests.swift */; };
+		EA0000000000000000000011 /* alternate-tracks-5s.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000001 /* alternate-tracks-5s.mp4 */; };
+		EA0000000000000000000012 /* english-5s.srt in Resources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000002 /* english-5s.srt */; };
+		EA0000000000000000000013 /* chinese-5s.srt in Resources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000003 /* chinese-5s.srt */; };
 		EC1CFBA860414E00B01FF30C /* PlayerSurfaceRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD7D228FCC544D595B5400F /* PlayerSurfaceRepresentable.swift */; };
 		F52129EF7CDA0DFCABB9582F /* DesktopStatusMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C29C21DB3FE1DEF3EE73B56A /* DesktopStatusMenuController.swift */; };
 		F53454E4DD4EAD1FBA7DDD3D /* AppCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08363CE1AF64721E4BB431EB /* AppCoordinator.swift */; };
@@ -336,6 +343,13 @@
 		E82000000000000000000001 /* DesktopEnergyPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopEnergyPolicyTests.swift; sourceTree = "<group>"; };
 		E83000000000000000000001 /* MacDesktopHostEnergyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopHostEnergyTests.swift; sourceTree = "<group>"; };
 		E9EDF0C412B646C199C77E26 /* AppCompositionRoot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppCompositionRoot.swift; sourceTree = "<group>"; };
+		E90000000000000000000001 /* PlaybackMediaSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackMediaSelection.swift; sourceTree = "<group>"; };
+		E90000000000000000000002 /* PlaybackMediaSelectionController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackMediaSelectionController.swift; sourceTree = "<group>"; };
+		E90000000000000000000003 /* PlayerMediaSelectionMenu.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerMediaSelectionMenu.swift; sourceTree = "<group>"; };
+		E90000000000000000000004 /* PlaybackMediaSelectionControllerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackMediaSelectionControllerTests.swift; sourceTree = "<group>"; };
+		EA0000000000000000000001 /* alternate-tracks-5s.mp4 */ = {isa = PBXFileReference; includeInIndex = 1; path = "alternate-tracks-5s.mp4"; sourceTree = "<group>"; };
+		EA0000000000000000000002 /* english-5s.srt */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; path = "english-5s.srt"; sourceTree = "<group>"; };
+		EA0000000000000000000003 /* chinese-5s.srt */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; path = "chinese-5s.srt"; sourceTree = "<group>"; };
 		EC57C2D5C1B19433C063C606 /* WindowReader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WindowReader.swift; sourceTree = "<group>"; };
 		ED645770F764AF0E6A40DE45 /* PlayerScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerScreen.swift; sourceTree = "<group>"; };
 		EFA3097D1700774EB9025522 /* DesktopSceneController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopSceneController.swift; sourceTree = "<group>"; };
@@ -513,6 +527,8 @@
 			children = (
 				9766A9110451BE38E5212969 /* PlaybackCoordinator.swift */,
 				82C43CDEEC83437E807E0533 /* PlaybackEngine.swift */,
+				E90000000000000000000001 /* PlaybackMediaSelection.swift */,
+				E90000000000000000000002 /* PlaybackMediaSelectionController.swift */,
 				26FCE9077E4742A29B26FBC6 /* PlaybackPolicy.swift */,
 				024CA620068D40FBB0ADBA3B /* PlaybackRenderSurface.swift */,
 				C30000000000000000000001 /* PlaybackSession.swift */,
@@ -541,6 +557,7 @@
 				B40000000000000000000002 /* PlayerChromeControllerTests.swift */,
 				F2D6934434FD592F47EA3C97 /* PlaybackCoordinatorTests.swift */,
 				D90000000000000000000001 /* TemporaryPlaybackRateTests.swift */,
+				E90000000000000000000004 /* PlaybackMediaSelectionControllerTests.swift */,
 				E81000000000000000000001 /* PlaybackEnergyPolicyTests.swift */,
 				E82000000000000000000001 /* DesktopEnergyPolicyTests.swift */,
 				C30000000000000000000005 /* PlaybackSessionControllerTests.swift */,
@@ -634,6 +651,9 @@
 			children = (
 				24127E2E6C60122900648F42 /* landscape-20s-h264.mp4 */,
 				B10000000000000000000002 /* portrait-20s-h264.mp4 */,
+				EA0000000000000000000001 /* alternate-tracks-5s.mp4 */,
+				EA0000000000000000000002 /* english-5s.srt */,
+				EA0000000000000000000003 /* chinese-5s.srt */,
 			);
 			name = Fixtures;
 			path = Fixtures;
@@ -980,6 +1000,7 @@
 				4CB15C81943B4BFA922B551A /* PlaybackFailure+Localization.swift */,
 				C68D1172DDA349E29EDAE7B2 /* PlayerActions.swift */,
 				B0B4E56E210B4EFEB277753E /* PlayerControlBar.swift */,
+				E90000000000000000000003 /* PlayerMediaSelectionMenu.swift */,
 				E4C1719B3EBF498C8A5CCF6E /* PlayerControls.swift */,
 				5053B5F0E3334478B49B2E6A /* PlayerFormatting.swift */,
 				B40000000000000000000001 /* PlayerChromeController.swift */,
@@ -1088,6 +1109,9 @@
 			files = (
 				E6922A8E550A848735A52CBB /* landscape-20s-h264.mp4 in Resources */,
 				B10000000000000000000001 /* portrait-20s-h264.mp4 in Resources */,
+				EA0000000000000000000011 /* alternate-tracks-5s.mp4 in Resources */,
+				EA0000000000000000000012 /* english-5s.srt in Resources */,
+				EA0000000000000000000013 /* chinese-5s.srt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1140,6 +1164,8 @@
 				AF1000000000000000000011 /* MediaThumbnailProviding.swift in Sources */,
 				7853A770F99714259B9C1495 /* PlaybackCoordinator.swift in Sources */,
 				D411CD1097024403912B986C /* PlaybackEngine.swift in Sources */,
+				E90000000000000000000011 /* PlaybackMediaSelection.swift in Sources */,
+				E90000000000000000000012 /* PlaybackMediaSelectionController.swift in Sources */,
 				1115775F8C2E48549F71E259 /* PlaybackPolicy.swift in Sources */,
 				60083F2F8C964BFC9443A988 /* PlaybackRenderSurface.swift in Sources */,
 				C30000000000000000000011 /* PlaybackSession.swift in Sources */,
@@ -1164,6 +1190,7 @@
 				74CB2874C8E84DCB9FB68E95 /* PlaybackFailure+Localization.swift in Sources */,
 				353A5218136446D38C6974E8 /* PlayerActions.swift in Sources */,
 				03DFE42FCA314D64B3B0A234 /* PlayerControlBar.swift in Sources */,
+				E90000000000000000000013 /* PlayerMediaSelectionMenu.swift in Sources */,
 				A4F0A61C4AB24AF3830DDADE /* PlayerControls.swift in Sources */,
 				9D80EF3DD4AC4552A41321D7 /* PlayerFormatting.swift in Sources */,
 				B40000000000000000000011 /* PlayerChromeController.swift in Sources */,
@@ -1254,6 +1281,7 @@
 				B40000000000000000000012 /* PlayerChromeControllerTests.swift in Sources */,
 				CD94D20452E0790A183D3EC0 /* PlaybackCoordinatorTests.swift in Sources */,
 				D90000000000000000000011 /* TemporaryPlaybackRateTests.swift in Sources */,
+				E90000000000000000000014 /* PlaybackMediaSelectionControllerTests.swift in Sources */,
 				E81000000000000000000011 /* PlaybackEnergyPolicyTests.swift in Sources */,
 				E82000000000000000000011 /* DesktopEnergyPolicyTests.swift in Sources */,
 				C30000000000000000000015 /* PlaybackSessionControllerTests.swift in Sources */,

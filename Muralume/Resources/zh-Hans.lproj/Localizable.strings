@@ -32,6 +32,11 @@
 "player.volumeDown" = "调低音量";
 "player.speed" = "播放速度";
 "player.temporarySpeed" = "临时播放速度";
+"player.tracks" = "字幕与音轨";
+"player.tracks.audio" = "音轨";
+"player.tracks.subtitles" = "字幕";
+"player.tracks.automatic" = "自动";
+"player.tracks.off" = "关闭";
 "player.timeline" = "播放位置";
 "player.fullscreen" = "切换全屏模式";
 "player.desktop" = "设为动态桌面";

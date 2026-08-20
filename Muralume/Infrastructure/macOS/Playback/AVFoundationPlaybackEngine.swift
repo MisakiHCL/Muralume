@@ -26,6 +26,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     private var timeControlObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
+    private var mediaSelectionContext: AVFoundationMediaSelectionContext?
     private var loadGeneration: UInt64 = 0
     private var surfaceGeneration: UInt64 = 0
     private var progressCadence: PlaybackProgressCadence = .inactive
@@ -54,6 +55,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         loadGeneration &+= 1
         let generation = loadGeneration
         removeItemObservers()
+        mediaSelectionContext = nil
 
         let asset = AVURLAsset(url: source.url)
 
@@ -61,7 +63,25 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             async let playable = asset.load(.isPlayable)
             async let duration = asset.load(.duration)
             async let videoTracks = asset.loadTracks(withMediaType: .video)
-            let (isPlayable, assetDuration, tracks) = try await (playable, duration, videoTracks)
+            async let audioGroup = asset.loadMediaSelectionGroup(
+                for: .audible
+            )
+            async let subtitleGroup = asset.loadMediaSelectionGroup(
+                for: .legible
+            )
+            let (
+                isPlayable,
+                assetDuration,
+                tracks,
+                loadedAudioGroup,
+                loadedSubtitleGroup
+            ) = try await (
+                playable,
+                duration,
+                videoTracks,
+                audioGroup,
+                subtitleGroup
+            )
 
             try Task.checkCancellation()
             guard generation == loadGeneration else {
@@ -75,6 +95,12 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             player.replaceCurrentItem(with: item)
             try await waitUntilReadyToPlay(item, generation: generation)
             installItemObservers(for: item)
+            mediaSelectionContext = AVFoundationMediaSelectionContext(
+                item: item,
+                audioGroup: loadedAudioGroup,
+                subtitleGroup: loadedSubtitleGroup,
+                generation: generation
+            )
 
             let seconds = assetDuration.seconds
             return seconds.isFinite && seconds > 0 ? seconds : 0
@@ -251,6 +277,34 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         player.isMuted = isMuted
     }
 
+    func currentMediaSelectionState() -> PlaybackMediaSelectionState {
+        mediaSelectionContext?.state ?? .empty
+    }
+
+    func selectAudio(
+        _ selection: PlaybackAudioSelection
+    ) -> PlaybackMediaSelectionState {
+        guard var context = mediaSelectionContext,
+              context.item === player.currentItem else {
+            return .empty
+        }
+        context.selectAudio(selection)
+        mediaSelectionContext = context
+        return context.state
+    }
+
+    func selectSubtitles(
+        _ selection: PlaybackSubtitleSelection
+    ) -> PlaybackMediaSelectionState {
+        guard var context = mediaSelectionContext,
+              context.item === player.currentItem else {
+            return .empty
+        }
+        context.selectSubtitles(selection)
+        mediaSelectionContext = context
+        return context.state
+    }
+
     func stop() {
         loadGeneration &+= 1
         surfaceGeneration &+= 1
@@ -259,6 +313,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         player.cancelPendingPrerolls()
         player.pause()
         player.replaceCurrentItem(with: nil)
+        mediaSelectionContext = nil
         removeItemObservers()
         removeProgressObserver()
         removeTimeControlObservation()
@@ -423,5 +478,178 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         guard item.status == .readyToPlay else {
             throw PlaybackEngineError.cannotOpen
         }
+    }
+}
+
+@MainActor
+private struct AVFoundationMediaSelectionContext {
+    let item: AVPlayerItem
+    let audioGroup: AVMediaSelectionGroup?
+    let subtitleGroup: AVMediaSelectionGroup?
+    let audioOptions: [PlaybackMediaOption]
+    let subtitleOptions: [PlaybackMediaOption]
+
+    private let audioOptionsByID: [
+        PlaybackMediaOptionID: AVMediaSelectionOption
+    ]
+    private let subtitleOptionsByID: [
+        PlaybackMediaOptionID: AVMediaSelectionOption
+    ]
+    private(set) var audioSelection: PlaybackAudioSelection = .automatic
+    private(set) var subtitleSelection: PlaybackSubtitleSelection = .automatic
+
+    init(
+        item: AVPlayerItem,
+        audioGroup: AVMediaSelectionGroup?,
+        subtitleGroup: AVMediaSelectionGroup?,
+        generation: UInt64
+    ) {
+        self.item = item
+        self.audioGroup = audioGroup
+        self.subtitleGroup = subtitleGroup
+
+        let audioMappings = Self.makeOptions(
+            group: audioGroup,
+            prefix: "audio-\(generation)"
+        )
+        audioOptions = audioMappings.options
+        audioOptionsByID = audioMappings.optionsByID
+
+        let subtitleMappings = Self.makeOptions(
+            group: subtitleGroup,
+            prefix: "subtitle-\(generation)"
+        )
+        subtitleOptions = subtitleMappings.options
+        subtitleOptionsByID = subtitleMappings.optionsByID
+    }
+
+    var state: PlaybackMediaSelectionState {
+        PlaybackMediaSelectionState(
+            audioOptions: audioOptions,
+            subtitleOptions: subtitleOptions,
+            audioSelection: audioSelection,
+            subtitleSelection: subtitleSelection,
+            effectiveAudioOptionID: selectedOptionID(
+                group: audioGroup,
+                optionsByID: audioOptionsByID
+            ),
+            effectiveSubtitleOptionID: selectedOptionID(
+                group: subtitleGroup,
+                optionsByID: subtitleOptionsByID
+            ),
+            allowsEmptySubtitleSelection:
+                subtitleGroup?.allowsEmptySelection ?? true
+        )
+    }
+
+    mutating func selectAudio(_ selection: PlaybackAudioSelection) {
+        guard let audioGroup else {
+            return
+        }
+        switch selection {
+        case .automatic:
+            item.selectMediaOptionAutomatically(in: audioGroup)
+        case let .option(id):
+            guard let option = audioOptionsByID[id] else {
+                return
+            }
+            item.select(option, in: audioGroup)
+        }
+        audioSelection = selection
+    }
+
+    mutating func selectSubtitles(
+        _ selection: PlaybackSubtitleSelection
+    ) {
+        guard let subtitleGroup else {
+            return
+        }
+        switch selection {
+        case .automatic:
+            item.selectMediaOptionAutomatically(in: subtitleGroup)
+        case .off:
+            guard subtitleGroup.allowsEmptySelection else {
+                return
+            }
+            item.select(nil, in: subtitleGroup)
+        case let .option(id):
+            guard let option = subtitleOptionsByID[id] else {
+                return
+            }
+            item.select(option, in: subtitleGroup)
+        }
+        subtitleSelection = selection
+    }
+
+    private func selectedOptionID(
+        group: AVMediaSelectionGroup?,
+        optionsByID: [PlaybackMediaOptionID: AVMediaSelectionOption]
+    ) -> PlaybackMediaOptionID? {
+        guard let group,
+              let selectedOption = item.currentMediaSelection
+                .selectedMediaOption(in: group) else {
+            return nil
+        }
+        return optionsByID.first { _, option in
+            option === selectedOption
+        }?.key
+    }
+
+    private static func makeOptions(
+        group: AVMediaSelectionGroup?,
+        prefix: String
+    ) -> (
+        options: [PlaybackMediaOption],
+        optionsByID: [PlaybackMediaOptionID: AVMediaSelectionOption]
+    ) {
+        guard let group else {
+            return ([], [:])
+        }
+
+        var options: [PlaybackMediaOption] = []
+        var optionsByID: [PlaybackMediaOptionID: AVMediaSelectionOption] = [:]
+        options.reserveCapacity(group.options.count)
+        optionsByID.reserveCapacity(group.options.count)
+
+        for (index, option) in group.options.enumerated() {
+            let id = PlaybackMediaOptionID(
+                rawValue: "\(prefix)-\(index)"
+            )
+            options.append(
+                PlaybackMediaOption(
+                    id: id,
+                    displayName: option.displayName,
+                    languageIdentifier: option.extendedLanguageTag
+                        ?? option.locale?.identifier,
+                    characteristics: characteristics(of: option)
+                )
+            )
+            optionsByID[id] = option
+        }
+        return (options, optionsByID)
+    }
+
+    private static func characteristics(
+        of option: AVMediaSelectionOption
+    ) -> Set<PlaybackMediaOptionCharacteristic> {
+        var characteristics: Set<PlaybackMediaOptionCharacteristic> = []
+        if option.hasMediaCharacteristic(.describesVideoForAccessibility) {
+            characteristics.insert(.audioDescription)
+        }
+        if option.hasMediaCharacteristic(.dubbedTranslation)
+            || option.hasMediaCharacteristic(.voiceOverTranslation) {
+            characteristics.insert(.dubbedTranslation)
+        }
+        if option.hasMediaCharacteristic(.containsOnlyForcedSubtitles) {
+            characteristics.insert(.forcedSubtitles)
+        }
+        if option.hasMediaCharacteristic(
+            .transcribesSpokenDialogForAccessibility
+        ) || option.hasMediaCharacteristic(
+            .describesMusicAndSoundForAccessibility
+        ) {
+            characteristics.insert(.closedCaptions)
+        }
+        return characteristics
     }
 }

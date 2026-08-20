@@ -32,6 +32,11 @@
 "player.volumeDown" = "Volume Down";
 "player.speed" = "Playback Speed";
 "player.temporarySpeed" = "Temporary Playback Speed";
+"player.tracks" = "Subtitles and Audio";
+"player.tracks.audio" = "Audio";
+"player.tracks.subtitles" = "Subtitles";
+"player.tracks.automatic" = "Automatic";
+"player.tracks.off" = "Off";
 "player.timeline" = "Playback Position";
 "player.fullscreen" = "Toggle Full Screen";
 "player.desktop" = "Set as Dynamic Desktop";

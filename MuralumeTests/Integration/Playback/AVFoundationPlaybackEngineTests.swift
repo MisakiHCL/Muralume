@@ -52,6 +52,78 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
         engine.stop()
     }
 
+    func testMediaSelectionIsEmptyForSampleWithoutAlternateTracks()
+        async throws {
+        let engine = AVFoundationPlaybackEngine()
+        defer { engine.stop() }
+
+        _ = try await engine.load(
+            ResolvedMediaSource(
+                url: try TestMediaFixture.h264URL(for: Self.self),
+                displayName: "Sample"
+            )
+        )
+
+        XCTAssertEqual(engine.currentMediaSelectionState(), .empty)
+        XCTAssertEqual(engine.selectAudio(.automatic), .empty)
+        XCTAssertEqual(engine.selectSubtitles(.off), .empty)
+    }
+
+    func testEnumeratesAndSelectsEmbeddedAudioAndSubtitleOptions()
+        async throws {
+        let engine = AVFoundationPlaybackEngine()
+        defer { engine.stop() }
+        let url = try XCTUnwrap(
+            Bundle(for: Self.self).url(
+                forResource: "alternate-tracks-5s",
+                withExtension: "mp4"
+            )
+        )
+
+        _ = try await engine.load(
+            ResolvedMediaSource(url: url, displayName: "Alternate Tracks")
+        )
+
+        let initialState = engine.currentMediaSelectionState()
+        XCTAssertEqual(initialState.audioOptions.count, 2)
+        XCTAssertEqual(initialState.subtitleOptions.count, 4)
+        XCTAssertEqual(
+            initialState.subtitleOptions.filter {
+                $0.characteristics.contains(.forcedSubtitles)
+            }.count,
+            2
+        )
+        XCTAssertEqual(initialState.audioSelection, .automatic)
+        XCTAssertEqual(initialState.subtitleSelection, .automatic)
+
+        let secondAudioID = initialState.audioOptions[1].id
+        let secondSubtitleID = try XCTUnwrap(
+            initialState.subtitleOptions.first {
+                $0.languageIdentifier == "zh"
+                    && !$0.characteristics.contains(.forcedSubtitles)
+            }?.id
+        )
+        let audioState = engine.selectAudio(.option(secondAudioID))
+        let subtitleState = engine.selectSubtitles(
+            .option(secondSubtitleID)
+        )
+
+        XCTAssertEqual(audioState.audioSelection, .option(secondAudioID))
+        XCTAssertEqual(audioState.effectiveAudioOptionID, secondAudioID)
+        XCTAssertEqual(
+            subtitleState.subtitleSelection,
+            .option(secondSubtitleID)
+        )
+        XCTAssertEqual(
+            subtitleState.effectiveSubtitleOptionID,
+            secondSubtitleID
+        )
+
+        let offState = engine.selectSubtitles(.off)
+        XCTAssertEqual(offState.subtitleSelection, .off)
+        XCTAssertNil(offState.effectiveSubtitleOptionID)
+    }
+
     func testRapidInteractiveSeekEndsAtExactReleaseTarget() async throws {
         let engine = AVFoundationPlaybackEngine()
         var latestProgress: TimeInterval?

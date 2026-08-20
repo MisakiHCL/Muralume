@@ -48,6 +48,13 @@ protocol PlaybackEngine: AnyObject {
     func setProgressCadence(_ cadence: PlaybackProgressCadence)
     func setVolume(_ volume: PlaybackVolume)
     func setMuted(_ isMuted: Bool)
+    func currentMediaSelectionState() -> PlaybackMediaSelectionState
+    func selectAudio(
+        _ selection: PlaybackAudioSelection
+    ) -> PlaybackMediaSelectionState
+    func selectSubtitles(
+        _ selection: PlaybackSubtitleSelection
+    ) -> PlaybackMediaSelectionState
     func stop()
 }
 
@@ -64,6 +71,22 @@ extension PlaybackEngine {
     }
 
     func setProgressCadence(_: PlaybackProgressCadence) {}
+
+    func currentMediaSelectionState() -> PlaybackMediaSelectionState {
+        .empty
+    }
+
+    func selectAudio(
+        _: PlaybackAudioSelection
+    ) -> PlaybackMediaSelectionState {
+        currentMediaSelectionState()
+    }
+
+    func selectSubtitles(
+        _: PlaybackSubtitleSelection
+    ) -> PlaybackMediaSelectionState {
+        currentMediaSelectionState()
+    }
 }
 
 @MainActor

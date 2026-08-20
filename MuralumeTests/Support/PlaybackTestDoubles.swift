@@ -50,6 +50,9 @@ final class TestPlaybackEngine: PlaybackEngine {
     private(set) var seekModes: [PlaybackSeekMode] = []
     private(set) var progressCadence: PlaybackProgressCadence = .inactive
     private(set) var progressCadenceChanges: [PlaybackProgressCadence] = []
+    var mediaSelectionState: PlaybackMediaSelectionState = .empty
+    private(set) var audioSelections: [PlaybackAudioSelection] = []
+    private(set) var subtitleSelections: [PlaybackSubtitleSelection] = []
     private(set) var stopCount = 0
     private(set) var playCount = 0
     private(set) var pauseCount = 0
@@ -161,10 +164,81 @@ final class TestPlaybackEngine: PlaybackEngine {
         self.isMuted = isMuted
     }
 
+    func currentMediaSelectionState() -> PlaybackMediaSelectionState {
+        mediaSelectionState
+    }
+
+    func selectAudio(
+        _ selection: PlaybackAudioSelection
+    ) -> PlaybackMediaSelectionState {
+        let effectiveOptionID: PlaybackMediaOptionID?
+        switch selection {
+        case .automatic:
+            effectiveOptionID = mediaSelectionState.effectiveAudioOptionID
+        case let .option(id):
+            guard mediaSelectionState.audioOptions.contains(
+                where: { $0.id == id }
+            ) else {
+                return mediaSelectionState
+            }
+            effectiveOptionID = id
+        }
+        audioSelections.append(selection)
+        mediaSelectionState = PlaybackMediaSelectionState(
+            audioOptions: mediaSelectionState.audioOptions,
+            subtitleOptions: mediaSelectionState.subtitleOptions,
+            audioSelection: selection,
+            subtitleSelection: mediaSelectionState.subtitleSelection,
+            effectiveAudioOptionID: effectiveOptionID,
+            effectiveSubtitleOptionID:
+                mediaSelectionState.effectiveSubtitleOptionID,
+            allowsEmptySubtitleSelection:
+                mediaSelectionState.allowsEmptySubtitleSelection
+        )
+        return mediaSelectionState
+    }
+
+    func selectSubtitles(
+        _ selection: PlaybackSubtitleSelection
+    ) -> PlaybackMediaSelectionState {
+        let effectiveOptionID: PlaybackMediaOptionID?
+        switch selection {
+        case .automatic:
+            effectiveOptionID = mediaSelectionState
+                .effectiveSubtitleOptionID
+        case .off:
+            guard mediaSelectionState.allowsEmptySubtitleSelection else {
+                return mediaSelectionState
+            }
+            effectiveOptionID = nil
+        case let .option(id):
+            guard mediaSelectionState.subtitleOptions.contains(
+                where: { $0.id == id }
+            ) else {
+                return mediaSelectionState
+            }
+            effectiveOptionID = id
+        }
+        subtitleSelections.append(selection)
+        mediaSelectionState = PlaybackMediaSelectionState(
+            audioOptions: mediaSelectionState.audioOptions,
+            subtitleOptions: mediaSelectionState.subtitleOptions,
+            audioSelection: mediaSelectionState.audioSelection,
+            subtitleSelection: selection,
+            effectiveAudioOptionID:
+                mediaSelectionState.effectiveAudioOptionID,
+            effectiveSubtitleOptionID: effectiveOptionID,
+            allowsEmptySubtitleSelection:
+                mediaSelectionState.allowsEmptySubtitleSelection
+        )
+        return mediaSelectionState
+    }
+
     func stop() {
         stopCount += 1
         attachedSurfaceID = nil
         isPlaying = false
+        mediaSelectionState = .empty
         playbackActivityHandler?(false)
     }
 

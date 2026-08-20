@@ -90,6 +90,7 @@ final class DesktopLoopPlaybackNode {
                 guard isCurrent(expectedGeneration) else {
                     return
                 }
+                _ = engine.selectSubtitles(.off)
                 // Muting must precede both attachment and any play request so
                 // a newly created independent display can never emit audio.
                 enforceDesktopAudioPolicy()

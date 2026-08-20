@@ -42,6 +42,8 @@ final class PlaybackCoordinator: ObservableObject {
         }
     }
 
+    let mediaSelection: PlaybackMediaSelectionController
+
     var canPresentOnDesktop: Bool {
         readiness == .ready
             && presentation == .player
@@ -74,6 +76,7 @@ final class PlaybackCoordinator: ObservableObject {
             PlaybackPolicy.audioPreferencesPersistenceDelay
     ) {
         self.engine = engine
+        mediaSelection = PlaybackMediaSelectionController(engine: engine)
         self.preferencesStore = preferencesStore
         self.audioPreferencesPersistenceDelay =
             audioPreferencesPersistenceDelay
@@ -195,6 +198,7 @@ final class PlaybackCoordinator: ObservableObject {
 
         cancelTimelineSeek()
         clearTemporaryPlaybackRateOverride()
+        mediaSelection.reset()
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
         attachedPlayerSurface = nil
@@ -227,6 +231,11 @@ final class PlaybackCoordinator: ObservableObject {
         }
         guard loadGeneration == mediaLoadGeneration else {
             return .cancelled
+        }
+
+        mediaSelection.refresh()
+        if presentation == .desktop || isSwitching(to: .desktop) {
+            mediaSelection.suppressSubtitlesForDesktop()
         }
 
         duration = loadedDuration
@@ -487,6 +496,7 @@ final class PlaybackCoordinator: ObservableObject {
         isDesktopEngineDetached = false
         presentation = .switching(generation: generation, destination: .desktop)
         savedPlayerSettings = settings
+        mediaSelection.suppressSubtitlesForDesktop()
 
         // A Dock-menu desktop transition can begin while the player window is
         // hidden. Mute before releasing that visibility gate so the preserved
@@ -509,6 +519,7 @@ final class PlaybackCoordinator: ObservableObject {
                 throw error
             }
             restorePlayerSettings()
+            mediaSelection.restorePlayerSubtitleSelection()
             presentation = .player
             if let playerSurface, !isPlayerWindowDismissed {
                 do {
@@ -539,6 +550,7 @@ final class PlaybackCoordinator: ObservableObject {
             destination: .desktop
         )
         savedPlayerSettings = settings
+        mediaSelection.suppressSubtitlesForDesktop()
 
         // Independent display engines own every desktop render surface. Keep
         // the foreground engine's queue, time, and intent intact while making
@@ -580,6 +592,7 @@ final class PlaybackCoordinator: ObservableObject {
             attachedPlayerSurface = playerSurface
             isDesktopEngineDetached = false
             restorePlayerSettings()
+            mediaSelection.restorePlayerSubtitleSelection()
             presentation = .player
             applyPlaybackGate()
         } catch {
@@ -613,6 +626,7 @@ final class PlaybackCoordinator: ObservableObject {
         isPlayerWindowDismissed = true
         attachedPlayerSurface = nil
         restorePlayerSettings()
+        mediaSelection.restorePlayerSubtitleSelection()
         presentation = .player
         isDesktopEngineDetached = false
         engine.pause()
@@ -648,6 +662,7 @@ final class PlaybackCoordinator: ObservableObject {
     func stop() {
         cancelTimelineSeek()
         clearTemporaryPlaybackRateOverride()
+        mediaSelection.reset()
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
         attachedPlayerSurface = nil
@@ -675,6 +690,7 @@ final class PlaybackCoordinator: ObservableObject {
         }
         cancelTimelineSeek()
         clearTemporaryPlaybackRateOverride()
+        mediaSelection.reset()
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
         attachedPlayerSurface = nil
@@ -843,6 +859,7 @@ final class PlaybackCoordinator: ObservableObject {
     private func fail(with failure: PlaybackFailure) {
         cancelTimelineSeek()
         clearTemporaryPlaybackRateOverride()
+        mediaSelection.reset()
         hasHandledCurrentItemEnd = false
         cancelPlayerSurfaceAttachment()
         attachedPlayerSurface = nil
@@ -865,6 +882,7 @@ final class PlaybackCoordinator: ObservableObject {
     private func failLoading(with failure: PlaybackFailure) {
         cancelTimelineSeek()
         clearTemporaryPlaybackRateOverride()
+        mediaSelection.reset()
         hasHandledCurrentItemEnd = false
         engine.pause()
         readiness = .failed(failure)

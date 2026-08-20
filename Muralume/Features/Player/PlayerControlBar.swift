@@ -336,6 +336,11 @@ struct PlayerControlBar: View {
 
     private var trailingControls: some View {
         HStack(spacing: MuralumeTheme.Spacing.small) {
+            PlayerMediaSelectionMenu(
+                controller: playback.mediaSelection,
+                isEnabled: mediaControlsEnabled
+            )
+
             playbackRateMenu
 
             Button {
