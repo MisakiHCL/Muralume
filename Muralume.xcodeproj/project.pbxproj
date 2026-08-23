@@ -113,6 +113,8 @@
 		AE0000000000000000000011 /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0000000000000000000001 /* AppDelegateTests.swift */; };
 		AF1000000000000000000011 /* MediaThumbnailProviding.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000001 /* MediaThumbnailProviding.swift */; };
 		AF1000000000000000000012 /* QuickLookMediaThumbnailProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000002 /* QuickLookMediaThumbnailProvider.swift */; };
+		F22000000000000000000011 /* AVAssetCompatibilityThumbnailGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F22000000000000000000001 /* AVAssetCompatibilityThumbnailGenerator.swift */; };
+		F22000000000000000000012 /* MediaPlaybackCompatibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F22000000000000000000002 /* MediaPlaybackCompatibilityTests.swift */; };
 		AF1000000000000000000013 /* LibraryMediaThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000003 /* LibraryMediaThumbnail.swift */; };
 		B10000000000000000000001 /* portrait-20s-h264.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* portrait-20s-h264.mp4 */; };
 		B20000000000000000000011 /* MacMainMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000012 /* MacMainMenuController.swift */; };
@@ -309,6 +311,8 @@
 		AEAFFBCADB9C4DDF8A43DB08 /* RealAVPlayerLayerRoundTripTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RealAVPlayerLayerRoundTripTests.swift; sourceTree = "<group>"; };
 		AF1000000000000000000001 /* MediaThumbnailProviding.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaThumbnailProviding.swift; sourceTree = "<group>"; };
 		AF1000000000000000000002 /* QuickLookMediaThumbnailProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuickLookMediaThumbnailProvider.swift; sourceTree = "<group>"; };
+		F22000000000000000000001 /* AVAssetCompatibilityThumbnailGenerator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AVAssetCompatibilityThumbnailGenerator.swift; sourceTree = "<group>"; };
+		F22000000000000000000002 /* MediaPlaybackCompatibilityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaPlaybackCompatibilityTests.swift; sourceTree = "<group>"; };
 		AF1000000000000000000003 /* LibraryMediaThumbnail.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryMediaThumbnail.swift; sourceTree = "<group>"; };
 		AF42D16CD96624D4E2402FDD /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B0B4E56E210B4EFEB277753E /* PlayerControlBar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerControlBar.swift; sourceTree = "<group>"; };
@@ -858,6 +862,7 @@
 			isa = PBXGroup;
 			children = (
 				AA0000000000000000000006 /* FileSystemMediaLibraryScanner.swift */,
+				F22000000000000000000001 /* AVAssetCompatibilityThumbnailGenerator.swift */,
 				AF1000000000000000000002 /* QuickLookMediaThumbnailProvider.swift */,
 				654368F2F8F46611FE1F0288 /* FileCustomPlaylistStore.swift */,
 				F13000000000000000000004 /* FSEventsMediaLibraryChangeMonitor.swift */,
@@ -952,6 +957,7 @@
 			isa = PBXGroup;
 			children = (
 				25EA2A620F0248ECAA3D369A /* AVFoundationPlaybackEngineTests.swift */,
+				F22000000000000000000002 /* MediaPlaybackCompatibilityTests.swift */,
 				F19000000000000000000004 /* VideoInformationTests.swift */,
 				F17000000000000000000003 /* VideoScreenshotTests.swift */,
 				AEAFFBCADB9C4DDF8A43DB08 /* RealAVPlayerLayerRoundTripTests.swift */,
@@ -1273,6 +1279,7 @@
 				D7A2E5C01A2B3C4D5E6F7001 /* UserSelectedMediaRestoreExecutor.swift in Sources */,
 				19C57C0C558AA0B34670E630 /* UserSelectedMediaSession.swift in Sources */,
 				AA0000000000000000000016 /* FileSystemMediaLibraryScanner.swift in Sources */,
+				F22000000000000000000011 /* AVAssetCompatibilityThumbnailGenerator.swift in Sources */,
 				AF1000000000000000000012 /* QuickLookMediaThumbnailProvider.swift in Sources */,
 				AC0000000000000000000013 /* UserDefaultsAppPreferencesStore.swift in Sources */,
 				4B9EC4249AD1406990161515 /* AVFoundationPlaybackEngine.swift in Sources */,
@@ -1368,6 +1375,7 @@
 				AA000000000000000000001B /* FileSystemMediaLibraryScannerTests.swift in Sources */,
 				AB0000000000000000000002 /* UserSelectedMediaSessionTests.swift in Sources */,
 				004C99C5AE9B45B3AE32AB2A /* AVFoundationPlaybackEngineTests.swift in Sources */,
+				F22000000000000000000012 /* MediaPlaybackCompatibilityTests.swift in Sources */,
 				F19000000000000000000014 /* VideoInformationTests.swift in Sources */,
 				F17000000000000000000013 /* VideoScreenshotTests.swift in Sources */,
 				9DDE2F09B8C64CF4AB689811 /* RealAVPlayerLayerRoundTripTests.swift in Sources */,

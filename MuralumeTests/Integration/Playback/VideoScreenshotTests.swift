@@ -43,6 +43,28 @@ final class VideoScreenshotTests: XCTestCase {
         }
     }
 
+    func testGeneratesJPEGThroughF4VCompatibilityAlias() async throws {
+        let fixture = try TestMediaFixture.temporaryCopy(
+            for: Self.self,
+            fileExtension: "f4v"
+        )
+        defer { fixture.remove() }
+
+        let data = try await AVAssetVideoScreenshotGenerator().jpegData(
+            for: VideoScreenshotRequest(
+                source: ResolvedMediaSource(
+                    url: fixture.url,
+                    displayName: fixture.url.lastPathComponent
+                ),
+                time: 1
+            )
+        )
+        let image = try XCTUnwrap(NSBitmapImageRep(data: data))
+
+        XCTAssertEqual(image.pixelsWide, 320)
+        XCTAssertEqual(image.pixelsHigh, 180)
+    }
+
     func testSuggestedFilenameSanitizesSourceNameAndIncludesVideoTime() {
         let source = ResolvedMediaSource(
             url: URL(fileURLWithPath: "/tmp/ignored.mp4"),

@@ -183,6 +183,8 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
     }
 
     private let generator: any QuickLookThumbnailGenerating
+    private let compatibilityGenerator:
+        any CompatibilityMediaThumbnailGenerating
     private let cacheMissDelay: Duration
     private let cacheMissDelayer: CacheMissDelayer
     private let maximumConcurrentRequestCount: Int
@@ -211,6 +213,8 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
     init(
         generator: any QuickLookThumbnailGenerating =
             SystemQuickLookThumbnailGenerator(),
+        compatibilityGenerator: any CompatibilityMediaThumbnailGenerating =
+            AVAssetCompatibilityThumbnailGenerator(),
         cacheMissDelay: Duration? = nil,
         maximumConcurrentRequestCount: Int? = nil,
         drainDeadline: Duration? = nil,
@@ -236,6 +240,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         precondition(effectiveDrainDeadline > .zero)
 
         self.generator = generator
+        self.compatibilityGenerator = compatibilityGenerator
         self.cacheMissDelay = cacheMissDelay ?? Policy.cacheMissDelay
         self.maximumConcurrentRequestCount =
             effectiveMaximumConcurrentRequestCount
@@ -572,12 +577,29 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             let generationID = UUID()
             inFlightGenerationIDs.insert(generationID)
             let generator = generator
+            let compatibilityGenerator = compatibilityGenerator
+            let fileURL = activeRequest.fileURL
+            let size = activeRequest.size
+            let scale = activeRequest.scale
+            let needsCompatibilityGenerator =
+                MediaPlaybackCompatibilityPolicy.canonicalExtension(
+                    for: fileURL
+                ) != nil
             activeRequest.task = Task {
                 @MainActor [weak self, weak activeRequest] in
-                let image = await Self.generateThumbnail(
-                    generator: generator,
-                    cancellation: cancellation
-                )
+                let image = if needsCompatibilityGenerator {
+                    await Self.generateCompatibilityThumbnail(
+                        generator: compatibilityGenerator,
+                        fileURL: fileURL,
+                        size: size,
+                        scale: scale
+                    )
+                } else {
+                    await Self.generateThumbnail(
+                        generator: generator,
+                        cancellation: cancellation
+                    )
+                }
                 guard let self else {
                     return
                 }
@@ -630,6 +652,28 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             image = nil
         }
         return image
+    }
+
+    private static func generateCompatibilityThumbnail(
+        generator: any CompatibilityMediaThumbnailGenerating,
+        fileURL: URL,
+        size: CGSize,
+        scale: CGFloat
+    ) async -> CGImage? {
+        guard !Task.isCancelled else {
+            return nil
+        }
+        do {
+            let image = try await generator.image(
+                for: fileURL,
+                size: size,
+                scale: scale
+            )
+            try Task.checkCancellation()
+            return image
+        } catch {
+            return nil
+        }
     }
 
     private func cancelWaiter(_ waiterID: UUID) {

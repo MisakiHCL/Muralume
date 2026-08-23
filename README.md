@@ -47,6 +47,10 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 
 - **Your videos. No catalog:** Add individual videos, folders, or both. Muralume keeps
   source files in place and accesses only the items you choose.
+- **More familiar formats, still read-only:** In addition to the standard macOS video
+  containers, Muralume recognizes common F4V, VOB, MOD, TOD, M2P, MP2V, MPV,
+  MPEG4, MPG4, DivX, and Xvid filename variants without renaming or converting
+  the source file.
 - **A library that keeps up:** Browse thumbnails, sort your collection, search by name or
   location, and automatically discover folder changes while the app is open.
 - **Playlists, your way:** Create custom groups, add and reorder videos, search
@@ -114,10 +118,12 @@ For the GitHub version, open the DMG and drag Muralume into Applications.
 
 - Apple silicon Mac
 - macOS 14 or later
-- A video in an AVFoundation-compatible format, including common MP4, MOV, M4V, MPEG,
-  MPEG-TS, 3GP, 3G2, AVI, and DV files
+- A video in an AVFoundation-compatible format, including MP4, MOV, M4V, MPEG,
+  MPEG-TS, 3GP, 3G2, AVI, DV, F4V, VOB, MOD, TOD, M2P, MP2V, MPV, MPEG4,
+  MPG4, DivX, and Xvid filename variants
 
-Playback compatibility depends on the codecs available through macOS.
+Containers and filename variants do not guarantee a particular codec. Playback
+compatibility still depends on the codecs available through macOS.
 
 ## Build from source
 

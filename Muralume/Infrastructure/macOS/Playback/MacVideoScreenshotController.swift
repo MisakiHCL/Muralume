@@ -27,7 +27,11 @@ private enum VideoScreenshotPolicy {
 
 actor AVAssetVideoScreenshotGenerator: VideoScreenshotGenerating {
     func jpegData(for request: VideoScreenshotRequest) async throws -> Data {
-        let asset = AVURLAsset(url: request.source.url)
+        let sourceLease = try MediaPlaybackURLLease(
+            sourceURL: request.source.url
+        )
+        defer { sourceLease.invalidate() }
+        let asset = AVURLAsset(url: sourceLease.url)
         let tracks = try await asset.loadTracks(withMediaType: .video)
         guard let videoTrack = tracks.first else {
             throw VideoScreenshotGenerationError.frameUnavailable

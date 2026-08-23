@@ -384,6 +384,43 @@ enum TestMediaFixture {
             )
         )
     }
+
+    static func temporaryCopy(
+        for testClass: AnyClass,
+        fileExtension: String
+    ) throws -> TemporaryTestMediaFile {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        let copyURL = directoryURL
+            .appendingPathComponent("landscape-20s-h264")
+            .appendingPathExtension(fileExtension)
+        try FileManager.default.copyItem(
+            at: h264URL(for: testClass),
+            to: copyURL
+        )
+        return TemporaryTestMediaFile(
+            url: copyURL,
+            directoryURL: directoryURL
+        )
+    }
+}
+
+struct TemporaryTestMediaFile {
+    let url: URL
+    private let directoryURL: URL
+
+    init(url: URL, directoryURL: URL) {
+        self.url = url
+        self.directoryURL = directoryURL
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: directoryURL)
+    }
 }
 
 @MainActor

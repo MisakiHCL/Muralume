@@ -11,7 +11,9 @@ actor AVAssetVideoInformationLoader: VideoInformationLoading {
     func information(
         for source: ResolvedMediaSource
     ) async throws -> VideoInformation {
-        let asset = AVURLAsset(url: source.url)
+        let sourceLease = try MediaPlaybackURLLease(sourceURL: source.url)
+        defer { sourceLease.invalidate() }
+        let asset = AVURLAsset(url: sourceLease.url)
         let duration = try await asset.load(.duration)
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         try Task.checkCancellation()
@@ -177,25 +179,25 @@ enum VideoInformationMetadataInterpreter {
 
     static func containerName(forFileExtension fileExtension: String) -> String? {
         switch fileExtension.lowercased() {
-        case "mp4", "m4v":
+        case "f4v", "m4v", "mp4", "mpeg4", "mpg4":
             "MPEG-4"
         case "mov", "qt":
             "QuickTime"
-        case "mpg", "mpeg", "mpe":
+        case "m2p", "mod", "mpe", "mpeg", "mpg", "vob":
             "MPEG Program Stream"
-        case "m2t", "m2ts", "mts", "ts":
+        case "m2t", "m2ts", "mts", "tod", "ts":
             "MPEG-2 Transport Stream"
         case "3gp", "3gpp":
             "3GPP"
         case "3g2", "3gp2":
             "3GPP2"
-        case "avi":
+        case "avi", "divx", "xvid":
             "AVI"
         case "dif", "dv", "sdv":
             "DV"
         case "m1v":
             "MPEG-1 Video"
-        case "m2v":
+        case "m2v", "mp2v", "mpv":
             "MPEG-2 Video"
         case let value where !value.isEmpty:
             value.uppercased()

@@ -49,6 +49,30 @@ final class VideoInformationTests: XCTestCase {
         XCTAssertEqual(information.fileSize, 158_219)
     }
 
+    func testLoadsTechnicalInformationThroughF4VCompatibilityAlias()
+        async throws {
+        let fixture = try TestMediaFixture.temporaryCopy(
+            for: Self.self,
+            fileExtension: "f4v"
+        )
+        defer { fixture.remove() }
+
+        let information = try await AVAssetVideoInformationLoader()
+            .information(
+                for: ResolvedMediaSource(
+                    url: fixture.url,
+                    displayName: fixture.url.lastPathComponent
+                )
+            )
+
+        XCTAssertEqual(information.container, "MPEG-4")
+        XCTAssertEqual(information.videoCodecs, ["H.264 / AVC"])
+        XCTAssertEqual(
+            information.resolution,
+            VideoResolution(width: 320, height: 180)
+        )
+    }
+
     func testAppliesPreferredTransformToPortraitResolution() async throws {
         let url = try XCTUnwrap(
             Bundle(for: Self.self).url(

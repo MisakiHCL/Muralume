@@ -211,6 +211,14 @@ enum SupportedVideoContentType: String, CaseIterable, Sendable {
     case threeGPP2 = "public.3gpp2"
     case avi = "public.avi"
     case dvMovie = "public.dv-movie"
+    case compatibleMPEG4 = "com.muralume.video.compatible-mpeg4"
+    case compatibleMPEGProgramStream =
+        "com.muralume.video.compatible-mpeg-program-stream"
+    case compatibleMPEGTransportStream =
+        "com.muralume.video.compatible-mpeg-transport-stream"
+    case compatibleMPEGElementaryStream =
+        "com.muralume.video.compatible-mpeg-elementary-stream"
+    case compatibleAVI = "com.muralume.video.compatible-avi"
 }
 
 enum MediaLibraryFilePolicy {
@@ -221,21 +229,32 @@ enum MediaLibraryFilePolicy {
         "3gpp",
         "avi",
         "dif",
+        "divx",
         "dv",
+        "f4v",
         "m1v",
+        "m2p",
         "m2t",
         "m2ts",
         "m2v",
         "m4v",
+        "mod",
         "mov",
+        "mp2v",
         "mp4",
         "mpe",
         "mpeg",
+        "mpeg4",
         "mpg",
+        "mpg4",
+        "mpv",
         "mts",
         "qt",
         "sdv",
-        "ts"
+        "tod",
+        "ts",
+        "vob",
+        "xvid"
     ]
 }
 

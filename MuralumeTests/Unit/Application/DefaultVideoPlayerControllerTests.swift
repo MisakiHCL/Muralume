@@ -27,6 +27,11 @@ final class DefaultVideoPlayerControllerTests: XCTestCase {
                 "public.3gpp2",
                 "public.avi",
                 "public.dv-movie",
+                "com.muralume.video.compatible-mpeg4",
+                "com.muralume.video.compatible-mpeg-program-stream",
+                "com.muralume.video.compatible-mpeg-transport-stream",
+                "com.muralume.video.compatible-mpeg-elementary-stream",
+                "com.muralume.video.compatible-avi",
             ]
         )
         XCTAssertEqual(
@@ -53,6 +58,22 @@ final class DefaultVideoPlayerControllerTests: XCTestCase {
             UTType.avi.identifier,
             SupportedVideoContentType.avi.rawValue
         )
+        XCTAssertEqual(
+            MediaPlaybackCompatibilityPolicy.canonicalExtensionByAlias,
+            [
+                "divx": "avi",
+                "f4v": "mp4",
+                "m2p": "mpg",
+                "mod": "mpg",
+                "mp2v": "m2v",
+                "mpeg4": "mp4",
+                "mpg4": "mp4",
+                "mpv": "m2v",
+                "tod": "m2ts",
+                "vob": "mpg",
+                "xvid": "avi",
+            ]
+        )
     }
 
     func testApplicationDeclaresViewerDocumentTypesWithAlternateRank() throws {
@@ -69,6 +90,50 @@ final class DefaultVideoPlayerControllerTests: XCTestCase {
             documentType["LSItemContentTypes"] as? [String],
             SupportedVideoContentType.allCases.map(\.rawValue)
         )
+    }
+
+    func testApplicationExportsOnlyNarrowCompatibilityContentTypes() throws {
+        let declarations = try XCTUnwrap(
+            Bundle.main.object(
+                forInfoDictionaryKey: "UTExportedTypeDeclarations"
+            ) as? [[String: Any]]
+        )
+        let extensionsByIdentifier = try Dictionary(
+            uniqueKeysWithValues: declarations.map { declaration in
+                let identifier = try XCTUnwrap(
+                    declaration["UTTypeIdentifier"] as? String
+                )
+                let tagSpecification = try XCTUnwrap(
+                    declaration["UTTypeTagSpecification"]
+                        as? [String: Any]
+                )
+                let extensions = try XCTUnwrap(
+                    tagSpecification["public.filename-extension"]
+                        as? [String]
+                )
+                return (identifier, extensions)
+            }
+        )
+
+        XCTAssertEqual(
+            extensionsByIdentifier,
+            [
+                "com.muralume.video.compatible-mpeg4": [
+                    "f4v", "mpeg4", "mpg4",
+                ],
+                "com.muralume.video.compatible-mpeg-program-stream": [
+                    "m2p", "mod", "vob",
+                ],
+                "com.muralume.video.compatible-mpeg-transport-stream": [
+                    "tod",
+                ],
+                "com.muralume.video.compatible-mpeg-elementary-stream": [
+                    "mp2v", "mpv",
+                ],
+                "com.muralume.video.compatible-avi": ["divx", "xvid"],
+            ]
+        )
+        XCTAssertNil(extensionsByIdentifier[UTType.movie.identifier])
     }
 
     func testServiceReportsNoneWhenNoAssociationMatches() {

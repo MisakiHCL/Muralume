@@ -46,6 +46,9 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 
 - **你的影像，不是平台的内容：** 添加单个视频、文件夹或两者的组合。源文件始终保留在原处，
   Muralume 只访问你主动选择的内容。
+- **更多熟悉格式，依然只读：** 除 macOS 常规视频容器外，还可识别常见的 F4V、VOB、
+  MOD、TOD、M2P、MP2V、MPV、MPEG4、MPG4、DivX 与 Xvid 文件名变体，无需重命名
+  或转换源文件。
 - **会自己跟上变化的媒体库：** 浏览缩略图、排序内容、按名称或位置搜索，并在应用运行期间自动发现
   已授权文件夹中的变化。
 - **播放列表由你定义：** 创建自定义分组，添加和排序视频，在播放列表内搜索，并在
@@ -106,10 +109,12 @@ Muralume 通过两个官方渠道免费提供，核心功能一致：
 
 - 搭载 Apple 芯片的 Mac
 - macOS 14 或更高版本
-- AVFoundation 支持的视频格式，包括常见的 MP4、MOV、M4V、MPEG、MPEG-TS、
-  3GP、3G2、AVI 和 DV 文件
+- AVFoundation 支持的视频格式，包括 MP4、MOV、M4V、MPEG、MPEG-TS、3GP、
+  3G2、AVI、DV，以及 F4V、VOB、MOD、TOD、M2P、MP2V、MPV、MPEG4、MPG4、
+  DivX 和 Xvid 文件名变体
 
-实际播放能力取决于 macOS 提供的编解码器。
+容器和文件名变体不代表一定支持其中的编解码器；实际播放能力仍取决于 macOS
+提供的编解码器。
 
 ## 从源码构建
 

@@ -33,6 +33,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
     private var mediaSelectionContext: AVFoundationMediaSelectionContext?
+    private var compatibilityLease: MediaPlaybackURLLease?
     private var loadGeneration: UInt64 = 0
     private var surfaceGeneration: UInt64 = 0
     private var progressCadence: PlaybackProgressCadence = .inactive
@@ -67,9 +68,15 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         legibleOutput = nil
         updateSelectedEmbeddedSubtitleTimeline(nil)
 
-        let asset = AVURLAsset(url: source.url)
+        let sourceLease: MediaPlaybackURLLease
+        do {
+            sourceLease = try MediaPlaybackURLLease(sourceURL: source.url)
+        } catch {
+            throw PlaybackEngineError.cannotOpen
+        }
+        let asset = AVURLAsset(url: sourceLease.url)
         let embeddedSubtitleTask = Task.detached(priority: .utility) {
-            try await EmbeddedSubtitleParser().parse(source.url)
+            try await EmbeddedSubtitleParser().parse(sourceLease.url)
         }
 
         do {
@@ -131,7 +138,10 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
                 legibleOutput = output
             }
             player.replaceCurrentItem(with: item)
+            compatibilityLease?.invalidate()
+            compatibilityLease = nil
             try await waitUntilReadyToPlay(item, generation: generation)
+            compatibilityLease = sourceLease
             installItemObservers(for: item)
             mediaSelectionContext = selectionContext
             refreshSelectedEmbeddedSubtitleTimeline()
@@ -385,6 +395,8 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         player.cancelPendingPrerolls()
         player.pause()
         player.replaceCurrentItem(with: nil)
+        compatibilityLease?.invalidate()
+        compatibilityLease = nil
         mediaSelectionContext = nil
         legibleOutput = nil
         externalSubtitleTimeHandler = nil

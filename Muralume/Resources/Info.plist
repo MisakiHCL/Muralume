@@ -27,6 +27,11 @@
 				<string>public.3gpp2</string>
 				<string>public.avi</string>
 				<string>public.dv-movie</string>
+				<string>com.muralume.video.compatible-mpeg4</string>
+				<string>com.muralume.video.compatible-mpeg-program-stream</string>
+				<string>com.muralume.video.compatible-mpeg-transport-stream</string>
+				<string>com.muralume.video.compatible-mpeg-elementary-stream</string>
+				<string>com.muralume.video.compatible-avi</string>
 			</array>
 		</dict>
 	</array>
@@ -56,5 +61,89 @@
 	<false/>
 	<key>NSSupportsSuddenTermination</key>
 	<false/>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.movie</string>
+			</array>
+			<key>UTTypeIdentifier</key>
+			<string>com.muralume.video.compatible-mpeg4</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>f4v</string>
+					<string>mpeg4</string>
+					<string>mpg4</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.movie</string>
+			</array>
+			<key>UTTypeIdentifier</key>
+			<string>com.muralume.video.compatible-mpeg-program-stream</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>m2p</string>
+					<string>mod</string>
+					<string>vob</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.movie</string>
+			</array>
+			<key>UTTypeIdentifier</key>
+			<string>com.muralume.video.compatible-mpeg-transport-stream</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>tod</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.movie</string>
+			</array>
+			<key>UTTypeIdentifier</key>
+			<string>com.muralume.video.compatible-mpeg-elementary-stream</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mp2v</string>
+					<string>mpv</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.avi</string>
+			</array>
+			<key>UTTypeIdentifier</key>
+			<string>com.muralume.video.compatible-avi</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>divx</string>
+					<string>xvid</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>
