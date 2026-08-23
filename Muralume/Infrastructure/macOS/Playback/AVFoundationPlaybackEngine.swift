@@ -22,7 +22,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     private var externalSubtitleTimeHandler: ((TimeInterval) -> Void)?
     private var embeddedSubtitleCueHandler: ((String?) -> Void)?
 
-    private let player: AVPlayer
+    private var player: AVPlayer
     private weak var attachedSurface: (any AVPlayerRenderSurface)?
     private var timeObserver: Any?
     private var subtitleTimeObserver: Any?
@@ -32,8 +32,18 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     private var timeControlObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
+    private var playerLooper: AVPlayerLooper?
+    private var looperStatusObservation: NSKeyValueObservation?
     private var mediaSelectionContext: AVFoundationMediaSelectionContext?
     private var compatibilityLease: MediaPlaybackURLLease?
+    private var retiringCompatibilityLease: MediaPlaybackURLLease?
+    private var retiringPlayer: AVPlayer?
+    private var transitionTask: Task<Void, Never>?
+    private var isSurfaceTransitionActive = false
+    private var isLooping = false
+    private var requestedRate: PlaybackRate?
+    private var configuredVolume: PlaybackVolume
+    private var configuredMuted: Bool
     private var loadGeneration: UInt64 = 0
     private var surfaceGeneration: UInt64 = 0
     private var progressCadence: PlaybackProgressCadence = .inactive
@@ -46,27 +56,46 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         )
     }
 
-    init(player: AVPlayer = AVPlayer()) {
+    init(player: AVPlayer = AVQueuePlayer()) {
         self.player = player
+        configuredVolume = PlaybackVolume(rawValue: player.volume)
+        configuredMuted = player.isMuted
         player.appliesMediaSelectionCriteriaAutomatically = false
     }
 
     func load(_ source: ResolvedMediaSource) async throws -> TimeInterval {
+        try await load(source, transition: .immediate)
+    }
+
+    func load(
+        _ source: ResolvedMediaSource,
+        transition: PlaybackItemTransition
+    ) async throws -> TimeInterval {
+        cancelActiveTransition(reconnectActivePlayer: true)
         seekCoalescer.invalidate()
-        player.pause()
-        player.currentItem?.cancelPendingSeeks()
-        if progressHandler != nil {
-            installProgressObserver()
+        let outgoingPlayer = player
+        let transitionSurface = attachedSurface
+            as? any AVPlayerTransitionSurface
+        let transitionDuration = crossfadeDuration(
+            for: transition,
+            surface: transitionSurface,
+            outgoingPlayer: outgoingPlayer
+        )
+        let usesCrossfade = transitionDuration != nil
+        if !usesCrossfade {
+            outgoingPlayer.pause()
         }
-        if playbackActivityHandler != nil {
-            installTimeControlObservation()
-        }
+        outgoingPlayer.currentItem?.cancelPendingSeeks()
         loadGeneration &+= 1
         let generation = loadGeneration
         removeItemObservers()
+        removeProgressObserver()
+        removeSubtitleTimeObserver()
+        removeTimeControlObservation()
         mediaSelectionContext = nil
         legibleOutput = nil
-        updateSelectedEmbeddedSubtitleTimeline(nil)
+        selectedEmbeddedSubtitleTimeline = nil
+        publishEmbeddedSubtitleCueText(nil)
 
         let sourceLease: MediaPlaybackURLLease
         do {
@@ -131,20 +160,45 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
                 embeddedSubtitleTracks: embeddedSubtitleTracks,
                 generation: generation
             )
-            if selectionContext.canRenderEmbeddedSubtitles {
+            if selectionContext.canRenderEmbeddedSubtitles, !isLooping {
                 let output = AVPlayerItemLegibleOutput()
                 output.suppressesPlayerRendering = true
                 item.add(output)
                 legibleOutput = output
             }
-            player.replaceCurrentItem(with: item)
-            compatibilityLease?.invalidate()
-            compatibilityLease = nil
-            try await waitUntilReadyToPlay(item, generation: generation)
-            compatibilityLease = sourceLease
-            installItemObservers(for: item)
+            let incomingPlayer = usesCrossfade
+                ? makeConfiguredPlayer()
+                : outgoingPlayer
+            let playbackItem = try install(
+                item,
+                on: incomingPlayer,
+                generation: generation
+            )
+            try await waitUntilReadyToPlay(
+                playbackItem,
+                generation: generation
+            )
+            if let transitionSurface, let transitionDuration {
+                try await prepareCrossfade(
+                    surface: transitionSurface,
+                    outgoingPlayer: outgoingPlayer,
+                    incomingPlayer: incomingPlayer,
+                    sourceLease: sourceLease,
+                    duration: transitionDuration,
+                    generation: generation
+                )
+            } else {
+                compatibilityLease?.invalidate()
+                compatibilityLease = sourceLease
+            }
+            installItemObservers(for: playbackItem)
             mediaSelectionContext = selectionContext
             refreshSelectedEmbeddedSubtitleTimeline()
+            refreshProgressObserver()
+            refreshSubtitleTimeObserver()
+            if playbackActivityHandler != nil {
+                installTimeControlObservation()
+            }
 
             let seconds = assetDuration.seconds
             return seconds.isFinite && seconds > 0 ? seconds : 0
@@ -158,6 +212,202 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             embeddedSubtitleTask.cancel()
             throw PlaybackEngineError.cannotOpen
         }
+    }
+
+    private func install(
+        _ item: AVPlayerItem,
+        on targetPlayer: AVPlayer,
+        generation: UInt64
+    ) throws -> AVPlayerItem {
+        disablePlayerLooper()
+        targetPlayer.pause()
+        targetPlayer.appliesMediaSelectionCriteriaAutomatically = false
+        targetPlayer.volume = configuredVolume.rawValue
+        targetPlayer.isMuted = configuredMuted
+
+        if isLooping {
+            guard let queuePlayer = targetPlayer as? AVQueuePlayer else {
+                throw PlaybackEngineError.cannotOpen
+            }
+            queuePlayer.removeAllItems()
+            let looper = AVPlayerLooper(
+                player: queuePlayer,
+                templateItem: item
+            )
+            playerLooper = looper
+            looperStatusObservation = looper.observe(
+                \.status,
+                options: [.initial, .new]
+            ) { [weak self] looper, _ in
+                guard looper.status == .failed else {
+                    return
+                }
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          generation == loadGeneration else {
+                        return
+                    }
+                    failureHandler?(.cannotOpen)
+                }
+            }
+            guard let playbackItem = queuePlayer.currentItem else {
+                throw PlaybackEngineError.cannotOpen
+            }
+            return playbackItem
+        }
+
+        if let queuePlayer = targetPlayer as? AVQueuePlayer {
+            queuePlayer.removeAllItems()
+            queuePlayer.insert(item, after: nil)
+        } else {
+            targetPlayer.replaceCurrentItem(with: item)
+        }
+        return item
+    }
+
+    private func makeConfiguredPlayer() -> AVPlayer {
+        let incomingPlayer = AVPlayer()
+        incomingPlayer.appliesMediaSelectionCriteriaAutomatically = false
+        incomingPlayer.volume = configuredVolume.rawValue
+        incomingPlayer.isMuted = configuredMuted
+        incomingPlayer.preventsDisplaySleepDuringVideoPlayback =
+            attachedSurface?.id == .player
+        return incomingPlayer
+    }
+
+    private func crossfadeDuration(
+        for transition: PlaybackItemTransition,
+        surface: (any AVPlayerTransitionSurface)?,
+        outgoingPlayer: AVPlayer
+    ) -> TimeInterval? {
+        guard !isLooping,
+              surface != nil,
+              outgoingPlayer.currentItem != nil,
+              case let .crossfade(duration) = transition,
+              duration.isFinite,
+              duration > 0 else {
+            return nil
+        }
+        return duration
+    }
+
+    private func prepareCrossfade(
+        surface: any AVPlayerTransitionSurface,
+        outgoingPlayer: AVPlayer,
+        incomingPlayer: AVPlayer,
+        sourceLease: MediaPlaybackURLLease,
+        duration: TimeInterval,
+        generation: UInt64
+    ) async throws {
+        surface.prepareTransition(to: incomingPlayer)
+        incomingPlayer.preroll(atRate: requestedRate?.rawValue
+            ?? PlaybackPolicy.defaultRate.rawValue) { _ in }
+        do {
+            try await waitUntilReady(
+                surface,
+                generation: surfaceGeneration
+            )
+            try Task.checkCancellation()
+            guard generation == loadGeneration else {
+                throw PlaybackEngineError.superseded
+            }
+        } catch {
+            surface.cancelPreparedTransition()
+            incomingPlayer.cancelPendingPrerolls()
+            incomingPlayer.replaceCurrentItem(with: nil)
+            throw error
+        }
+
+        let outgoingLease = compatibilityLease
+        player = incomingPlayer
+        compatibilityLease = sourceLease
+        incomingPlayer.volume = 0
+        if let requestedRate {
+            incomingPlayer.playImmediately(atRate: requestedRate.rawValue)
+        }
+        surface.commitPreparedTransition(duration: duration)
+        beginCrossfadeCleanup(
+            outgoingPlayer: outgoingPlayer,
+            outgoingLease: outgoingLease,
+            incomingPlayer: incomingPlayer,
+            duration: duration,
+            generation: generation
+        )
+    }
+
+    private func beginCrossfadeCleanup(
+        outgoingPlayer: AVPlayer,
+        outgoingLease: MediaPlaybackURLLease?,
+        incomingPlayer: AVPlayer,
+        duration: TimeInterval,
+        generation: UInt64
+    ) {
+        retiringPlayer = outgoingPlayer
+        retiringCompatibilityLease = outgoingLease
+        isSurfaceTransitionActive = true
+        transitionTask?.cancel()
+        let stepCount = max(PlaybackPolicy.queueCrossfadeAudioStepCount, 1)
+        let stepNanoseconds = UInt64(
+            duration * Double(NSEC_PER_SEC) / Double(stepCount)
+        )
+        transitionTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            for step in 1...stepCount {
+                do {
+                    try await Task.sleep(nanoseconds: stepNanoseconds)
+                } catch {
+                    return
+                }
+                guard generation == loadGeneration,
+                      player === incomingPlayer else {
+                    return
+                }
+                let progress = Float(step) / Float(stepCount)
+                outgoingPlayer.volume = configuredVolume.rawValue
+                    * (1 - progress)
+                incomingPlayer.volume = configuredVolume.rawValue * progress
+            }
+            finishActiveTransition()
+        }
+    }
+
+    private func finishActiveTransition() {
+        transitionTask = nil
+        retiringPlayer?.pause()
+        retiringPlayer?.replaceCurrentItem(with: nil)
+        retiringPlayer = nil
+        retiringCompatibilityLease?.invalidate()
+        retiringCompatibilityLease = nil
+        player.volume = configuredVolume.rawValue
+        player.isMuted = configuredMuted
+        isSurfaceTransitionActive = false
+    }
+
+    private func cancelActiveTransition(reconnectActivePlayer: Bool) {
+        transitionTask?.cancel()
+        transitionTask = nil
+        (attachedSurface as? any AVPlayerTransitionSurface)?
+            .cancelPreparedTransition()
+        retiringPlayer?.pause()
+        retiringPlayer?.replaceCurrentItem(with: nil)
+        retiringPlayer = nil
+        retiringCompatibilityLease?.invalidate()
+        retiringCompatibilityLease = nil
+        player.volume = configuredVolume.rawValue
+        player.isMuted = configuredMuted
+        isSurfaceTransitionActive = false
+        if reconnectActivePlayer {
+            attachedSurface?.connect(to: player)
+        }
+    }
+
+    private func disablePlayerLooper() {
+        looperStatusObservation?.invalidate()
+        looperStatusObservation = nil
+        playerLooper?.disableLooping()
+        playerLooper = nil
     }
 
     func attach(to surface: any PlaybackRenderSurface) async throws {
@@ -180,7 +430,9 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
 
         if let previousSurface,
            ObjectIdentifier(previousSurface) == ObjectIdentifier(surface) {
-            previousSurface.connect(to: player)
+            if !isSurfaceTransitionActive {
+                previousSurface.connect(to: player)
+            }
             guard player.currentItem != nil else {
                 return
             }
@@ -246,6 +498,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
 
     func detachAll() {
         surfaceGeneration &+= 1
+        cancelActiveTransition(reconnectActivePlayer: false)
         player.cancelPendingPrerolls()
         attachedSurface?.connect(to: nil)
         attachedSurface = nil
@@ -256,11 +509,14 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         guard player.currentItem != nil else {
             return
         }
+        requestedRate = rate
         player.playImmediately(atRate: rate.rawValue)
     }
 
     func pause() {
+        requestedRate = nil
         player.pause()
+        retiringPlayer?.pause()
     }
 
     private func configureDisplaySleepPrevention(
@@ -335,11 +591,21 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     }
 
     func setVolume(_ volume: PlaybackVolume) {
+        configuredVolume = volume
         player.volume = volume.rawValue
+        if isSurfaceTransitionActive {
+            retiringPlayer?.volume = volume.rawValue
+        }
     }
 
     func setMuted(_ isMuted: Bool) {
+        configuredMuted = isMuted
         player.isMuted = isMuted
+        retiringPlayer?.isMuted = isMuted
+    }
+
+    func setLooping(_ isLooping: Bool) {
+        self.isLooping = isLooping
     }
 
     func currentMediaSelectionState() -> PlaybackMediaSelectionState {
@@ -390,11 +656,18 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     func stop() {
         loadGeneration &+= 1
         surfaceGeneration &+= 1
+        requestedRate = nil
+        cancelActiveTransition(reconnectActivePlayer: false)
+        disablePlayerLooper()
         seekCoalescer.invalidate()
         player.currentItem?.cancelPendingSeeks()
         player.cancelPendingPrerolls()
         player.pause()
-        player.replaceCurrentItem(with: nil)
+        if let queuePlayer = player as? AVQueuePlayer {
+            queuePlayer.removeAllItems()
+        } else {
+            player.replaceCurrentItem(with: nil)
+        }
         compatibilityLease?.invalidate()
         compatibilityLease = nil
         mediaSelectionContext = nil
@@ -664,291 +937,5 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         guard item.status == .readyToPlay else {
             throw PlaybackEngineError.cannotOpen
         }
-    }
-}
-
-@MainActor
-private struct AVFoundationMediaSelectionContext {
-    let item: AVPlayerItem
-    let audioGroup: AVMediaSelectionGroup?
-    let subtitleGroup: AVMediaSelectionGroup?
-    let audioOptions: [PlaybackMediaOption]
-    let subtitleOptions: [PlaybackMediaOption]
-
-    private let audioOptionsByID: [
-        PlaybackMediaOptionID: AVMediaSelectionOption
-    ]
-    private let subtitleOptionsByID: [
-        PlaybackMediaOptionID: AVMediaSelectionOption
-    ]
-    private let embeddedSubtitleTimelinesByID: [
-        PlaybackMediaOptionID: SubtitleTimeline
-    ]
-    private(set) var audioSelection: PlaybackAudioSelection = .automatic
-    private(set) var subtitleSelection: PlaybackSubtitleSelection = .automatic
-
-    init(
-        item: AVPlayerItem,
-        audioGroup: AVMediaSelectionGroup?,
-        subtitleGroup: AVMediaSelectionGroup?,
-        embeddedSubtitleTracks: [EmbeddedSubtitleTrackData],
-        generation: UInt64
-    ) {
-        self.item = item
-        self.audioGroup = audioGroup
-        self.subtitleGroup = subtitleGroup
-
-        let audioMappings = Self.makeOptions(
-            group: audioGroup,
-            prefix: "audio-\(generation)"
-        )
-        audioOptions = audioMappings.options
-        audioOptionsByID = audioMappings.optionsByID
-
-        let subtitleMappings = Self.makeOptions(
-            group: subtitleGroup,
-            prefix: "subtitle-\(generation)",
-            hidesAssociatedForcedSubtitleOptions: true
-        )
-        subtitleOptions = subtitleMappings.options
-        subtitleOptionsByID = subtitleMappings.optionsByID
-
-        embeddedSubtitleTimelinesByID = Self.mapEmbeddedSubtitleTimelines(
-            options: subtitleMappings.options,
-            tracks: embeddedSubtitleTracks
-        )
-    }
-
-    var canRenderEmbeddedSubtitles: Bool {
-        !subtitleOptions.isEmpty
-            && embeddedSubtitleTimelinesByID.count == subtitleOptions.count
-    }
-
-    var selectedEmbeddedSubtitleTimeline: SubtitleTimeline? {
-        guard canRenderEmbeddedSubtitles,
-              let selectedOptionID = selectedOptionID(
-                group: subtitleGroup,
-                optionsByID: subtitleOptionsByID
-              ) else {
-            return nil
-        }
-        return embeddedSubtitleTimelinesByID[selectedOptionID]
-    }
-
-    var state: PlaybackMediaSelectionState {
-        PlaybackMediaSelectionState(
-            audioOptions: audioOptions,
-            subtitleOptions: subtitleOptions,
-            audioSelection: audioSelection,
-            subtitleSelection: subtitleSelection,
-            effectiveAudioOptionID: selectedOptionID(
-                group: audioGroup,
-                optionsByID: audioOptionsByID
-            ),
-            effectiveSubtitleOptionID: selectedOptionID(
-                group: subtitleGroup,
-                optionsByID: subtitleOptionsByID
-            ),
-            allowsEmptySubtitleSelection:
-                subtitleGroup?.allowsEmptySelection ?? true
-        )
-    }
-
-    mutating func selectAudio(_ selection: PlaybackAudioSelection) {
-        guard let audioGroup else {
-            return
-        }
-        switch selection {
-        case .automatic:
-            item.selectMediaOptionAutomatically(in: audioGroup)
-        case let .option(id):
-            guard let option = audioOptionsByID[id] else {
-                return
-            }
-            item.select(option, in: audioGroup)
-        }
-        audioSelection = selection
-    }
-
-    mutating func selectSubtitles(
-        _ selection: PlaybackSubtitleSelection
-    ) {
-        guard let subtitleGroup else {
-            return
-        }
-        switch selection {
-        case .automatic:
-            item.selectMediaOptionAutomatically(in: subtitleGroup)
-        case .off:
-            guard subtitleGroup.allowsEmptySelection else {
-                return
-            }
-            item.select(nil, in: subtitleGroup)
-        case let .option(id):
-            guard let option = subtitleOptionsByID[id] else {
-                return
-            }
-            item.select(option, in: subtitleGroup)
-        }
-        subtitleSelection = selection
-    }
-
-    private func selectedOptionID(
-        group: AVMediaSelectionGroup?,
-        optionsByID: [PlaybackMediaOptionID: AVMediaSelectionOption]
-    ) -> PlaybackMediaOptionID? {
-        guard let group,
-              let selectedOption = item.currentMediaSelection
-                .selectedMediaOption(in: group) else {
-            return nil
-        }
-        return optionsByID.first { _, option in
-            option === selectedOption
-        }?.key
-    }
-
-    private static func makeOptions(
-        group: AVMediaSelectionGroup?,
-        prefix: String,
-        hidesAssociatedForcedSubtitleOptions: Bool = false
-    ) -> (
-        options: [PlaybackMediaOption],
-        optionsByID: [PlaybackMediaOptionID: AVMediaSelectionOption]
-    ) {
-        guard let group else {
-            return ([], [:])
-        }
-
-        let groupOptions = hidesAssociatedForcedSubtitleOptions
-            ? userSelectableSubtitleOptions(in: group)
-            : group.options
-        var options: [PlaybackMediaOption] = []
-        var optionsByID: [PlaybackMediaOptionID: AVMediaSelectionOption] = [:]
-        options.reserveCapacity(groupOptions.count)
-        optionsByID.reserveCapacity(groupOptions.count)
-
-        for (index, option) in groupOptions.enumerated() {
-            let id = PlaybackMediaOptionID(
-                rawValue: "\(prefix)-\(index)"
-            )
-            options.append(
-                PlaybackMediaOption(
-                    id: id,
-                    displayName: option.displayName,
-                    languageIdentifier: option.extendedLanguageTag
-                        ?? option.locale?.identifier,
-                    characteristics: characteristics(of: option)
-                )
-            )
-            optionsByID[id] = option
-        }
-        return (options, optionsByID)
-    }
-
-    private static func userSelectableSubtitleOptions(
-        in group: AVMediaSelectionGroup
-    ) -> [AVMediaSelectionOption] {
-        let associatedForcedOptionIDs = Set(
-            group.options.compactMap { option -> ObjectIdentifier? in
-                guard !option.hasMediaCharacteristic(
-                    .containsOnlyForcedSubtitles
-                ),
-                let associatedOption = option.associatedMediaSelectionOption(
-                    in: group
-                ),
-                associatedOption.hasMediaCharacteristic(
-                    .containsOnlyForcedSubtitles
-                ) else {
-                    return nil
-                }
-                return ObjectIdentifier(associatedOption)
-            }
-        )
-        return group.options.filter {
-            !associatedForcedOptionIDs.contains(ObjectIdentifier($0))
-        }
-    }
-
-    private static func mapEmbeddedSubtitleTimelines(
-        options: [PlaybackMediaOption],
-        tracks: [EmbeddedSubtitleTrackData]
-    ) -> [PlaybackMediaOptionID: SubtitleTimeline] {
-        guard !options.isEmpty, options.count == tracks.count else {
-            return [:]
-        }
-        let tracksByLanguage = tracks.reduce(
-            into: [String: SubtitleTimeline]()
-        ) { result, track in
-            guard let language = primaryLanguageIdentifier(
-                track.languageIdentifier
-            ), let timeline = track.timeline,
-            result[language] == nil else {
-                return
-            }
-            result[language] = timeline
-        }
-        guard tracksByLanguage.count == tracks.count else {
-            return [:]
-        }
-
-        var timelinesByOptionID: [
-            PlaybackMediaOptionID: SubtitleTimeline
-        ] = [:]
-        var mappedLanguages: Set<String> = []
-        for option in options {
-            guard let language = primaryLanguageIdentifier(
-                option.languageIdentifier
-            ), mappedLanguages.insert(language).inserted,
-            let timeline = tracksByLanguage[language] else {
-                return [:]
-            }
-            timelinesByOptionID[option.id] = timeline
-        }
-        return timelinesByOptionID
-    }
-
-    private static func primaryLanguageIdentifier(
-        _ identifier: String?
-    ) -> String? {
-        guard let identifier else {
-            return nil
-        }
-        let normalizedIdentifier = identifier.replacingOccurrences(
-            of: "_",
-            with: "-"
-        )
-        guard let languageCode = Locale(identifier: normalizedIdentifier)
-            .language
-            .languageCode?
-            .identifier
-            .lowercased(),
-        languageCode != "und" else {
-            return nil
-        }
-        return languageCode
-    }
-
-    private static func characteristics(
-        of option: AVMediaSelectionOption
-    ) -> Set<PlaybackMediaOptionCharacteristic> {
-        var characteristics: Set<PlaybackMediaOptionCharacteristic> = []
-        if option.hasMediaCharacteristic(.describesVideoForAccessibility) {
-            characteristics.insert(.audioDescription)
-        }
-        if option.hasMediaCharacteristic(.dubbedTranslation)
-            || option.hasMediaCharacteristic(.voiceOverTranslation) {
-            characteristics.insert(.dubbedTranslation)
-        }
-        if option.hasMediaCharacteristic(.containsOnlyForcedSubtitles) {
-            characteristics.insert(.forcedSubtitles)
-        }
-        if option.hasMediaCharacteristic(
-            .transcribesSpokenDialogForAccessibility
-        ) || option.hasMediaCharacteristic(
-            .describesMusicAndSoundForAccessibility
-        ) {
-            characteristics.insert(.closedCaptions)
-        }
-        return characteristics
     }
 }

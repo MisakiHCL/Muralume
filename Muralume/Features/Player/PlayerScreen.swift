@@ -428,6 +428,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
             )
         case .settings:
             SettingsView(
+                playback: playback,
                 dynamicDesktopStartup: dynamicDesktopStartup,
                 defaultVideoPlayer: defaultVideoPlayer,
                 smartPause: smartPause,

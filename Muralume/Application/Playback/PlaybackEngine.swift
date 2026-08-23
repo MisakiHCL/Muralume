@@ -19,6 +19,11 @@ enum PlaybackSeekMode: Equatable, Sendable {
     case exact
 }
 
+enum PlaybackItemTransition: Equatable, Sendable {
+    case immediate
+    case crossfade(duration: TimeInterval)
+}
+
 enum PlaybackSurfaceReadinessPolicy: Equatable, Sendable {
     /// Attaching is not complete until the surface has rendered a frame.
     case required
@@ -35,6 +40,10 @@ protocol PlaybackEngine: AnyObject {
     var playbackActivityHandler: ((Bool) -> Void)? { get set }
 
     func load(_ source: ResolvedMediaSource) async throws -> TimeInterval
+    func load(
+        _ source: ResolvedMediaSource,
+        transition: PlaybackItemTransition
+    ) async throws -> TimeInterval
     func attach(to surface: any PlaybackRenderSurface) async throws
     func attach(
         to surface: any PlaybackRenderSurface,
@@ -49,6 +58,7 @@ protocol PlaybackEngine: AnyObject {
     func setProgressCadence(_ cadence: PlaybackProgressCadence)
     func setVolume(_ volume: PlaybackVolume)
     func setMuted(_ isMuted: Bool)
+    func setLooping(_ isLooping: Bool)
     func currentMediaSelectionState() -> PlaybackMediaSelectionState
     func selectAudio(
         _ selection: PlaybackAudioSelection
@@ -64,6 +74,13 @@ protocol PlaybackEngine: AnyObject {
 }
 
 extension PlaybackEngine {
+    func load(
+        _ source: ResolvedMediaSource,
+        transition _: PlaybackItemTransition
+    ) async throws -> TimeInterval {
+        try await load(source)
+    }
+
     func attach(
         to surface: any PlaybackRenderSurface,
         readinessPolicy _: PlaybackSurfaceReadinessPolicy
@@ -80,6 +97,8 @@ extension PlaybackEngine {
     }
 
     func setProgressCadence(_: PlaybackProgressCadence) {}
+
+    func setLooping(_: Bool) {}
 
     func currentMediaSelectionState() -> PlaybackMediaSelectionState {
         .empty

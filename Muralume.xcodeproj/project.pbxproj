@@ -115,6 +115,8 @@
 		AF1000000000000000000012 /* QuickLookMediaThumbnailProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000002 /* QuickLookMediaThumbnailProvider.swift */; };
 		F22000000000000000000011 /* AVAssetCompatibilityThumbnailGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F22000000000000000000001 /* AVAssetCompatibilityThumbnailGenerator.swift */; };
 		F22000000000000000000012 /* MediaPlaybackCompatibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F22000000000000000000002 /* MediaPlaybackCompatibilityTests.swift */; };
+		F23000000000000000000011 /* AVFoundationMediaSelectionContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23000000000000000000001 /* AVFoundationMediaSelectionContext.swift */; };
+		F23000000000000000000012 /* SeamlessPlaybackTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23000000000000000000002 /* SeamlessPlaybackTransitionTests.swift */; };
 		AF1000000000000000000013 /* LibraryMediaThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000003 /* LibraryMediaThumbnail.swift */; };
 		B10000000000000000000001 /* portrait-20s-h264.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* portrait-20s-h264.mp4 */; };
 		B20000000000000000000011 /* MacMainMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000012 /* MacMainMenuController.swift */; };
@@ -313,6 +315,8 @@
 		AF1000000000000000000002 /* QuickLookMediaThumbnailProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuickLookMediaThumbnailProvider.swift; sourceTree = "<group>"; };
 		F22000000000000000000001 /* AVAssetCompatibilityThumbnailGenerator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AVAssetCompatibilityThumbnailGenerator.swift; sourceTree = "<group>"; };
 		F22000000000000000000002 /* MediaPlaybackCompatibilityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaPlaybackCompatibilityTests.swift; sourceTree = "<group>"; };
+		F23000000000000000000001 /* AVFoundationMediaSelectionContext.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AVFoundationMediaSelectionContext.swift; sourceTree = "<group>"; };
+		F23000000000000000000002 /* SeamlessPlaybackTransitionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SeamlessPlaybackTransitionTests.swift; sourceTree = "<group>"; };
 		AF1000000000000000000003 /* LibraryMediaThumbnail.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryMediaThumbnail.swift; sourceTree = "<group>"; };
 		AF42D16CD96624D4E2402FDD /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B0B4E56E210B4EFEB277753E /* PlayerControlBar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlayerControlBar.swift; sourceTree = "<group>"; };
@@ -485,6 +489,7 @@
 			isa = PBXGroup;
 			children = (
 				C7D4159ECB84CD3F4C1A1703 /* AVFoundationPlaybackEngine.swift */,
+				F23000000000000000000001 /* AVFoundationMediaSelectionContext.swift */,
 				F18000000000000000000004 /* EmbeddedSubtitleParser.swift */,
 				F19000000000000000000002 /* AVAssetVideoInformationLoader.swift */,
 				F17000000000000000000002 /* MacVideoScreenshotController.swift */,
@@ -958,6 +963,7 @@
 			children = (
 				25EA2A620F0248ECAA3D369A /* AVFoundationPlaybackEngineTests.swift */,
 				F22000000000000000000002 /* MediaPlaybackCompatibilityTests.swift */,
+				F23000000000000000000002 /* SeamlessPlaybackTransitionTests.swift */,
 				F19000000000000000000004 /* VideoInformationTests.swift */,
 				F17000000000000000000003 /* VideoScreenshotTests.swift */,
 				AEAFFBCADB9C4DDF8A43DB08 /* RealAVPlayerLayerRoundTripTests.swift */,
@@ -1283,6 +1289,7 @@
 				AF1000000000000000000012 /* QuickLookMediaThumbnailProvider.swift in Sources */,
 				AC0000000000000000000013 /* UserDefaultsAppPreferencesStore.swift in Sources */,
 				4B9EC4249AD1406990161515 /* AVFoundationPlaybackEngine.swift in Sources */,
+				F23000000000000000000011 /* AVFoundationMediaSelectionContext.swift in Sources */,
 				F18000000000000000000003 /* EmbeddedSubtitleParser.swift in Sources */,
 				F19000000000000000000012 /* AVAssetVideoInformationLoader.swift in Sources */,
 				F17000000000000000000012 /* MacVideoScreenshotController.swift in Sources */,
@@ -1376,6 +1383,7 @@
 				AB0000000000000000000002 /* UserSelectedMediaSessionTests.swift in Sources */,
 				004C99C5AE9B45B3AE32AB2A /* AVFoundationPlaybackEngineTests.swift in Sources */,
 				F22000000000000000000012 /* MediaPlaybackCompatibilityTests.swift in Sources */,
+				F23000000000000000000012 /* SeamlessPlaybackTransitionTests.swift in Sources */,
 				F19000000000000000000014 /* VideoInformationTests.swift in Sources */,
 				F17000000000000000000013 /* VideoScreenshotTests.swift in Sources */,
 				9DDE2F09B8C64CF4AB689811 /* RealAVPlayerLayerRoundTripTests.swift in Sources */,

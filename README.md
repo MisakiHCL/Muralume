@@ -56,7 +56,8 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 - **Playlists, your way:** Create custom groups, add and reorder videos, search
   within a playlist, and continue from the same playlist after relaunch.
 - **See exactly what plays next:** Use ordered playback, shuffle, Repeat Current Video,
-  seeking, volume, speed, fullscreen, and a separate Play Queue.
+  seeking, volume, speed, fullscreen, and a separate Play Queue. An optional short
+  crossfade smooths queue changes after the incoming first frame is ready.
 - **Hear and read the track you want:** Switch embedded audio and subtitle tracks,
   load local SRT or WebVTT subtitles, and adjust subtitle size and appearance.
 - **Speed up only when you mean to:** Press and hold the video for temporary 2×
@@ -67,7 +68,8 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
   keeps format, codec, resolution, frame rate, color, audio, and subtitle details close.
 - **One Mac. Every display:** Place video behind desktop files and widgets, use one
   synchronized queue across displays, or assign an independent loop to each
-  display.
+  display. Independent loops use AVFoundation's gapless queue looper rather than
+  seeking back to zero at each boundary.
 - **Private means private:** Local processing, read-only media access, no account,
   no uploads, no product telemetry, and no automatic crash reporting.
 - **Pause when the desktop is out of sight:** Optional Smart Pause reacts to desktop

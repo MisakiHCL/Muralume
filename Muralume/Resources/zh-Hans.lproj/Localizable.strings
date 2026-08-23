@@ -335,6 +335,8 @@
 "settings.launchAtLogin.automaticallyDisabled" = "动态桌面已不可用，“登录时启动”已自动关闭。";
 "settings.launchAtLogin.manualDisableRequired" = "动态桌面已不可用。请在“登录项”中关闭 Muralume。";
 "settings.defaultVideoPlayer" = "默认视频播放器";
+"settings.queueCrossfade" = "平滑队列切换";
+"settings.queueCrossfade.description" = "在队列视频之间进行短暂交叉淡入，减少黑帧和画面闪跳。";
 "settings.defaultVideoPlayer.action" = "设为默认";
 "settings.defaultVideoPlayer.action.partial" = "完成设置";
 "settings.defaultVideoPlayer.action.retry" = "重试";

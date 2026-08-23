@@ -335,6 +335,8 @@
 "settings.launchAtLogin.automaticallyDisabled" = "Launch at Login was turned off because the saved Dynamic Desktop is no longer available.";
 "settings.launchAtLogin.manualDisableRequired" = "The Dynamic Desktop is no longer available. Turn off Muralume in Login Items.";
 "settings.defaultVideoPlayer" = "Default Video Player";
+"settings.queueCrossfade" = "Smooth Queue Transitions";
+"settings.queueCrossfade.description" = "Briefly crossfade between queued videos to reduce black frames and visual jumps.";
 "settings.defaultVideoPlayer.action" = "Set as Default";
 "settings.defaultVideoPlayer.action.partial" = "Finish Setup";
 "settings.defaultVideoPlayer.action.retry" = "Try Again";

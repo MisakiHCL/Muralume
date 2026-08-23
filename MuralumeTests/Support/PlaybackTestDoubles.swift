@@ -13,10 +13,14 @@ final class TestPlaybackSurface: PlaybackRenderSurface {
 }
 
 @MainActor
-final class TestAVPlayerSurface: AVPlayerRenderSurface {
+final class TestAVPlayerSurface: AVPlayerTransitionSurface {
     let id: PlaybackSurfaceID
     var isReadyForDisplay = true
     private(set) var isConnected = false
+    private(set) var connectedPlayerIdentity: ObjectIdentifier?
+    private(set) var preparedTransitionCount = 0
+    private(set) var committedTransitionDurations: [TimeInterval] = []
+    private weak var preparedPlayer: AVPlayer?
 
     init(id: PlaybackSurfaceID) {
         self.id = id
@@ -24,6 +28,26 @@ final class TestAVPlayerSurface: AVPlayerRenderSurface {
 
     func connect(to player: AVPlayer?) {
         isConnected = player != nil
+        connectedPlayerIdentity = player.map(ObjectIdentifier.init)
+        preparedPlayer = nil
+    }
+
+    func prepareTransition(to player: AVPlayer) {
+        preparedTransitionCount += 1
+        preparedPlayer = player
+    }
+
+    func commitPreparedTransition(duration: TimeInterval) {
+        guard let preparedPlayer else {
+            return
+        }
+        connectedPlayerIdentity = ObjectIdentifier(preparedPlayer)
+        committedTransitionDurations.append(duration)
+        self.preparedPlayer = nil
+    }
+
+    func cancelPreparedTransition() {
+        preparedPlayer = nil
     }
 }
 
@@ -51,8 +75,10 @@ final class TestPlaybackEngine: PlaybackEngine {
     private(set) var isPlaying = false
     private(set) var volume = PlaybackVolume.full
     private(set) var isMuted = false
+    private(set) var isLooping = false
     private(set) var rate = PlaybackPolicy.defaultRate
     private(set) var loadedSources: [ResolvedMediaSource] = []
+    private(set) var loadedTransitions: [PlaybackItemTransition] = []
     private(set) var soughtTimes: [TimeInterval] = []
     private(set) var seekModes: [PlaybackSeekMode] = []
     private(set) var progressCadence: PlaybackProgressCadence = .inactive
@@ -92,6 +118,14 @@ final class TestPlaybackEngine: PlaybackEngine {
             }
         }
         return 120
+    }
+
+    func load(
+        _ source: ResolvedMediaSource,
+        transition: PlaybackItemTransition
+    ) async throws -> TimeInterval {
+        loadedTransitions.append(transition)
+        return try await load(source)
     }
 
     func finishBlockedLoad(duration: TimeInterval = 120) {
@@ -176,6 +210,10 @@ final class TestPlaybackEngine: PlaybackEngine {
 
     func setMuted(_ isMuted: Bool) {
         self.isMuted = isMuted
+    }
+
+    func setLooping(_ isLooping: Bool) {
+        self.isLooping = isLooping
     }
 
     func currentMediaSelectionState() -> PlaybackMediaSelectionState {
@@ -292,6 +330,7 @@ final class TestAppPreferencesStore: AppPreferencesStoring {
     private(set) var savedPlaybackOrders: [PlaybackOrder] = []
     private(set) var savedPlaybackRepeatBehaviors:
         [PlaybackRepeatBehavior] = []
+    private(set) var savedQueueTransitionStyles: [QueueTransitionStyle] = []
     private(set) var savedLibrarySorts: [MediaLibrarySort] = []
     private(set) var savedLanguages: [AppLanguage] = []
     private(set) var savedSubtitleAppearances:
@@ -323,6 +362,10 @@ final class TestAppPreferencesStore: AppPreferencesStoring {
         _ behavior: PlaybackRepeatBehavior
     ) {
         savedPlaybackRepeatBehaviors.append(behavior)
+    }
+
+    func saveQueueTransitionStyle(_ style: QueueTransitionStyle) {
+        savedQueueTransitionStyles.append(style)
     }
 
     func saveLibrarySort(_ sort: MediaLibrarySort) {

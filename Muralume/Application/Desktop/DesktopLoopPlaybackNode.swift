@@ -47,6 +47,7 @@ final class DesktopLoopPlaybackNode {
         self.engine = engine
         rate = initialRate
         gate.setIntent(initialIntent)
+        engine.setLooping(true)
         configureEngineCallbacks()
         enforceDesktopAudioPolicy()
     }
@@ -198,9 +199,9 @@ final class DesktopLoopPlaybackNode {
 
     private func configureEngineCallbacks() {
         engine.progressHandler = nil
-        engine.itemEndedHandler = { [weak self] in
-            self?.restartAfterCompletion()
-        }
+        // AVPlayerLooper owns item-boundary advancement. Handling completion
+        // here would reintroduce the seek seam this node is designed to avoid.
+        engine.itemEndedHandler = nil
         engine.failureHandler = { [weak self] error in
             guard error != .superseded else {
                 return
@@ -238,14 +239,6 @@ final class DesktopLoopPlaybackNode {
             return
         }
         state = gate.shouldPlay ? .playing : .paused
-    }
-
-    private func restartAfterCompletion() {
-        guard isReady, !isShutDown else {
-            return
-        }
-        engine.seek(to: 0, mode: .exact)
-        applyPlaybackGate()
     }
 
     private func fail(with failure: PlaybackFailure) {

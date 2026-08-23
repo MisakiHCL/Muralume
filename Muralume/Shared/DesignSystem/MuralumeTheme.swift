@@ -268,6 +268,8 @@ enum MuralumeAccessibilityIdentifier {
         "muralume.settings-row.launch-at-login"
     static let settingsDefaultVideoPlayerRow =
         "muralume.settings-row.default-video-player"
+    static let settingsQueueCrossfadeRow =
+        "muralume.settings-row.queue-crossfade"
     static let settingsSmartPauseSection =
         "muralume.settings-section.smart-pause"
     static let settingsSmartPauseEnabledRow =
@@ -297,6 +299,8 @@ enum MuralumeAccessibilityIdentifier {
     static let languagePicker = "muralume.language-picker"
     static let launchAtLoginCheckbox =
         "muralume.launch-at-login.checkbox"
+    static let queueCrossfadeCheckbox =
+        "muralume.queue-crossfade.checkbox"
     static let launchAtLoginStatus = "muralume.launch-at-login.status"
     static let launchAtLoginRecoveryButton =
         "muralume.launch-at-login.open-system-settings"

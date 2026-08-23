@@ -30,6 +30,20 @@ enum PlaybackItemEndDisposition: Equatable, Sendable {
     case repeatCurrent
 }
 
+enum QueueTransitionStyle: String, Codable, Equatable, Sendable {
+    case immediate
+    case crossfade
+
+    var playbackTransition: PlaybackItemTransition {
+        switch self {
+        case .immediate:
+            .immediate
+        case .crossfade:
+            .crossfade(duration: PlaybackPolicy.queueCrossfadeDuration)
+        }
+    }
+}
+
 struct PlaybackVolume: Equatable, Sendable {
     static let muted = PlaybackVolume(rawValue: 0)
     static let full = PlaybackVolume(rawValue: 1)

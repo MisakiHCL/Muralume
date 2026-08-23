@@ -3,6 +3,23 @@ import XCTest
 
 @MainActor
 final class PlaybackCoordinatorTests: XCTestCase {
+    func testQueueCrossfadePreferencePersistsOnlyWhenChanged() {
+        let store = TestAppPreferencesStore()
+        let coordinator = PlaybackCoordinator(
+            engine: TestPlaybackEngine(),
+            preferencesStore: store
+        )
+
+        XCTAssertEqual(coordinator.queueTransitionStyle, .immediate)
+
+        coordinator.setQueueCrossfadeEnabled(false)
+        coordinator.setQueueCrossfadeEnabled(true)
+        coordinator.setQueueCrossfadeEnabled(true)
+
+        XCTAssertEqual(coordinator.queueTransitionStyle, .crossfade)
+        XCTAssertEqual(store.savedQueueTransitionStyles, [.crossfade])
+    }
+
     func testInitialPreferencesApplyWithoutMediaAndPersistCompleteAudioState() {
         let engine = TestPlaybackEngine()
         let initialPreferences = AppPreferences(

@@ -8,6 +8,7 @@ enum AppPreferencesStorageKey {
     static let playbackRate = "settings.playback.rate"
     static let playbackOrder = "settings.playback.order"
     static let playbackRepeatBehavior = "settings.playback.repeat-behavior"
+    static let queueTransitionStyle = "settings.playback.queue-transition"
     static let librarySortField = "settings.library.sort-field"
     static let librarySortDirection = "settings.library.sort-direction"
     // Keep the existing key so current installations retain their language.
@@ -34,6 +35,7 @@ private struct UserDefaultsAppPreferencesDTO {
     let playbackRate: Float?
     let playbackOrder: String?
     let playbackRepeatBehavior: String?
+    let queueTransitionStyle: String?
     let librarySortField: String?
     let librarySortDirection: String?
     let language: String?
@@ -69,6 +71,9 @@ private struct UserDefaultsAppPreferencesDTO {
         )
         playbackRepeatBehavior = userDefaults.string(
             forKey: AppPreferencesStorageKey.playbackRepeatBehavior
+        )
+        queueTransitionStyle = userDefaults.string(
+            forKey: AppPreferencesStorageKey.queueTransitionStyle
         )
         librarySortField = userDefaults.string(
             forKey: AppPreferencesStorageKey.librarySortField
@@ -200,6 +205,10 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
                 stored.playbackRepeatBehavior,
                 PlaybackRepeatBehavior.self
             ) ?? defaults.playbackRepeatBehavior,
+            queueTransitionStyle: loadRawRepresentable(
+                stored.queueTransitionStyle,
+                QueueTransitionStyle.self
+            ) ?? defaults.queueTransitionStyle,
             librarySort: MediaLibrarySort(
                 field: loadRawRepresentable(
                     stored.librarySortField,
@@ -279,6 +288,13 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
         userDefaults.set(
             behavior.rawValue,
             forKey: AppPreferencesStorageKey.playbackRepeatBehavior
+        )
+    }
+
+    func saveQueueTransitionStyle(_ style: QueueTransitionStyle) {
+        userDefaults.set(
+            style.rawValue,
+            forKey: AppPreferencesStorageKey.queueTransitionStyle
         )
     }
 

@@ -56,6 +56,7 @@ final class AppPreferencesStoreTests: XCTestCase {
             store.savePlaybackRate(PlaybackRate(rawValue: 1.5))
             store.savePlaybackOrder(.ordered)
             store.savePlaybackRepeatBehavior(.currentItem)
+            store.saveQueueTransitionStyle(.crossfade)
             store.saveLibrarySort(sort)
             store.saveLanguage(.simplifiedChinese)
             store.saveSubtitleAppearance(subtitleAppearance)
@@ -75,6 +76,7 @@ final class AppPreferencesStoreTests: XCTestCase {
                 restored.playbackRepeatBehavior,
                 .currentItem
             )
+            XCTAssertEqual(restored.queueTransitionStyle, .crossfade)
             XCTAssertEqual(restored.librarySort, sort)
             XCTAssertEqual(restored.language, .simplifiedChinese)
             XCTAssertEqual(
@@ -116,6 +118,10 @@ final class AppPreferencesStoreTests: XCTestCase {
             defaults.set(
                 "invalid",
                 forKey: AppPreferencesStorageKey.playbackRepeatBehavior
+            )
+            defaults.set(
+                "invalid",
+                forKey: AppPreferencesStorageKey.queueTransitionStyle
             )
             defaults.set(
                 MediaLibrarySortField.fileSize.rawValue,
@@ -163,6 +169,7 @@ final class AppPreferencesStoreTests: XCTestCase {
             )
             XCTAssertEqual(restored.playbackOrder, .shuffled)
             XCTAssertEqual(restored.playbackRepeatBehavior, .queue)
+            XCTAssertEqual(restored.queueTransitionStyle, .immediate)
             XCTAssertEqual(restored.librarySort.field, .fileSize)
             XCTAssertEqual(restored.librarySort.direction, .ascending)
             XCTAssertEqual(restored.language, .system)

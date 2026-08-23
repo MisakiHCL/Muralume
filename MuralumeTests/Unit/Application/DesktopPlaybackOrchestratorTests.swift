@@ -240,7 +240,7 @@ final class DesktopPlaybackOrchestratorTests: XCTestCase {
         )
     }
 
-    func testItemCompletionLoopsAndShutdownMakesCallbacksInert() async {
+    func testNodeEnablesSeamlessLoopingAndShutdownMakesCallbacksInert() async {
         let engine = TestPlaybackEngine()
         let display = displayID("loop")
         let orchestrator = DesktopPlaybackOrchestrator { engine }
@@ -250,9 +250,10 @@ final class DesktopPlaybackOrchestratorTests: XCTestCase {
         ) { self.source(for: $0) }
         await waitUntil { engine.isPlaying }
 
+        XCTAssertTrue(engine.isLooping)
         engine.emitItemEnded()
 
-        XCTAssertEqual(engine.soughtTimes.last, 0)
+        XCTAssertTrue(engine.soughtTimes.isEmpty)
         XCTAssertTrue(engine.isPlaying)
 
         orchestrator.shutdown()

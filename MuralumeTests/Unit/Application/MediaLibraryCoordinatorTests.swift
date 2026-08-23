@@ -2938,6 +2938,7 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         )
         fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
+        fixture.playback.setQueueCrossfadeEnabled(true)
         fixture.coordinator.play(first)
         await waitForLoads(fixture.engine, count: 1)
 
@@ -2946,6 +2947,13 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(fixture.engine.loadedSources.last?.displayName, "Second")
         XCTAssertEqual(fixture.coordinator.currentItem?.id, second.id)
+        XCTAssertEqual(
+            fixture.engine.loadedTransitions,
+            [
+                .immediate,
+                .crossfade(duration: PlaybackPolicy.queueCrossfadeDuration)
+            ]
+        )
     }
 
     func testSingleItemCompletionSeeksToStartInEveryPlaybackMode() async {

@@ -30,6 +30,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
 struct SettingsView: View {
     @EnvironmentObject private var localization: AppLocalizationController
     @State private var selectedCategory = SettingsCategory.general
+    @ObservedObject var playback: PlaybackCoordinator
     @ObservedObject var dynamicDesktopStartup:
         DynamicDesktopStartupController
     @ObservedObject var defaultVideoPlayer: DefaultVideoPlayerController
@@ -152,6 +153,33 @@ struct SettingsView: View {
                             .settingsDefaultVideoPlayerRow
                 ) {
                     defaultVideoPlayerControl
+                }
+
+                SettingsRow(
+                    title: "settings.queueCrossfade",
+                    accessibilityIdentifier:
+                        MuralumeAccessibilityIdentifier
+                            .settingsQueueCrossfadeRow
+                ) {
+                    Toggle(
+                        "settings.queueCrossfade",
+                        isOn: Binding(
+                            get: {
+                                playback.queueTransitionStyle == .crossfade
+                            },
+                            set: { playback.setQueueCrossfadeEnabled($0) }
+                        )
+                    )
+                    .labelsHidden()
+                    .toggleStyle(.checkbox)
+                    .accessibilityLabel(Text("settings.queueCrossfade"))
+                    .accessibilityHint(
+                        Text("settings.queueCrossfade.description")
+                    )
+                    .accessibilityIdentifier(
+                        MuralumeAccessibilityIdentifier
+                            .queueCrossfadeCheckbox
+                    )
                 }
             }
 

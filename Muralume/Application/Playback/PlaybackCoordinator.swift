@@ -25,6 +25,7 @@ final class PlaybackCoordinator: ObservableObject {
     @Published private(set) var isPlaybackRequested = false
     @Published private(set) var hasPlayableMedia = false
     @Published private(set) var settings: PlaybackSettings
+    @Published private(set) var queueTransitionStyle: QueueTransitionStyle
     @Published private(set) var temporaryPlaybackRate: PlaybackRate?
     @Published private(set) var isPlayerWindowDismissed = false {
         didSet {
@@ -102,6 +103,7 @@ final class PlaybackCoordinator: ObservableObject {
             rate: initialPreferences.playbackRate,
             restorableVolume: initialPreferences.audio.restorableVolume
         )
+        queueTransitionStyle = initialPreferences.queueTransitionStyle
         engine.progressHandler = { [weak self] seconds in
             self?.handleProgress(seconds)
         }
@@ -207,7 +209,8 @@ final class PlaybackCoordinator: ObservableObject {
         _ source: ResolvedMediaSource,
         autoplay: Bool = true,
         attachToPlayerSurface: Bool = true,
-        initialPosition: TimeInterval? = nil
+        initialPosition: TimeInterval? = nil,
+        transition: PlaybackItemTransition = .immediate
     ) async -> PlaybackLoadResult {
         guard presentation != .terminating else {
             return .cancelled
@@ -230,7 +233,10 @@ final class PlaybackCoordinator: ObservableObject {
 
         let loadedDuration: TimeInterval
         do {
-            loadedDuration = try await engine.load(source)
+            loadedDuration = try await engine.load(
+                source,
+                transition: transition
+            )
             try Task.checkCancellation()
         } catch let error as PlaybackEngineError {
             guard loadGeneration == mediaLoadGeneration else {
@@ -474,6 +480,17 @@ final class PlaybackCoordinator: ObservableObject {
         }
         preferencesStore?.savePlaybackRate(rate)
         applyPlaybackGate()
+    }
+
+    func setQueueCrossfadeEnabled(_ isEnabled: Bool) {
+        let style: QueueTransitionStyle = isEnabled
+            ? .crossfade
+            : .immediate
+        guard queueTransitionStyle != style else {
+            return
+        }
+        queueTransitionStyle = style
+        preferencesStore?.saveQueueTransitionStyle(style)
     }
 
     @discardableResult

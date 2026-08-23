@@ -52,6 +52,7 @@ struct AppPreferences: Equatable, Sendable {
         playbackRate: PlaybackPolicy.defaultRate,
         playbackOrder: .shuffled,
         playbackRepeatBehavior: .queue,
+        queueTransitionStyle: .immediate,
         librarySort: MediaLibrarySort(),
         language: .system,
         subtitleAppearance: .defaultValue,
@@ -62,6 +63,7 @@ struct AppPreferences: Equatable, Sendable {
     let playbackRate: PlaybackRate
     let playbackOrder: PlaybackOrder
     let playbackRepeatBehavior: PlaybackRepeatBehavior
+    let queueTransitionStyle: QueueTransitionStyle
     let librarySort: MediaLibrarySort
     let language: AppLanguage
     let subtitleAppearance: SubtitleAppearancePreferences
@@ -72,6 +74,7 @@ struct AppPreferences: Equatable, Sendable {
         playbackRate: PlaybackRate,
         playbackOrder: PlaybackOrder,
         playbackRepeatBehavior: PlaybackRepeatBehavior,
+        queueTransitionStyle: QueueTransitionStyle = .immediate,
         librarySort: MediaLibrarySort,
         language: AppLanguage,
         subtitleAppearance: SubtitleAppearancePreferences = .defaultValue,
@@ -81,6 +84,7 @@ struct AppPreferences: Equatable, Sendable {
         self.playbackRate = playbackRate
         self.playbackOrder = playbackOrder
         self.playbackRepeatBehavior = playbackRepeatBehavior
+        self.queueTransitionStyle = queueTransitionStyle
         self.librarySort = librarySort
         self.language = language
         self.subtitleAppearance = subtitleAppearance
@@ -95,6 +99,7 @@ protocol AppPreferencesStoring: AnyObject {
     func savePlaybackRate(_ rate: PlaybackRate)
     func savePlaybackOrder(_ order: PlaybackOrder)
     func savePlaybackRepeatBehavior(_ behavior: PlaybackRepeatBehavior)
+    func saveQueueTransitionStyle(_ style: QueueTransitionStyle)
     func saveLibrarySort(_ sort: MediaLibrarySort)
     func saveLanguage(_ language: AppLanguage)
     func saveSubtitleAppearance(_ preferences: SubtitleAppearancePreferences)

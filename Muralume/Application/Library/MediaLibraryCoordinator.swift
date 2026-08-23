@@ -2943,6 +2943,9 @@ final class MediaLibraryCoordinator: ObservableObject {
         let generation = loadGeneration
         cancelCurrentLoadTask()
         let outgoingProgress = playbackProgressCheckpoint()
+        let transition = loadedItemID == nil
+            ? PlaybackItemTransition.immediate
+            : playback.queueTransitionStyle.playbackTransition
         loadedItemID = nil
 
         let source = ResolvedMediaSource(
@@ -2968,7 +2971,8 @@ final class MediaLibraryCoordinator: ObservableObject {
             let result = await playback.load(
                 source,
                 autoplay: autoplay,
-                initialPosition: resumePosition
+                initialPosition: resumePosition,
+                transition: transition
             )
             guard generation == loadGeneration, !isShutDown else {
                 return

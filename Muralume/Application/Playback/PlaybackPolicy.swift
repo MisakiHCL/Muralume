@@ -16,6 +16,8 @@ enum PlaybackPolicy {
     static let temporaryFastForwardMaximumMovement: CGFloat = 12
     static let temporaryFastForwardIndicatorDuration: Duration =
         .milliseconds(800)
+    static let queueCrossfadeDuration: TimeInterval = 0.24
+    static let queueCrossfadeAudioStepCount = 15
     static let supportedRates: [PlaybackRate] = [
         PlaybackRate(rawValue: 0.5),
         PlaybackRate(rawValue: 0.75),
