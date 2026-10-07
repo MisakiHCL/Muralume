@@ -10,14 +10,19 @@ final class PlaybackCoordinatorTests: XCTestCase {
             preferencesStore: store
         )
 
-        XCTAssertEqual(coordinator.queueTransitionStyle, .immediate)
+        XCTAssertEqual(coordinator.queueTransitionStyle, .crossfade)
 
+        coordinator.setQueueCrossfadeEnabled(true)
+        coordinator.setQueueCrossfadeEnabled(false)
         coordinator.setQueueCrossfadeEnabled(false)
         coordinator.setQueueCrossfadeEnabled(true)
         coordinator.setQueueCrossfadeEnabled(true)
 
         XCTAssertEqual(coordinator.queueTransitionStyle, .crossfade)
-        XCTAssertEqual(store.savedQueueTransitionStyles, [.crossfade])
+        XCTAssertEqual(
+            store.savedQueueTransitionStyles,
+            [.immediate, .crossfade]
+        )
     }
 
     func testInitialPreferencesApplyWithoutMediaAndPersistCompleteAudioState() {
