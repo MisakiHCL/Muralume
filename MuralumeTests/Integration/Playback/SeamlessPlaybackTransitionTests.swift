@@ -54,7 +54,7 @@ final class SeamlessPlaybackTransitionTests: XCTestCase {
         }
     }
 
-    func testLoadingPlayerItemAfterSeamlessLoopRestoresPauseAtEnd()
+    func testSwitchingLoopModesRestoresMatchingEndAction()
         async throws {
         let queuePlayer = AVQueuePlayer()
         let engine = AVFoundationPlaybackEngine(player: queuePlayer)
@@ -65,15 +65,17 @@ final class SeamlessPlaybackTransitionTests: XCTestCase {
             displayName: sourceURL.lastPathComponent
         )
 
-        engine.setLooping(true)
-        _ = try await engine.load(source)
-        XCTAssertEqual(queuePlayer.actionAtItemEnd, .advance)
-
-        engine.setLooping(false)
-        _ = try await engine.load(source)
-
-        XCTAssertEqual(queuePlayer.actionAtItemEnd, .pause)
-        XCTAssertEqual(queuePlayer.items().count, 1)
+        for isLooping in [false, true, false, true, false] {
+            engine.setLooping(isLooping)
+            _ = try await engine.load(source)
+            XCTAssertEqual(
+                queuePlayer.actionAtItemEnd,
+                isLooping ? .advance : .pause
+            )
+            if !isLooping {
+                XCTAssertEqual(queuePlayer.items().count, 1)
+            }
+        }
     }
 
     func testLoopingEngineUsesAVPlayerLooperQueue() async throws {

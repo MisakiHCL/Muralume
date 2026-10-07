@@ -229,6 +229,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             guard let queuePlayer = targetPlayer as? AVQueuePlayer else {
                 throw PlaybackEngineError.cannotOpen
             }
+            queuePlayer.actionAtItemEnd = .advance
             queuePlayer.removeAllItems()
             let looper = AVPlayerLooper(
                 player: queuePlayer,
