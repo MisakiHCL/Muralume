@@ -209,6 +209,58 @@ final class AppPreferencesStoreTests: XCTestCase {
         XCTAssertEqual(observedPreferences.count, 3)
     }
 
+    func testStoredSubtitleFontSizeSafelyRejectsUnrepresentableIntegers()
+        throws
+    {
+        try withStore { _, defaults in
+            defaults.set(
+                PlaybackOrder.ordered.rawValue,
+                forKey: AppPreferencesStorageKey.playbackOrder
+            )
+            let invalidValues = [
+                NSNumber(value: Int.max),
+                NSNumber(value: Double(Int.max)),
+                NSNumber(value: Double.greatestFiniteMagnitude),
+                NSNumber(value: 32.5)
+            ]
+            for value in invalidValues {
+                defaults.set(
+                    value,
+                    forKey: AppPreferencesStorageKey.subtitleFontSize
+                )
+
+                let restored = UserDefaultsAppPreferencesStore(
+                    userDefaults: defaults
+                ).load()
+
+                XCTAssertEqual(
+                    restored.subtitleAppearance.fontSize,
+                    SubtitleAppearancePreferences.defaultValue.fontSize,
+                    "Stored value: \(value)"
+                )
+                XCTAssertEqual(restored.playbackOrder, .ordered)
+            }
+
+            let validValues = [NSNumber(value: 32), NSNumber(value: 36.0)]
+            for value in validValues {
+                defaults.set(
+                    value,
+                    forKey: AppPreferencesStorageKey.subtitleFontSize
+                )
+
+                let restored = UserDefaultsAppPreferencesStore(
+                    userDefaults: defaults
+                ).load()
+
+                XCTAssertEqual(
+                    restored.subtitleAppearance.fontSize,
+                    value.intValue
+                )
+                XCTAssertEqual(restored.playbackOrder, .ordered)
+            }
+        }
+    }
+
     func testSubtitleAppearanceControllerPersistsOnlyChanges() {
         let store = TestAppPreferencesStore()
         let controller = SubtitleAppearanceController(store: store)

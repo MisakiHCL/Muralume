@@ -56,23 +56,55 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         of item: LibraryMediaItem
     ) async -> MediaLibraryItemAvailability {
         let fileManager = FileManager.default
-        if fileManager.fileExists(atPath: item.url.path) {
-            return .available
-        }
-
-        // A failed existence probe is ambiguous when a volume or parent
-        // directory is temporarily inaccessible. Only an authoritative
-        // listing of the immediate parent can prove that the file is gone.
-        let parentURL = item.url.deletingLastPathComponent()
+        let budget = FileSystemMediaLibraryScanBudget(limits: scanLimits)
         do {
-            let children = try fileManager.contentsOfDirectory(
+            try Task.checkCancellation()
+            try budget.checkpoint()
+            let itemExists = fileManager.fileExists(atPath: item.url.path)
+            try Task.checkCancellation()
+            try budget.checkpoint()
+            if itemExists {
+                return .available
+            }
+
+            // Only a complete, authoritative listing of the immediate parent
+            // can prove a file is gone. Stream entries so a large directory
+            // cannot retain an unbounded collection during a failed load.
+            let parentURL = item.url.deletingLastPathComponent()
+            let failureRecorder = RootEnumerationFailureRecorder(
+                rootURL: parentURL
+            )
+            guard let enumerator = fileManager.enumerator(
                 at: parentURL,
                 includingPropertiesForKeys: nil,
-                options: []
-            )
-            return children.contains {
-                $0.standardizedFileURL == item.url.standardizedFileURL
-            } ? .available : .missing
+                options: [.skipsSubdirectoryDescendants],
+                errorHandler: { failedURL, _ in
+                    failureRecorder.record(failedURL)
+                    return false
+                }
+            ) else {
+                return .temporarilyUnavailable
+            }
+            // Enumeration can canonicalize an aliased parent path, so compare
+            // names within this known immediate directory.
+            let targetFilename = item.url.lastPathComponent
+            while true {
+                try Task.checkCancellation()
+                try budget.checkpoint()
+                let childURL = autoreleasepool {
+                    enumerator.nextObject() as? URL
+                }
+                try Task.checkCancellation()
+                try budget.checkpoint()
+                guard let childURL else {
+                    return failureRecorder.didEncounterFailure
+                        ? .temporarilyUnavailable
+                        : .missing
+                }
+                if childURL.lastPathComponent == targetFilename {
+                    return .available
+                }
+            }
         } catch {
             return .temporarilyUnavailable
         }

@@ -300,7 +300,9 @@ final class MacDesktopHostEnergyTests: XCTestCase {
         )
         visibility.setVisible(false, for: firstWindow)
         postOcclusionChange(for: firstWindow, to: notificationCenter)
-        try await waitForEventPropagation()
+        await waitUntil {
+            host.isDesktopOccluded
+        }
         XCTAssertTrue(host.isDesktopOccluded)
         states.removeAll()
 
@@ -368,7 +370,9 @@ final class MacDesktopHostEnergyTests: XCTestCase {
         )
         visibility.setVisible(false, for: firstWindow)
         postOcclusionChange(for: firstWindow, to: notificationCenter)
-        try await waitForEventPropagation()
+        await waitUntil {
+            host.isDesktopOccluded
+        }
         XCTAssertTrue(host.isDesktopOccluded)
         states.removeAll()
 

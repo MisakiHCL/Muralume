@@ -427,7 +427,7 @@ final class CustomPlaylistTests: XCTestCase {
         }
     }
 
-    func testControllerSerializesMutationsAndFlushesOnShutdown() async throws {
+    func testControllerCoalescesMutationsAndFlushesOnShutdown() async throws {
         let store = CustomPlaylistStoreSpy()
         let controller = CustomPlaylistController(store: store)
         await controller.startAndWait()
@@ -437,10 +437,44 @@ final class CustomPlaylistTests: XCTestCase {
         await controller.shutdown()
 
         let savedCollections = await store.savedCollections
-        XCTAssertEqual(savedCollections.count, 2)
+        XCTAssertEqual(savedCollections.count, 1)
         XCTAssertEqual(
             savedCollections.last?.playlists.map(\.name),
             ["旅行", "天空"]
+        )
+    }
+
+    func testControllerKeepsOnlyLatestSnapshotWhileSaveIsInFlight()
+        async throws
+    {
+        let store = CustomPlaylistStoreSpy()
+        await store.suspendNextSave()
+        let controller = CustomPlaylistController(store: store)
+        await controller.startAndWait()
+        let playlistID = try controller.createPlaylist(named: "Initial")
+        await store.waitForSuspendedSave()
+
+        for index in 1...100 {
+            try controller.renamePlaylist(
+                id: playlistID,
+                to: "Revision \(index)"
+            )
+        }
+        let shutdownTask = Task {
+            await controller.shutdown()
+        }
+        await Task.yield()
+        await store.resumeSave()
+        await shutdownTask.value
+
+        let savedCollections = await store.savedCollections
+        let wasSaveCancelled = await store.wasSaveCancelled
+        XCTAssertFalse(wasSaveCancelled)
+        XCTAssertEqual(savedCollections.count, 2)
+        XCTAssertEqual(savedCollections.first?.playlists.map(\.name), ["Initial"])
+        XCTAssertEqual(
+            savedCollections.last?.playlists.map(\.name),
+            ["Revision 100"]
         )
     }
 
@@ -577,12 +611,25 @@ private actor CustomPlaylistStoreSpy: CustomPlaylistStoring {
     private var loadValue = CustomPlaylistCollection.empty
     private(set) var savedCollections: [CustomPlaylistCollection] = []
     private var shouldFailSave = false
+    private var shouldSuspendNextSave = false
+    private var suspendedSave: CheckedContinuation<Void, Never>?
+    private var saveSuspensionWaiter: CheckedContinuation<Void, Never>?
+    private(set) var wasSaveCancelled = false
 
     func load() async throws -> CustomPlaylistCollection {
         loadValue
     }
 
     func save(_ collection: CustomPlaylistCollection) async throws {
+        if shouldSuspendNextSave {
+            shouldSuspendNextSave = false
+            await withCheckedContinuation { continuation in
+                suspendedSave = continuation
+                saveSuspensionWaiter?.resume()
+                saveSuspensionWaiter = nil
+            }
+        }
+        wasSaveCancelled = wasSaveCancelled || Task.isCancelled
         guard !shouldFailSave else {
             throw CustomPlaylistStoreError.invalidCollection
         }
@@ -591,6 +638,24 @@ private actor CustomPlaylistStoreSpy: CustomPlaylistStoring {
 
     func setSaveFailure(_ shouldFail: Bool) {
         shouldFailSave = shouldFail
+    }
+
+    func suspendNextSave() {
+        shouldSuspendNextSave = true
+    }
+
+    func waitForSuspendedSave() async {
+        guard suspendedSave == nil else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            saveSuspensionWaiter = continuation
+        }
+    }
+
+    func resumeSave() {
+        suspendedSave?.resume()
+        suspendedSave = nil
     }
 
     func promoteLastSaveToLoadValue() {
