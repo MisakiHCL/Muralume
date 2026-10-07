@@ -149,12 +149,7 @@ private struct UserDefaultsAppPreferencesDTO {
               CFGetTypeID(number) != CFBooleanGetTypeID() else {
             return nil
         }
-        let value = number.doubleValue
-        guard value.isFinite, value.rounded() == value,
-              value >= Double(Int.min), value <= Double(Int.max) else {
-            return nil
-        }
-        return Int(value)
+        return Int(exactly: number.doubleValue)
     }
 }
 

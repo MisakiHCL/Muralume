@@ -85,7 +85,9 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
             ) else {
                 return .temporarilyUnavailable
             }
-            let targetURL = item.url.standardizedFileURL
+            // Enumeration can canonicalize an aliased parent path, so compare
+            // names within this known immediate directory.
+            let targetFilename = item.url.lastPathComponent
             while true {
                 try Task.checkCancellation()
                 try budget.checkpoint()
@@ -99,7 +101,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                         ? .temporarilyUnavailable
                         : .missing
                 }
-                if childURL.standardizedFileURL == targetURL {
+                if childURL.lastPathComponent == targetFilename {
                     return .available
                 }
             }
