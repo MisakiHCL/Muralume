@@ -4,6 +4,78 @@ import XCTest
 
 @MainActor
 final class SeamlessPlaybackTransitionTests: XCTestCase {
+    private enum ReplayExpectation {
+        static let endProbeOffset: TimeInterval = 0.2
+        static let minimumReplayProgress: TimeInterval = 0.1
+        static let pollAttempts = 100
+        static let pollInterval: Duration = .milliseconds(50)
+    }
+
+    func testPlayerQueueRetainsEndedItemForRepeatedReplay() async throws {
+        let queuePlayer = AVQueuePlayer()
+        let engine = AVFoundationPlaybackEngine(player: queuePlayer)
+        let playback = PlaybackCoordinator(engine: engine)
+        var completionCount = 0
+        playback.itemEndedHandler = {
+            completionCount += 1
+            return .repeatCurrent
+        }
+        defer { playback.shutdown() }
+
+        let sourceURL = try TestMediaFixture.h264URL(for: Self.self)
+        let result = await playback.load(
+            ResolvedMediaSource(
+                url: sourceURL,
+                displayName: sourceURL.lastPathComponent
+            )
+        )
+        XCTAssertEqual(result, .loaded)
+        let originalItem = try XCTUnwrap(queuePlayer.currentItem)
+        XCTAssertEqual(queuePlayer.actionAtItemEnd, .pause)
+
+        for expectedCompletionCount in 1...2 {
+            await engine.seekBeforePlayback(
+                to: playback.duration - ReplayExpectation.endProbeOffset
+            )
+            let didReplay = try await waitUntil {
+                completionCount == expectedCompletionCount
+                    && queuePlayer.currentTime().seconds
+                        > ReplayExpectation.minimumReplayProgress
+                    && queuePlayer.currentTime().seconds
+                        < playback.duration
+                            - ReplayExpectation.endProbeOffset
+                    && queuePlayer.rate > 0
+            }
+
+            XCTAssertTrue(didReplay)
+            XCTAssertTrue(queuePlayer.currentItem === originalItem)
+            XCTAssertEqual(queuePlayer.items().count, 1)
+            XCTAssertTrue(playback.isPlaybackRequested)
+        }
+    }
+
+    func testLoadingPlayerItemAfterSeamlessLoopRestoresPauseAtEnd()
+        async throws {
+        let queuePlayer = AVQueuePlayer()
+        let engine = AVFoundationPlaybackEngine(player: queuePlayer)
+        defer { engine.stop() }
+        let sourceURL = try TestMediaFixture.h264URL(for: Self.self)
+        let source = ResolvedMediaSource(
+            url: sourceURL,
+            displayName: sourceURL.lastPathComponent
+        )
+
+        engine.setLooping(true)
+        _ = try await engine.load(source)
+        XCTAssertEqual(queuePlayer.actionAtItemEnd, .advance)
+
+        engine.setLooping(false)
+        _ = try await engine.load(source)
+
+        XCTAssertEqual(queuePlayer.actionAtItemEnd, .pause)
+        XCTAssertEqual(queuePlayer.items().count, 1)
+    }
+
     func testLoopingEngineUsesAVPlayerLooperQueue() async throws {
         let queuePlayer = AVQueuePlayer()
         let engine = AVFoundationPlaybackEngine(player: queuePlayer)
@@ -87,5 +159,15 @@ final class SeamlessPlaybackTransitionTests: XCTestCase {
             desktopSurface.connectedPlayerIdentity,
             ObjectIdentifier(incomingPlayer)
         )
+    }
+
+    private func waitUntil(_ condition: () -> Bool) async throws -> Bool {
+        for _ in 0..<ReplayExpectation.pollAttempts {
+            if condition() {
+                return true
+            }
+            try await Task.sleep(for: ReplayExpectation.pollInterval)
+        }
+        return condition()
     }
 }

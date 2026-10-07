@@ -9,5 +9,9 @@ updates:
       time: "09:00"
       timezone: Asia/Shanghai
     open-pull-requests-limit: 5
+    groups:
+      codeql:
+        patterns:
+          - github/codeql-action/*
     commit-message:
       prefix: chore

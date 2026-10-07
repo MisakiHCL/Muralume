@@ -256,6 +256,9 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             return playbackItem
         }
 
+        // The application owns queue advancement and replay. AVQueuePlayer's
+        // default .advance consumes the only item before replay can seek it.
+        targetPlayer.actionAtItemEnd = .pause
         if let queuePlayer = targetPlayer as? AVQueuePlayer {
             queuePlayer.removeAllItems()
             queuePlayer.insert(item, after: nil)

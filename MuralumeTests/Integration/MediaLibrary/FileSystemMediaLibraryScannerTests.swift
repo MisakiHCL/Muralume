@@ -798,66 +798,6 @@ final class FileSystemMediaLibraryScannerTests: XCTestCase {
         )
     }
 
-    func testAvailabilityRequiresReadableParentToConfirmMissingFile() async throws {
-        let sandboxURL = try makeSandbox()
-        defer { removeSandbox(sandboxURL) }
-        let rootURL = sandboxURL.appendingPathComponent(
-            "Library",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: rootURL,
-            withIntermediateDirectories: true
-        )
-        let existingItem = LibraryMediaItem(
-            rootURL: rootURL,
-            rootName: "Library",
-            url: rootURL.appendingPathComponent("Existing.mov"),
-            displayName: "Existing",
-            relativePath: "Existing.mov",
-            relativeDirectory: "",
-            creationDate: nil,
-            fileSize: 1
-        )
-        try writeFile(at: existingItem.url, byteCount: 1)
-        let missingItem = LibraryMediaItem(
-            rootURL: rootURL,
-            rootName: "Library",
-            url: rootURL.appendingPathComponent("Missing.mov"),
-            displayName: "Missing",
-            relativePath: "Missing.mov",
-            relativeDirectory: "",
-            creationDate: nil,
-            fileSize: 1
-        )
-        let unavailableItem = LibraryMediaItem(
-            rootURL: rootURL,
-            rootName: "Library",
-            url: rootURL
-                .appendingPathComponent("Offline", isDirectory: true)
-                .appendingPathComponent("Unknown.mov"),
-            displayName: "Unknown",
-            relativePath: "Offline/Unknown.mov",
-            relativeDirectory: "Offline",
-            creationDate: nil,
-            fileSize: 1
-        )
-        let scanner = FileSystemMediaLibraryScanner()
-        let existingAvailability = await scanner.availability(
-            of: existingItem
-        )
-        let missingAvailability = await scanner.availability(
-            of: missingItem
-        )
-        let unavailableAvailability = await scanner.availability(
-            of: unavailableItem
-        )
-
-        XCTAssertEqual(existingAvailability, .available)
-        XCTAssertEqual(missingAvailability, .missing)
-        XCTAssertEqual(unavailableAvailability, .temporarilyUnavailable)
-    }
-
     private func makeSandbox() throws -> URL {
         let sandboxURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

@@ -55,6 +55,7 @@ final class CustomPlaylistController: ObservableObject {
     private let detailProjectionCache = CustomPlaylistDetailProjectionCache()
     private var loadTask: Task<Void, Never>?
     private var persistenceTask: Task<Void, Never>?
+    private var pendingSaveCollection: CustomPlaylistCollection?
     private var isShuttingDown = false
 
     init(store: any CustomPlaylistStoring) {
@@ -239,25 +240,37 @@ final class CustomPlaylistController: ObservableObject {
         guard !isShuttingDown else {
             return
         }
-        let collection = collection
-        let previousTask = persistenceTask
+        // Keep only the latest pending snapshot while the current write
+        // finishes, so slow storage cannot accumulate tasks and collections.
+        pendingSaveCollection = collection
+        guard persistenceTask == nil else {
+            return
+        }
         persistenceTask = Task { [weak self, store] in
-            await previousTask?.value
-            guard !Task.isCancelled else {
-                return
+            defer {
+                self?.persistenceTask = nil
             }
-            do {
-                try await store.save(collection)
-                guard let self, !isShuttingDown else {
-                    return
+            while let collection = self?.takePendingSaveCollection() {
+                do {
+                    try await store.save(collection)
+                    guard let self, !isShuttingDown else {
+                        continue
+                    }
+                    persistenceFailure = nil
+                } catch {
+                    guard let self, !isShuttingDown else {
+                        continue
+                    }
+                    persistenceFailure = .saveFailed
                 }
-                persistenceFailure = nil
-            } catch {
-                guard let self, !isShuttingDown else {
-                    return
-                }
-                persistenceFailure = .saveFailed
             }
         }
+    }
+
+    private func takePendingSaveCollection() -> CustomPlaylistCollection? {
+        defer {
+            pendingSaveCollection = nil
+        }
+        return pendingSaveCollection
     }
 }
