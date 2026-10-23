@@ -13,7 +13,8 @@ final class ExternalSubtitleController: ObservableObject {
     private let discovery: (any ExternalSubtitleDiscovering)?
     private let associationStore:
         (any ExternalSubtitleAssociationStoring)?
-    private var timeline: SubtitleTimeline?
+    private var cursor: SubtitleTimelineCursor?
+    private var isTimeDeliverySuspended = false
     private var loadTask: Task<Void, Never>?
     private var loadGeneration: UInt64 = 0
     private var activeSecurityScope: SecurityScopedResourceLease?
@@ -87,7 +88,7 @@ final class ExternalSubtitleController: ObservableObject {
         loadTask?.cancel()
         loadTask = nil
         engine.setExternalSubtitleTimeHandler(nil)
-        timeline = nil
+        cursor = nil
         track = nil
         cueText = nil
         isLoading = false
@@ -101,6 +102,7 @@ final class ExternalSubtitleController: ObservableObject {
     func reset() {
         clear(removeRememberedAssociation: false)
         currentMediaURL = nil
+        isTimeDeliverySuspended = false
     }
 
     private func startDiscovery(
@@ -189,7 +191,7 @@ final class ExternalSubtitleController: ObservableObject {
                 }
 
                 activeSecurityScope = lease
-                timeline = parsedTimeline
+                cursor = SubtitleTimelineCursor(timeline: parsedTimeline)
                 track = ExternalSubtitleTrack(
                     url: subtitleURL,
                     displayName: subtitleURL.lastPathComponent,
@@ -229,12 +231,23 @@ final class ExternalSubtitleController: ObservableObject {
         }
     }
 
+    func setTimeDeliverySuspended(_ suspended: Bool) {
+        guard isTimeDeliverySuspended != suspended else { return }
+        isTimeDeliverySuspended = suspended
+        if suspended {
+            engine.setExternalSubtitleTimeHandler(nil)
+        } else if track != nil {
+            installTimeHandler()
+        }
+    }
+
     private func installTimeHandler() {
+        guard !isTimeDeliverySuspended else { return }
         engine.setExternalSubtitleTimeHandler { [weak self] time in
             guard let self else {
                 return
             }
-            let nextCueText = timeline?.text(at: time)
+            let nextCueText = cursor?.text(at: time)
             if cueText != nextCueText {
                 cueText = nextCueText
             }

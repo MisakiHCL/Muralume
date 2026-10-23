@@ -121,11 +121,63 @@ final class UserSelectedMediaSession: MediaAccessSession {
         let targetSource: MediaSource?
     }
 
+    /// Each in-flight batch keeps only removals that happened after it began.
+    /// Comparing canonical path components/identities after inspection avoids
+    /// filesystem work on the main actor and leaves unrelated imports valid.
+    private final class AsyncImportRemovalState {
+        private struct Removal {
+            let path: String
+            let components: [String]
+            let kind: MediaSourceKind
+            let resourceIdentifier: NSObject?
+        }
+
+        private var removals: [Removal] = []
+        private(set) var isInvalidated = false
+
+        func recordRemoval(
+            path: String,
+            kind: MediaSourceKind,
+            resourceIdentifier: NSObject?
+        ) {
+            guard !isInvalidated,
+                  !removals.contains(where: { $0.path == path }) else { return }
+            guard removals.count < MediaImportPolicy.maximumActiveSourceCount else {
+                // A stuck batch must not retain an unbounded removal log.
+                isInvalidated = true
+                removals.removeAll()
+                return
+            }
+            removals.append(Removal(
+                path: path,
+                components: URL(fileURLWithPath: path).pathComponents,
+                kind: kind,
+                resourceIdentifier: resourceIdentifier
+            ))
+        }
+
+        func wasRemoved(_ inspection: MediaSourceImportInspection) -> Bool {
+            guard !isInvalidated else { return true }
+            let components = inspection.linkResolution.targetURL.pathComponents
+            return removals.contains { removal in
+                if let identifier = inspection.resourceIdentifier,
+                   let removedIdentifier = removal.resourceIdentifier,
+                   identifier == removedIdentifier { return true }
+                return components == removal.components
+                    || (removal.kind == .folder
+                        && components.starts(with: removal.components))
+                    || (inspection.kind == .folder
+                        && removal.components.starts(with: components))
+            }
+        }
+    }
+
     private let defaults: UserDefaults
     private let securityAccess: SecurityScopedMediaAccess
     private let sourceKindResolver: (URL) -> MediaSourceKind?
     private let sourceRecordStore: SourceRecordStore
     private let restoreExecutor: UserSelectedMediaRestoreExecutor?
+    private let importExecutor: UserSelectedMediaImportExecutor?
     private var activeSourcesByKey: [String: MediaSource] = [:]
     private var activeRecordsByKey: [String: PersistedSourceRecord] = [:]
     private var activeResourceIdentifiersByKey: [String: NSObject] = [:]
@@ -142,7 +194,12 @@ final class UserSelectedMediaSession: MediaAccessSession {
     private var asyncRestoreGeneration: UInt?
     private var didAttemptRestore = false
     private var lifecycleGeneration: UInt = 0
+    private var activeImportRemovalStates: [UUID: AsyncImportRemovalState] = [:]
     private(set) var hasUnavailablePersistedSources = false
+
+    var supportsAsynchronousImportPreparation: Bool {
+        importExecutor != nil && restoreExecutor != nil
+    }
 
     var unavailablePersistedSources: [UnavailableMediaSource] {
         unavailableStoredRecordValues
@@ -166,7 +223,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
             MediaSourceURLInspector.liveSourceKind(at: $0)
         },
         sourceRecordStore: SourceRecordStore? = nil,
-        restoreExecutor: UserSelectedMediaRestoreExecutor? = nil
+        restoreExecutor: UserSelectedMediaRestoreExecutor? = nil,
+        importExecutor: UserSelectedMediaImportExecutor? = nil
     ) {
         self.defaults = defaults
         self.securityAccess = securityAccess
@@ -175,6 +233,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
             defaults.set(storedValues, forKey: Storage.sourceRecordKey)
         }
         self.restoreExecutor = restoreExecutor
+        self.importExecutor = importExecutor
     }
 
     func restoreSources() -> [MediaSource] {
@@ -867,6 +926,231 @@ final class UserSelectedMediaSession: MediaAccessSession {
         )
     }
 
+    func addSourcesAsync(
+        _ urls: [URL],
+        incomingScopePolicy: MediaAccessIncomingScopePolicy
+    ) async -> MediaAccessUpdate {
+        guard let importExecutor, let restoreExecutor else {
+            return addSources(urls, incomingScopePolicy: incomingScopePolicy)
+        }
+        let incomingLeases = urls.map { url in
+            importExecutor.incomingLease(for: url, policy: incomingScopePolicy)
+        }
+        defer { withExtendedLifetime(incomingLeases) {} }
+        let generation = lifecycleGeneration
+        let importID = UUID()
+        let removalState = AsyncImportRemovalState()
+        activeImportRemovalStates[importID] = removalState
+        defer { activeImportRemovalStates[importID] = nil }
+        _ = await restoreSourcesAsync()
+        var requestedFileURLs: [URL] = []
+        var requestedFileIDs: Set<LibraryMediaItem.ID> = []
+        var acceptedCount = 0
+        var rejectedCount = 0
+        var rejectionCounts: [MediaAccessRejectionReason: Int] = [:]
+        var didChange = false
+        var hasUnpersistedChanges = false
+        defer {
+            if hasUnpersistedChanges, generation == lifecycleGeneration {
+                storeSourceRecords(currentStoredRecordValues)
+            }
+        }
+
+        func reject(_ reason: MediaAccessRejectionReason? = nil) {
+            rejectedCount += 1
+            if let reason { rejectionCounts[reason, default: 0] += 1 }
+        }
+        for (index, lease) in incomingLeases.enumerated() {
+            guard !Task.isCancelled, generation == lifecycleGeneration,
+                  !removalState.isInvalidated else { break }
+            guard index < MediaImportPolicy.maximumTopLevelSourceCount else {
+                reject()
+                continue
+            }
+            do {
+                let selected = try await importInspection(
+                    lease, executor: importExecutor, generation: generation,
+                    removalState: removalState
+                )
+                guard let selectedKind = selected.kind else {
+                    reject()
+                    continue
+                }
+                guard MediaSourceURLInspector.isSupported(
+                    kind: selectedKind, url: selected.linkResolution.targetURL
+                ) else {
+                    reject(.unsupportedFileFormat)
+                    continue
+                }
+                let selectedDisposition = importDisposition(selected)
+                if case .covered = selectedDisposition {
+                    acceptedCount += 1
+                    if selectedKind == .file {
+                        appendRequestedFileURL(
+                            importPlaybackURL(selected),
+                            to: &requestedFileURLs, seenIDs: &requestedFileIDs
+                        )
+                    }
+                    continue
+                }
+                guard !selected.linkResolution.didResolveLink else {
+                    reject()
+                    continue
+                }
+                if case let .rejected(reason) = selectedDisposition {
+                    reject(reason)
+                    continue
+                }
+                if case let .insert(keys) = selectedDisposition,
+                   !canInstallSource(replacingKeys: keys) {
+                    reject()
+                    continue
+                }
+                guard let bookmark = try await importExecutor.makeBookmark(lease),
+                      Self.bookmarkIsWithinPersistenceLimit(bookmark) else {
+                    reject()
+                    continue
+                }
+                let preparation = await restoreExecutor.prepare(
+                    kind: selectedKind, bookmark: bookmark
+                )
+                guard case let .resolved(ownedRestore) = preparation else {
+                    reject()
+                    continue
+                }
+                // The inspection worker retains this lease if cancellation
+                // wins before its synchronous file operations return.
+                let resolvedLease = MediaImportIncomingScopeLease(
+                    url: ownedRestore.restore.resolvedURL
+                ) { _ in ownedRestore.closeScopeIfOwned() }
+                let resolved = try await importInspection(
+                    resolvedLease, executor: importExecutor, generation: generation,
+                    removalState: removalState
+                )
+                guard let resolvedKind = resolved.kind,
+                      MediaSourceURLInspector.isSupported(
+                        kind: resolvedKind, url: resolved.linkResolution.targetURL
+                      ) else {
+                    reject()
+                    continue
+                }
+                let disposition = importDisposition(resolved)
+                if case .covered = disposition {
+                    acceptedCount += 1
+                    if resolvedKind == .file {
+                        appendRequestedFileURL(
+                            importPlaybackURL(resolved),
+                            to: &requestedFileURLs, seenIDs: &requestedFileIDs
+                        )
+                    }
+                    continue
+                }
+                guard !resolved.linkResolution.didResolveLink else {
+                    reject()
+                    continue
+                }
+                if case let .rejected(reason) = disposition {
+                    reject(reason)
+                    continue
+                }
+                guard case let .insert(replacingKeys) = disposition,
+                      canInstallSource(replacingKeys: replacingKeys) else {
+                    reject()
+                    continue
+                }
+                let source = MediaSource(
+                    url: ownedRestore.restore.resolvedURL, kind: resolvedKind
+                )
+                let activeBookmark = ownedRestore.restore.refreshedBookmark ?? bookmark
+                let replacedURLs = install(
+                    source, bookmark: activeBookmark,
+                    replacingKeys: replacingKeys,
+                    resourceIdentifier: resolved.resourceIdentifier,
+                    comparisonPath: resolved.linkResolution.targetURL.path
+                )
+                ownedRestore.transferScopeToSession()
+                didChange = true
+                hasUnpersistedChanges = true
+                // Persist before releasing any narrower grants that this
+                // broader source replaces, also across partial cancellation.
+                if !replacedURLs.isEmpty {
+                    storeSourceRecords(currentStoredRecordValues)
+                    hasUnpersistedChanges = false
+                }
+                for url in replacedURLs { securityAccess.stopAccess(url) }
+                acceptedCount += 1
+                if resolvedKind == .file {
+                    appendRequestedFileURL(
+                        source.url, to: &requestedFileURLs, seenIDs: &requestedFileIDs
+                    )
+                }
+            } catch {
+                if Task.isCancelled || generation != lifecycleGeneration { break }
+                reject()
+            }
+        }
+        return MediaAccessUpdate(
+            activeSources: activeSources,
+            requestedFileURLs: requestedFileURLs,
+            acceptedRequestCount: acceptedCount,
+            rejectedRequestCount: rejectedCount,
+            actionableRejectionCounts: rejectionCounts,
+            didChangeSources: didChange
+        )
+    }
+
+    private func importInspection(
+        _ lease: MediaImportIncomingScopeLease,
+        executor: UserSelectedMediaImportExecutor,
+        generation: UInt,
+        removalState: AsyncImportRemovalState
+    ) async throws -> MediaSourceImportInspection {
+        while true {
+            try Task.checkCancellation()
+            guard generation == lifecycleGeneration,
+                  !removalState.isInvalidated else { throw CancellationError() }
+            let sources = activeSourcesByKey
+            let inspection = try await executor.inspect(lease, activeSources: sources)
+            try Task.checkCancellation()
+            guard generation == lifecycleGeneration,
+                  !removalState.wasRemoved(inspection) else { throw CancellationError() }
+            if sources == activeSourcesByKey { return inspection }
+        }
+    }
+
+    private func importDisposition(
+        _ inspection: MediaSourceImportInspection
+    ) -> SourceDisposition {
+        let path = inspection.linkResolution.targetURL.path
+        if activeSourcesByKey[path] != nil { return .covered }
+        if let identifier = inspection.resourceIdentifier,
+           activeKeyByResourceIdentifier[identifier] != nil { return .covered }
+        if inspection.kind == .file {
+            return inspection.coveredByFolderPaths.isEmpty
+                ? .insert(replacingKeys: []) : .covered
+        }
+        if !inspection.coveredByFolderPaths.isEmpty {
+            return .rejected(.activeFolderContainsSelectedFolder)
+        }
+        if !inspection.containsFolderPaths.isEmpty {
+            return .rejected(.selectedFolderContainsActiveFolder)
+        }
+        return .insert(replacingKeys: Array(inspection.containsFilePaths))
+    }
+
+    private func importPlaybackURL(_ inspection: MediaSourceImportInspection) -> URL {
+        let comparisonURL = inspection.linkResolution.targetURL
+        if let source = activeSourcesByKey[comparisonURL.path], source.kind == .file {
+            return source.url
+        }
+        if let identifier = inspection.resourceIdentifier,
+           let key = activeKeyByResourceIdentifier[identifier],
+           let source = activeSourcesByKey[key], source.kind == .file {
+            return source.url
+        }
+        return comparisonURL
+    }
+
     func addFolders(_ urls: [URL]) -> [URL] {
         addSources(urls).activeSources.compactMap { source in
             source.kind == .folder ? source.url : nil
@@ -876,6 +1160,13 @@ final class UserSelectedMediaSession: MediaAccessSession {
     func prepareToRemoveSource(_ source: MediaSource) {
         guard let activeKey = activeKey(matching: source) else {
             return
+        }
+        for state in activeImportRemovalStates.values {
+            state.recordRemoval(
+                path: activeKey,
+                kind: source.kind,
+                resourceIdentifier: activeResourceIdentifiersByKey[activeKey]
+            )
         }
         activeRecordsByKey.removeValue(forKey: activeKey)
         storeSourceRecords(currentStoredRecordValues)
@@ -916,6 +1207,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
 
     func stop() {
         lifecycleGeneration &+= 1
+        activeImportRemovalStates.removeAll()
         for source in activeSourcesByKey.values {
             securityAccess.stopAccess(source.url)
         }
@@ -1095,7 +1387,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
         bookmark: Data,
         replacingKeys: [String],
         resourceIdentifier: NSObject?,
-        persistedRecord: PersistedSourceRecord? = nil
+        persistedRecord: PersistedSourceRecord? = nil,
+        comparisonPath: String? = nil
     ) -> [URL] {
         let replacedURLs = replacingKeys.compactMap {
             activeSourcesByKey.removeValue(forKey: $0)?.url
@@ -1104,7 +1397,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
             activeRecordsByKey.removeValue(forKey: key)
             removeIndexes(forActiveKey: key)
         }
-        let key = sourceKey(for: source.url)
+        let key = comparisonPath ?? sourceKey(for: source.url)
         activeSourcesByKey[key] = source
         activeRecordsByKey[key] = (
             persistedRecord

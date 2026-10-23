@@ -359,7 +359,15 @@ struct CustomPlaylistCollection: Codable, Equatable, Sendable {
         using items: [LibraryMediaItem],
         now: Date = Date()
     ) -> Bool {
-        let index = MediaReferenceResolutionIndex(items: items)
+        guard playlists.contains(where: { !$0.entries.isEmpty }) else { return false }
+        return reconcile(using: MediaReferenceResolutionIndex(items: items), now: now)
+    }
+
+    @discardableResult
+    mutating func reconcile(
+        using index: MediaReferenceResolutionIndex,
+        now: Date = Date()
+    ) -> Bool {
         var didChange = false
         for playlistIndex in playlists.indices {
             didChange = playlists[playlistIndex].reconcile(

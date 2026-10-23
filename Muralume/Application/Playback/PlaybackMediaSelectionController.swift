@@ -82,6 +82,7 @@ final class PlaybackMediaSelectionController: ObservableObject {
     }
 
     func suppressSubtitlesForDesktop() {
+        externalSubtitles.setTimeDeliverySuspended(true)
         guard savedPlayerSubtitleSelection == nil,
               externalSubtitles.track == nil,
               !state.subtitleOptions.isEmpty else {
@@ -92,6 +93,7 @@ final class PlaybackMediaSelectionController: ObservableObject {
     }
 
     func restorePlayerSubtitleSelection() {
+        externalSubtitles.setTimeDeliverySuspended(false)
         guard let savedPlayerSubtitleSelection else {
             return
         }

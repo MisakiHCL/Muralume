@@ -12,6 +12,23 @@ protocol VideoScreenshotGenerating: Sendable {
     func jpegData(for request: VideoScreenshotRequest) async throws -> Data
 }
 
+protocol VideoScreenshotWriting: Sendable {
+    func write(_ data: Data, to destinationURL: URL) async throws
+}
+
+/// Serializes screenshot writes away from the UI executor. The URL granted
+/// by NSSavePanel remains scoped for the complete atomic write operation.
+actor FileVideoScreenshotWriter: VideoScreenshotWriting {
+    func write(_ data: Data, to destinationURL: URL) throws {
+        try Task.checkCancellation()
+        let access = destinationURL.startAccessingSecurityScopedResource()
+        defer {
+            if access { destinationURL.stopAccessingSecurityScopedResource() }
+        }
+        try data.write(to: destinationURL, options: .atomic)
+    }
+}
+
 enum VideoScreenshotGenerationError: Error, Equatable {
     case frameUnavailable
     case encodingFailed
@@ -40,14 +57,6 @@ actor AVAssetVideoScreenshotGenerator: VideoScreenshotGenerating {
         let nominalFrameRate = try await videoTrack.load(.nominalFrameRate)
         try Task.checkCancellation()
 
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.apertureMode = .cleanAperture
-        generator.maximumSize = CGSize(
-            width: VideoScreenshotPolicy.maximumPixelDimension,
-            height: VideoScreenshotPolicy.maximumPixelDimension
-        )
-
         let effectiveFrameRate = nominalFrameRate > 0
             ? nominalFrameRate
             : VideoScreenshotPolicy.fallbackFrameRate
@@ -55,20 +64,18 @@ actor AVAssetVideoScreenshotGenerator: VideoScreenshotGenerating {
             seconds: 1 / Double(effectiveFrameRate),
             preferredTimescale: VideoScreenshotPolicy.timeScale
         )
-        generator.requestedTimeToleranceBefore = frameTolerance
-        generator.requestedTimeToleranceAfter = frameTolerance
 
         let requestedTime = CMTime(
             seconds: max(request.time, 0),
             preferredTimescale: VideoScreenshotPolicy.timeScale
         )
         let cancellationBox = VideoScreenshotGeneratorCancellationBox(
-            generator: generator
+            asset: asset, frameTolerance: frameTolerance
         )
         let image: CGImage
         do {
             image = try await withTaskCancellationHandler {
-                try await generator.image(at: requestedTime).image
+                try await cancellationBox.image(at: requestedTime)
             } onCancel: {
                 cancellationBox.cancel()
             }
@@ -107,13 +114,49 @@ private final class VideoScreenshotGeneratorCancellationBox:
     @unchecked Sendable
 {
     private let generator: AVAssetImageGenerator
+    private let lock = NSLock()
+    private var isCancelled = false
 
-    init(generator: AVAssetImageGenerator) {
+    init(asset: AVAsset, frameTolerance: CMTime) {
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.apertureMode = .cleanAperture
+        generator.maximumSize = CGSize(
+            width: VideoScreenshotPolicy.maximumPixelDimension,
+            height: VideoScreenshotPolicy.maximumPixelDimension
+        )
+        generator.requestedTimeToleranceBefore = frameTolerance
+        generator.requestedTimeToleranceAfter = frameTolerance
         self.generator = generator
     }
 
+    func image(at time: CMTime) async throws -> CGImage {
+        try await withCheckedThrowingContinuation { continuation in
+            lock.withLock {
+                guard !isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: time)]) {
+                    _, image, _, result, error in
+                    if result == .succeeded, let image {
+                        continuation.resume(returning: image)
+                    } else if result == .cancelled {
+                        continuation.resume(throwing: CancellationError())
+                    } else {
+                        continuation.resume(throwing: error
+                            ?? VideoScreenshotGenerationError.frameUnavailable)
+                    }
+                }
+            }
+        }
+    }
+
     func cancel() {
-        generator.cancelAllCGImageGeneration()
+        lock.withLock {
+            isCancelled = true
+            generator.cancelAllCGImageGeneration()
+        }
     }
 }
 
@@ -159,6 +202,7 @@ enum VideoScreenshotFilenameBuilder {
 final class MacVideoScreenshotController: VideoScreenshotControlling {
     private let localization: AppLocalizationController
     private let generator: any VideoScreenshotGenerating
+    private let writer: any VideoScreenshotWriting
     private var captureTask: Task<Void, Never>?
     private var captureGeneration: UInt64 = 0
     private var activeSavePanel: NSSavePanel?
@@ -166,10 +210,12 @@ final class MacVideoScreenshotController: VideoScreenshotControlling {
     init(
         localization: AppLocalizationController,
         generator: any VideoScreenshotGenerating =
-            AVAssetVideoScreenshotGenerator()
+            AVAssetVideoScreenshotGenerator(),
+        writer: any VideoScreenshotWriting = FileVideoScreenshotWriter()
     ) {
         self.localization = localization
         self.generator = generator
+        self.writer = writer
     }
 
     deinit {
@@ -205,7 +251,7 @@ final class MacVideoScreenshotController: VideoScreenshotControlling {
                     return
                 }
                 try Task.checkCancellation()
-                try jpegData.write(to: destinationURL, options: .atomic)
+                try await self.writer.write(jpegData, to: destinationURL)
             } catch is CancellationError {
                 // Cancellation is expected during shutdown or a superseding
                 // app lifecycle transition.

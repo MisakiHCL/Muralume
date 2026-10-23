@@ -174,12 +174,98 @@ final class MediaLibraryCoordinatorConcurrencyTests: XCTestCase {
         await waitForScan(fixture.coordinator)
         let initialItems = fixture.coordinator.items
         let initialRevision = fixture.coordinator.itemsRevision
+        let initialPreparationCount = await preparer.callCount(for: .prepare)
+        let initialReconciliationCount = await preparer.callCount(for: .reconcileQueue)
 
         fixture.coordinator.refresh()
         await waitForScan(fixture.coordinator)
 
         XCTAssertEqual(fixture.coordinator.items, initialItems)
         XCTAssertEqual(fixture.coordinator.itemsRevision, initialRevision)
+        let finalPreparationCount = await preparer.callCount(for: .prepare)
+        let finalReconciliationCount = await preparer.callCount(for: .reconcileQueue)
+        XCTAssertEqual(finalPreparationCount, initialPreparationCount)
+        XCTAssertEqual(finalReconciliationCount, initialReconciliationCount)
+        await fixture.coordinator.shutdown()
+    }
+
+    func testCancelledMediaWorkKeepsActualSlotAndOnlyLatestPendingWorkRuns() async {
+        let pool = BoundedMediaWorkPool(
+            maximumConcurrentWorkCount: 1, maximumQueuedWorkCount: 1
+        )
+        let probe = NonCooperativeMediaWorkProbe()
+        defer { probe.release() }
+        let first = Task { () -> Bool in
+            do {
+                _ = try await pool.run { probe.run(1) }
+                return false
+            } catch { return error is CancellationError }
+        }
+        guard await waitUntil("first media worker", {
+            probe.started == [1]
+        }) else { return }
+        first.cancel()
+        let firstWasCancelled = await first.value
+        XCTAssertTrue(firstWasCancelled)
+
+        let superseded = Task { () -> Bool in
+            do {
+                _ = try await pool.run { probe.run(2) }
+                return false
+            } catch { return error is CancellationError }
+        }
+        await drainTaskTurns()
+        superseded.cancel()
+        let secondWasCancelled = await superseded.value
+        XCTAssertTrue(secondWasCancelled)
+        let latest = Task {
+            try await pool.run { probe.run(3) }
+        }
+        await drainTaskTurns()
+        XCTAssertEqual(probe.started, [1])
+        probe.release()
+        let value = try? await latest.value
+        XCTAssertEqual(value, 3)
+        XCTAssertEqual(probe.started, [1, 3])
+        XCTAssertEqual(probe.maximumRunningCount, 1)
+    }
+
+    func testLateDurableImportJoinsVisibleSourcesWithoutReplacingLatestPlayIntent()
+        async throws {
+        let firstURL = URL(fileURLWithPath: "/tmp/Late Durable A.mov")
+        let latestURL = URL(fileURLWithPath: "/tmp/Latest Durable B.mov")
+        let first = makeFileItem(url: firstURL, name: "A")
+        let latest = makeFileItem(url: latestURL, name: "B")
+        let roots = [firstURL, latestURL].map {
+            MediaLibraryRoot(url: $0, displayName: $0.lastPathComponent, kind: .file)
+        }
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(roots: roots, items: [first, latest])
+        )
+        fixture.session.blockAsyncImport([firstURL])
+        defer { fixture.session.releaseAsyncImport() }
+        let firstTask = Task {
+            await fixture.coordinator.prepareImportAsync([firstURL])
+        }
+        guard await waitUntil("blocked first import", {
+            fixture.session.didBeginBlockedAsyncImport
+        }) else { return }
+        let latestResult = await fixture.coordinator.prepareImportAsync([latestURL])
+        let latestPreparation = try XCTUnwrap(latestResult)
+        fixture.coordinator.commitImport(latestPreparation)
+        await waitForScan(fixture.coordinator)
+        await waitForLoads(fixture.engine, count: 1)
+        XCTAssertEqual(fixture.coordinator.currentItemID, latest.id)
+
+        fixture.session.releaseAsyncImport()
+        let stalePreparation = await firstTask.value
+        XCTAssertNil(stalePreparation)
+        await waitForScan(fixture.coordinator)
+
+        XCTAssertEqual(Set(fixture.coordinator.items.map(\.id)), Set([first.id, latest.id]))
+        XCTAssertEqual(Set(fixture.coordinator.roots.map(\.id)), Set(roots.map(\.id)))
+        XCTAssertEqual(fixture.coordinator.currentItemID, latest.id)
         await fixture.coordinator.shutdown()
     }
 
@@ -717,6 +803,30 @@ final class MediaLibraryCoordinatorConcurrencyTests: XCTestCase {
             await Task.yield()
         }
     }
+}
+
+private final class NonCooperativeMediaWorkProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private let gate = DispatchSemaphore(value: 0)
+    private var startedValues: [Int] = []
+    private var runningCount = 0
+    private var peakRunningCount = 0
+
+    var started: [Int] { lock.withLock { startedValues } }
+    var maximumRunningCount: Int { lock.withLock { peakRunningCount } }
+
+    func run(_ value: Int) -> Int {
+        lock.withLock {
+            startedValues.append(value)
+            runningCount += 1
+            peakRunningCount = max(peakRunningCount, runningCount)
+        }
+        if value == 1 { gate.wait() }
+        lock.withLock { runningCount -= 1 }
+        return value
+    }
+
+    func release() { gate.signal() }
 }
 
 @MainActor

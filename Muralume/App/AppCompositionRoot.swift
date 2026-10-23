@@ -56,7 +56,8 @@ enum AppCompositionRoot {
                 localization: localization
             ),
             mediaSession: UserSelectedMediaSession(
-                restoreExecutor: .live
+                restoreExecutor: .live,
+                importExecutor: .live
             ),
             scanner: FileSystemMediaLibraryScanner(),
             mediaThumbnailProvider: mediaThumbnailProvider,

@@ -26,14 +26,23 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     private weak var attachedSurface: (any AVPlayerRenderSurface)?
     private var timeObserver: Any?
     private var subtitleTimeObserver: Any?
-    private var selectedEmbeddedSubtitleTimeline: SubtitleTimeline?
+    private var selectedEmbeddedSubtitleCursor: SubtitleTimelineCursor?
+    private var subtitleSourceURL: URL?
+    private let embeddedSubtitleParser: any EmbeddedSubtitleParsing
+    private lazy var embeddedSubtitlePlayback = EmbeddedSubtitlePlaybackController(
+        parser: embeddedSubtitleParser
+    ) { [weak self] timeline in
+        self?.updateSelectedEmbeddedSubtitleTimeline(timeline)
+    }
     private var publishedEmbeddedSubtitleCueText: String?
     private var legibleOutput: AVPlayerItemLegibleOutput?
+    private weak var legibleOutputItem: AVPlayerItem?
     private var timeControlObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
     private var playerLooper: AVPlayerLooper?
     private var looperStatusObservation: NSKeyValueObservation?
+    private var looperCurrentItemObservation: NSKeyValueObservation?
     private var mediaSelectionContext: AVFoundationMediaSelectionContext?
     private var compatibilityLease: MediaPlaybackURLLease?
     private var retiringCompatibilityLease: MediaPlaybackURLLease?
@@ -56,7 +65,11 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         )
     }
 
-    init(player: AVPlayer = AVQueuePlayer()) {
+    init(
+        player: AVPlayer = AVQueuePlayer(),
+        embeddedSubtitleParser: any EmbeddedSubtitleParsing = EmbeddedSubtitleParser()
+    ) {
+        self.embeddedSubtitleParser = embeddedSubtitleParser
         self.player = player
         configuredVolume = PlaybackVolume(rawValue: player.volume)
         configuredMuted = player.isMuted
@@ -88,13 +101,15 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         outgoingPlayer.currentItem?.cancelPendingSeeks()
         loadGeneration &+= 1
         let generation = loadGeneration
+        embeddedSubtitlePlayback.cancel(invalidateValidation: true)
+        subtitleSourceURL = nil
         removeItemObservers()
         removeProgressObserver()
         removeSubtitleTimeObserver()
         removeTimeControlObservation()
         mediaSelectionContext = nil
         legibleOutput = nil
-        selectedEmbeddedSubtitleTimeline = nil
+        selectedEmbeddedSubtitleCursor = nil
         publishEmbeddedSubtitleCueText(nil)
 
         let sourceLease: MediaPlaybackURLLease
@@ -104,9 +119,6 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             throw PlaybackEngineError.cannotOpen
         }
         let asset = AVURLAsset(url: sourceLease.url)
-        let embeddedSubtitleTask = Task.detached(priority: .utility) {
-            try await EmbeddedSubtitleParser().parse(sourceLease.url)
-        }
 
         do {
             async let playable = asset.load(.isPlayable)
@@ -131,19 +143,6 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
                 audioGroup,
                 subtitleGroup
             )
-            let embeddedSubtitleTracks: [EmbeddedSubtitleTrackData]
-            if let loadedSubtitleGroup,
-               !loadedSubtitleGroup.options.isEmpty {
-                embeddedSubtitleTracks = await withTaskCancellationHandler {
-                    (try? await embeddedSubtitleTask.value) ?? []
-                } onCancel: {
-                    embeddedSubtitleTask.cancel()
-                }
-            } else {
-                embeddedSubtitleTask.cancel()
-                embeddedSubtitleTracks = []
-            }
-
             try Task.checkCancellation()
             guard generation == loadGeneration else {
                 throw PlaybackEngineError.superseded
@@ -153,18 +152,8 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             }
 
             let item = AVPlayerItem(asset: asset)
-            let selectionContext = AVFoundationMediaSelectionContext(
-                item: item,
-                audioGroup: loadedAudioGroup,
-                subtitleGroup: loadedSubtitleGroup,
-                embeddedSubtitleTracks: embeddedSubtitleTracks,
-                generation: generation
-            )
-            if selectionContext.canRenderEmbeddedSubtitles, !isLooping {
-                let output = AVPlayerItemLegibleOutput()
-                output.suppressesPlayerRendering = true
-                item.add(output)
-                legibleOutput = output
+            if isLooping, let loadedSubtitleGroup {
+                item.select(nil, in: loadedSubtitleGroup)
             }
             let incomingPlayer = usesCrossfade
                 ? makeConfiguredPlayer()
@@ -192,7 +181,13 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
                 compatibilityLease = sourceLease
             }
             installItemObservers(for: playbackItem)
-            mediaSelectionContext = selectionContext
+            mediaSelectionContext = AVFoundationMediaSelectionContext(
+                item: playbackItem,
+                audioGroup: loadedAudioGroup,
+                subtitleGroup: loadedSubtitleGroup,
+                generation: generation
+            )
+            subtitleSourceURL = source.url
             refreshSelectedEmbeddedSubtitleTimeline()
             refreshProgressObserver()
             refreshSubtitleTimeObserver()
@@ -203,13 +198,10 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             let seconds = assetDuration.seconds
             return seconds.isFinite && seconds > 0 ? seconds : 0
         } catch let error as PlaybackEngineError {
-            embeddedSubtitleTask.cancel()
             throw error
         } catch is CancellationError {
-            embeddedSubtitleTask.cancel()
             throw PlaybackEngineError.superseded
         } catch {
-            embeddedSubtitleTask.cancel()
             throw PlaybackEngineError.cannotOpen
         }
     }
@@ -236,6 +228,14 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
                 templateItem: item
             )
             playerLooper = looper
+            looperCurrentItemObservation = queuePlayer.observe(
+                \.currentItem, options: [.new]
+            ) { [weak self] _, _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.isLooping else { return }
+                    self.updateNativeSubtitleRendering()
+                }
+            }
             looperStatusObservation = looper.observe(
                 \.status,
                 options: [.initial, .new]
@@ -408,6 +408,8 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     }
 
     private func disablePlayerLooper() {
+        looperCurrentItemObservation?.invalidate()
+        looperCurrentItemObservation = nil
         looperStatusObservation?.invalidate()
         looperStatusObservation = nil
         playerLooper?.disableLooping()
@@ -426,14 +428,13 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             throw PlaybackEngineError.incompatibleSurface
         }
 
-        configureDisplaySleepPrevention(for: surface)
-
         surfaceGeneration &+= 1
         let generation = surfaceGeneration
         let previousSurface = attachedSurface
 
         if let previousSurface,
            ObjectIdentifier(previousSurface) == ObjectIdentifier(surface) {
+            configureDisplaySleepPrevention(for: surface)
             if !isSurfaceTransitionActive {
                 previousSurface.connect(to: player)
             }
@@ -467,6 +468,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         // A newer attachment must be able to supersede and disconnect it even
         // before the first rendered frame arrives.
         attachedSurface = surface
+        configureDisplaySleepPrevention(for: surface)
 
         guard player.currentItem != nil else {
             return
@@ -527,6 +529,9 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         for surface: (any AVPlayerRenderSurface)?
     ) {
         player.preventsDisplaySleepDuringVideoPlayback = surface?.id == .player
+        updateNativeSubtitleRendering()
+        refreshSubtitleTimeObserver()
+        publishCurrentEmbeddedSubtitleCueIfAvailable()
     }
 
     func seek(to seconds: TimeInterval) {
@@ -653,11 +658,14 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         _ handler: ((String?) -> Void)?
     ) {
         embeddedSubtitleCueHandler = handler
+        refreshSelectedEmbeddedSubtitleTimeline()
         refreshSubtitleTimeObserver()
         publishCurrentEmbeddedSubtitleCueIfAvailable()
     }
 
     func stop() {
+        embeddedSubtitlePlayback.cancel(invalidateValidation: true)
+        subtitleSourceURL = nil
         loadGeneration &+= 1
         surfaceGeneration &+= 1
         requestedRate = nil
@@ -721,7 +729,8 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
               externalSubtitleTimeHandler != nil
                 || (
                     embeddedSubtitleCueHandler != nil
-                        && selectedEmbeddedSubtitleTimeline != nil
+                        && selectedEmbeddedSubtitleCursor != nil
+                        && attachedSurface?.id != .desktop
                 ),
               player.currentItem != nil else {
             return
@@ -773,7 +782,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         guard embeddedSubtitleCueHandler != nil else {
             return
         }
-        guard selectedEmbeddedSubtitleTimeline != nil,
+        guard selectedEmbeddedSubtitleCursor != nil,
               player.currentItem != nil else {
             publishEmbeddedSubtitleCueText(nil)
             return
@@ -787,7 +796,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
 
     private func publishEmbeddedSubtitleCue(at seconds: TimeInterval) {
         publishEmbeddedSubtitleCueText(
-            selectedEmbeddedSubtitleTimeline?.text(at: seconds)
+            selectedEmbeddedSubtitleCursor?.text(at: seconds)
         )
     }
 
@@ -800,18 +809,56 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     }
 
     private func refreshSelectedEmbeddedSubtitleTimeline() {
-        updateSelectedEmbeddedSubtitleTimeline(
-            mediaSelectionContext?.selectedEmbeddedSubtitleTimeline
+        guard embeddedSubtitleCueHandler != nil, !isLooping,
+              let context = mediaSelectionContext,
+              context.item === player.currentItem,
+              let request = context.selectedSubtitleRequest,
+              let subtitleSourceURL else {
+            embeddedSubtitlePlayback.cancel()
+            return
+        }
+        embeddedSubtitlePlayback.request(
+            id: request.id, sourceURL: subtitleSourceURL,
+            language: request.language,
+            selectableLanguages: request.selectableLanguages,
+            mediaGeneration: loadGeneration
         )
     }
 
     private func updateSelectedEmbeddedSubtitleTimeline(
         _ timeline: SubtitleTimeline?
     ) {
-        selectedEmbeddedSubtitleTimeline = timeline
+        selectedEmbeddedSubtitleCursor = timeline.map(SubtitleTimelineCursor.init)
+        updateNativeSubtitleRendering()
         publishEmbeddedSubtitleCueText(nil)
         refreshSubtitleTimeObserver()
         publishCurrentEmbeddedSubtitleCueIfAvailable()
+    }
+
+    private func updateNativeSubtitleRendering() {
+        if legibleOutputItem !== player.currentItem {
+            if let output = legibleOutput { legibleOutputItem?.remove(output) }
+            legibleOutput = nil
+            legibleOutputItem = nil
+        }
+        let suppress = selectedEmbeddedSubtitleCursor != nil || isLooping
+            || attachedSurface?.id == .desktop
+        if suppress, let item = player.currentItem, legibleOutput == nil {
+            let output = AVPlayerItemLegibleOutput()
+            output.suppressesPlayerRendering = true
+            item.add(output)
+            legibleOutput = output
+            legibleOutputItem = item
+        } else if !suppress, let output = legibleOutput {
+            output.suppressesPlayerRendering = false
+            legibleOutputItem?.remove(output)
+            legibleOutput = nil
+            legibleOutputItem = nil
+        }
+    }
+
+    func drainPendingWork() async {
+        await embeddedSubtitlePlayback.drain()
     }
 
     private func refreshProgressObserver() {

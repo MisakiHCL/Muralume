@@ -195,6 +195,7 @@ final class DesktopLoopPlaybackNode {
             await task.value
         }
         cancelledLoadTasks.removeAll()
+        await engine.drainPendingWork()
     }
 
     private func configureEngineCallbacks() {

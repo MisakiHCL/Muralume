@@ -68,6 +68,7 @@ protocol MediaAccessSession: AnyObject {
     /// action. Anonymous legacy records remain retryable but are not shown as
     /// user-facing unavailable sources.
     var unavailablePersistedSources: [UnavailableMediaSource] { get }
+    var supportsAsynchronousImportPreparation: Bool { get }
 
     /// Legacy folder-only restore API.
     func restoreFolders() -> [URL]
@@ -92,6 +93,10 @@ protocol MediaAccessSession: AnyObject {
         _ urls: [URL],
         incomingScopePolicy: MediaAccessIncomingScopePolicy
     ) -> MediaAccessUpdate
+    func addSourcesAsync(
+        _ urls: [URL],
+        incomingScopePolicy: MediaAccessIncomingScopePolicy
+    ) async -> MediaAccessUpdate
 
     /// Persists the user's removal decision while keeping the active security
     /// scope alive until in-flight readers have drained.
@@ -118,6 +123,15 @@ protocol MediaSourceAccessRecoveryMonitoring: AnyObject {
 }
 
 extension MediaAccessSession {
+    var supportsAsynchronousImportPreparation: Bool { false }
+
+    func addSourcesAsync(
+        _ urls: [URL],
+        incomingScopePolicy: MediaAccessIncomingScopePolicy
+    ) async -> MediaAccessUpdate {
+        addSources(urls, incomingScopePolicy: incomingScopePolicy)
+    }
+
     var unavailablePersistedSources: [UnavailableMediaSource] {
         []
     }

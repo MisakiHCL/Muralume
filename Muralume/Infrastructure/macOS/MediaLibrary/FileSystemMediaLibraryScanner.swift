@@ -27,6 +27,9 @@ struct FileSystemMediaLibraryScanLimits: Sendable {
 }
 
 struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
+    private enum IdentityArchivePolicy {
+        static let maximumCachedVolumeCount = 256
+    }
     private let sourceInspection: FileSystemMediaSourceInspection
     private let scanLimits: FileSystemMediaLibraryScanLimits
 
@@ -45,11 +48,13 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                 kind: Self.sourceKindHint(at: url) ?? .folder
             )
         }
-        return try scanSynchronously(sources: sources)
+        return try await scan(sources: sources)
     }
 
     func scan(sources: [MediaSource]) async throws -> MediaLibrarySnapshot {
-        try scanSynchronously(sources: sources)
+        let lease = MediaScanScopeLease(urls: sources.map(\.url))
+        defer { withExtendedLifetime(lease) {} }
+        return try scanSynchronously(sources: sources)
     }
 
     func availability(
@@ -122,6 +127,9 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         var roots: [MediaLibraryRoot] = []
         var items: [LibraryMediaItem] = []
         var itemIndicesByID: [LibraryMediaItem.ID: Int] = [:]
+        // A scan-local cache shares the immutable archived volume component
+        // across files. Its small cap also covers trees crossing many mounts.
+        var archivedVolumeIdentifiers: [NSObject: Data] = [:]
         var incompleteRootPaths: Set<String> = []
         var firstRootError: MediaLibraryScanError?
 
@@ -140,6 +148,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                     root: root,
                     fileManager: fileManager,
                     budget: &budget,
+                    archivedVolumeIdentifiers: &archivedVolumeIdentifiers,
                     onItem: { item in
                         if let existingIndex = itemIndicesByID[item.id] {
                             if items[existingIndex].kind == .folder {
@@ -402,10 +411,13 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         root: MediaLibraryRoot,
         fileManager: FileManager,
         budget: inout FileSystemMediaLibraryScanBudget,
+        archivedVolumeIdentifiers: inout [NSObject: Data],
         onItem: (LibraryMediaItem) -> Void
     ) throws -> Bool {
         if root.kind == .file {
-            let item = try inspectFile(root: root)
+            let item = try inspectFile(
+                root: root, archivedVolumeIdentifiers: &archivedVolumeIdentifiers
+            )
             try budget.reserveMemory(for: item)
             onItem(item)
             return true
@@ -502,7 +514,10 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                 creationDate: values.creationDate,
                 modificationDate: values.contentModificationDate,
                 fileSize: Int64(values.fileSize ?? 0),
-                fileIdentity: stableFileIdentity(from: values)
+                fileIdentity: stableFileIdentity(
+                    from: values,
+                    archivedVolumeIdentifiers: &archivedVolumeIdentifiers
+                )
             )
             try budget.reserveMemory(for: item)
             onItem(item)
@@ -532,7 +547,8 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
     ]
 
     private static func inspectFile(
-        root: MediaLibraryRoot
+        root: MediaLibraryRoot,
+        archivedVolumeIdentifiers: inout [NSObject: Data]
     ) throws -> LibraryMediaItem {
         let values: URLResourceValues
         do {
@@ -554,16 +570,32 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
             creationDate: values.creationDate,
             modificationDate: values.contentModificationDate,
             fileSize: Int64(values.fileSize ?? 0),
-            fileIdentity: stableFileIdentity(from: values)
+            fileIdentity: stableFileIdentity(
+                from: values,
+                archivedVolumeIdentifiers: &archivedVolumeIdentifiers
+            )
         )
     }
 
     private static func stableFileIdentity(
-        from values: URLResourceValues
+        from values: URLResourceValues,
+        archivedVolumeIdentifiers: inout [NSObject: Data]
     ) -> MediaFileIdentity? {
-        guard let volumeIdentifier = archivedIdentifier(
-            values.volumeIdentifier
-        ), let fileIdentifier = archivedIdentifier(
+        let rawVolumeIdentifier = values.volumeIdentifier as? NSObject
+        let volumeIdentifier: Data?
+        if let rawVolumeIdentifier,
+           let cached = archivedVolumeIdentifiers[rawVolumeIdentifier] {
+            volumeIdentifier = cached
+        } else {
+            volumeIdentifier = archivedIdentifier(values.volumeIdentifier)
+            if let rawVolumeIdentifier, let volumeIdentifier,
+               archivedVolumeIdentifiers.count
+                < IdentityArchivePolicy.maximumCachedVolumeCount {
+                archivedVolumeIdentifiers[rawVolumeIdentifier] = volumeIdentifier
+            }
+        }
+        guard let volumeIdentifier,
+        let fileIdentifier = archivedIdentifier(
             values.fileResourceIdentifier
         ) else {
             return nil
@@ -671,6 +703,20 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         return nil
     }
 
+}
+
+/// A cancelled caller may stop waiting while synchronous volume I/O is still
+/// unwinding. Keep each real reader's scope alive until the scan actually exits.
+private final class MediaScanScopeLease {
+    private let urls: [URL]
+
+    init(urls: [URL]) {
+        self.urls = urls.filter { $0.startAccessingSecurityScopedResource() }
+    }
+
+    deinit {
+        for url in urls { url.stopAccessingSecurityScopedResource() }
+    }
 }
 
 private struct FileSystemMediaLibraryScanBudget {

@@ -380,3 +380,5 @@
 "screenshot.save.prompt" = "Save";
 "screenshot.error.title" = "Couldn’t save the screenshot";
 "screenshot.error.message" = "Muralume couldn’t capture or write the current video frame.";
+
+"library.search.searching" = "Searching…";

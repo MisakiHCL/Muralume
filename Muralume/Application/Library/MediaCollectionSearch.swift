@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// Shared media search semantics for library and custom-playlist surfaces.
@@ -29,6 +30,35 @@ struct MediaCollectionSearch: Equatable, Sendable {
             return entries
         }
         return entries.filter(matches)
+    }
+
+    func filteredItemsCancellable(
+        from items: [LibraryMediaItem]
+    ) throws -> [LibraryMediaItem] {
+        try filterCancellable(items, matches: matches)
+    }
+
+    func filteredEntriesCancellable(
+        from entries: [CustomPlaylistEntry]
+    ) throws -> [CustomPlaylistEntry] {
+        try filterCancellable(entries, matches: matches)
+    }
+
+    private func filterCancellable<Value>(
+        _ values: [Value],
+        matches: (Value) -> Bool
+    ) throws -> [Value] {
+        try Task.checkCancellation()
+        guard !isEmpty else { return values }
+        var result: [Value] = []
+        for (index, value) in values.enumerated() {
+            if index.isMultiple(of: 128) {
+                try Task.checkCancellation()
+            }
+            if matches(value) { result.append(value) }
+        }
+        try Task.checkCancellation()
+        return result
     }
 
     func matches(_ item: LibraryMediaItem) -> Bool {
@@ -77,6 +107,10 @@ final class MediaLibrarySearchProjectionCache {
 
     private var cached: (key: Key, projection: MediaLibrarySearchProjection)?
     private(set) var recomputationCount = 0
+
+    func invalidate() {
+        cached = nil
+    }
 
     func projection(
         query: String,
@@ -131,6 +165,32 @@ struct CustomPlaylistDetailProjection: Sendable {
     }
 }
 
+/// A library revision owns one immutable resolution index. The playlist
+/// controller invalidates it as soon as the library changes, even off-screen.
+final class MediaReferenceResolutionIndexCache {
+    private var cached: (revision: UInt64, index: MediaReferenceResolutionIndex)?
+    private(set) var recomputationCount = 0
+
+    var hasCachedIndex: Bool { cached != nil }
+
+    func invalidate() {
+        cached = nil
+    }
+
+    func index(
+        items: [LibraryMediaItem],
+        revision: UInt64?
+    ) -> MediaReferenceResolutionIndex {
+        if let revision, let cached, cached.revision == revision {
+            return cached.index
+        }
+        let index = MediaReferenceResolutionIndex(items: items)
+        cached = revision.map { ($0, index) }
+        recomputationCount &+= 1
+        return index
+    }
+}
+
 final class CustomPlaylistDetailProjectionCache {
     private struct Key: Equatable {
         let playlistID: CustomPlaylist.ID
@@ -140,12 +200,25 @@ final class CustomPlaylistDetailProjectionCache {
     }
 
     private var cached: (key: Key, projection: CustomPlaylistDetailProjection)?
-    private var cachedResolutionIndex: (
-        libraryItemsRevision: UInt64,
-        index: MediaReferenceResolutionIndex
-    )?
+    private let resolutionIndexCache: MediaReferenceResolutionIndexCache
     private(set) var recomputationCount = 0
-    private(set) var resolutionIndexRecomputationCount = 0
+
+    init(
+        resolutionIndexCache: MediaReferenceResolutionIndexCache =
+            MediaReferenceResolutionIndexCache()
+    ) {
+        self.resolutionIndexCache = resolutionIndexCache
+    }
+
+    var resolutionIndexRecomputationCount: Int {
+        resolutionIndexCache.recomputationCount
+    }
+
+    var hasCachedProjection: Bool { cached != nil }
+
+    func invalidate() {
+        cached = nil
+    }
 
     func projection(
         playlist: CustomPlaylist,
@@ -164,18 +237,27 @@ final class CustomPlaylistDetailProjectionCache {
         if let cached, cached.key == key {
             return cached.projection
         }
+        let projection = Self.makeProjection(
+            search: search,
+            entries: search.filteredEntries(from: playlist.entries),
+            resolutionIndex: resolutionIndexCache.index(
+                items: libraryItems,
+                revision: libraryItemsRevision
+            )
+        )
+        cached = (key, projection)
+        recomputationCount &+= 1
+        return projection
+    }
 
-        let entries = search.filteredEntries(from: playlist.entries)
-        let resolvedItems = resolutionIndex(
-            libraryItems: libraryItems,
-            libraryItemsRevision: libraryItemsRevision
-        ).resolveReferences(entries.map(\.media))
-        var resolvedItemsByEntryID: [
-            CustomPlaylistEntry.ID: LibraryMediaItem
-        ] = [:]
-        var entryIDsByMediaItemID: [
-            LibraryMediaItem.ID: CustomPlaylistEntry.ID
-        ] = [:]
+    static func makeProjection(
+        search: MediaCollectionSearch,
+        entries: [CustomPlaylistEntry],
+        resolutionIndex: MediaReferenceResolutionIndex
+    ) -> CustomPlaylistDetailProjection {
+        let resolvedItems = resolutionIndex.resolveReferences(entries.map(\.media))
+        var resolvedItemsByEntryID: [CustomPlaylistEntry.ID: LibraryMediaItem] = [:]
+        var entryIDsByMediaItemID: [LibraryMediaItem.ID: CustomPlaylistEntry.ID] = [:]
         resolvedItemsByEntryID.reserveCapacity(entries.count)
         entryIDsByMediaItemID.reserveCapacity(entries.count)
         for (entry, item) in zip(entries, resolvedItems) {
@@ -183,30 +265,104 @@ final class CustomPlaylistDetailProjectionCache {
             resolvedItemsByEntryID[entry.id] = item
             entryIDsByMediaItemID[item.id] = entry.id
         }
-
-        let projection = CustomPlaylistDetailProjection(
+        return CustomPlaylistDetailProjection(
             search: search,
             entries: entries,
             resolvedItemsByEntryID: resolvedItemsByEntryID,
             entryIDsByMediaItemID: entryIDsByMediaItemID
         )
-        cached = (key, projection)
-        recomputationCount &+= 1
-        return projection
+    }
+}
+
+struct MediaLibrarySearchRequestID: Hashable {
+    let itemsRevision: UInt64
+    let query: String
+}
+
+struct CustomPlaylistSearchRequestID: Hashable {
+    let playlistID: CustomPlaylist.ID
+    let playlistRevision: UInt64
+    let libraryItemsRevision: UInt64
+    let query: String
+}
+
+/// One running job and one latest pending request bound work and retained
+/// snapshots during rapid typing. A cancelled job must finish before the next
+/// starts; both cancellation and request identity gate result publication.
+@MainActor
+final class LatestMediaSearch<Result: Sendable>: ObservableObject {
+    typealias Operation = @Sendable () async throws -> Result
+
+    private struct Request {
+        let key: AnyHashable
+        let operation: Operation
     }
 
-    private func resolutionIndex(
-        libraryItems: [LibraryMediaItem],
-        libraryItemsRevision: UInt64
-    ) -> MediaReferenceResolutionIndex {
-        if let cachedResolutionIndex,
-           cachedResolutionIndex.libraryItemsRevision
-            == libraryItemsRevision {
-            return cachedResolutionIndex.index
+    @Published private var completed: (key: AnyHashable, result: Result)?
+    private var requestedKey: AnyHashable?
+    private var pending: Request?
+    private var drainTask: Task<Void, Never>?
+    private var workerTask: Task<Result, Error>?
+
+    deinit {
+        workerTask?.cancel()
+        drainTask?.cancel()
+    }
+
+    func result(for key: some Hashable) -> Result? {
+        guard completed?.key == AnyHashable(key) else { return nil }
+        return completed?.result
+    }
+
+    func latestResult<Key: Hashable>(
+        compatibleWith key: Key,
+        by isCompatible: (Key, Key) -> Bool
+    ) -> (key: Key, result: Result)? {
+        guard let completed,
+              let completedKey = completed.key.base as? Key,
+              isCompatible(completedKey, key) else { return nil }
+        return (completedKey, completed.result)
+    }
+
+    func request(key: some Hashable, operation: @escaping Operation) {
+        let key = AnyHashable(key)
+        guard requestedKey != key else { return }
+        requestedKey = key
+        pending = Request(key: key, operation: operation)
+        workerTask?.cancel()
+        guard drainTask == nil else { return }
+        drainTask = Task { [weak self] in
+            while let request = self?.takePendingRequest() {
+                let operation = request.operation
+                let worker = Task.detached(priority: .userInitiated) {
+                    try Task.checkCancellation()
+                    return try await operation()
+                }
+                self?.workerTask = worker
+                let result = try? await worker.value
+                guard let self else { return }
+                workerTask = nil
+                if requestedKey == request.key, !worker.isCancelled, let result {
+                    completed = (request.key, result)
+                }
+            }
+            self?.drainTask = nil
         }
-        let index = MediaReferenceResolutionIndex(items: libraryItems)
-        cachedResolutionIndex = (libraryItemsRevision, index)
-        resolutionIndexRecomputationCount &+= 1
-        return index
+    }
+
+    func cancel() {
+        requestedKey = nil
+        pending = nil
+        workerTask?.cancel()
+        completed = nil
+    }
+
+    func waitForPendingSearch() async {
+        await drainTask?.value
+    }
+
+    private func takePendingRequest() -> Request? {
+        defer { pending = nil }
+        return pending
     }
 }

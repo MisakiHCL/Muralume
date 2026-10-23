@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import XCTest
 @testable import Muralume
@@ -274,6 +275,170 @@ final class MediaCollectionSearchTests: XCTestCase {
         XCTAssertEqual(cache.resolutionIndexRecomputationCount, 2)
     }
 
+    func testCancelledFilteringStopsBeforeScanning() async {
+        let items = makeLargeItemCollection(count: 10_000)
+        let search = MediaCollectionSearch(query: "batch")
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try search.filteredItemsCancellable(from: items)
+        }
+        do {
+            _ = try await task.value
+            XCTFail("Cancelled filtering should throw")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+    }
+
+    func testCancellableFilteringPreservesLocalizedMatchingAndOrder() throws {
+        let items = makeLargeItemCollection(count: 10_000)
+        let search = MediaCollectionSearch(query: "  batch-7  ")
+        XCTAssertEqual(
+            try search.filteredItemsCancellable(from: items),
+            search.filteredItems(from: items)
+        )
+        let entries = items.map { CustomPlaylistEntry(media: MediaReference(item: $0)) }
+        XCTAssertEqual(
+            try search.filteredEntriesCancellable(from: entries),
+            search.filteredEntries(from: entries)
+        )
+    }
+
+    @MainActor
+    func testLatestSearchCoalescesPendingWorkAndRejectsOldRevision() async {
+        let gate = MediaSearchTestGate()
+        let search = LatestMediaSearch<Int>()
+        let firstKey = MediaLibrarySearchRequestID(itemsRevision: 1, query: "sky")
+        let latestKey = MediaLibrarySearchRequestID(itemsRevision: 2, query: "sky")
+        search.request(key: firstKey) {
+            await gate.suspend()
+            return 1 // Deliberately ignores cancellation to test publication.
+        }
+        await gate.waitUntilSuspended()
+        search.request(key: "superseded") {
+            await gate.record(2)
+            return 2
+        }
+        search.request(key: latestKey) {
+            await gate.record(3)
+            return 3
+        }
+        XCTAssertNil(search.result(for: firstKey))
+        XCTAssertNil(search.result(for: latestKey))
+        let startedBeforeRelease = await gate.recordedValues
+        XCTAssertTrue(startedBeforeRelease.isEmpty)
+        await gate.release()
+        await search.waitForPendingSearch()
+        let startedAfterRelease = await gate.recordedValues
+        XCTAssertEqual(startedAfterRelease, [3])
+        XCTAssertNil(search.result(for: firstKey))
+        XCTAssertEqual(search.result(for: latestKey), 3)
+    }
+
+    @MainActor
+    func testLeavingSearchDiscardsPendingAndInFlightResults() async {
+        let gate = MediaSearchTestGate()
+        let search = LatestMediaSearch<Int>()
+        search.request(key: "first") {
+            await gate.suspend()
+            return 1
+        }
+        await gate.waitUntilSuspended()
+        search.request(key: "pending") {
+            await gate.record(2)
+            return 2
+        }
+        search.cancel()
+        await gate.release()
+        await search.waitForPendingSearch()
+        let started = await gate.recordedValues
+        XCTAssertTrue(started.isEmpty)
+        XCTAssertNil(search.result(for: "first"))
+        XCTAssertNil(search.result(for: "pending"))
+        search.request(key: "first") { 3 }
+        await search.waitForPendingSearch()
+        XCTAssertEqual(search.result(for: "first"), 3)
+        search.cancel()
+        XCTAssertNil(search.result(for: "first"))
+    }
+
+    private nonisolated static func isMainThreadSnapshot() -> Bool {
+        Thread.isMainThread
+    }
+
+    @MainActor
+    func testSearchRunsOffMainThread() async {
+        let search = LatestMediaSearch<Bool>()
+        search.request(key: "thread") { Self.isMainThreadSnapshot() }
+        await search.waitForPendingSearch()
+        XCTAssertEqual(search.result(for: "thread"), false)
+    }
+
+    @MainActor
+    func testCancelledRequestCannotPublishWhenSameSearchIsReopened() async {
+        let gate = MediaSearchTestGate()
+        let search = LatestMediaSearch<Int>()
+        search.request(key: "sky") {
+            await gate.suspend()
+            return 1
+        }
+        await gate.waitUntilSuspended()
+        search.cancel()
+        var observedValues: [Int] = []
+        let observation = search.objectWillChange.sink {
+            if let value = search.result(for: "sky") { observedValues.append(value) }
+        }
+        search.request(key: "sky") { 3 }
+        await gate.release()
+        await search.waitForPendingSearch()
+        XCTAssertEqual(search.result(for: "sky"), 3)
+        XCTAssertFalse(observedValues.contains(1))
+        withExtendedLifetime(observation) {}
+    }
+
+    @MainActor
+    func testSamePlaylistQueryKeepsAppliedTableSnapshotDuringRevisionRefresh() async throws {
+        let search = LatestMediaSearch<Int>()
+        let playlistID = CustomPlaylist.ID()
+        let previousKey = CustomPlaylistSearchRequestID(
+            playlistID: playlistID, playlistRevision: 1,
+            libraryItemsRevision: 1, query: "sky"
+        )
+        let nextKey = CustomPlaylistSearchRequestID(
+            playlistID: playlistID, playlistRevision: 2,
+            libraryItemsRevision: 2, query: "sky"
+        )
+        search.request(key: previousKey) { 1 }
+        await search.waitForPendingSearch()
+        var tracker = VirtualizedTableUpdateTracker()
+        XCTAssertTrue(tracker.consumeSnapshotToken(AnyHashable(previousKey)))
+        let gate = MediaSearchTestGate()
+        search.request(key: nextKey) {
+            await gate.suspend()
+            return 2
+        }
+        await gate.waitUntilSuspended()
+        let retained = try XCTUnwrap(search.latestResult(compatibleWith: nextKey) {
+            $0.playlistID == $1.playlistID && $0.query == $1.query
+        })
+        XCTAssertEqual(retained.key, previousKey)
+        XCTAssertEqual(retained.result, 1)
+        XCTAssertFalse(tracker.consumeSnapshotToken(AnyHashable(retained.key)))
+        let differentQuery = CustomPlaylistSearchRequestID(
+            playlistID: playlistID, playlistRevision: 2,
+            libraryItemsRevision: 2, query: "ocean"
+        )
+        XCTAssertNil(search.latestResult(compatibleWith: differentQuery) {
+            $0.playlistID == $1.playlistID && $0.query == $1.query
+        })
+        await gate.release()
+        await search.waitForPendingSearch()
+        XCTAssertEqual(search.result(for: nextKey), 2)
+        XCTAssertTrue(tracker.consumeSnapshotToken(AnyHashable(nextKey)))
+        search.cancel()
+        XCTAssertNil(search.latestResult(compatibleWith: nextKey) { $0 == $1 })
+    }
+
     private func makeItem(
         name: String,
         relativePath: String,
@@ -319,5 +484,33 @@ final class MediaCollectionSearchTests: XCTestCase {
                 relativePath: "Batch-\(index % 10)/Clip-\(index).mov"
             )
         }
+    }
+}
+
+private actor MediaSearchTestGate {
+    private var suspended: CheckedContinuation<Void, Never>?
+    private var suspensionWaiter: CheckedContinuation<Void, Never>?
+    private(set) var recordedValues: [Int] = []
+
+    func suspend() async {
+        await withCheckedContinuation { continuation in
+            suspended = continuation
+            suspensionWaiter?.resume()
+            suspensionWaiter = nil
+        }
+    }
+
+    func waitUntilSuspended() async {
+        guard suspended == nil else { return }
+        await withCheckedContinuation { suspensionWaiter = $0 }
+    }
+
+    func release() {
+        suspended?.resume()
+        suspended = nil
+    }
+
+    func record(_ value: Int) {
+        recordedValues.append(value)
     }
 }

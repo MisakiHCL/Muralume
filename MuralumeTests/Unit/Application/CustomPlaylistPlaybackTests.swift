@@ -423,6 +423,69 @@ final class CustomPlaylistPlaybackTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
+    func testBridgeDoesNotRebuildIndexForScanStateChanges() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/Playlist Index Revision")
+        let item = makeItem(rootURL: rootURL, name: "Sky", path: "Sky.mov")
+        let snapshot = MediaLibrarySnapshot(
+            roots: [MediaLibraryRoot(url: rootURL, displayName: "Library")],
+            items: [item]
+        )
+        let fixture = makeFixture(selectedURLs: [], snapshot: snapshot)
+        fixture.session.restoredURLs = [rootURL]
+        let start = fixture.coordinator.start()
+        _ = await fixture.coordinator.waitForStartupScan(after: start)
+        var collection = CustomPlaylistCollection.empty
+        let playlistID = try collection.createPlaylist(named: "Favorites")
+        _ = try collection.add(items: [item], to: playlistID)
+        let playlists = CustomPlaylistController(
+            store: CustomPlaylistPlaybackStore(collection: collection)
+        )
+        let bridge = CustomPlaylistPlaybackBridge(
+            playlists: playlists, library: fixture.coordinator
+        )
+        await bridge.startAndWait()
+        XCTAssertEqual(playlists.resolutionIndexRecomputationCount, 1)
+        let previousRevision = fixture.coordinator.itemsRevision
+        fixture.scanner.enqueueSnapshot(snapshot)
+        fixture.coordinator.refresh()
+        XCTAssertEqual(fixture.coordinator.scanState, .scanning)
+        XCTAssertEqual(playlists.resolutionIndexRecomputationCount, 1)
+        await waitForScan(fixture.coordinator)
+        XCTAssertEqual(
+            playlists.resolutionIndexRecomputationCount,
+            fixture.coordinator.itemsRevision == previousRevision ? 1 : 2
+        )
+        await bridge.shutdown()
+        await fixture.coordinator.shutdown()
+    }
+
+    func testBridgeWithNoPlaylistsDoesNotAllocateLibraryIndex() async {
+        let rootURL = URL(fileURLWithPath: "/tmp/Empty Playlist Index")
+        let item = makeItem(rootURL: rootURL, name: "Sky", path: "Sky.mov")
+        let snapshot = MediaLibrarySnapshot(
+            roots: [MediaLibraryRoot(url: rootURL, displayName: "Library")],
+            items: [item]
+        )
+        let fixture = makeFixture(selectedURLs: [], snapshot: snapshot)
+        fixture.session.restoredURLs = [rootURL]
+        let start = fixture.coordinator.start()
+        _ = await fixture.coordinator.waitForStartupScan(after: start)
+        let playlists = CustomPlaylistController(
+            store: CustomPlaylistPlaybackStore(collection: .empty)
+        )
+        let bridge = CustomPlaylistPlaybackBridge(
+            playlists: playlists, library: fixture.coordinator
+        )
+        await bridge.startAndWait()
+        fixture.scanner.enqueueSnapshot(snapshot)
+        fixture.coordinator.refresh()
+        await waitForScan(fixture.coordinator)
+        XCTAssertEqual(playlists.resolutionIndexRecomputationCount, 0)
+        XCTAssertFalse(playlists.hasCachedResolutionIndex)
+        await bridge.shutdown()
+        await fixture.coordinator.shutdown()
+    }
+
     func testBridgeImmediatelyUpdatesActiveQueueAfterPlaylistEdit()
         async throws
     {

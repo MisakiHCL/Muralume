@@ -575,6 +575,62 @@ final class CustomPlaylistTests: XCTestCase {
         await restoredController.shutdown()
     }
 
+    func testLibraryRevisionReusesIndexAndInvalidatesOffscreenDetail() async throws {
+        let controller = CustomPlaylistController(store: CustomPlaylistStoreSpy())
+        await controller.startAndWait()
+        let item = makeItem(name: "Sky", relativePath: "Sky.mov")
+        controller.updateAvailableItems([item], itemsRevision: 1)
+        XCTAssertFalse(controller.hasCachedResolutionIndex)
+        XCTAssertEqual(controller.resolutionIndexRecomputationCount, 0)
+
+        let playlistID = try controller.createPlaylist(named: "Favorites")
+        _ = try controller.add(items: [item], to: playlistID)
+        let playlist = try XCTUnwrap(controller.collection.playlist(id: playlistID))
+        _ = controller.detailProjection(
+            for: playlist, query: "", using: [item], itemsRevision: 1
+        )
+        XCTAssertTrue(controller.hasCachedDetailProjection)
+        XCTAssertTrue(controller.hasCachedResolutionIndex)
+        XCTAssertEqual(controller.resolutionIndexRecomputationCount, 1)
+        controller.updateAvailableItems([item], itemsRevision: 1)
+        _ = controller.resolvedItems(in: playlistID, using: [item], itemsRevision: 1)
+        XCTAssertEqual(controller.resolutionIndexRecomputationCount, 1)
+
+        // No detail read follows this update: invalidation must be eager.
+        controller.updateAvailableItems([], itemsRevision: 2)
+        XCTAssertFalse(controller.hasCachedDetailProjection)
+        XCTAssertEqual(controller.resolutionIndexRecomputationCount, 2)
+        let result = controller.detailProjection(
+            for: playlist, query: "", using: [], itemsRevision: 2
+        )
+        XCTAssertTrue(result.resolvedItemsByEntryID.isEmpty)
+        try controller.renamePlaylist(id: playlistID, to: "Renamed")
+        XCTAssertFalse(controller.hasCachedDetailProjection)
+        try controller.removePlaylist(id: playlistID)
+        XCTAssertFalse(controller.hasCachedResolutionIndex)
+        await controller.shutdown()
+    }
+
+    func testBackgroundDetailSearchKeepsOfflineEntriesAndResolvedSelection() async throws {
+        let controller = CustomPlaylistController(store: CustomPlaylistStoreSpy())
+        await controller.startAndWait()
+        let first = makeItem(name: "Sky One", relativePath: "Sky One.mov")
+        let missing = makeItem(name: "Sky Missing", relativePath: "Sky Missing.mov")
+        let second = makeItem(name: "Sky Two", relativePath: "Sky Two.mov")
+        let playlistID = try controller.createPlaylist(named: "Sky")
+        _ = try controller.add(items: [first, missing, second], to: playlistID)
+        let playlist = try XCTUnwrap(controller.collection.playlist(id: playlistID))
+        let operation = controller.detailSearchOperation(
+            for: playlist, query: "sky", using: [first, second], itemsRevision: 1
+        )
+        let result = try await Task.detached { try await operation() }.value
+        XCTAssertEqual(result.entries.map(\.id), playlist.entries.map(\.id))
+        XCTAssertEqual(result.resolvedItemsByEntryID.count, 2)
+        XCTAssertEqual(result.entryID(for: second.id), playlist.entries.last?.id)
+        XCTAssertNil(result.resolvedItemsByEntryID[playlist.entries[1].id])
+        await controller.shutdown()
+    }
+
     private func waitUntil(_ condition: @escaping () -> Bool) async {
         for _ in 0..<1_000 {
             if condition() {

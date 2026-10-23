@@ -1255,6 +1255,8 @@ final class MuralumeLaunchTests: XCTestCase {
             ""
         ]
         application.launch()
+        application.activate()
+        XCTAssertTrue(application.wait(for: .runningForeground, timeout: 5))
         return application
     }
 

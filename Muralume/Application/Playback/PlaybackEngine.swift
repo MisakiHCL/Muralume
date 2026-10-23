@@ -71,9 +71,12 @@ protocol PlaybackEngine: AnyObject {
     )
     func setEmbeddedSubtitleCueHandler(_ handler: ((String?) -> Void)?)
     func stop()
+    func drainPendingWork() async
 }
 
 extension PlaybackEngine {
+    func drainPendingWork() async {}
+
     func load(
         _ source: ResolvedMediaSource,
         transition _: PlaybackItemTransition

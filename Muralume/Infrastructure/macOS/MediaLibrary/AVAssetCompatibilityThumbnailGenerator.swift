@@ -34,26 +34,22 @@ actor AVAssetCompatibilityThumbnailGenerator:
         let duration = try await asset.load(.duration)
         try Task.checkCancellation()
 
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.apertureMode = .cleanAperture
-        generator.maximumSize = Self.maximumSize(
-            requestedSize: size,
-            scale: scale
-        )
         let requestedTime = CMTime(
             seconds: Self.frameTime(duration: duration),
             preferredTimescale: CompatibilityThumbnailPolicy.timeScale
         )
         let cancellationBox = CompatibilityThumbnailCancellationBox(
-            generator: generator
+            asset: asset,
+            maximumSize: Self.maximumSize(requestedSize: size, scale: scale)
         )
 
-        return try await withTaskCancellationHandler {
-            try await generator.image(at: requestedTime).image
+        let image = try await withTaskCancellationHandler {
+            try await cancellationBox.image(at: requestedTime)
         } onCancel: {
             cancellationBox.cancel()
         }
+        try Task.checkCancellation()
+        return image
     }
 
     private static func maximumSize(
@@ -89,18 +85,53 @@ actor AVAssetCompatibilityThumbnailGenerator:
 
 private enum CompatibilityThumbnailGenerationError: Error {
     case videoTrackUnavailable
+    case frameUnavailable
 }
 
 private final class CompatibilityThumbnailCancellationBox:
     @unchecked Sendable
 {
     private let generator: AVAssetImageGenerator
+    private let lock = NSLock()
+    private var isCancelled = false
 
-    init(generator: AVAssetImageGenerator) {
+    init(asset: AVAsset, maximumSize: CGSize) {
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.apertureMode = .cleanAperture
+        generator.maximumSize = maximumSize
         self.generator = generator
     }
 
+    func image(at time: CMTime) async throws -> CGImage {
+        try await withCheckedThrowingContinuation { continuation in
+            lock.withLock {
+                guard !isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                generator.generateCGImagesAsynchronously(
+                    forTimes: [NSValue(time: time)]
+                ) { _, image, _, result, error in
+                    if result == .succeeded, let image {
+                        continuation.resume(returning: image)
+                    } else if result == .cancelled {
+                        continuation.resume(throwing: CancellationError())
+                    } else {
+                        continuation.resume(
+                            throwing: error
+                                ?? CompatibilityThumbnailGenerationError.frameUnavailable
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     func cancel() {
-        generator.cancelAllCGImageGeneration()
+        lock.withLock {
+            isCancelled = true
+            generator.cancelAllCGImageGeneration()
+        }
     }
 }

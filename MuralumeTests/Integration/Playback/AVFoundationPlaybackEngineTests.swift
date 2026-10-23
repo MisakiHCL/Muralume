@@ -165,17 +165,15 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
                 withExtension: "mp4"
             )
         )
-        let tracks = try await EmbeddedSubtitleParser().parse(url)
-
-        XCTAssertEqual(tracks.count, 2)
-        XCTAssertEqual(
-            tracks[0].timeline?.text(at: 0.75),
-            "First caption"
+        let parser = EmbeddedSubtitleParser()
+        let english = try await parser.parse(
+            url, languageIdentifier: "en", selectableLanguages: ["en", "zh"]
         )
-        XCTAssertEqual(
-            tracks[1].timeline?.text(at: 0.75),
-            "第一条字幕"
+        let chinese = try await parser.parse(
+            url, languageIdentifier: "zh", selectableLanguages: ["en", "zh"]
         )
+        XCTAssertEqual(english?.text(at: 0.75), "First caption")
+        XCTAssertEqual(chinese?.text(at: 0.75), "第一条字幕")
 
         let engine = AVFoundationPlaybackEngine()
         defer { engine.stop() }

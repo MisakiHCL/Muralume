@@ -726,6 +726,10 @@ final class PlaybackCoordinator: ObservableObject {
         savedPlayerSettings = nil
     }
 
+    func drainPendingWork() async {
+        await engine.drainPendingWork()
+    }
+
     func loadExternalSubtitle(_ subtitleURL: URL) {
         guard hasPlayableMedia,
               let mediaURL = source?.url else {

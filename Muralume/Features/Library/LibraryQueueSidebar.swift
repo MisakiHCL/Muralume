@@ -11,8 +11,8 @@ struct LibraryQueueSidebar: View {
         UnavailableMediaSource?
     @State private var playbackStatus: LibraryPlaybackStatus
     @State private var searchScrollToTopRequest: UInt64 = 0
-    @State private var searchProjectionCache =
-        MediaLibrarySearchProjectionCache()
+    @StateObject private var searchProjectionCache =
+        LatestMediaSearch<MediaLibrarySearchProjection>()
     @Binding private var sidebarSection: LibrarySidebarSection
     @Binding private var searchQuery: String
     let playbackQueueFocusRequest: UInt64
@@ -104,7 +104,10 @@ struct LibraryQueueSidebar: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let requestID = searchRequestID
+        let requestedItems = library.items
+        let requestedSearch = MediaCollectionSearch(query: searchQuery)
+        return VStack(alignment: .leading, spacing: 0) {
             header
 
             if !isEditing, sidebarSection == .mediaLibrary {
@@ -198,6 +201,20 @@ struct LibraryQueueSidebar: View {
         .onReceive(playbackStatusPublisher) { status in
             playbackStatus = status
         }
+        .task(id: requestID) {
+            guard !Task.isCancelled else { return }
+            guard !requestedSearch.isEmpty else {
+                searchProjectionCache.cancel()
+                return
+            }
+            searchProjectionCache.request(key: requestID) {
+                MediaLibrarySearchProjection(
+                    search: requestedSearch,
+                    items: try requestedSearch.filteredItemsCancellable(from: requestedItems)
+                )
+            }
+        }
+        .onDisappear { searchProjectionCache.cancel() }
         .onChange(of: normalizedSearchQuery) {
             if normalizedSearchQuery.isEmpty {
                 // Clearing search restores the existing current-item
@@ -685,7 +702,13 @@ struct LibraryQueueSidebar: View {
                 revealMediaInFinder: revealMediaInFinder,
                 showVideoInformation: showVideoInformation,
                 addCurrentTemporaryToLibrary: {
-                    _ = library.addCurrentTemporaryItemToLibrary()
+                    if library.supportsAsynchronousImportPreparation {
+                        Task {
+                            _ = await library.addCurrentTemporaryItemToLibraryAsync()
+                        }
+                    } else {
+                        _ = library.addCurrentTemporaryItemToLibrary()
+                    }
                 },
                 play: { item in
                     library.play(item)
@@ -701,6 +724,9 @@ struct LibraryQueueSidebar: View {
                 retrySourceAccess: retryUnavailableSourceAccess,
                 reauthorizeMediaSources: reauthorizeMediaSources
             )
+        } else if isSearching && displayedSearchResult == nil {
+            ProgressView("library.search.searching")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if filteredLibraryItems.isEmpty {
             LibrarySearchEmptyState {
                 searchQuery = ""
@@ -709,7 +735,9 @@ struct LibraryQueueSidebar: View {
             FixedHeightVirtualizedTable(
                 items: filteredLibraryItems,
                 snapshotRevision: LibraryPlaylistSnapshotRevision(
-                    itemsRevision: library.itemsRevision,
+                    itemsRevision: normalizedSearchQuery.isEmpty
+                        ? library.itemsRevision
+                        : displayedSearchResult?.key.itemsRevision ?? library.itemsRevision,
                     query: normalizedSearchQuery
                 ),
                 rowContentRevision: LibraryPlaylistRowContentRevision(
@@ -815,6 +843,9 @@ struct LibraryQueueSidebar: View {
     }
 
     private var videoCountText: String {
+        if isSearching {
+            return localization.localized("library.search.searching")
+        }
         if !normalizedSearchQuery.isEmpty {
             return localization.localizedFormat(
                 "library.search.results",
@@ -831,19 +862,33 @@ struct LibraryQueueSidebar: View {
     }
 
     private var normalizedSearchQuery: String {
-        searchProjection.search.query
+        MediaCollectionSearch(query: searchQuery).query
+    }
+
+    private var searchRequestID: MediaLibrarySearchRequestID {
+        MediaLibrarySearchRequestID(
+            itemsRevision: library.itemsRevision,
+            query: normalizedSearchQuery
+        )
+    }
+
+    private var isSearching: Bool {
+        !normalizedSearchQuery.isEmpty
+            && searchProjectionCache.result(for: searchRequestID) == nil
+    }
+
+    private var displayedSearchResult: (
+        key: MediaLibrarySearchRequestID,
+        result: MediaLibrarySearchProjection
+    )? {
+        searchProjectionCache.latestResult(compatibleWith: searchRequestID) {
+            $0.query == $1.query
+        }
     }
 
     private var filteredLibraryItems: [LibraryMediaItem] {
-        searchProjection.items
-    }
-
-    private var searchProjection: MediaLibrarySearchProjection {
-        searchProjectionCache.projection(
-            query: searchQuery,
-            itemsRevision: library.itemsRevision,
-            items: library.items
-        )
+        if normalizedSearchQuery.isEmpty { return library.items }
+        return displayedSearchResult?.result.items ?? []
     }
 
     private var rootRemovalTitleKey: String {

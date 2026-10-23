@@ -52,7 +52,21 @@ final class CustomPlaylistController: ObservableObject {
     }
 
     private let store: any CustomPlaylistStoring
-    private let detailProjectionCache = CustomPlaylistDetailProjectionCache()
+    private let resolutionIndexCache: MediaReferenceResolutionIndexCache
+    private let detailProjectionCache: CustomPlaylistDetailProjectionCache
+    private var lastReconciledItemsRevision: UInt64?
+
+    var resolutionIndexRecomputationCount: Int {
+        resolutionIndexCache.recomputationCount
+    }
+
+    var hasCachedDetailProjection: Bool {
+        detailProjectionCache.hasCachedProjection
+    }
+
+    var hasCachedResolutionIndex: Bool {
+        resolutionIndexCache.hasCachedIndex
+    }
     private var loadTask: Task<Void, Never>?
     private var persistenceTask: Task<Void, Never>?
     private var pendingSaveCollection: CustomPlaylistCollection?
@@ -60,6 +74,11 @@ final class CustomPlaylistController: ObservableObject {
 
     init(store: any CustomPlaylistStoring) {
         self.store = store
+        let resolutionIndexCache = MediaReferenceResolutionIndexCache()
+        self.resolutionIndexCache = resolutionIndexCache
+        detailProjectionCache = CustomPlaylistDetailProjectionCache(
+            resolutionIndexCache: resolutionIndexCache
+        )
     }
 
     func start() {
@@ -152,12 +171,24 @@ final class CustomPlaylistController: ObservableObject {
         }
     }
 
-    func updateAvailableItems(_ items: [LibraryMediaItem]) {
-        guard isReady else {
+    func updateAvailableItems(
+        _ items: [LibraryMediaItem],
+        itemsRevision: UInt64? = nil
+    ) {
+        guard isReady else { return }
+        if let itemsRevision, lastReconciledItemsRevision == itemsRevision {
+            return
+        }
+        lastReconciledItemsRevision = itemsRevision
+        detailProjectionCache.invalidate()
+        resolutionIndexCache.invalidate()
+        guard collection.playlists.contains(where: { !$0.entries.isEmpty }) else {
             return
         }
         var updatedCollection = collection
-        guard updatedCollection.reconcile(using: items) else {
+        guard updatedCollection.reconcile(
+            using: resolutionIndexCache.index(items: items, revision: itemsRevision)
+        ) else {
             return
         }
         replaceCollection(updatedCollection)
@@ -166,19 +197,43 @@ final class CustomPlaylistController: ObservableObject {
 
     func resolvedItems(
         in playlistID: CustomPlaylist.ID,
-        using items: [LibraryMediaItem]
+        collection requestedCollection: CustomPlaylistCollection? = nil,
+        using items: [LibraryMediaItem],
+        itemsRevision: UInt64? = nil
     ) -> [LibraryMediaItem] {
-        collection.resolvedItems(in: playlistID, using: items)
+        let collection = requestedCollection ?? self.collection
+        guard let playlist = collection.playlist(id: playlistID),
+              !playlist.entries.isEmpty else { return [] }
+        return resolutionIndexCache.index(items: items, revision: itemsRevision)
+            .resolveReferences(playlist.entries.map(\.media)).compactMap { $0 }
     }
 
     func resolvedItemsByEntryID(
         in playlistID: CustomPlaylist.ID,
         using items: [LibraryMediaItem]
     ) -> [CustomPlaylistEntry.ID: LibraryMediaItem] {
-        collection.resolvedItemsByEntryID(
-            in: playlistID,
-            using: items
-        )
+        collection.resolvedItemsByEntryID(in: playlistID, using: items)
+    }
+
+    func detailSearchOperation(
+        for playlist: CustomPlaylist,
+        query: String,
+        using items: [LibraryMediaItem],
+        itemsRevision: UInt64
+    ) -> LatestMediaSearch<CustomPlaylistDetailProjection>.Operation {
+        let search = MediaCollectionSearch(query: query)
+        let index = resolutionIndexCache.index(items: items, revision: itemsRevision)
+        return {
+            let entries = try search.filteredEntriesCancellable(from: playlist.entries)
+            try Task.checkCancellation()
+            let projection = CustomPlaylistDetailProjectionCache.makeProjection(
+                search: search,
+                entries: entries,
+                resolutionIndex: index
+            )
+            try Task.checkCancellation()
+            return projection
+        }
     }
 
     func detailProjection(
@@ -208,6 +263,8 @@ final class CustomPlaylistController: ObservableObject {
             return
         }
         isShuttingDown = true
+        detailProjectionCache.invalidate()
+        resolutionIndexCache.invalidate()
         loadTask?.cancel()
         await loadTask?.value
         loadTask = nil
@@ -230,10 +287,17 @@ final class CustomPlaylistController: ObservableObject {
     }
 
     private func replaceCollection(_ collection: CustomPlaylistCollection) {
+        detailProjectionCache.invalidate()
+        if !collection.playlists.contains(where: { !$0.entries.isEmpty }) {
+            resolutionIndexCache.invalidate()
+        }
         collectionSnapshot = CollectionSnapshot(
             revision: collectionSnapshot.revision &+ 1,
             collection: collection
         )
+        // Synchronous will-change observers may have read the previous
+        // collection while the published snapshot was being replaced.
+        detailProjectionCache.invalidate()
     }
 
     private func scheduleSave() {

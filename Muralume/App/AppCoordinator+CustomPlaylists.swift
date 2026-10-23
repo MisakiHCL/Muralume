@@ -31,7 +31,8 @@ extension AppCoordinator {
         }
         let playlistItems = playlists.resolvedItems(
             in: playlistID,
-            using: library.items
+            using: library.items,
+            itemsRevision: library.itemsRevision
         )
         guard playlistItems.contains(where: { $0.id == item.id }) else {
             return

@@ -65,6 +65,27 @@ final class VideoScreenshotTests: XCTestCase {
         XCTAssertEqual(image.pixelsHigh, 180)
     }
 
+    func testScreenshotWriterSavesAtomicallyAndHonorsQueuedCancellation() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destination = directory.appendingPathComponent("capture.jpg")
+        let writer = FileVideoScreenshotWriter()
+        let data = Data([0xFF, 0xD8, 0xFF, 0xD9])
+        try await writer.write(data, to: destination)
+        XCTAssertEqual(try Data(contentsOf: destination), data)
+        let cancelledDestination = directory.appendingPathComponent("cancelled.jpg")
+        let cancelled = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            try await writer.write(data, to: cancelledDestination)
+        }
+        do {
+            try await cancelled.value
+            XCTFail("Cancelled screenshot write succeeded")
+        } catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cancelledDestination.path))
+    }
+
     func testSuggestedFilenameSanitizesSourceNameAndIncludesVideoTime() {
         let source = ResolvedMediaSource(
             url: URL(fileURLWithPath: "/tmp/ignored.mp4"),

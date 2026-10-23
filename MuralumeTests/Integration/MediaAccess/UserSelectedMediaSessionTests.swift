@@ -2879,12 +2879,304 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         fixture.session.stop()
     }
 
+    func testAsyncImportUsesBackgroundInspectionAndBookmarkCreation() async {
+        let url = URL(fileURLWithPath: "/tmp/Background Import.mov")
+        let probe = ImportPreparationProbe()
+        let bookmark = Data("background-import".utf8)
+        let importExecutor = UserSelectedMediaImportExecutor(
+            inspect: { url, _ in probe.inspect(url) },
+            makeBookmark: { url in
+                probe.recordBookmark(url)
+                return bookmark
+            },
+            releaseIncomingScope: { probe.releasedScopes.append($0) }
+        )
+        let restoreExecutor = UserSelectedMediaRestoreExecutor { _, _ in
+            .resolved(ExecutorOwnedPreparedMediaSourceRestore(
+                restore: PreparedMediaSourceRestore(
+                    resolvedURL: url,
+                    linkResolution: .init(targetURL: url, didResolveLink: false),
+                    refreshedBookmark: nil,
+                    resourceIdentifier: nil
+                ),
+                stopAccess: { probe.closedResolvedScopes.append($0) }
+            ))
+        }
+        let fixture = makeSessionFixture(
+            restoreExecutor: restoreExecutor, importExecutor: importExecutor
+        )
+        defer { fixture.clearDefaults() }
+
+        let update = await fixture.session.addSourcesAsync(
+            [url], incomingScopePolicy: .sessionManaged
+        )
+
+        XCTAssertEqual(update.acceptedRequestCount, 1)
+        XCTAssertEqual(update.requestedFileURLs, [url])
+        XCTAssertEqual(probe.inspectionCount, 2)
+        XCTAssertEqual(probe.bookmarkCount, 1)
+        XCTAssertFalse(probe.usedMainThread)
+        XCTAssertEqual(probe.releasedScopes.urls, [url])
+        XCTAssertTrue(probe.closedResolvedScopes.urls.isEmpty)
+        XCTAssertEqual(storedSourceRecords(in: fixture.defaults).count, 1)
+        fixture.session.stop()
+        XCTAssertEqual(fixture.recorder.stoppedURLs, [url])
+    }
+
+    func testAsyncImportCancellationRetainsIncomingScopeUntilInspectorExits() async {
+        let url = URL(fileURLWithPath: "/tmp/Blocked Import.mov")
+        let probe = ImportPreparationProbe(blockInspection: true)
+        let executor = UserSelectedMediaImportExecutor(
+            inspect: { url, _ in probe.inspect(url) },
+            makeBookmark: { _ in Data() },
+            releaseIncomingScope: { probe.releasedScopes.append($0) }
+        )
+        let fixture = makeSessionFixture(
+            restoreExecutor: UserSelectedMediaRestoreExecutor { _, _ in .unavailable },
+            importExecutor: executor
+        )
+        defer {
+            probe.releaseInspection()
+            fixture.clearDefaults()
+        }
+        let task = Task { @MainActor in
+            await fixture.session.addSourcesAsync(
+                [url], incomingScopePolicy: .sessionManaged
+            )
+        }
+        for _ in 0..<10_000 {
+            if probe.inspectionCount == 1 { break }
+            await Task.yield()
+        }
+        XCTAssertEqual(probe.inspectionCount, 1)
+        task.cancel()
+        let update = await task.value
+        XCTAssertEqual(update.acceptedRequestCount, 0)
+        XCTAssertTrue(probe.releasedScopes.urls.isEmpty)
+        XCTAssertTrue(update.activeSources.isEmpty)
+        probe.releaseInspection()
+        for _ in 0..<10_000 {
+            if !probe.releasedScopes.urls.isEmpty { break }
+            await Task.yield()
+        }
+        XCTAssertEqual(probe.releasedScopes.urls, [url])
+        XCTAssertFalse(probe.usedMainThread)
+        fixture.session.stop()
+    }
+
+    func testCallerManagedImportKeepsIndependentScopeUntilCancelledWorkerExits() async {
+        let url = URL(fileURLWithPath: "/tmp/Caller Managed Import.mov")
+        let probe = ImportPreparationProbe(blockInspection: true)
+        let begunScopes = ThreadSafeURLRecorder()
+        let endedScopes = ThreadSafeURLRecorder()
+        let callerReleasedScopes = ThreadSafeURLRecorder()
+        var callerLease: MediaImportIncomingScopeLease? = MediaImportIncomingScopeLease(
+            url: url, releaseScope: { callerReleasedScopes.append($0) }
+        )
+        let executor = UserSelectedMediaImportExecutor(
+            inspect: { url, _ in probe.inspect(url) },
+            makeBookmark: { _ in Data() },
+            beginIndependentScope: { begunScopes.append($0); return true },
+            endIndependentScope: { endedScopes.append($0) },
+            releaseIncomingScope: { probe.releasedScopes.append($0) }
+        )
+        let fixture = makeSessionFixture(
+            restoreExecutor: UserSelectedMediaRestoreExecutor { _, _ in .unavailable },
+            importExecutor: executor
+        )
+        defer {
+            probe.releaseInspection()
+            fixture.session.stop()
+            fixture.clearDefaults()
+        }
+        let task = Task { @MainActor in
+            await fixture.session.addSourcesAsync([url], incomingScopePolicy: .callerManaged)
+        }
+        for _ in 0..<10_000 {
+            if probe.inspectionCount == 1 { break }
+            await Task.yield()
+        }
+        XCTAssertEqual(probe.inspectionCount, 1)
+        XCTAssertEqual(begunScopes.urls, [url])
+        task.cancel()
+        let update = await task.value
+        XCTAssertEqual(update.acceptedRequestCount, 0)
+        withExtendedLifetime(callerLease) {}
+        callerLease = nil // Simulates switching temporary playback and ending its grant.
+        XCTAssertEqual(callerReleasedScopes.urls, [url])
+        XCTAssertTrue(endedScopes.urls.isEmpty)
+        XCTAssertTrue(probe.releasedScopes.urls.isEmpty)
+        probe.releaseInspection()
+        for _ in 0..<10_000 {
+            if !endedScopes.urls.isEmpty { break }
+            await Task.yield()
+        }
+        XCTAssertEqual(endedScopes.urls, [url])
+        XCTAssertTrue(probe.releasedScopes.urls.isEmpty)
+    }
+
+    func testCallerManagedImportDoesNotEndIndependentScopeWhenBeginFails() {
+        let url = URL(fileURLWithPath: "/tmp/Unscoped Import.mov")
+        let begunScopes = ThreadSafeURLRecorder()
+        let endedScopes = ThreadSafeURLRecorder()
+        let consumedScopes = ThreadSafeURLRecorder()
+        let executor = UserSelectedMediaImportExecutor(
+            beginIndependentScope: { begunScopes.append($0); return false },
+            endIndependentScope: { endedScopes.append($0) },
+            releaseIncomingScope: { consumedScopes.append($0) }
+        )
+        var lease: MediaImportIncomingScopeLease? = executor.incomingLease(for: url, policy: .callerManaged)
+        withExtendedLifetime(lease) {}
+        lease = nil
+        XCTAssertEqual(begunScopes.urls, [url])
+        XCTAssertTrue(endedScopes.urls.isEmpty)
+        XCTAssertTrue(consumedScopes.urls.isEmpty)
+    }
+
+    func testSessionManagedImportConsumesGrantWithoutBeginningIndependentScope() {
+        let url = URL(fileURLWithPath: "/tmp/Consumed Import.mov")
+        let begunScopes = ThreadSafeURLRecorder()
+        let endedScopes = ThreadSafeURLRecorder()
+        let consumedScopes = ThreadSafeURLRecorder()
+        let executor = UserSelectedMediaImportExecutor(
+            beginIndependentScope: { begunScopes.append($0); return true },
+            endIndependentScope: { endedScopes.append($0) },
+            releaseIncomingScope: { consumedScopes.append($0) }
+        )
+        var lease: MediaImportIncomingScopeLease? = executor.incomingLease(for: url, policy: .sessionManaged)
+        withExtendedLifetime(lease) {}
+        lease = nil
+        XCTAssertTrue(begunScopes.urls.isEmpty)
+        XCTAssertTrue(endedScopes.urls.isEmpty)
+        XCTAssertEqual(consumedScopes.urls, [url])
+    }
+
+    func testAsyncImportCannotReviveRemovedSourceAndUnrelatedImportStillFinishes() async {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let firstURL = directory.appendingPathComponent("removed-import-\(UUID()).mov")
+        let secondURL = directory.appendingPathComponent("independent-import-\(UUID()).mov")
+        let probe = ImportPreparationProbe(blockInspectionNumber: 1)
+        let executor = UserSelectedMediaImportExecutor(
+            inspect: { url, _ in probe.inspect(url) },
+            makeBookmark: { url in
+                probe.recordBookmark(url)
+                return Data(url.absoluteString.utf8)
+            },
+            releaseIncomingScope: { probe.releasedScopes.append($0) }
+        )
+        let restoreExecutor = UserSelectedMediaRestoreExecutor { _, bookmark in
+            guard let url = URL(string: String(decoding: bookmark, as: UTF8.self)) else {
+                return .unavailable
+            }
+            return .resolved(ExecutorOwnedPreparedMediaSourceRestore(
+                restore: PreparedMediaSourceRestore(
+                    resolvedURL: url,
+                    linkResolution: .init(targetURL: url, didResolveLink: false),
+                    refreshedBookmark: nil,
+                    resourceIdentifier: nil
+                ),
+                stopAccess: { probe.closedResolvedScopes.append($0) }
+            ))
+        }
+        let fixture = makeSessionFixture(
+            restoreExecutor: restoreExecutor, importExecutor: executor
+        )
+        defer {
+            probe.releaseInspection()
+            fixture.session.stop()
+            fixture.clearDefaults()
+        }
+        let bookmark = fixture.recorder.bookmark(for: firstURL)
+        fixture.recorder.resolvedURLByBookmark[bookmark] = firstURL
+        XCTAssertEqual(fixture.session.addSources([firstURL]).acceptedRequestCount, 1)
+        let firstSource = MediaSource(url: firstURL, kind: .file)
+        let duplicate = Task { @MainActor in
+            await fixture.session.addSourcesAsync(
+                [firstURL], incomingScopePolicy: .sessionManaged
+            )
+        }
+        for _ in 0..<10_000 {
+            if probe.inspectionCount == 1 { break }
+            await Task.yield()
+        }
+        XCTAssertEqual(probe.inspectionCount, 1)
+
+        let independent = await fixture.session.addSourcesAsync(
+            [secondURL], incomingScopePolicy: .sessionManaged
+        )
+        XCTAssertEqual(independent.acceptedRequestCount, 1)
+        fixture.session.prepareToRemoveSource(firstSource)
+        _ = fixture.session.removeSource(firstSource)
+        probe.releaseInspection()
+        let duplicateResult = await duplicate.value
+        XCTAssertEqual(duplicateResult.acceptedRequestCount, 0)
+        XCTAssertEqual(
+            fixture.session.restoreSources(),
+            [MediaSource(url: secondURL, kind: .file)]
+        )
+        XCTAssertEqual(storedSourceRecords(in: fixture.defaults).count, 1)
+        XCTAssertEqual(probe.bookmarkCount, 1)
+
+        // A new user request after removal is still allowed to re-add it.
+        let newRequest = await fixture.session.addSourcesAsync(
+            [firstURL], incomingScopePolicy: .sessionManaged
+        )
+        XCTAssertEqual(newRequest.acceptedRequestCount, 1)
+        XCTAssertEqual(fixture.session.restoreSources().count, 2)
+    }
+
+    func testStopDuringInitialRestorePreventsAsyncImportFromRestartingSession() async {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let restoredURL = directory.appendingPathComponent("restore-before-stop", isDirectory: true)
+        let incomingURL = directory.appendingPathComponent("import-after-stop.mov")
+        let bookmark = Data("restore-before-import-stop".utf8)
+        let controller = RestorePreparationController()
+        let probe = ImportPreparationProbe()
+        let closedScopes = ThreadSafeURLRecorder()
+        let fixture = makeSessionFixture(
+            restoreExecutor: UserSelectedMediaRestoreExecutor { kind, bookmark in
+                await controller.prepare(kind: kind, bookmark: bookmark)
+            },
+            importExecutor: UserSelectedMediaImportExecutor(
+                inspect: { url, _ in probe.inspect(url) },
+                makeBookmark: { _ in nil },
+                releaseIncomingScope: { probe.releasedScopes.append($0) }
+            )
+        )
+        defer { fixture.clearDefaults() }
+        fixture.defaults.set(
+            [StoredSourceRecord(kind: .folder, bookmark: bookmark).storedValue],
+            forKey: TestStorage.sourceRecordKey
+        )
+        let task = Task { @MainActor in
+            await fixture.session.addSourcesAsync(
+                [incomingURL], incomingScopePolicy: .sessionManaged
+            )
+        }
+        await controller.waitForCallCount(1)
+        fixture.session.stop()
+        await controller.resolveNext(with: .resolved(makeExecutorOwnedRestore(
+            resolvedURL: restoredURL, scopeCloseRecorder: closedScopes
+        )))
+        let result = await task.value
+        XCTAssertEqual(result.acceptedRequestCount, 0)
+        XCTAssertTrue(result.activeSources.isEmpty)
+        XCTAssertEqual(probe.inspectionCount, 0)
+        XCTAssertEqual(probe.releasedScopes.urls, [incomingURL])
+        XCTAssertEqual(closedScopes.urls, [restoredURL])
+        XCTAssertEqual(
+            storedSourceRecords(in: fixture.defaults),
+            [StoredSourceRecord(kind: .folder, bookmark: bookmark)]
+        )
+    }
+
     private func makeSessionFixture(
         sourceKindResolver: @escaping (URL) -> MediaSourceKind? = {
             $0.hasDirectoryPath ? .folder : .file
         },
         sourceRecordStoreObserver: (([Any]) -> Void)? = nil,
-        restoreExecutor: UserSelectedMediaRestoreExecutor? = nil
+        restoreExecutor: UserSelectedMediaRestoreExecutor? = nil,
+        importExecutor: UserSelectedMediaImportExecutor? = nil
     ) -> MediaSessionFixture {
         let suiteName = TestStorage.suiteName
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -2907,7 +3199,8 @@ final class UserSelectedMediaSessionTests: XCTestCase {
             securityAccess: recorder.makeAccess(),
             sourceKindResolver: sourceKindResolver,
             sourceRecordStore: sourceRecordStore,
-            restoreExecutor: restoreExecutor
+            restoreExecutor: restoreExecutor,
+            importExecutor: importExecutor
         )
         return MediaSessionFixture(
             suiteName: suiteName,
@@ -3044,6 +3337,50 @@ private actor RestorePreparationController {
             waiter.continuation.resume()
         }
     }
+}
+
+private final class ImportPreparationProbe: @unchecked Sendable {
+    let releasedScopes = ThreadSafeURLRecorder()
+    let closedResolvedScopes = ThreadSafeURLRecorder()
+    private let lock = NSLock()
+    private let gate = DispatchSemaphore(value: 0)
+    private let blockInspection: Bool
+    private let blockInspectionNumber: Int?
+    private var inspections = 0
+    private var bookmarks = 0
+    private var mainThread = false
+
+    init(blockInspection: Bool = false, blockInspectionNumber: Int? = nil) {
+        self.blockInspection = blockInspection
+        self.blockInspectionNumber = blockInspectionNumber
+    }
+    var inspectionCount: Int { lock.withLock { inspections } }
+    var bookmarkCount: Int { lock.withLock { bookmarks } }
+    var usedMainThread: Bool { lock.withLock { mainThread } }
+
+    func inspect(_ url: URL) -> MediaSourceImportInspection {
+        let inspectionNumber = lock.withLock {
+            inspections += 1
+            mainThread = mainThread || Thread.isMainThread
+            return inspections
+        }
+        if blockInspection || blockInspectionNumber == inspectionNumber { gate.wait() }
+        return MediaSourceImportInspection(
+            kind: .file,
+            linkResolution: .init(targetURL: url, didResolveLink: false),
+            resourceIdentifier: nil,
+            coveredByFolderPaths: [], containsFolderPaths: [], containsFilePaths: []
+        )
+    }
+
+    func recordBookmark(_ url: URL) {
+        lock.withLock {
+            bookmarks += 1
+            mainThread = mainThread || Thread.isMainThread
+        }
+    }
+
+    func releaseInspection() { gate.signal() }
 }
 
 private final class ThreadSafeURLRecorder: @unchecked Sendable {

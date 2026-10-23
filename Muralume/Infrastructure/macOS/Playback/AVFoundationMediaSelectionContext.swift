@@ -15,9 +15,6 @@ struct AVFoundationMediaSelectionContext {
     private let subtitleOptionsByID: [
         PlaybackMediaOptionID: AVMediaSelectionOption
     ]
-    private let embeddedSubtitleTimelinesByID: [
-        PlaybackMediaOptionID: SubtitleTimeline
-    ]
     private(set) var audioSelection: PlaybackAudioSelection = .automatic
     private(set) var subtitleSelection: PlaybackSubtitleSelection = .automatic
 
@@ -25,7 +22,6 @@ struct AVFoundationMediaSelectionContext {
         item: AVPlayerItem,
         audioGroup: AVMediaSelectionGroup?,
         subtitleGroup: AVMediaSelectionGroup?,
-        embeddedSubtitleTracks: [EmbeddedSubtitleTrackData],
         generation: UInt64
     ) {
         self.item = item
@@ -47,26 +43,23 @@ struct AVFoundationMediaSelectionContext {
         subtitleOptions = subtitleMappings.options
         subtitleOptionsByID = subtitleMappings.optionsByID
 
-        embeddedSubtitleTimelinesByID = Self.mapEmbeddedSubtitleTimelines(
-            options: subtitleMappings.options,
-            tracks: embeddedSubtitleTracks
-        )
     }
 
-    var canRenderEmbeddedSubtitles: Bool {
-        !subtitleOptions.isEmpty
-            && embeddedSubtitleTimelinesByID.count == subtitleOptions.count
-    }
-
-    var selectedEmbeddedSubtitleTimeline: SubtitleTimeline? {
-        guard canRenderEmbeddedSubtitles,
-              let selectedOptionID = selectedOptionID(
-                group: subtitleGroup,
-                optionsByID: subtitleOptionsByID
-              ) else {
-            return nil
+    var selectedSubtitleRequest: (
+        id: PlaybackMediaOptionID, language: String, selectableLanguages: [String]
+    )? {
+        let languages = subtitleOptions.compactMap {
+            EmbeddedSubtitleLanguage.primaryIdentifier($0.languageIdentifier)
         }
-        return embeddedSubtitleTimelinesByID[selectedOptionID]
+        guard languages.count == subtitleOptions.count,
+              Set(languages).count == languages.count,
+              let id = selectedOptionID(
+                group: subtitleGroup, optionsByID: subtitleOptionsByID
+              ), let option = subtitleOptions.first(where: { $0.id == id }),
+              let language = EmbeddedSubtitleLanguage.primaryIdentifier(
+                option.languageIdentifier
+              ) else { return nil }
+        return (id, language, languages)
     }
 
     var state: PlaybackMediaSelectionState {
@@ -201,65 +194,6 @@ struct AVFoundationMediaSelectionContext {
         return group.options.filter {
             !associatedForcedOptionIDs.contains(ObjectIdentifier($0))
         }
-    }
-
-    private static func mapEmbeddedSubtitleTimelines(
-        options: [PlaybackMediaOption],
-        tracks: [EmbeddedSubtitleTrackData]
-    ) -> [PlaybackMediaOptionID: SubtitleTimeline] {
-        guard !options.isEmpty, options.count == tracks.count else {
-            return [:]
-        }
-        let tracksByLanguage = tracks.reduce(
-            into: [String: SubtitleTimeline]()
-        ) { result, track in
-            guard let language = primaryLanguageIdentifier(
-                track.languageIdentifier
-            ), let timeline = track.timeline,
-            result[language] == nil else {
-                return
-            }
-            result[language] = timeline
-        }
-        guard tracksByLanguage.count == tracks.count else {
-            return [:]
-        }
-
-        var timelinesByOptionID: [
-            PlaybackMediaOptionID: SubtitleTimeline
-        ] = [:]
-        var mappedLanguages: Set<String> = []
-        for option in options {
-            guard let language = primaryLanguageIdentifier(
-                option.languageIdentifier
-            ), mappedLanguages.insert(language).inserted,
-            let timeline = tracksByLanguage[language] else {
-                return [:]
-            }
-            timelinesByOptionID[option.id] = timeline
-        }
-        return timelinesByOptionID
-    }
-
-    private static func primaryLanguageIdentifier(
-        _ identifier: String?
-    ) -> String? {
-        guard let identifier else {
-            return nil
-        }
-        let normalizedIdentifier = identifier.replacingOccurrences(
-            of: "_",
-            with: "-"
-        )
-        guard let languageCode = Locale(identifier: normalizedIdentifier)
-            .language
-            .languageCode?
-            .identifier
-            .lowercased(),
-        languageCode != "und" else {
-            return nil
-        }
-        return languageCode
     }
 
     private static func characteristics(

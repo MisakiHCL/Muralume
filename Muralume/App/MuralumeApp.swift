@@ -201,7 +201,14 @@ private struct MuralumePlayerRootView: View {
                     coordinator.importDroppedURLs(urls)
                 },
                 addTemporaryItemsToLibrary: {
-                    _ = coordinator.library.addTemporaryItemsToLibrary()
+                    if coordinator.library.supportsAsynchronousImportPreparation {
+                        Task {
+                            _ = await coordinator.library
+                                .addTemporaryItemsToLibraryAsync()
+                        }
+                    } else {
+                        _ = coordinator.library.addTemporaryItemsToLibrary()
+                    }
                 },
                 restoreDynamicDesktop: {
                     coordinator.restoreDynamicDesktop()

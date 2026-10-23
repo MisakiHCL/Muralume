@@ -571,6 +571,91 @@ final class PlaybackQueueTests: XCTestCase {
         )
     }
 
+    func testRemovalAfterOrderChangeUsesBoundedMembershipLookups() throws {
+        let counter = QueueComparisonCounter()
+        let items = (0..<10_000).map {
+            CountedQueueItem(value: $0, counter: counter)
+        }
+        var randomSource = SeededRandomNumberGenerator(seed: 42)
+        var queue = PlaybackQueue(items: items)
+        for _ in 1..<5_000 {
+            _ = queue.moveToNext()
+        }
+        queue.setOrder(.shuffled, using: &randomSource)
+        let pendingBefore = queue.upNextItems.map(\.value)
+        counter.reset()
+
+        _ = queue.remove([items[6_000]], using: &randomSource)
+
+        let comparisonCount = counter.count
+        XCTAssertEqual(queue.currentItem?.value, 4_999)
+        XCTAssertEqual(queue.currentRoundPosition, 5_000)
+        XCTAssertEqual(queue.history.map(\.value), Array(0..<4_999))
+        XCTAssertEqual(
+            queue.upNextItems.map(\.value),
+            pendingBefore.filter { $0 != 6_000 }
+        )
+        // Hash collisions vary between processes, so leave ample room for
+        // linear hash-table work while rejecting the former 25M comparisons.
+        XCTAssertLessThan(comparisonCount, items.count * 100)
+    }
+
+    func testLargeBatchRemovalPreservesHistoryAndForwardPositions() throws {
+        var queue = PlaybackQueue(items: Array(0..<10_000))
+        for _ in 1..<7_500 {
+            _ = queue.moveToNext()
+        }
+        for _ in 0..<2_000 {
+            _ = queue.moveToPrevious()
+        }
+
+        XCTAssertEqual(queue.remove(Set(0..<5_000)), 5_499)
+
+        XCTAssertEqual(queue.currentRoundPosition, 500)
+        XCTAssertEqual(queue.history, Array(5_000..<5_499))
+        XCTAssertEqual(queue.upNextItems, Array(5_500..<10_000))
+        let snapshot = try XCTUnwrap(queue.makeSnapshot())
+        XCTAssertEqual(snapshot.history.first?.position, 1)
+        XCTAssertEqual(snapshot.history.last?.position, 499)
+        XCTAssertEqual(snapshot.forwardHistory.first?.position, 2_500)
+        XCTAssertEqual(snapshot.forwardHistory.last?.position, 501)
+        XCTAssertEqual(queue.moveToNext(), 5_500)
+        XCTAssertEqual(queue.currentRoundPosition, 501)
+        XCTAssertNotNil(PlaybackQueue(snapshot: snapshot))
+    }
+
+    func testRemovalPreservesRepeatedHistoricalPositionAccounting() throws {
+        let snapshot = PlaybackQueueSnapshot(
+            items: Array(0..<8),
+            order: .ordered,
+            currentItem: 4,
+            roundNumber: 1,
+            currentRoundPosition: 5,
+            remainingItems: Array(0..<8),
+            remainingIndex: 5,
+            history: [
+                .init(item: 0, roundNumber: 1, position: 1),
+                .init(item: 1, roundNumber: 1, position: 2),
+                .init(item: 0, roundNumber: 1, position: 1),
+                .init(item: 2, roundNumber: 1, position: 3),
+                .init(item: 3, roundNumber: 1, position: 4)
+            ],
+            forwardHistory: [
+                .init(item: 6, roundNumber: 1, position: 7),
+                .init(item: 5, roundNumber: 1, position: 6)
+            ]
+        )
+        var queue = try XCTUnwrap(PlaybackQueue(snapshot: snapshot))
+
+        XCTAssertEqual(queue.remove([0, 2, 7]), 4)
+
+        let updated = try XCTUnwrap(queue.makeSnapshot())
+        XCTAssertEqual(updated.history.map(\.item), [1, 3])
+        XCTAssertEqual(updated.history.map(\.position), [1, 1])
+        XCTAssertEqual(updated.forwardHistory.map(\.position), [4, 3])
+        XCTAssertEqual(updated.currentRoundPosition, 3)
+    }
+
     func testPendingAdvanceKeepsRecoveredPositionWithinMembershipBounds()
         throws {
         let snapshot = PlaybackQueueSnapshot(
@@ -807,5 +892,36 @@ private struct SeededRandomNumberGenerator: RandomNumberGenerator, Sendable {
         value = (value ^ (value >> 30)) &* 0xBF58_476D_1CE4_E5B9
         value = (value ^ (value >> 27)) &* 0x94D0_49BB_1331_11EB
         return value ^ (value >> 31)
+    }
+}
+
+private final class QueueComparisonCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var comparisonCount = 0
+
+    var count: Int {
+        lock.withLock { comparisonCount }
+    }
+
+    func recordComparison() {
+        lock.withLock { comparisonCount += 1 }
+    }
+
+    func reset() {
+        lock.withLock { comparisonCount = 0 }
+    }
+}
+
+private struct CountedQueueItem: Hashable, Sendable {
+    let value: Int
+    let counter: QueueComparisonCounter
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.counter.recordComparison()
+        return lhs.value == rhs.value
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(value)
     }
 }

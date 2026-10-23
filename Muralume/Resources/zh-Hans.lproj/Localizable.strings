@@ -380,3 +380,5 @@
 "screenshot.save.prompt" = "保存";
 "screenshot.error.title" = "无法保存截图";
 "screenshot.error.message" = "Muralume 无法截取或写入当前视频画面。";
+
+"library.search.searching" = "正在搜索…";

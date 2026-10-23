@@ -9,6 +9,7 @@ final class CustomPlaylistPlaybackBridge {
     private weak var library: MediaLibraryCoordinator?
     private var cancellables: Set<AnyCancellable> = []
     private var latestLibraryItems: [LibraryMediaItem]
+    private var latestLibraryItemsRevision: UInt64
     private var latestScanState: MediaLibraryScanState
 
     init(
@@ -18,6 +19,7 @@ final class CustomPlaylistPlaybackBridge {
         self.playlists = playlists
         self.library = library
         latestLibraryItems = library.items
+        latestLibraryItemsRevision = library.itemsRevision
         latestScanState = library.scanState
 
         library.customPlaylistItemsProvider = {
@@ -30,7 +32,8 @@ final class CustomPlaylistPlaybackBridge {
             }
             return playlists.resolvedItems(
                 in: playlistID,
-                using: library.items
+                using: library.items,
+                itemsRevision: library.itemsRevision
             )
         }
 
@@ -40,15 +43,20 @@ final class CustomPlaylistPlaybackBridge {
             }
             .store(in: &cancellables)
 
-        Publishers.CombineLatest(
-            library.itemsPublisher,
-            library.$scanState
-        )
-            .sink { [weak self] items, scanState in
-                self?.libraryDidChange(
-                    using: items,
-                    scanState: scanState
+        library.itemsRevisionPublisher
+            .sink { [weak self] snapshot in
+                self?.libraryItemsDidChange(
+                    using: snapshot.items,
+                    revision: snapshot.revision
                 )
+            }
+            .store(in: &cancellables)
+
+        library.$scanState
+            .sink { [weak self] scanState in
+                guard let self else { return }
+                latestScanState = scanState
+                synchronizeActiveQueueIfReady()
             }
             .store(in: &cancellables)
     }
@@ -58,9 +66,10 @@ final class CustomPlaylistPlaybackBridge {
         guard let library else {
             return
         }
-        libraryDidChange(
+        latestScanState = library.scanState
+        libraryItemsDidChange(
             using: library.items,
-            scanState: library.scanState
+            revision: library.itemsRevision
         )
     }
 
@@ -70,20 +79,23 @@ final class CustomPlaylistPlaybackBridge {
         await playlists.shutdown()
     }
 
-    private func libraryDidChange(
+    private func libraryItemsDidChange(
         using items: [LibraryMediaItem],
-        scanState: MediaLibraryScanState
+        revision: UInt64
     ) {
         latestLibraryItems = items
-        latestScanState = scanState
-        guard playlists.isReady, let library else {
-            return
-        }
-        playlists.updateAvailableItems(items)
+        latestLibraryItemsRevision = revision
+        guard playlists.isReady else { return }
+        playlists.updateAvailableItems(items, itemsRevision: revision)
+        synchronizeActiveQueueIfReady()
+    }
+
+    private func synchronizeActiveQueueIfReady() {
+        guard playlists.isReady, let library else { return }
         synchronizeActiveQueue(
             collection: playlists.collection,
-            items: items,
-            scanState: scanState,
+            items: latestLibraryItems,
+            scanState: latestScanState,
             library: library
         )
     }
@@ -122,9 +134,11 @@ final class CustomPlaylistPlaybackBridge {
         }
         library.synchronizeCustomPlaylistQueue(
             playlistID: playlistID,
-            playlistItems: collection.resolvedItems(
+            playlistItems: playlists.resolvedItems(
                 in: playlistID,
-                using: items
+                collection: collection,
+                using: items,
+                itemsRevision: latestLibraryItemsRevision
             )
         )
     }

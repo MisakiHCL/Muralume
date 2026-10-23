@@ -366,6 +366,33 @@ final class TestMediaSourceSelector: MediaSourceSelecting {
 
 @MainActor
 final class TestMediaAccessSession: MediaAccessSession {
+    private var blockedAsyncImportURLs: [URL]?
+    private var blockedAsyncImportContinuation: CheckedContinuation<Void, Never>?
+    private(set) var didBeginBlockedAsyncImport = false
+
+    func blockAsyncImport(_ urls: [URL]) {
+        blockedAsyncImportURLs = urls
+    }
+
+    func releaseAsyncImport() {
+        blockedAsyncImportContinuation?.resume()
+        blockedAsyncImportContinuation = nil
+    }
+
+    func addSourcesAsync(
+        _ urls: [URL],
+        incomingScopePolicy: MediaAccessIncomingScopePolicy
+    ) async -> MediaAccessUpdate {
+        if urls == blockedAsyncImportURLs {
+            blockedAsyncImportURLs = nil
+            await withCheckedContinuation { continuation in
+                blockedAsyncImportContinuation = continuation
+                didBeginBlockedAsyncImport = true
+            }
+        }
+        return addSources(urls, incomingScopePolicy: incomingScopePolicy)
+    }
+
     private(set) var addedURLs: [URL] = []
     private(set) var incomingScopePolicies:
         [MediaAccessIncomingScopePolicy] = []

@@ -371,6 +371,179 @@ final class AppCoordinatorTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
+    func testNewPresentationIntentSuppressesAsyncDropAndPickerAutoplay() async {
+        for usesPicker in [false, true] {
+            let url = URL(fileURLWithPath: "/tmp/AppCoordinatorTests/Async Import.mov")
+            let fixture = makeFixture(
+                launchStatus: .disabled, selectedSources: [[url]]
+            )
+            fixture.coordinator.start(source: .interactive)
+            await waitUntil { fixture.window.isVisible }
+            await prepareActiveQueue(in: fixture)
+            let importedItem = makeFileItem(url: url, name: "Async Import")
+            fixture.scanner.replaceSnapshot(MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(url: fixture.item.rootURL, displayName: "Library"),
+                    MediaLibraryRoot(url: url, displayName: url.lastPathComponent, kind: .file)
+                ],
+                items: [fixture.item, importedItem]
+            ))
+            fixture.mediaSession.blockNextAsyncImport()
+            if usesPicker {
+                fixture.coordinator.addMedia()
+            } else {
+                XCTAssertTrue(fixture.coordinator.importDroppedURLs([url]))
+            }
+            await waitUntil { fixture.mediaSession.didBeginBlockedAsyncImport }
+            fixture.coordinator.openSettings()
+            await waitUntil { fixture.coordinator.playerChrome.isSettingsPresented }
+            fixture.mediaSession.finishBlockedAsyncImport()
+            await waitUntil {
+                fixture.library.items.contains { $0.id == importedItem.id }
+                    && fixture.library.scanState == .ready
+            }
+
+            XCTAssertTrue(fixture.mediaSession.activeSources.contains { $0.url == url })
+            XCTAssertTrue(fixture.coordinator.playerChrome.isSettingsPresented)
+            XCTAssertEqual(fixture.library.currentItemID, fixture.item.id)
+            XCTAssertEqual(fixture.playback.source?.url, fixture.item.url)
+            XCTAssertFalse(fixture.engine.loadedSources.contains { $0.url == url })
+            await fixture.coordinator.shutdown()
+        }
+    }
+
+    func testDirectPlaybackABASelectionSupersedesAsyncImportAutoplay() async {
+        for usesPicker in [false, true] {
+            let url = URL(fileURLWithPath: "/tmp/AppCoordinatorTests/ABA Import.mov")
+            let fixture = makeFixture(
+                launchStatus: .disabled, selectedSources: [[url]]
+            )
+            fixture.coordinator.start(source: .interactive)
+            await waitUntil { fixture.window.isVisible }
+            await prepareActiveQueue(in: fixture)
+            let second = await addSecondItemToLibrary(in: fixture)
+            let imported = makeFileItem(url: url, name: "ABA Import")
+            fixture.scanner.replaceSnapshot(MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(url: fixture.item.rootURL, displayName: "Library"),
+                    MediaLibraryRoot(url: url, displayName: url.lastPathComponent, kind: .file)
+                ],
+                items: [fixture.item, second, imported]
+            ))
+            fixture.mediaSession.blockNextAsyncImport()
+            if usesPicker {
+                fixture.coordinator.addMedia()
+            } else {
+                XCTAssertTrue(fixture.coordinator.importDroppedURLs([url]))
+            }
+            await waitUntil { fixture.mediaSession.didBeginBlockedAsyncImport }
+            fixture.library.play(second)
+            fixture.library.play(fixture.item)
+            XCTAssertEqual(fixture.library.currentItemID, fixture.item.id)
+            fixture.mediaSession.finishBlockedAsyncImport()
+            await waitUntil {
+                fixture.library.items.contains { $0.id == imported.id }
+                    && fixture.library.scanState == .ready
+            }
+
+            XCTAssertTrue(fixture.mediaSession.activeSources.contains { $0.url == url })
+            XCTAssertEqual(fixture.library.currentItemID, fixture.item.id)
+            XCTAssertFalse(fixture.engine.loadedSources.contains { $0.url == url })
+            await fixture.coordinator.shutdown()
+        }
+    }
+
+    func testNewSelectionDuringSingleTemporaryImportDoesNotRestartOldMedia() async {
+        let fixture = makeFixture(launchStatus: .disabled)
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil { fixture.window.isVisible }
+        await prepareActiveQueue(in: fixture)
+        let url = URL(fileURLWithPath: "/tmp/AppCoordinatorTests/Single Temporary.mov")
+        let temporary = makeFileItem(url: url, name: "Single Temporary")
+        fixture.scanner.replaceSnapshot(MediaLibrarySnapshot(
+            roots: [
+                MediaLibraryRoot(url: fixture.item.rootURL, displayName: "Library"),
+                MediaLibraryRoot(url: url, displayName: url.lastPathComponent, kind: .file)
+            ],
+            items: [fixture.item, temporary]
+        ))
+        let opened = await fixture.library.openFilesTemporarily([url])
+        XCTAssertTrue(opened)
+        await waitUntil {
+            fixture.playback.source?.url == url && fixture.playback.readiness == .ready
+        }
+        fixture.mediaSession.blockNextAsyncImport()
+        let importTask = Task { await fixture.library.addCurrentTemporaryItemToLibraryAsync() }
+        await waitUntil { fixture.mediaSession.didBeginBlockedAsyncImport }
+        fixture.library.playLibraryItem(fixture.item)
+        fixture.mediaSession.finishBlockedAsyncImport()
+        let imported = await importTask.value
+        XCTAssertTrue(imported)
+        await waitUntil {
+            fixture.library.items.contains { $0.id == temporary.id }
+                && fixture.library.scanState == .ready
+        }
+
+        XCTAssertEqual(fixture.library.currentItemID, fixture.item.id)
+        XCTAssertTrue(fixture.mediaSession.activeSources.contains { $0.url == url })
+        await fixture.coordinator.shutdown()
+    }
+
+    func testNewPresentationOrMediaIntentSuppressesPendingDesktopEntry() async {
+        for interruption in 0..<3 {
+            let fixture = makeFixture(launchStatus: .disabled)
+            fixture.coordinator.start(source: .interactive)
+            await waitUntil { fixture.window.isVisible }
+            await prepareActiveQueue(in: fixture)
+            let url = URL(fileURLWithPath: "/tmp/AppCoordinatorTests/Temporary Async.mov")
+            let temporaryItem = makeFileItem(url: url, name: "Temporary Async")
+            fixture.scanner.replaceSnapshot(MediaLibrarySnapshot(
+                roots: [
+                    MediaLibraryRoot(url: fixture.item.rootURL, displayName: "Library"),
+                    MediaLibraryRoot(url: url, displayName: url.lastPathComponent, kind: .file)
+                ],
+                items: [fixture.item, temporaryItem]
+            ))
+            let opened = await fixture.library.openFilesTemporarily([url])
+            XCTAssertTrue(opened)
+            await waitUntil {
+                fixture.playback.source?.url == url && fixture.playback.readiness == .ready
+            }
+            XCTAssertTrue(fixture.library.isTemporaryPlayback)
+            fixture.mediaSession.blockNextAsyncImport()
+            fixture.coordinator.enterDesktop()
+            await waitUntil { fixture.mediaSession.didBeginBlockedAsyncImport }
+
+            switch interruption {
+            case 0: fixture.coordinator.openSettings()
+            case 1: fixture.coordinator.dismissMainWindow()
+            default:
+                // Library UI can select media directly without an AppCoordinator
+                // presentation call; the captured media identity must also hold.
+                fixture.library.playLibraryItem(fixture.item)
+            }
+            fixture.mediaSession.finishBlockedAsyncImport()
+            await waitUntil {
+                fixture.library.items.contains { $0.id == temporaryItem.id }
+                    && fixture.library.scanState == .ready
+            }
+
+            XCTAssertTrue(fixture.mediaSession.activeSources.contains { $0.url == url })
+            XCTAssertFalse(fixture.desktopSession.isActive)
+            XCTAssertFalse(fixture.desktopSession.isTransitioning)
+            XCTAssertEqual(fixture.playback.presentation, .player)
+            if interruption == 0 {
+                XCTAssertTrue(fixture.coordinator.playerChrome.isSettingsPresented)
+            } else if interruption == 1 {
+                XCTAssertFalse(fixture.window.isVisible)
+                XCTAssertTrue(fixture.playback.isPlayerWindowDismissed)
+            } else {
+                XCTAssertEqual(fixture.library.currentItemID, fixture.item.id)
+            }
+            await fixture.coordinator.shutdown()
+        }
+    }
+
     func testUnsupportedDropWhileSettingsArePresentedShowsNotice() async {
         let fixture = makeFixture(launchStatus: .disabled)
         fixture.coordinator.start(source: .interactive)
@@ -1663,6 +1836,79 @@ final class AppCoordinatorTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
+    func testNewPresentationIntentSupersedesAsyncReauthorizationResume() async {
+        enum Interruption: CaseIterable {
+            case settingsAfterAllSources
+            case closeAfterSingleSource
+            case newPlaybackAfterAllSources
+        }
+        for interruption in Interruption.allCases {
+            let fixture = makeFixture(
+                launchStatus: .disabled,
+                sessionPresentation: .desktop,
+                sourceInitiallyAvailable: false
+            )
+            fixture.sourceSelector.replaceSelections([[fixture.item.rootURL]])
+            fixture.coordinator.start(source: .interactive)
+            await waitUntil {
+                fixture.window.isVisible && !fixture.playbackSession.isRestoring
+            }
+            XCTAssertTrue(fixture.playbackSession.hasDeferredRestorePlan)
+            fixture.mediaSession.blockNextAsyncImport()
+            if interruption == .closeAfterSingleSource {
+                guard let source = fixture.library.unavailableSources.first else {
+                    XCTFail("Missing unavailable source for reauthorization")
+                    await fixture.coordinator.shutdown()
+                    continue
+                }
+                fixture.coordinator.reauthorizeMediaSource(source)
+            } else {
+                fixture.coordinator.reauthorizeMediaSources()
+            }
+            await waitUntil { fixture.mediaSession.didBeginBlockedAsyncImport }
+
+            switch interruption {
+            case .settingsAfterAllSources:
+                fixture.coordinator.openSettings()
+            case .closeAfterSingleSource:
+                fixture.coordinator.dismissMainWindow()
+            case .newPlaybackAfterAllSources:
+                fixture.coordinator.handleOpenFiles([fixture.item.url])
+                await waitUntil {
+                    fixture.playback.source?.url == fixture.item.url
+                        && fixture.playback.readiness == .ready
+                }
+                fixture.playback.seek(to: 33)
+            }
+            fixture.mediaSession.finishBlockedAsyncImport()
+            await waitUntil {
+                fixture.library.items.contains { $0.id == fixture.item.id }
+                    && fixture.library.scanState == .ready
+            }
+            for _ in 0..<TestPolicy.propagationAttempts { await Task.yield() }
+
+            XCTAssertTrue(fixture.mediaSession.activeSources.contains {
+                $0.url == fixture.item.rootURL
+            })
+            XCTAssertFalse(fixture.desktopSession.isActive)
+            switch interruption {
+            case .settingsAfterAllSources:
+                XCTAssertTrue(fixture.coordinator.playerChrome.isSettingsPresented)
+                XCTAssertTrue(fixture.playbackSession.hasDeferredRestorePlan)
+                XCTAssertTrue(fixture.engine.loadedSources.isEmpty)
+            case .closeAfterSingleSource:
+                XCTAssertFalse(fixture.window.isVisible)
+                XCTAssertTrue(fixture.playback.isPlayerWindowDismissed)
+                XCTAssertTrue(fixture.playbackSession.hasDeferredRestorePlan)
+                XCTAssertTrue(fixture.engine.loadedSources.isEmpty)
+            case .newPlaybackAfterAllSources:
+                XCTAssertEqual(fixture.playback.currentTime, 33)
+                XCTAssertEqual(fixture.engine.loadedSources.count, 1)
+            }
+            await fixture.coordinator.shutdown()
+        }
+    }
+
     func testUserActionCancellingDeferredRetryClearsRestorePlan() async {
         let fixture = makeFixture(
             launchStatus: .disabled,
@@ -2215,6 +2461,37 @@ private final class AppCoordinatorSourceSelector: MediaSourceSelecting {
 
 @MainActor
 private final class AppCoordinatorMediaSession: MediaAccessSession {
+    private var asyncImportIsEnabled = false
+    private var shouldBlockNextAsyncImport = false
+    private var blockedAsyncImportContinuation: CheckedContinuation<Void, Never>?
+    private(set) var didBeginBlockedAsyncImport = false
+    var supportsAsynchronousImportPreparation: Bool { asyncImportIsEnabled }
+
+    func blockNextAsyncImport() {
+        asyncImportIsEnabled = true
+        shouldBlockNextAsyncImport = true
+        didBeginBlockedAsyncImport = false
+    }
+
+    func finishBlockedAsyncImport() {
+        blockedAsyncImportContinuation?.resume()
+        blockedAsyncImportContinuation = nil
+    }
+
+    func addSourcesAsync(
+        _ urls: [URL],
+        incomingScopePolicy: MediaAccessIncomingScopePolicy
+    ) async -> MediaAccessUpdate {
+        if shouldBlockNextAsyncImport {
+            shouldBlockNextAsyncImport = false
+            await withCheckedContinuation { continuation in
+                blockedAsyncImportContinuation = continuation
+                didBeginBlockedAsyncImport = true
+            }
+        }
+        return addSources(urls)
+    }
+
     private(set) var activeSources: [MediaSource]
     private(set) var stopCount = 0
     private let persistedSource: MediaSource

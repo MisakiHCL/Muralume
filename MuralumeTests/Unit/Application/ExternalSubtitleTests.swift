@@ -78,6 +78,45 @@ final class SubtitleFileParserTests: XCTestCase {
 }
 
 final class SubtitleTimelineTests: XCTestCase {
+    func testIntervalIndexAndCursorMatchNaiveQueriesAcrossSeeks() {
+        var cues = [SubtitleCue(startTime: 0, endTime: 10_000, text: "Long")]
+        for index in 0..<2_000 {
+            let start = Double((index * 37) % 400) / 10
+            cues.append(SubtitleCue(
+                startTime: start, endTime: start + Double(index % 9 + 1) / 10,
+                text: index % 17 == 0 ? "" : "Cue \(index)"
+            ))
+        }
+        let timeline = SubtitleTimeline(cues: cues)
+        var cursor = SubtitleTimelineCursor(timeline: timeline)
+        let times = (0...410).map { Double($0) / 10 }
+            + [0.1, 39.9, 0, 10_000, 9_999.9, 0.15]
+        for time in times {
+            let active = timeline.cues.filter { $0.startTime <= time && $0.endTime > time }
+            let expected = active.isEmpty ? nil : active.map(\.text).joined(separator: "\n")
+            XCTAssertEqual(timeline.text(at: time), expected, "At \(time)")
+            XCTAssertEqual(cursor.text(at: time), expected, "Cursor at \(time)")
+        }
+    }
+
+    func testCursorReusesTextUntilBoundaryAndRebuildsOnBackwardSeek() {
+        let timeline = SubtitleTimeline(cues: [
+            SubtitleCue(startTime: 1, endTime: 100, text: "Long"),
+            SubtitleCue(startTime: 2, endTime: 3, text: "Short")
+        ])
+        var cursor = SubtitleTimelineCursor(timeline: timeline)
+        XCTAssertEqual(cursor.text(at: 4), "Long")
+        for index in 0..<100 { XCTAssertEqual(cursor.text(at: 4 + Double(index) / 20), "Long") }
+        XCTAssertEqual(cursor.queryCount, 1)
+        XCTAssertEqual(cursor.text(at: 2.5), "Long\nShort")
+        XCTAssertEqual(cursor.queryCount, 2)
+        XCTAssertEqual(cursor.text(at: 3), "Long")
+        XCTAssertEqual(cursor.queryCount, 3)
+        XCTAssertNil(cursor.text(at: 100))
+        XCTAssertEqual(cursor.queryCount, 4)
+        XCTAssertNil(cursor.text(at: .nan))
+    }
+
     func testCombinesOverlappingCuesInSourceOrder() {
         let timeline = SubtitleTimeline(
             cues: [
@@ -154,7 +193,10 @@ final class ExternalSubtitleControllerTests: XCTestCase {
         XCTAssertEqual(controller.externalSubtitles.cueText, "External cue")
 
         controller.suppressSubtitlesForDesktop()
+        XCTAssertNil(engine.externalSubtitleTimeHandler)
+        XCTAssertNotNil(controller.externalSubtitles.track)
         controller.restorePlayerSubtitleSelection()
+        XCTAssertNotNil(engine.externalSubtitleTimeHandler)
         XCTAssertNotNil(controller.externalSubtitles.track)
         XCTAssertEqual(controller.state.subtitleSelection, .off)
 

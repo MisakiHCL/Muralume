@@ -16,6 +16,8 @@ struct CustomPlaylistSidebarContent: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var pendingDeletion: CustomPlaylist?
     @State private var searchScrollToTopRequest: UInt64 = 0
+    @StateObject private var detailSearch =
+        LatestMediaSearch<CustomPlaylistDetailProjection>()
 
     var body: some View {
         Group {
@@ -131,13 +133,25 @@ struct CustomPlaylistSidebarContent: View {
     }
 
     private func detail(_ playlist: CustomPlaylist) -> some View {
-        let projection = playlists.detailProjection(
-            for: playlist,
-            query: navigation.query,
-            using: library.items,
-            itemsRevision: library.itemsRevision
+        let requestID = CustomPlaylistSearchRequestID(
+            playlistID: playlist.id,
+            playlistRevision: playlists.collectionRevision,
+            libraryItemsRevision: library.itemsRevision,
+            query: normalizedSearchQuery
         )
-        let search = projection.search
+        let requestedItems = library.items
+        let displayed: (
+            key: CustomPlaylistSearchRequestID,
+            result: CustomPlaylistDetailProjection
+        )? = detailSearch.latestResult(compatibleWith: requestID) {
+            (previous: CustomPlaylistSearchRequestID,
+             current: CustomPlaylistSearchRequestID) in
+            previous.playlistID == current.playlistID
+                && previous.query == current.query
+        }
+        let projection = displayed?.result
+        let isSearching = detailSearch.result(for: requestID) == nil
+        let search = MediaCollectionSearch(query: navigation.query)
 
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: MuralumeTheme.Spacing.small) {
@@ -205,13 +219,15 @@ struct CustomPlaylistSidebarContent: View {
 
             HStack(spacing: MuralumeTheme.Spacing.small) {
                 Text(
-                    verbatim: search.isEmpty
-                        ? playlistCountText(playlist.entries.count)
-                        : localization.localizedFormat(
-                            "library.search.results",
-                            projection.entries.count,
-                            playlist.entries.count
-                        )
+                    verbatim: isSearching && !playlist.entries.isEmpty
+                        ? localization.localized("library.search.searching")
+                        : search.isEmpty
+                            ? playlistCountText(playlist.entries.count)
+                            : localization.localizedFormat(
+                                "library.search.results",
+                                projection?.entries.count ?? 0,
+                                playlist.entries.count
+                            )
                 )
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(MuralumeTheme.Colors.textSecondary)
@@ -235,18 +251,41 @@ struct CustomPlaylistSidebarContent: View {
 
             if playlist.entries.isEmpty {
                 playlistDetailEmptyState
-            } else if projection.entries.isEmpty {
-                LibrarySearchEmptyState {
-                    navigation.updateQuery("")
+            } else if let projection {
+                if projection.entries.isEmpty {
+                    LibrarySearchEmptyState {
+                        navigation.updateQuery("")
+                    }
+                } else {
+                    playlistEntries(
+                        projection,
+                        in: playlist,
+                        snapshotRequestID: displayed?.key ?? requestID,
+                        allowsReordering: search.isEmpty
+                    )
                 }
             } else {
-                playlistEntries(
-                    projection,
-                    in: playlist,
-                    allowsReordering: search.isEmpty
-                )
+                ProgressView("library.search.searching")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .task(id: requestID) {
+            guard !Task.isCancelled else { return }
+            guard !playlist.entries.isEmpty else {
+                detailSearch.cancel()
+                return
+            }
+            detailSearch.request(
+                key: requestID,
+                operation: playlists.detailSearchOperation(
+                    for: playlist,
+                    query: search.query,
+                    using: requestedItems,
+                    itemsRevision: requestID.libraryItemsRevision
+                )
+            )
+        }
+        .onDisappear { detailSearch.cancel() }
         .accessibilityIdentifier(
             MuralumeAccessibilityIdentifier.playlistDetail
         )
@@ -255,15 +294,16 @@ struct CustomPlaylistSidebarContent: View {
     private func playlistEntries(
         _ projection: CustomPlaylistDetailProjection,
         in playlist: CustomPlaylist,
+        snapshotRequestID: CustomPlaylistSearchRequestID,
         allowsReordering: Bool
     ) -> some View {
         FixedHeightVirtualizedTable(
             items: projection.entries,
             snapshotRevision: CustomPlaylistSnapshotRevision(
-                playlistID: playlist.id,
-                playlistRevision: playlists.collectionRevision,
-                libraryItemsRevision: library.itemsRevision,
-                query: projection.search.query
+                playlistID: snapshotRequestID.playlistID,
+                playlistRevision: snapshotRequestID.playlistRevision,
+                libraryItemsRevision: snapshotRequestID.libraryItemsRevision,
+                query: snapshotRequestID.query
             ),
             rowContentRevision: CustomPlaylistRowContentRevision(
                 currentItemID: library.currentItemID,

@@ -38,11 +38,13 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     private var automaticLibraryRefreshCancellables: Set<AnyCancellable> = []
     private var initialRestoreTask: Task<Void, Never>?
     private var sourceAccessRetryTask: Task<Void, Never>?
+    private var mediaImportTasks: [UUID: Task<Void, Never>] = [:]
     private var sourceAccessRetryGeneration: UInt64 = 0
     private var initialRestoreGeneration: UInt64 = 0
     private var hasStarted = false
     private var isShutDown = false
     private var externalOpenGeneration: UInt64 = 0
+    private var presentationIntentGeneration: UInt64 = 0
     private var dynamicDesktopReturnContext: MediaLibraryPlaybackContext?
 
     init(
@@ -293,11 +295,26 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         guard canImportMedia else {
             return
         }
+        let presentationGeneration = beginPresentationIntent()
+        let playbackIntentRevision = library.playbackSelectionIntentRevision
         performAfterCancellingInitialRestore { [weak self] in
-            guard let self, canImportMedia else {
+            guard let self, canImportMedia,
+                  presentationGeneration == presentationIntentGeneration else {
                 return
             }
-            library.addMedia()
+            if library.supportsAsynchronousImportPreparation {
+                performMediaImport { [weak self] in
+                    guard let self else { return }
+                    await library.addMediaAsync { [weak self] in
+                        guard let self else { return false }
+                        return presentationGeneration == presentationIntentGeneration
+                            && playbackIntentRevision == library.playbackSelectionIntentRevision
+                            && canImportMedia
+                    }
+                }
+            } else {
+                library.addMedia()
+            }
         }
     }
 
@@ -315,6 +332,22 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
               !playbackSession.isRestoring else {
             return
         }
+        let presentationGeneration = beginPresentationIntent()
+        let playbackIntentRevision = library.playbackSelectionIntentRevision
+        if library.supportsAsynchronousImportPreparation {
+            performMediaImport { [weak self] in
+                guard let self,
+                      let start = await library.reauthorizeMediaSourcesAsync(),
+                      !isShutDown, !Task.isCancelled,
+                      presentationGeneration == presentationIntentGeneration,
+                      playbackIntentRevision == library.playbackSelectionIntentRevision,
+                      canImportMedia else { return }
+                resumeDeferredPlaybackSession(
+                    after: start, overridingPresentation: .player
+                )
+            }
+            return
+        }
         guard let libraryStart = library.reauthorizeMediaSources() else {
             return
         }
@@ -328,6 +361,22 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         guard canImportMedia,
               initialRestoreTask == nil,
               !playbackSession.isRestoring else {
+            return
+        }
+        let presentationGeneration = beginPresentationIntent()
+        let playbackIntentRevision = library.playbackSelectionIntentRevision
+        if library.supportsAsynchronousImportPreparation {
+            performMediaImport { [weak self] in
+                guard let self,
+                      let start = await library.reauthorizeMediaSourceAsync(source),
+                      !isShutDown, !Task.isCancelled,
+                      presentationGeneration == presentationIntentGeneration,
+                      playbackIntentRevision == library.playbackSelectionIntentRevision,
+                      canImportMedia else { return }
+                resumeDeferredPlaybackSession(
+                    after: start, overridingPresentation: .player
+                )
+            }
             return
         }
         guard let libraryStart = library.reauthorizeMediaSource(source) else {
@@ -405,7 +454,23 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         guard canImportDroppedMedia, !urls.isEmpty else {
             return false
         }
+        let presentationGeneration = beginPresentationIntent()
+        let playbackIntentRevision = library.playbackSelectionIntentRevision
         let shouldAutoplay = !playerChrome.isSettingsPresented
+        if library.supportsAsynchronousImportPreparation {
+            performMediaImport { [weak self] in
+                guard let self,
+                      let preparation = await library.prepareImportAsync(urls),
+                      !isShutDown, !Task.isCancelled else { return }
+                commitPreparedDropAfterCancellingInitialRestore(
+                    preparation,
+                    autoplayExplicitFiles: shouldAutoplay,
+                    presentationGeneration: presentationGeneration,
+                    playbackIntentRevision: playbackIntentRevision
+                )
+            }
+            return true
+        }
         let preparation = library.prepareImport(urls)
         guard let preparation else {
             return true
@@ -413,7 +478,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
 
         commitPreparedDropAfterCancellingInitialRestore(
             preparation,
-            autoplayExplicitFiles: shouldAutoplay
+            autoplayExplicitFiles: shouldAutoplay,
+            presentationGeneration: presentationGeneration,
+            playbackIntentRevision: playbackIntentRevision
         )
         return true
     }
@@ -428,11 +495,31 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             return
         }
         cancelSourceAccessRetry()
+        let presentationGeneration = beginPresentationIntent()
+        let playbackIntentRevision = library.playbackSelectionIntentRevision
+        let requestedItemID = library.currentItemID
         if library.isTemporaryPlayback {
+            if library.supportsAsynchronousImportPreparation {
+                performMediaImport { [weak self] in
+                    guard let self,
+                          await library.addTemporaryItemsToLibraryAsync(),
+                          !isShutDown, !Task.isCancelled,
+                          presentationGeneration == presentationIntentGeneration,
+                          playbackIntentRevision == library.playbackSelectionIntentRevision,
+                          requestedItemID == library.currentItemID,
+                          canImportDroppedMedia else { return }
+                    finishEnteringDesktop()
+                }
+                return
+            }
             guard library.addTemporaryItemsToLibrary() else {
                 return
             }
         }
+        finishEnteringDesktop()
+    }
+
+    private func finishEnteringDesktop() {
         library.adoptExternalPlaybackContext()
         clearDynamicDesktopReturnContext()
         playerChrome.setSettingsPresented(false)
@@ -461,11 +548,13 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
               let desktopScene else {
             return
         }
+        beginPresentationIntent()
         desktopScene.beginEditing()
         playerChrome.presentDesktopLayout()
     }
 
     func cancelDesktopLayout() {
+        beginPresentationIntent()
         desktopScene?.cancelEditing()
         _ = playerChrome.cancelDesktopLayout()
     }
@@ -480,12 +569,14 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     func playLibraryItem(_ item: LibraryMediaItem) {
+        beginPresentationIntent()
         cancelSourceAccessRetry()
         clearDynamicDesktopReturnContext()
         library.playLibraryItem(item)
     }
 
     func returnToPlayer() {
+        beginPresentationIntent()
         desktopSession.returnToPlayer()
     }
 
@@ -511,6 +602,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     func dismissMainWindow() {
+        beginPresentationIntent()
         cancelSourceAccessRetry()
         if canRestoreDynamicDesktop {
             restoreDynamicDesktop()
@@ -524,11 +616,13 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     func minimizeMainWindow() {
+        beginPresentationIntent()
         cancelSourceAccessRetry()
         mainWindowPresenter.minimize()
     }
 
     func reopenMainWindow() {
+        beginPresentationIntent()
         cancelSourceAccessRetry()
         performAfterCancellingInitialRestore { [weak self] in
             self?.revealPlayerWindow()
@@ -540,6 +634,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             return
         }
 
+        beginPresentationIntent()
         cancelSourceAccessRetry()
         externalOpenGeneration &+= 1
         let generation = externalOpenGeneration
@@ -632,6 +727,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
               !isShutDown else {
             return
         }
+        beginPresentationIntent()
         cancelSourceAccessRetry()
         externalOpenGeneration &+= 1
         let generation = externalOpenGeneration
@@ -684,6 +780,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
 
     func toggleSettings() {
         if playerChrome.isSettingsPresented {
+            beginPresentationIntent()
             playerChrome.setSettingsPresented(false)
         } else {
             openSettings()
@@ -696,7 +793,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             cancelDesktopLayout()
             return true
         }
-        return playerChrome.dismissPresentedPanel()
+        let didDismiss = playerChrome.dismissPresentedPanel()
+        if didDismiss { beginPresentationIntent() }
+        return didDismiss
     }
 
     func shutdown() async {
@@ -716,6 +815,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             disposition: .shutdown
         )
         let pendingSourceAccessRetry = cancelSourceAccessRetry()
+        let pendingMediaImports = Array(mediaImportTasks.values)
+        pendingMediaImports.forEach { $0.cancel() }
         sourceAccessRetryTask = nil
         await dynamicDesktopStartup.prepareForShutdown()
         await playbackSession.prepareForShutdown()
@@ -725,6 +826,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         desktopSession.shutdown()
         await pendingInitialRestore?.value
         await pendingSourceAccessRetry?.value
+        for task in pendingMediaImports { await task.value }
         await mediaThumbnailProvider.shutdown()
         await customPlaylistPlaybackBridge.shutdown()
         await library.shutdown()
@@ -812,14 +914,35 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         }
     }
 
+    private func performMediaImport(
+        _ operation: @escaping @MainActor () async -> Void
+    ) {
+        let id = UUID()
+        mediaImportTasks[id] = Task { [weak self] in
+            defer { self?.mediaImportTasks[id] = nil }
+            await operation()
+        }
+    }
+
+    @discardableResult
+    private func beginPresentationIntent() -> UInt64 {
+        presentationIntentGeneration &+= 1
+        return presentationIntentGeneration
+    }
+
     private func commitPreparedDropAfterCancellingInitialRestore(
         _ preparation: MediaLibraryImportPreparation,
-        autoplayExplicitFiles: Bool
+        autoplayExplicitFiles: Bool,
+        presentationGeneration: UInt64,
+        playbackIntentRevision: UInt64
     ) {
         guard let pendingTask = cancelInitialRestore() else {
             library.commitImport(
                 preparation,
                 autoplayExplicitFiles: autoplayExplicitFiles
+                    && presentationGeneration == presentationIntentGeneration
+                    && playbackIntentRevision == library.playbackSelectionIntentRevision
+                    && canImportMedia
             )
             return
         }
@@ -849,6 +972,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                 preparation,
                 autoplayExplicitFiles:
                     restoreGeneration == initialRestoreGeneration
+                        && presentationGeneration == presentationIntentGeneration
+                        && playbackIntentRevision == library.playbackSelectionIntentRevision
                         && autoplayExplicitFiles
                         && canImportMedia
             )
@@ -1029,6 +1154,7 @@ extension AppCoordinator: MacMainMenuCommandHandling {
     }
 
     func openSettings() {
+        beginPresentationIntent()
         cancelSourceAccessRetry()
         performAfterCancellingInitialRestore { [weak self] in
             self?.openSettingsAfterInitialRestore()
