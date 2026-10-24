@@ -3170,6 +3170,101 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         )
     }
 
+    func testAsyncRestoreRechecksBackgroundRelationshipsAfterSourceRemoval()
+        async {
+        let parent = URL(fileURLWithPath: "/tmp/Restore Relationship Parent", isDirectory: true)
+        let child = parent.appendingPathComponent("Child", isDirectory: true)
+        let firstBookmark = Data("relationship-parent".utf8)
+        let secondBookmark = Data("relationship-child".utf8)
+        let closedScopes = ThreadSafeURLRecorder()
+        let probe = RestoreRelationshipInspectionProbe(blockedURL: child)
+        let executor = UserSelectedMediaRestoreExecutor(
+            prepare: { _, bookmark in
+                let url = bookmark == firstBookmark ? parent : child
+                return .resolved(ExecutorOwnedPreparedMediaSourceRestore(
+                    restore: PreparedMediaSourceRestore(
+                        resolvedURL: url,
+                        linkResolution: .init(targetURL: url, didResolveLink: false),
+                        refreshedBookmark: nil, resourceIdentifier: nil
+                    ),
+                    stopAccess: { closedScopes.append($0) }
+                ))
+            },
+            inspectRelationships: { probe.inspect($0, activeSources: $1) }
+        )
+        let fixture = makeSessionFixture(restoreExecutor: executor)
+        defer {
+            probe.release()
+            fixture.session.stop()
+            fixture.clearDefaults()
+        }
+        fixture.defaults.set([
+            StoredSourceRecord(kind: .folder, bookmark: firstBookmark).storedValue,
+            StoredSourceRecord(kind: .folder, bookmark: secondBookmark).storedValue
+        ], forKey: TestStorage.sourceRecordKey)
+        let restore = Task { await fixture.session.restoreSourcesAsync() }
+        await waitForRelationshipCondition { probe.didBeginBlockedInspection }
+        _ = fixture.session.removeSource(MediaSource(url: parent, kind: .folder))
+        probe.release()
+        let sources = await restore.value
+        XCTAssertEqual(sources, [MediaSource(url: child, kind: .folder)])
+        XCTAssertEqual(probe.snapshots(for: child), [[parent.path], []])
+        XCTAssertFalse(probe.usedMainThread)
+        XCTAssertFalse(fixture.session.hasUnavailablePersistedSources)
+    }
+
+    func testCancelledRelationshipWorkerRetainsPreparedScopeUntilItExits()
+        async {
+        let url = URL(fileURLWithPath: "/tmp/Blocked Restore Relationship", isDirectory: true)
+        let bookmark = Data("blocked-relationship".utf8)
+        let closedScopes = ThreadSafeURLRecorder()
+        let probe = RestoreRelationshipInspectionProbe(blockedURL: url)
+        let executor = UserSelectedMediaRestoreExecutor(
+            prepare: { _, _ in
+                .resolved(ExecutorOwnedPreparedMediaSourceRestore(
+                    restore: PreparedMediaSourceRestore(
+                        resolvedURL: url,
+                        linkResolution: .init(targetURL: url, didResolveLink: false),
+                        refreshedBookmark: nil, resourceIdentifier: nil
+                    ),
+                    stopAccess: { closedScopes.append($0) }
+                ))
+            },
+            inspectRelationships: { probe.inspect($0, activeSources: $1) }
+        )
+        let fixture = makeSessionFixture(restoreExecutor: executor)
+        defer {
+            probe.release()
+            fixture.session.stop()
+            fixture.clearDefaults()
+        }
+        fixture.defaults.set([
+            StoredSourceRecord(kind: .folder, bookmark: bookmark).storedValue
+        ], forKey: TestStorage.sourceRecordKey)
+        let restore = Task { await fixture.session.restoreSourcesAsync() }
+        await waitForRelationshipCondition { probe.didBeginBlockedInspection }
+        restore.cancel()
+        let sources = await restore.value
+        XCTAssertTrue(sources.isEmpty)
+        XCTAssertTrue(closedScopes.urls.isEmpty)
+        probe.release()
+        await waitForRelationshipCondition { closedScopes.urls == [url] }
+        XCTAssertFalse(probe.usedMainThread)
+        XCTAssertTrue(fixture.session.hasUnavailablePersistedSources)
+    }
+
+    private func waitForRelationshipCondition(
+        _ condition: @MainActor () -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<20_000 {
+            if condition() { return }
+            await Task.yield()
+        }
+        XCTFail("Relationship condition did not become true", file: file, line: line)
+    }
+
     private func makeSessionFixture(
         sourceKindResolver: @escaping (URL) -> MediaSourceKind? = {
             $0.hasDirectoryPath ? .folder : .file
@@ -3586,4 +3681,55 @@ private final class SecurityScopeRecorder {
             }
         )
     }
+}
+
+private final class RestoreRelationshipInspectionProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private let gate = DispatchSemaphore(value: 0)
+    private let blockedURL: URL
+    private var didBlock = false
+    private var mainThread = false
+    private var activePathSnapshots: [String: [Set<String>]] = [:]
+
+    init(blockedURL: URL) { self.blockedURL = blockedURL }
+    var didBeginBlockedInspection: Bool { lock.withLock { didBlock } }
+    var usedMainThread: Bool { lock.withLock { mainThread } }
+    func snapshots(for url: URL) -> [Set<String>] {
+        lock.withLock { activePathSnapshots[url.path] ?? [] }
+    }
+
+    func inspect(
+        _ source: MediaSource,
+        activeSources: [String: MediaSource]
+    ) -> MediaSourceRelationshipInspection {
+        let shouldBlock = lock.withLock {
+            mainThread = mainThread || Thread.isMainThread
+            activePathSnapshots[source.url.path, default: []].append(Set(activeSources.keys))
+            if source.url == blockedURL, !didBlock {
+                didBlock = true
+                return true
+            }
+            return false
+        }
+        if shouldBlock { gate.wait() }
+        let coveringFolders = Set(activeSources.compactMap { path, active in
+            active.kind == .folder && source.url.path.hasPrefix(path + "/")
+                ? path : nil
+        })
+        let containedFolders = Set(activeSources.compactMap { path, active in
+            active.kind == .folder && path.hasPrefix(source.url.path + "/")
+                ? path : nil
+        })
+        let containedFiles = Set(activeSources.compactMap { path, active in
+            active.kind == .file && path.hasPrefix(source.url.path + "/")
+                ? path : nil
+        })
+        return MediaSourceRelationshipInspection(
+            coveringFolderPaths: coveringFolders,
+            containedFolderPaths: containedFolders,
+            containedFilePaths: containedFiles
+        )
+    }
+
+    func release() { gate.signal() }
 }

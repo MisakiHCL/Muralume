@@ -165,8 +165,8 @@ struct CustomPlaylistDetailProjection: Sendable {
     }
 }
 
-/// A library revision owns one immutable resolution index. The playlist
-/// controller invalidates it as soon as the library changes, even off-screen.
+/// Content changes replace the immutable index. Order-only revisions can
+/// install the same index under the latest table revision without rebuilding.
 final class MediaReferenceResolutionIndexCache {
     private var cached: (revision: UInt64, index: MediaReferenceResolutionIndex)?
     private(set) var recomputationCount = 0
@@ -175,6 +175,20 @@ final class MediaReferenceResolutionIndexCache {
 
     func invalidate() {
         cached = nil
+    }
+
+    func cachedIndex(revision: UInt64?) -> MediaReferenceResolutionIndex? {
+        guard let revision, cached?.revision == revision else { return nil }
+        return cached?.index
+    }
+
+    func install(
+        _ index: MediaReferenceResolutionIndex,
+        revision: UInt64?,
+        countsAsRecomputation: Bool
+    ) {
+        cached = revision.map { ($0, index) }
+        if countsAsRecomputation { recomputationCount &+= 1 }
     }
 
     func index(

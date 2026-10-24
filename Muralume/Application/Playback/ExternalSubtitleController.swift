@@ -3,6 +3,28 @@ import Foundation
 
 @MainActor
 final class ExternalSubtitleController: ObservableObject {
+    private struct Request {
+        enum Work {
+            case discover(preferredLanguages: [String])
+            case parse(
+                URL, origin: ExternalSubtitleOrigin,
+                reportsFailure: Bool, persistsAssociation: Bool,
+                discoversFallbackOnFailure: Bool
+            )
+        }
+
+        let generation: UInt64
+        let mediaURL: URL
+        let work: Work
+        let activate: () -> Void
+    }
+
+    private enum WorkResult: Sendable {
+        case discovered(URL?)
+        case parsed(SubtitleTimeline, SecurityScopedResourceLease)
+        case failed(any Error)
+    }
+
     @Published private(set) var track: ExternalSubtitleTrack?
     @Published private(set) var cueText: String?
     @Published private(set) var isLoading = false
@@ -15,7 +37,11 @@ final class ExternalSubtitleController: ObservableObject {
         (any ExternalSubtitleAssociationStoring)?
     private var cursor: SubtitleTimelineCursor?
     private var isTimeDeliverySuspended = false
-    private var loadTask: Task<Void, Never>?
+    // Cancellation does not imply that a synchronous file operation exited.
+    // Keep its slot until it really returns; only the latest request waits.
+    private var worker: Task<Void, Never>?
+    private var activeWork: Task<WorkResult, Never>?
+    private var pendingRequest: Request?
     private var loadGeneration: UInt64 = 0
     private var activeSecurityScope: SecurityScopedResourceLease?
     private var currentMediaURL: URL?
@@ -34,7 +60,8 @@ final class ExternalSubtitleController: ObservableObject {
     }
 
     deinit {
-        loadTask?.cancel()
+        worker?.cancel()
+        activeWork?.cancel()
     }
 
     func prepare(
@@ -85,8 +112,8 @@ final class ExternalSubtitleController: ObservableObject {
 
     func clear(removeRememberedAssociation: Bool) {
         loadGeneration &+= 1
-        loadTask?.cancel()
-        loadTask = nil
+        pendingRequest = nil
+        activeWork?.cancel()
         engine.setExternalSubtitleTimeHandler(nil)
         cursor = nil
         track = nil
@@ -109,48 +136,16 @@ final class ExternalSubtitleController: ObservableObject {
         for mediaURL: URL,
         activate: @escaping () -> Void
     ) {
-        guard let discovery else {
+        guard discovery != nil else {
             return
         }
         loadGeneration &+= 1
-        let generation = loadGeneration
-        loadTask?.cancel()
-        isLoading = true
-        failure = nil
-        let preferredLanguages = Locale.preferredLanguages
-        let discoveryTask = Task.detached(priority: .utility) {
-            discovery.discover(
-                for: mediaURL,
-                preferredLanguageCodes: preferredLanguages
-            )
-        }
-        loadTask = Task { [weak self] in
-            let discoveredURL = await withTaskCancellationHandler {
-                await discoveryTask.value
-            } onCancel: {
-                discoveryTask.cancel()
-            }
-            guard let self,
-                  !Task.isCancelled,
-                  generation == loadGeneration,
-                  let discoveredURL else {
-                if let self,
-                   generation == loadGeneration {
-                    isLoading = false
-                    loadTask = nil
-                }
-                return
-            }
-            startLoad(
-                discoveredURL,
-                origin: .discovered,
-                for: mediaURL,
-                reportsFailure: false,
-                persistsAssociation: false,
-                discoversFallbackOnFailure: false,
-                activate: activate
-            )
-        }
+        enqueue(Request(
+            generation: loadGeneration,
+            mediaURL: mediaURL,
+            work: .discover(preferredLanguages: Locale.preferredLanguages),
+            activate: activate
+        ))
     }
 
     private func startLoad(
@@ -162,72 +157,138 @@ final class ExternalSubtitleController: ObservableObject {
         discoversFallbackOnFailure: Bool,
         activate: @escaping () -> Void
     ) {
-        guard let parser else {
+        guard parser != nil else {
             return
         }
         loadGeneration &+= 1
-        let generation = loadGeneration
-        loadTask?.cancel()
+        enqueue(Request(
+            generation: loadGeneration,
+            mediaURL: mediaURL,
+            work: .parse(
+                subtitleURL, origin: origin,
+                reportsFailure: reportsFailure,
+                persistsAssociation: persistsAssociation,
+                discoversFallbackOnFailure: discoversFallbackOnFailure
+            ),
+            activate: activate
+        ))
+    }
+
+    private func enqueue(_ request: Request) {
+        activeWork?.cancel()
+        pendingRequest = request
         isLoading = true
         failure = nil
-
-        let lease = SecurityScopedResourceLease(url: subtitleURL)
-        let parserTask = Task.detached(priority: .utility) {
-            try parser.parse(subtitleURL)
-        }
-        loadTask = Task { [weak self] in
-            do {
-                let parsedTimeline = try await withTaskCancellationHandler {
-                    try await parserTask.value
-                } onCancel: {
-                    parserTask.cancel()
-                }
-                guard let self,
-                      !Task.isCancelled,
-                      generation == loadGeneration,
-                      currentMediaURL?.standardizedFileURL
-                        == mediaURL.standardizedFileURL else {
-                    return
-                }
-
-                activeSecurityScope = lease
-                cursor = SubtitleTimelineCursor(timeline: parsedTimeline)
-                track = ExternalSubtitleTrack(
-                    url: subtitleURL,
-                    displayName: subtitleURL.lastPathComponent,
-                    origin: origin
+        guard worker == nil else { return }
+        worker = Task { [weak self] in
+            while !Task.isCancelled,
+                  let request = self?.takePendingRequest(),
+                  let task = self?.beginWork(for: request) {
+                let result = await task.value
+                self?.finishWork(
+                    result, for: request, wasCancelled: task.isCancelled
                 )
-                cueText = nil
-                isLoading = false
-                failure = nil
-                if persistsAssociation {
-                    associationStore?.save(
-                        subtitleURL: subtitleURL,
-                        for: mediaURL
-                    )
-                }
-                activate()
-                installTimeHandler()
-                loadTask = nil
-            } catch is CancellationError {
-                return
-            } catch {
-                guard let self,
-                      generation == loadGeneration else {
-                    return
-                }
-                isLoading = false
-                loadTask = nil
-                if origin == .remembered {
-                    associationStore?.removeSubtitleURL(for: mediaURL)
-                }
-                if reportsFailure {
-                    failure = mapFailure(error)
-                }
-                if discoversFallbackOnFailure {
-                    startDiscovery(for: mediaURL, activate: activate)
+            }
+            self?.worker = nil
+        }
+    }
+
+    private func takePendingRequest() -> Request? {
+        defer { pendingRequest = nil }
+        return pendingRequest
+    }
+
+    private func beginWork(for request: Request) -> Task<WorkResult, Never> {
+        let task: Task<WorkResult, Never>
+        switch request.work {
+        case let .discover(preferredLanguages):
+            let discovery = discovery
+            let mediaURL = request.mediaURL
+            task = Task.detached(priority: .utility) {
+                // The actual operation owns access even after the controller
+                // clears or replaces the request while a file read is blocked.
+                let lease = SecurityScopedResourceLease(url: mediaURL)
+                return withExtendedLifetime(lease) {
+                    guard !Task.isCancelled else { return .discovered(nil) }
+                    return .discovered(discovery?.discover(
+                        for: mediaURL,
+                        preferredLanguageCodes: preferredLanguages
+                    ))
                 }
             }
+        case let .parse(subtitleURL, _, _, _, _):
+            let parser = parser
+            task = Task.detached(priority: .utility) {
+                let lease = SecurityScopedResourceLease(url: subtitleURL)
+                do {
+                    try Task.checkCancellation()
+                    guard let parser else {
+                        throw ExternalSubtitleLoadFailure.cannotRead
+                    }
+                    let timeline = try parser.parse(subtitleURL)
+                    try Task.checkCancellation()
+                    return .parsed(timeline, lease)
+                } catch {
+                    return .failed(error)
+                }
+            }
+        }
+        activeWork = task
+        return task
+    }
+
+    private func finishWork(
+        _ result: WorkResult, for request: Request, wasCancelled: Bool
+    ) {
+        activeWork = nil
+        guard !wasCancelled,
+              request.generation == loadGeneration,
+              currentMediaURL?.standardizedFileURL
+                == request.mediaURL.standardizedFileURL else { return }
+        isLoading = false
+        switch (request.work, result) {
+        case let (.discover, .discovered(subtitleURL)):
+            if let subtitleURL {
+                startLoad(
+                    subtitleURL, origin: .discovered, for: request.mediaURL,
+                    reportsFailure: false, persistsAssociation: false,
+                    discoversFallbackOnFailure: false, activate: request.activate
+                )
+            }
+        case let (
+            .parse(subtitleURL, origin, _, persistsAssociation, _),
+            .parsed(timeline, lease)
+        ):
+            activeSecurityScope = lease
+            cursor = SubtitleTimelineCursor(timeline: timeline)
+            track = ExternalSubtitleTrack(
+                url: subtitleURL,
+                displayName: subtitleURL.lastPathComponent,
+                origin: origin
+            )
+            cueText = nil
+            failure = nil
+            if persistsAssociation {
+                associationStore?.save(
+                    subtitleURL: subtitleURL, for: request.mediaURL
+                )
+            }
+            request.activate()
+            installTimeHandler()
+        case let (
+            .parse(_, origin, reportsFailure, _, discoversFallbackOnFailure),
+            .failed(error)
+        ):
+            guard !(error is CancellationError) else { return }
+            if origin == .remembered {
+                associationStore?.removeSubtitleURL(for: request.mediaURL)
+            }
+            if reportsFailure { failure = mapFailure(error) }
+            if discoversFallbackOnFailure {
+                startDiscovery(for: request.mediaURL, activate: request.activate)
+            }
+        default:
+            break
         }
     }
 
@@ -262,8 +323,7 @@ final class ExternalSubtitleController: ObservableObject {
     }
 }
 
-@MainActor
-private final class SecurityScopedResourceLease {
+private final class SecurityScopedResourceLease: @unchecked Sendable {
     private let url: URL
     private let isAccessing: Bool
 

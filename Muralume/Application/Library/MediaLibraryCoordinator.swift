@@ -192,10 +192,10 @@ final class MediaLibraryCoordinator: ObservableObject {
         struct RootResolution {
             let rootURL: URL
             let canonicalPath: String
+            let canonicalComponents: [String]
         }
 
-        let itemsRevision: UInt64
-        let itemIDsByCanonicalPath: [String: LibraryMediaItem.ID]
+        let contentRevision: UInt64
         let rootResolutions: [RootResolution]
     }
 
@@ -204,14 +204,20 @@ final class MediaLibraryCoordinator: ObservableObject {
     /// pairing a new revision with the previous collection.
     private struct ItemsSnapshot {
         let revision: UInt64
+        let contentRevision: UInt64
         let items: [LibraryMediaItem]
+        let resolutionIndex: MediaReferenceResolutionIndex
+        let rootURLsByPath: [String: URL]
     }
 
     @Published private(set) var scanState: MediaLibraryScanState = .idle
     @Published private(set) var roots: [MediaLibraryRoot] = []
     @Published private var itemsSnapshot = ItemsSnapshot(
         revision: 0,
-        items: []
+        contentRevision: 0,
+        items: [],
+        resolutionIndex: MediaReferenceResolutionIndex(items: []),
+        rootURLsByPath: [:]
     )
     @Published private(set) var playbackOrder: PlaybackOrder
     @Published private(set) var playbackRepeatBehavior:
@@ -250,6 +256,12 @@ final class MediaLibraryCoordinator: ObservableObject {
         itemsSnapshot.revision
     }
 
+    var itemsContentRevision: UInt64 { itemsSnapshot.contentRevision }
+
+    var mediaReferenceResolutionIndex: MediaReferenceResolutionIndex {
+        itemsSnapshot.resolutionIndex
+    }
+
     var itemsPublisher: AnyPublisher<[LibraryMediaItem], Never> {
         $itemsSnapshot
             .map(\.items)
@@ -260,6 +272,16 @@ final class MediaLibraryCoordinator: ObservableObject {
         AnyPublisher<(items: [LibraryMediaItem], revision: UInt64), Never> {
         $itemsSnapshot.map { (items: $0.items, revision: $0.revision) }
             .eraseToAnyPublisher()
+    }
+
+    var itemsContentRevisionPublisher: AnyPublisher<(
+        items: [LibraryMediaItem], revision: UInt64, contentRevision: UInt64,
+        resolutionIndex: MediaReferenceResolutionIndex
+    ), Never> {
+        $itemsSnapshot.map {
+            (items: $0.items, revision: $0.revision,
+             contentRevision: $0.contentRevision, resolutionIndex: $0.resolutionIndex)
+        }.eraseToAnyPublisher()
     }
 
     var currentItem: LibraryMediaItem? {
@@ -355,6 +377,10 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     private(set) var canonicalItemLookupIndexBuildCountForTesting = 0
+
+    var canonicalLookupRootCountForTesting: Int {
+        canonicalItemLookupIndex?.rootResolutions.count ?? 0
+    }
 #endif
 
     var canRefresh: Bool {
@@ -1242,7 +1268,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         do {
             resolution = try await temporaryPlaybackSession.resolve(
                 urls,
-                libraryItems: items
+                libraryItems: items,
+                librarySourceURLs: activeSources.map(\.url)
             )
         } catch is CancellationError {
             return false
@@ -1831,12 +1858,16 @@ final class MediaLibraryCoordinator: ObservableObject {
         guard items.count
                 >= MediaLibraryPerformancePolicy
                     .backgroundSortMinimumItemCount else {
-            replaceItems(with: sort.sorted(items))
+            replaceItems(with: sort.sorted(items), preservingContent: true)
             return
         }
 
         let baseItemsRevision = itemsRevision
-        let baseItems = items
+        let baseLibrary = PreparedMediaLibraryItems(
+            items: items, itemsByID: visibleItemsByID,
+            resolutionIndex: itemsSnapshot.resolutionIndex,
+            rootURLsByPath: itemsSnapshot.rootURLsByPath
+        )
         let requestedSort = sort
         let taskID = UUID()
         let task = Task { [weak self, snapshotPreparer] in
@@ -1857,7 +1888,7 @@ final class MediaLibraryCoordinator: ObservableObject {
                     return
                 }
                 let prepared = try await snapshotPreparer.sort(
-                    baseItems,
+                    baseLibrary,
                     using: requestedSort
                 )
                 try Task.checkCancellation()
@@ -1867,7 +1898,7 @@ final class MediaLibraryCoordinator: ObservableObject {
                       requestedSort == sort else {
                     return
                 }
-                replaceItems(with: prepared)
+                replaceItems(with: prepared, preservingContent: true)
             } catch is CancellationError {
                 return
             } catch {
@@ -2094,6 +2125,13 @@ final class MediaLibraryCoordinator: ObservableObject {
         queueItemsByID.removeAll()
         visibleItemsByID.removeAll()
         canonicalItemLookupIndex = nil
+        // Preserve the published final list while releasing the session-owned
+        // lookup dictionaries once no further resolution can be requested.
+        itemsSnapshot = ItemsSnapshot(
+            revision: itemsRevision, contentRevision: itemsContentRevision,
+            items: items, resolutionIndex: MediaReferenceResolutionIndex(items: []),
+            rootURLsByPath: [:]
+        )
         lastPublishedScanSourcePaths = []
         lastPublishedScanSort = nil
         lastPublishedScanMembership = nil
@@ -2526,7 +2564,9 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     @discardableResult
-    private func replaceItems(with items: [LibraryMediaItem]) -> Bool {
+    private func replaceItems(
+        with items: [LibraryMediaItem], preservingContent: Bool = false
+    ) -> Bool {
         guard self.items != items else {
             return false
         }
@@ -2538,23 +2578,33 @@ final class MediaLibraryCoordinator: ObservableObject {
         return replaceItems(
             with: PreparedMediaLibraryItems(
                 items: items,
-                itemsByID: itemsByID
-            )
+                itemsByID: itemsByID,
+                resolutionIndex: preservingContent ? itemsSnapshot.resolutionIndex : nil
+            ),
+            preservingContent: preservingContent
         )
     }
 
     @discardableResult
     private func replaceItems(
-        with prepared: PreparedMediaLibraryItems
+        with prepared: PreparedMediaLibraryItems,
+        preservingContent: Bool = false
     ) -> Bool {
         guard items != prepared.items else {
             return false
         }
-        visibleItemsByID = prepared.itemsByID
-        canonicalItemLookupIndex = nil
+        if !preservingContent {
+            visibleItemsByID = prepared.itemsByID
+            canonicalItemLookupIndex = nil
+        }
         itemsSnapshot = ItemsSnapshot(
             revision: itemsSnapshot.revision &+ 1,
-            items: prepared.items
+            contentRevision: itemsSnapshot.contentRevision &+ (preservingContent ? 0 : 1),
+            items: prepared.items,
+            resolutionIndex: preservingContent
+                ? itemsSnapshot.resolutionIndex : prepared.resolutionIndex,
+            rootURLsByPath: preservingContent
+                ? itemsSnapshot.rootURLsByPath : prepared.rootURLsByPath
         )
         return true
     }
@@ -2685,17 +2735,32 @@ final class MediaLibraryCoordinator: ObservableObject {
             canonicalItemLookupIndexForVisibleItems()
         } else {
             makeCanonicalItemLookupIndex(
-                for: candidateItems,
-                itemsRevision: itemsRevision
+                rootURLsByPath: Dictionary(
+                    candidateItems.map { ($0.id.rootPath, $0.rootURL) },
+                    uniquingKeysWith: { first, _ in first }
+                ),
+                contentRevision: itemsContentRevision
             )
         }
         for index in fileURLs.indices where matches[index] == nil {
-            let comparisonPath = canonicalComparisonURL(
-                fileURLs[index]
-            ).path
-            if let itemID = canonicalIndex
-                .itemIDsByCanonicalPath[comparisonPath] {
-                matches[index] = candidatesByID[itemID]
+            let components = canonicalComparisonURL(fileURLs[index]).pathComponents
+            var matchedIDs: Set<LibraryMediaItem.ID> = []
+            for root in canonicalIndex.rootResolutions {
+                guard components.starts(with: root.canonicalComponents) else { continue }
+                let relativePath = components.dropFirst(root.canonicalComponents.count)
+                    .joined(separator: "/")
+                let id = LibraryMediaItem.ID(
+                    rootPath: root.rootURL.standardizedFileURL.path,
+                    relativePath: relativePath
+                )
+                if candidatesByID[id] != nil { matchedIDs.insert(id) }
+            }
+            if matchedIDs.count == 1, let id = matchedIDs.first {
+                matches[index] = candidatesByID[id]
+            } else if !matchedIDs.isEmpty {
+                // Preserve the previous index's last-item-wins rule for rare
+                // overlapping alias roots without indexing every media path.
+                matches[index] = candidateItems.last { matchedIDs.contains($0.id) }
             }
         }
         return matches
@@ -2706,7 +2771,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         // A root symlink can be retargeted without publishing new items.
         // Revalidate only the roots before reusing the large item index.
         if let canonicalItemLookupIndex,
-           canonicalItemLookupIndex.itemsRevision == itemsRevision,
+           canonicalItemLookupIndex.contentRevision == itemsContentRevision,
            canonicalItemLookupIndex.rootResolutions.allSatisfy({ resolution in
                canonicalComparisonURL(resolution.rootURL).path
                    == resolution.canonicalPath
@@ -2715,8 +2780,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         }
 
         let index = makeCanonicalItemLookupIndex(
-            for: items,
-            itemsRevision: itemsRevision
+            rootURLsByPath: itemsSnapshot.rootURLsByPath,
+            contentRevision: itemsContentRevision
         )
         canonicalItemLookupIndex = index
 #if DEBUG
@@ -2726,40 +2791,18 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     private func makeCanonicalItemLookupIndex(
-        for candidateItems: [LibraryMediaItem],
-        itemsRevision: UInt64
+        rootURLsByPath: [String: URL],
+        contentRevision: UInt64
     ) -> CanonicalItemLookupIndex {
-        var itemIDsByCanonicalPath: [String: LibraryMediaItem.ID] = [:]
-        var canonicalRootURLsByPath: [String: URL] = [:]
-        var rootResolutions: [CanonicalItemLookupIndex.RootResolution] = []
-        itemIDsByCanonicalPath.reserveCapacity(candidateItems.count)
-        for item in candidateItems {
-            let rootPath = item.rootURL.standardizedFileURL.path
-            let canonicalRootURL: URL
-            if let cachedRootURL = canonicalRootURLsByPath[rootPath] {
-                canonicalRootURL = cachedRootURL
-            } else {
-                canonicalRootURL = canonicalComparisonURL(item.rootURL)
-                canonicalRootURLsByPath[rootPath] = canonicalRootURL
-                rootResolutions.append(
-                    CanonicalItemLookupIndex.RootResolution(
-                        rootURL: item.rootURL,
-                        canonicalPath: canonicalRootURL.path
-                    )
-                )
-            }
-            let canonicalItemURL = if item.relativePath.isEmpty {
-                canonicalRootURL
-            } else {
-                canonicalRootURL.appendingPathComponent(item.relativePath)
-            }
-            itemIDsByCanonicalPath[
-                canonicalItemURL.standardizedFileURL.path
-            ] = item.id
+        let rootResolutions = rootURLsByPath.values.map { rootURL in
+            let canonicalURL = canonicalComparisonURL(rootURL)
+            return CanonicalItemLookupIndex.RootResolution(
+                rootURL: rootURL, canonicalPath: canonicalURL.path,
+                canonicalComponents: canonicalURL.pathComponents
+            )
         }
         return CanonicalItemLookupIndex(
-            itemsRevision: itemsRevision,
-            itemIDsByCanonicalPath: itemIDsByCanonicalPath,
+            contentRevision: contentRevision,
             rootResolutions: rootResolutions
         )
     }

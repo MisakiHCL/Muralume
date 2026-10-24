@@ -9,6 +9,29 @@ enum MediaLibraryPerformancePolicy {
 struct PreparedMediaLibraryItems: Sendable {
     let items: [LibraryMediaItem]
     let itemsByID: [LibraryMediaItem.ID: LibraryMediaItem]
+    let resolutionIndex: MediaReferenceResolutionIndex
+    let rootURLsByPath: [String: URL]
+
+    init(
+        items: [LibraryMediaItem],
+        itemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
+        resolutionIndex: MediaReferenceResolutionIndex? = nil,
+        rootURLsByPath: [String: URL]? = nil
+    ) {
+        self.items = items
+        self.itemsByID = itemsByID
+        self.resolutionIndex = resolutionIndex
+            ?? MediaReferenceResolutionIndex(itemsByID: itemsByID)
+        if let rootURLsByPath {
+            self.rootURLsByPath = rootURLsByPath
+        } else {
+            var roots: [String: URL] = [:]
+            for item in itemsByID.values where roots[item.id.rootPath] == nil {
+                roots[item.id.rootPath] = item.rootURL
+            }
+            self.rootURLsByPath = roots
+        }
+    }
 }
 
 struct PreparedMediaLibrarySnapshot: Sendable {
@@ -42,6 +65,11 @@ protocol MediaLibrarySnapshotPreparing: Sendable {
         using sort: MediaLibrarySort
     ) async throws -> PreparedMediaLibraryItems
 
+    func sort(
+        _ library: PreparedMediaLibraryItems,
+        using sort: MediaLibrarySort
+    ) async throws -> PreparedMediaLibraryItems
+
     func reconcileQueue(
         snapshot: PlaybackQueueSnapshot<LibraryMediaItem.ID>,
         queueItemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
@@ -49,8 +77,32 @@ protocol MediaLibrarySnapshotPreparing: Sendable {
     ) async throws -> PreparedMediaLibraryQueueReconciliation
 }
 
+extension MediaLibrarySnapshotPreparing {
+    func sort(
+        _ library: PreparedMediaLibraryItems,
+        using sort: MediaLibrarySort
+    ) async throws -> PreparedMediaLibraryItems {
+        try await self.sort(library.items, using: sort)
+    }
+}
+
 struct DefaultMediaLibrarySnapshotPreparer:
     MediaLibrarySnapshotPreparing {
+    func sort(
+        _ library: PreparedMediaLibraryItems,
+        using sort: MediaLibrarySort
+    ) async throws -> PreparedMediaLibraryItems {
+        try Task.checkCancellation()
+        let sortedItems = sort.sorted(library.items)
+        try Task.checkCancellation()
+        return PreparedMediaLibraryItems(
+            items: sortedItems,
+            itemsByID: library.itemsByID,
+            resolutionIndex: library.resolutionIndex,
+            rootURLsByPath: library.rootURLsByPath
+        )
+    }
+
     func prepare(
         _ snapshot: MediaLibrarySnapshot,
         requestedSourcePaths: Set<String>,

@@ -9,6 +9,7 @@ struct SubtitleFileParser: SubtitleFileParsing {
         guard !cues.isEmpty else {
             throw ExternalSubtitleLoadFailure.invalidFormat
         }
+        try Task.checkCancellation()
         return SubtitleTimeline(cues: cues)
     }
 
@@ -75,7 +76,7 @@ struct SubtitleFileParser: SubtitleFileParsing {
             }
             let timing = try parseTiming(lines[timingIndex])
             let rawText = lines.dropFirst(timingIndex + 1).joined(separator: "\n")
-            let cueText = sanitize(rawText)
+            let cueText = try SubtitleTextSanitizer.sanitize(rawText)
             guard !cueText.isEmpty else {
                 continue
             }
@@ -141,18 +142,18 @@ struct SubtitleFileParser: SubtitleFileParsing {
         return (hours * 3_600) + (minutes * 60) + seconds
     }
 
-    private func sanitize(_ rawText: String) -> String {
-        var text = rawText
-            .replacingOccurrences(
-                of: "(?i)<br\\s*/?>",
-                with: "\n",
-                options: .regularExpression
-            )
-            .replacingOccurrences(
-                of: "<[^>]+>",
-                with: "",
-                options: .regularExpression
-            )
+}
+
+/// Two linear passes preserve the original ordering: replace break tags,
+/// remove other tags, decode entities, trim, then let the parser truncate the
+/// resulting Characters. Every intermediate can only shrink the bounded file
+/// input; in particular, an unterminated tag is never rescanned at each `<`.
+enum SubtitleTextSanitizer {
+    private static let cancellationCheckInterval = 1_024
+
+    static func sanitize(_ rawText: String) throws -> String {
+        var text = try replacingBreakTags(in: rawText)
+        text = try removingTags(from: text)
         let entities = [
             "&amp;": "&",
             "&lt;": "<",
@@ -162,8 +163,87 @@ struct SubtitleFileParser: SubtitleFileParsing {
             "&nbsp;": " "
         ]
         for (entity, replacement) in entities {
+            try Task.checkCancellation()
             text = text.replacingOccurrences(of: entity, with: replacement)
         }
+        try Task.checkCancellation()
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func replacingBreakTags(in text: String) throws -> String {
+        let scalars = text.unicodeScalars
+        var result = String.UnicodeScalarView()
+        result.reserveCapacity(scalars.count)
+        var index = scalars.startIndex
+        var inspectedCount = 0
+        while index != scalars.endIndex {
+            try checkCancellation(inspectedCount: &inspectedCount)
+            let scalar = scalars[index]
+            if scalar == "<" {
+                var end = scalars.index(after: index)
+                if end != scalars.endIndex,
+                   scalars[end] == "b" || scalars[end] == "B" {
+                    end = scalars.index(after: end)
+                    if end != scalars.endIndex,
+                       scalars[end] == "r" || scalars[end] == "R" {
+                        end = scalars.index(after: end)
+                        while end != scalars.endIndex,
+                              scalars[end].properties.isWhitespace {
+                            try checkCancellation(inspectedCount: &inspectedCount)
+                            end = scalars.index(after: end)
+                        }
+                        if end != scalars.endIndex, scalars[end] == "/" {
+                            end = scalars.index(after: end)
+                        }
+                        if end != scalars.endIndex, scalars[end] == ">" {
+                            result.append("\n")
+                            index = scalars.index(after: end)
+                            continue
+                        }
+                    }
+                }
+            }
+            result.append(scalar)
+            index = scalars.index(after: index)
+        }
+        return String(result)
+    }
+
+    private static func removingTags(from text: String) throws -> String {
+        let scalars = text.unicodeScalars
+        var result = String.UnicodeScalarView()
+        result.reserveCapacity(scalars.count)
+        var index = scalars.startIndex
+        var inspectedCount = 0
+        while index != scalars.endIndex {
+            try checkCancellation(inspectedCount: &inspectedCount)
+            if scalars[index] == "<" {
+                let contentStart = scalars.index(after: index)
+                var end = contentStart
+                while end != scalars.endIndex, scalars[end] != ">" {
+                    try checkCancellation(inspectedCount: &inspectedCount)
+                    end = scalars.index(after: end)
+                }
+                if end == scalars.endIndex {
+                    // No later start can close either. Copy the suffix once.
+                    result.append(contentsOf: scalars[index...])
+                    break
+                }
+                if end != contentStart {
+                    index = scalars.index(after: end)
+                    continue
+                }
+            }
+            result.append(scalars[index])
+            index = scalars.index(after: index)
+        }
+        return String(result)
+    }
+
+    private static func checkCancellation(inspectedCount: inout Int) throws {
+        if inspectedCount.isMultiple(of: cancellationCheckInterval) {
+            try Task.checkCancellation()
+        }
+        inspectedCount += 1
     }
 }

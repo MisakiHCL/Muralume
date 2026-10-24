@@ -119,6 +119,64 @@ struct PreparedMediaSourceRestore: @unchecked Sendable {
     let resourceIdentifier: NSObject?
 }
 
+/// Filesystem relationships prepared against one immutable active-source snapshot.
+struct MediaSourceRelationshipInspection: Sendable {
+    let coveringFolderPaths: Set<String>
+    let containedFolderPaths: Set<String>
+    let containedFilePaths: Set<String>
+
+    static func inspect(
+        source: MediaSource,
+        activeSources: [String: MediaSource]
+    ) -> MediaSourceRelationshipInspection {
+        var coveringFolders: Set<String> = []
+        var containedFolders: Set<String> = []
+        var containedFiles: Set<String> = []
+        for (path, activeSource) in activeSources {
+            if Task.isCancelled { break }
+            let activeURL = URL(fileURLWithPath: path)
+            if activeSource.kind == .folder,
+               covers(activeURL, source.url) {
+                coveringFolders.insert(path)
+            }
+            if source.kind == .folder, covers(source.url, activeURL) {
+                if activeSource.kind == .folder {
+                    containedFolders.insert(path)
+                } else {
+                    containedFiles.insert(path)
+                }
+            }
+        }
+        return MediaSourceRelationshipInspection(
+            coveringFolderPaths: coveringFolders,
+            containedFolderPaths: containedFolders,
+            containedFilePaths: containedFiles
+        )
+    }
+
+    private static func covers(_ folder: URL, _ item: URL) -> Bool {
+        var relationship = FileManager.URLRelationship.other
+        try? FileManager.default.getRelationship(
+            &relationship, ofDirectoryAt: folder, toItemAt: item
+        )
+        return relationship != .other
+    }
+}
+
+private final class MediaRestoreRelationshipScopeLease {
+    private let urls: [URL]
+
+    init(sources: [String: MediaSource]) {
+        urls = sources.values.map(\.url).filter {
+            $0.startAccessingSecurityScopedResource()
+        }
+    }
+
+    deinit {
+        for url in urls { url.stopAccessingSecurityScopedResource() }
+    }
+}
+
 /// Owns the security scope opened while a bookmark is prepared off actor.
 /// The scope is either transferred exactly once to `UserSelectedMediaSession`
 /// or closed by this object, including when a task is cancelled or superseded.
@@ -520,10 +578,45 @@ struct UserSelectedMediaRestoreExecutor: Sendable {
 
     static let live = detached(prepare: Self.prepareSynchronously)
 
+    typealias InspectRelationships = @Sendable (
+        MediaSource, [String: MediaSource]
+    ) -> MediaSourceRelationshipInspection
+
     private let prepareOperation: Prepare
+    private let inspectRelationshipsOperation: InspectRelationships
+    private let relationshipWorkPool = BoundedMediaWorkPool(
+        maximumConcurrentWorkCount: 2
+    )
 
     init(prepare: @escaping Prepare) {
+        self.init(prepare: prepare, inspectRelationships: {
+            MediaSourceRelationshipInspection.inspect(
+                source: $0, activeSources: $1
+            )
+        })
+    }
+
+    init(
+        prepare: @escaping Prepare,
+        inspectRelationships: @escaping InspectRelationships
+    ) {
         prepareOperation = prepare
+        inspectRelationshipsOperation = inspectRelationships
+    }
+
+    func inspectRelationships(
+        for source: MediaSource,
+        activeSources: [String: MediaSource],
+        retaining scopeOwner: ExecutorOwnedPreparedMediaSourceRestore?
+    ) async throws -> MediaSourceRelationshipInspection {
+        try await relationshipWorkPool.run {
+            let lease = MediaRestoreRelationshipScopeLease(sources: activeSources)
+            defer {
+                withExtendedLifetime(lease) {}
+                withExtendedLifetime(scopeOwner) {}
+            }
+            return inspectRelationshipsOperation(source, activeSources)
+        }
     }
 
     func prepare(

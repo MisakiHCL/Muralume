@@ -10,6 +10,8 @@ final class CustomPlaylistPlaybackBridge {
     private var cancellables: Set<AnyCancellable> = []
     private var latestLibraryItems: [LibraryMediaItem]
     private var latestLibraryItemsRevision: UInt64
+    private var latestLibraryContentRevision: UInt64
+    private var latestResolutionIndex: MediaReferenceResolutionIndex?
     private var latestScanState: MediaLibraryScanState
 
     init(
@@ -20,6 +22,8 @@ final class CustomPlaylistPlaybackBridge {
         self.library = library
         latestLibraryItems = library.items
         latestLibraryItemsRevision = library.itemsRevision
+        latestLibraryContentRevision = library.itemsContentRevision
+        latestResolutionIndex = library.mediaReferenceResolutionIndex
         latestScanState = library.scanState
 
         library.customPlaylistItemsProvider = {
@@ -43,11 +47,13 @@ final class CustomPlaylistPlaybackBridge {
             }
             .store(in: &cancellables)
 
-        library.itemsRevisionPublisher
+        library.itemsContentRevisionPublisher
             .sink { [weak self] snapshot in
                 self?.libraryItemsDidChange(
                     using: snapshot.items,
-                    revision: snapshot.revision
+                    revision: snapshot.revision,
+                    contentRevision: snapshot.contentRevision,
+                    resolutionIndex: snapshot.resolutionIndex
                 )
             }
             .store(in: &cancellables)
@@ -68,9 +74,13 @@ final class CustomPlaylistPlaybackBridge {
         }
         latestScanState = library.scanState
         libraryItemsDidChange(
-            using: library.items,
-            revision: library.itemsRevision
+            using: latestLibraryItems,
+            revision: latestLibraryItemsRevision,
+            contentRevision: latestLibraryContentRevision,
+            resolutionIndex: latestResolutionIndex
         )
+        await playlists.waitForLibraryReconciliation()
+        synchronizeActiveQueueIfReady()
     }
 
     func shutdown() async {
@@ -81,13 +91,23 @@ final class CustomPlaylistPlaybackBridge {
 
     private func libraryItemsDidChange(
         using items: [LibraryMediaItem],
-        revision: UInt64
+        revision: UInt64,
+        contentRevision: UInt64,
+        resolutionIndex: MediaReferenceResolutionIndex?
     ) {
+        let contentDidChange = latestLibraryContentRevision != contentRevision
         latestLibraryItems = items
         latestLibraryItemsRevision = revision
+        latestLibraryContentRevision = contentRevision
+        latestResolutionIndex = resolutionIndex
         guard playlists.isReady else { return }
-        playlists.updateAvailableItems(items, itemsRevision: revision)
-        synchronizeActiveQueueIfReady()
+        playlists.updateAvailableItems(
+            items,
+            itemsRevision: revision,
+            contentRevision: contentRevision,
+            resolutionIndex: resolutionIndex
+        )
+        if contentDidChange { synchronizeActiveQueueIfReady() }
     }
 
     private func synchronizeActiveQueueIfReady() {

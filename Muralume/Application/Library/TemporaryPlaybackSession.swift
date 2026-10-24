@@ -27,6 +27,7 @@ private struct TemporaryPlaybackMatcher: Sendable {
 
     func match(
         requestedFiles: [URL],
+        requestedCanonicalPaths: [String],
         libraryItems: [LibraryMediaItem],
         scannedItems: [LibraryMediaItem]
     ) throws -> TemporaryPlaybackMatchPlan {
@@ -40,9 +41,9 @@ private struct TemporaryPlaybackMatcher: Sendable {
         )
         resolvedItems.reserveCapacity(requestedFiles.count)
 
-        for (index, url) in requestedFiles.enumerated() {
+        for index in requestedFiles.indices {
             try Task.checkCancellation()
-            let path = canonicalPath(url)
+            let path = requestedCanonicalPaths[index]
             if let libraryItem = libraryItemsByPath[path] {
                 resolvedItems.append(libraryItem)
                 continue
@@ -95,153 +96,193 @@ private struct TemporaryPlaybackMatcher: Sendable {
     }
 }
 
+struct TemporaryPlaybackSecurityScopeAccess: Sendable {
+    let startAccess: @Sendable (URL) -> Bool
+    let stopAccess: @Sendable (URL) -> Void
+
+    static let live = TemporaryPlaybackSecurityScopeAccess(
+        startAccess: { $0.startAccessingSecurityScopedResource() },
+        stopAccess: { $0.stopAccessingSecurityScopedResource() }
+    )
+}
+
+/// Retained by the real worker, including after its cancelled caller returns.
+private final class TemporaryPlaybackScopeLease: @unchecked Sendable {
+    let url: URL
+    private let didStart: Bool
+    private let access: TemporaryPlaybackSecurityScopeAccess
+
+    init(url: URL, access: TemporaryPlaybackSecurityScopeAccess) {
+        self.url = url
+        self.access = access
+        didStart = access.startAccess(url)
+    }
+
+    deinit {
+        if didStart { access.stopAccess(url) }
+    }
+}
+
 @MainActor
 final class TemporaryPlaybackSession {
-    private struct RequestedFileBatch {
+    private struct RequestedFileBatch: Sendable {
         let urls: [URL]
+        let canonicalPaths: [String]
         let skippedItemCount: Int
     }
 
-    private struct SecurityScope {
-        let url: URL
-        let didStart: Bool
+    private struct PreparedResolution: Sendable {
+        let resolution: TemporaryPlaybackResolution
+        let retainedScopes: [TemporaryPlaybackScopeLease]
     }
 
     private let scanner: any MediaLibraryScanning
     private let matcher: TemporaryPlaybackMatcher
-    private var activeScopes: [SecurityScope] = []
-    private var activeMatchTask: Task<TemporaryPlaybackMatchPlan, Error>?
+    private let scopeAccess: TemporaryPlaybackSecurityScopeAccess
+    private let workPool = BoundedMediaWorkPool(
+        maximumConcurrentWorkCount: 1,
+        maximumQueuedWorkCount: 1
+    )
+    private var activeScopes: [TemporaryPlaybackScopeLease] = []
+    private var activeResolutionTask: Task<PreparedResolution, Error>?
     private var resolutionGeneration: UInt64 = 0
 
     init(
         scanner: any MediaLibraryScanning,
         canonicalPath: @escaping @Sendable (URL) -> String = {
             $0.standardizedFileURL.resolvingSymlinksInPath().path
-        }
+        },
+        scopeAccess: TemporaryPlaybackSecurityScopeAccess = .live
     ) {
         self.scanner = scanner
         matcher = TemporaryPlaybackMatcher(canonicalPath: canonicalPath)
+        self.scopeAccess = scopeAccess
     }
 
-    deinit {
-        activeMatchTask?.cancel()
-        for scope in activeScopes where scope.didStart {
-            scope.url.stopAccessingSecurityScopedResource()
-        }
-    }
+    deinit { activeResolutionTask?.cancel() }
 
     func resolve(
         _ requestedURLs: [URL],
-        libraryItems: [LibraryMediaItem]
+        libraryItems: [LibraryMediaItem],
+        librarySourceURLs: [URL] = []
     ) async throws -> TemporaryPlaybackResolution {
         resolutionGeneration &+= 1
         let generation = resolutionGeneration
-        activeMatchTask?.cancel()
-        activeMatchTask = nil
-        let requestedBatch = Self.supportedUniqueFiles(requestedURLs)
-        let requestedFiles = requestedBatch.urls
-        guard !requestedFiles.isEmpty else {
-            return TemporaryPlaybackResolution(
-                items: [],
-                temporaryItemIDs: [],
-                skippedItemCount: requestedBatch.skippedItemCount
-            )
-        }
-
-        let pendingScopes = requestedFiles.map { url in
-            SecurityScope(
-                url: url,
-                didStart: url.startAccessingSecurityScopedResource()
-            )
-        }
-        var shouldReleasePendingScopes = true
-        defer {
-            if shouldReleasePendingScopes {
-                Self.release(pendingScopes)
-            }
-        }
-
-        let snapshot = try await scanner.scan(
-            sources: requestedFiles.map {
-                MediaSource(url: $0, kind: .file)
-            }
-        )
-        try Task.checkCancellation()
-        guard generation == resolutionGeneration else {
-            throw CancellationError()
-        }
-
+        activeResolutionTask?.cancel()
+        let scanner = scanner
         let matcher = matcher
-        let matchTask = Task.detached(priority: .userInitiated) {
-            try matcher.match(
-                requestedFiles: requestedFiles,
-                libraryItems: libraryItems,
-                scannedItems: snapshot.items
-            )
+        let scopeAccess = scopeAccess
+        let pool = workPool
+        // Normalization, scanning and matching share one real-work budget.
+        // Superseding a caller removes its queued work immediately, but a
+        // blocked filesystem operation keeps the running slot and its scopes.
+        let task = Task {
+            try await pool.run {
+                try await Self.prepareResolution(
+                    requestedURLs: requestedURLs,
+                    libraryItems: libraryItems,
+                    librarySourceURLs: librarySourceURLs,
+                    scanner: scanner,
+                    matcher: matcher,
+                    scopeAccess: scopeAccess
+                )
+            }
         }
-        activeMatchTask = matchTask
+        activeResolutionTask = task
         defer {
             if generation == resolutionGeneration {
-                activeMatchTask = nil
+                activeResolutionTask = nil
             }
         }
-        let matchPlan = try await withTaskCancellationHandler {
-            try await matchTask.value
+        let prepared = try await withTaskCancellationHandler {
+            try await task.value
         } onCancel: {
-            matchTask.cancel()
+            task.cancel()
         }
         try Task.checkCancellation()
         guard generation == resolutionGeneration else {
             throw CancellationError()
         }
-
-        if !matchPlan.items.isEmpty {
-            let retainedScopes = pendingScopes.enumerated().compactMap {
-                index, scope in
-                matchPlan.retainsScopeByRequestedFileIndex[index]
-                    ? scope
-                    : nil
-            }
-            let unusedScopes = pendingScopes.enumerated().compactMap {
-                index, scope in
-                matchPlan.retainsScopeByRequestedFileIndex[index]
-                    ? nil
-                    : scope
-            }
-            Self.release(unusedScopes)
-            Self.release(activeScopes)
-            activeScopes = retainedScopes
-            shouldReleasePendingScopes = false
+        if !prepared.resolution.items.isEmpty {
+            activeScopes = prepared.retainedScopes
         }
-
-        return TemporaryPlaybackResolution(
-            items: matchPlan.items,
-            temporaryItemIDs: matchPlan.temporaryItemIDs,
-            skippedItemCount: requestedBatch.skippedItemCount
-                + requestedFiles.count
-                - matchPlan.items.count
-        )
+        return prepared.resolution
     }
 
     func end() {
         resolutionGeneration &+= 1
-        activeMatchTask?.cancel()
-        activeMatchTask = nil
-        Self.release(activeScopes)
+        activeResolutionTask?.cancel()
+        activeResolutionTask = nil
         activeScopes.removeAll()
     }
 
-    private static func supportedUniqueFiles(
-        _ urls: [URL]
-    ) -> RequestedFileBatch {
+    private nonisolated static func prepareResolution(
+        requestedURLs: [URL],
+        libraryItems: [LibraryMediaItem],
+        librarySourceURLs: [URL],
+        scanner: any MediaLibraryScanning,
+        matcher: TemporaryPlaybackMatcher,
+        scopeAccess: TemporaryPlaybackSecurityScopeAccess
+    ) async throws -> PreparedResolution {
+        // Matching also resolves library roots. Its independent claims use the
+        // exact session URLs and outlive caller cancellation/source shutdown.
+        let libraryScopes = librarySourceURLs.map {
+            TemporaryPlaybackScopeLease(url: $0, access: scopeAccess)
+        }
+        defer { withExtendedLifetime(libraryScopes) {} }
+        let batch = try supportedUniqueFiles(
+            requestedURLs, canonicalPath: matcher.canonicalPath
+        )
+        guard !batch.urls.isEmpty else {
+            return PreparedResolution(
+                resolution: TemporaryPlaybackResolution(
+                    items: [], temporaryItemIDs: [],
+                    skippedItemCount: batch.skippedItemCount
+                ),
+                retainedScopes: []
+            )
+        }
+        let scopes = batch.urls.map {
+            TemporaryPlaybackScopeLease(url: $0, access: scopeAccess)
+        }
+        defer { withExtendedLifetime(scopes) {} }
+        try Task.checkCancellation()
+        let snapshot = try await scanner.scan(
+            sources: batch.urls.map { MediaSource(url: $0, kind: .file) }
+        )
+        try Task.checkCancellation()
+        let plan = try matcher.match(
+            requestedFiles: batch.urls,
+            requestedCanonicalPaths: batch.canonicalPaths,
+            libraryItems: libraryItems,
+            scannedItems: snapshot.items
+        )
+        return PreparedResolution(
+            resolution: TemporaryPlaybackResolution(
+                items: plan.items,
+                temporaryItemIDs: plan.temporaryItemIDs,
+                skippedItemCount: batch.skippedItemCount
+                    + batch.urls.count - plan.items.count
+            ),
+            retainedScopes: scopes.enumerated().compactMap { index, scope in
+                plan.retainsScopeByRequestedFileIndex[index] ? scope : nil
+            }
+        )
+    }
+
+    private nonisolated static func supportedUniqueFiles(
+        _ urls: [URL],
+        canonicalPath: TemporaryPlaybackMatcher.CanonicalPathResolver
+    ) throws -> RequestedFileBatch {
         var knownPaths: Set<String> = []
         var supportedFiles: [URL] = []
+        var canonicalPaths: [String] = []
         var skippedItemCount = 0
         supportedFiles.reserveCapacity(
             min(urls.count, MediaImportPolicy.maximumTopLevelSourceCount)
         )
-
         for requestedURL in urls {
+            try Task.checkCancellation()
             guard requestedURL.isFileURL else {
                 skippedItemCount += 1
                 continue
@@ -253,30 +294,20 @@ final class TemporaryPlaybackSession {
                 skippedItemCount += 1
                 continue
             }
-            guard knownPaths.insert(canonicalPath(url)).inserted else {
-                continue
-            }
+            let path = canonicalPath(url)
+            guard knownPaths.insert(path).inserted else { continue }
             guard supportedFiles.count
                     < MediaImportPolicy.maximumTopLevelSourceCount else {
                 skippedItemCount += 1
                 continue
             }
             supportedFiles.append(url)
+            canonicalPaths.append(path)
         }
-
         return RequestedFileBatch(
             urls: supportedFiles,
+            canonicalPaths: canonicalPaths,
             skippedItemCount: skippedItemCount
         )
-    }
-
-    private static func canonicalPath(_ url: URL) -> String {
-        url.standardizedFileURL.resolvingSymlinksInPath().path
-    }
-
-    private static func release(_ scopes: [SecurityScope]) {
-        for scope in scopes where scope.didStart {
-            scope.url.stopAccessingSecurityScopedResource()
-        }
     }
 }

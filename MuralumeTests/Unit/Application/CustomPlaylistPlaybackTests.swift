@@ -486,6 +486,50 @@ final class CustomPlaylistPlaybackTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
+    func testBridgeReusesSharedIndexWhenLibraryOrderChanges() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/Playlist Sort Revision")
+        let first = makeItem(rootURL: rootURL, name: "A", path: "A.mov")
+        let second = makeItem(rootURL: rootURL, name: "B", path: "B.mov")
+        let fixture = makeFixture(
+            selectedURLs: [],
+            snapshot: MediaLibrarySnapshot(
+                roots: [MediaLibraryRoot(url: rootURL, displayName: "Library")],
+                items: [first, second]
+            )
+        )
+        fixture.session.restoredURLs = [rootURL]
+        let start = fixture.coordinator.start()
+        _ = await fixture.coordinator.waitForStartupScan(after: start)
+        var collection = CustomPlaylistCollection.empty
+        let playlistID = try collection.createPlaylist(named: "Favorites")
+        try collection.add(items: [first, second], to: playlistID)
+        let playlists = CustomPlaylistController(
+            store: CustomPlaylistPlaybackStore(collection: collection)
+        )
+        let bridge = CustomPlaylistPlaybackBridge(playlists: playlists, library: fixture.coordinator)
+        await bridge.startAndWait()
+        let contentRevision = fixture.coordinator.itemsContentRevision
+        let orderedRevision = fixture.coordinator.itemsRevision
+
+        fixture.coordinator.setSortDirection(.descending)
+        await playlists.waitForLibraryReconciliation()
+
+        XCTAssertEqual(fixture.coordinator.itemsContentRevision, contentRevision)
+        XCTAssertGreaterThan(fixture.coordinator.itemsRevision, orderedRevision)
+        XCTAssertEqual(playlists.resolutionIndexRecomputationCount, 1)
+        XCTAssertEqual(
+            playlists.resolvedItems(
+                in: playlistID,
+                using: fixture.coordinator.items,
+                itemsRevision: fixture.coordinator.itemsRevision
+            ),
+            [first, second]
+        )
+        XCTAssertEqual(playlists.resolutionIndexRecomputationCount, 1)
+        await bridge.shutdown()
+        await fixture.coordinator.shutdown()
+    }
+
     func testBridgeImmediatelyUpdatesActiveQueueAfterPlaylistEdit()
         async throws
     {

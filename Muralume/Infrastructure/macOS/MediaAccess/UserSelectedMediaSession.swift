@@ -119,6 +119,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
     private struct PendingLinkedCandidate {
         let candidate: RestoreCandidate
         let targetSource: MediaSource?
+        let resourceIdentifier: NSObject?
     }
 
     /// Each in-flight batch keeps only removals that happened after it began.
@@ -194,6 +195,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
     private var asyncRestoreGeneration: UInt?
     private var didAttemptRestore = false
     private var lifecycleGeneration: UInt = 0
+    private var activeSourceRevision: UInt64 = 0
     private var activeImportRemovalStates: [UUID: AsyncImportRemovalState] = [:]
     private(set) var hasUnavailablePersistedSources = false
 
@@ -558,7 +560,9 @@ final class UserSelectedMediaSession: MediaAccessSession {
             advanceAsyncInFlightLegacyCandidate()
         }
 
-        preserveUncoveredLinkedCandidates(pendingLinkedCandidates)
+        await preserveUncoveredLinkedCandidatesAsync(
+            pendingLinkedCandidates, generation: generation
+        )
         finishAsyncRestore(generation: generation)
     }
 
@@ -575,7 +579,12 @@ final class UserSelectedMediaSession: MediaAccessSession {
             || !deferredLegacyBookmarks.isEmpty {
             hasUnavailablePersistedSources = true
         }
-        preserveUncoveredLinkedCandidates(pendingLinkedCandidates)
+        // Cancellation cannot synchronously re-inspect filesystem coverage.
+        // Keep these records retryable until a later complete restore can
+        // determine whether a subsequently adopted folder covers them.
+        for pending in pendingLinkedCandidates {
+            preserveUnavailable(pending.candidate)
+        }
         finishAsyncRestore(generation: generation)
     }
 
@@ -654,15 +663,63 @@ final class UserSelectedMediaSession: MediaAccessSession {
                 || !asyncPendingLinkedLegacyBookmarks.isEmpty
     }
 
-    private func preserveUncoveredLinkedCandidates(
-        _ pendingLinkedCandidates: [PendingLinkedCandidate]
-    ) {
-        for pending in pendingLinkedCandidates {
-            guard let targetSource = pending.targetSource,
-                  case .covered = disposition(for: targetSource) else {
+    private func preserveUncoveredLinkedCandidatesAsync(
+        _ candidates: [PendingLinkedCandidate],
+        generation: UInt
+    ) async {
+        for (index, pending) in candidates.enumerated() {
+            guard generation == lifecycleGeneration else { return }
+            do {
+                guard let source = pending.targetSource else {
+                    preserveUnavailable(pending.candidate)
+                    continue
+                }
+                let disposition = try await dispositionAsync(
+                    for: source,
+                    resourceIdentifier: pending.resourceIdentifier,
+                    retaining: nil,
+                    generation: generation
+                )
+                if case .covered = disposition { continue }
                 preserveUnavailable(pending.candidate)
-                continue
+            } catch {
+                guard generation == lifecycleGeneration else { return }
+                for unprocessed in candidates[index...] {
+                    preserveUnavailable(unprocessed.candidate)
+                }
+                return
             }
+        }
+    }
+
+    private func dispositionAsync(
+        for source: MediaSource,
+        resourceIdentifier: NSObject?,
+        retaining scopeOwner: ExecutorOwnedPreparedMediaSourceRestore?,
+        generation: UInt
+    ) async throws -> SourceDisposition {
+        guard let restoreExecutor else { throw CancellationError() }
+        while true {
+            try Task.checkCancellation()
+            guard generation == lifecycleGeneration else {
+                throw CancellationError()
+            }
+            let revision = activeSourceRevision
+            let relationships = try await restoreExecutor.inspectRelationships(
+                for: source, activeSources: activeSourcesByKey,
+                retaining: scopeOwner
+            )
+            try Task.checkCancellation()
+            guard generation == lifecycleGeneration else {
+                throw CancellationError()
+            }
+            guard revision == activeSourceRevision else { continue }
+            return disposition(
+                for: source,
+                comparisonURL: source.url,
+                resourceIdentifier: resourceIdentifier,
+                relationships: relationships
+            )
         }
     }
 
@@ -1186,6 +1243,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
         }
         activeRecordsByKey.removeValue(forKey: activeKey)
         removeIndexes(forActiveKey: activeKey)
+        activeSourceRevision &+= 1
         securityAccess.stopAccess(activeSource.url)
         return activeSources
     }
@@ -1207,6 +1265,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
 
     func stop() {
         lifecycleGeneration &+= 1
+        activeSourceRevision &+= 1
         activeImportRemovalStates.removeAll()
         for source in activeSourcesByKey.values {
             securityAccess.stopAccess(source.url)
@@ -1334,7 +1393,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
     private func disposition(
         for candidate: MediaSource,
         comparisonURL candidateComparisonURL: URL,
-        resourceIdentifier candidateIdentifier: NSObject?
+        resourceIdentifier candidateIdentifier: NSObject?,
+        relationships: MediaSourceRelationshipInspection? = nil
     ) -> SourceDisposition {
         let candidateKey = candidateComparisonURL.path
         if activeSourcesByKey[candidateKey] != nil {
@@ -1343,6 +1403,20 @@ final class UserSelectedMediaSession: MediaAccessSession {
         if let candidateIdentifier,
            activeKeyByResourceIdentifier[candidateIdentifier] != nil {
             return .covered
+        }
+
+        if let relationships {
+            if candidate.kind == .file {
+                return relationships.coveringFolderPaths.isEmpty
+                    ? .insert(replacingKeys: []) : .covered
+            }
+            if !relationships.coveringFolderPaths.isEmpty {
+                return .rejected(.activeFolderContainsSelectedFolder)
+            }
+            if !relationships.containedFolderPaths.isEmpty {
+                return .rejected(.selectedFolderContainsActiveFolder)
+            }
+            return .insert(replacingKeys: Array(relationships.containedFilePaths))
         }
 
         guard candidate.kind == .folder else {
@@ -1397,6 +1471,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
             activeRecordsByKey.removeValue(forKey: key)
             removeIndexes(forActiveKey: key)
         }
+        activeSourceRevision &+= 1
         let key = comparisonPath ?? sourceKey(for: source.url)
         activeSourcesByKey[key] = source
         activeRecordsByKey[key] = (
@@ -1429,6 +1504,11 @@ final class UserSelectedMediaSession: MediaAccessSession {
     }
 
     private func activeKey(matching source: MediaSource) -> String? {
+        // UI removals already carry the exact adopted source. Reuse its
+        // recorded canonical key instead of re-reading a possibly slow volume.
+        if let adopted = activeSourcesByKey.first(where: { $0.value == source }) {
+            return adopted.key
+        }
         let comparisonURL = Self.comparisonURL(for: source.url)
         if activeSourcesByKey[comparisonURL.path] != nil {
             return comparisonURL.path
@@ -1521,11 +1601,36 @@ final class UserSelectedMediaSession: MediaAccessSession {
         case .unavailable:
             preserveUnavailable(candidate)
         case let .resolved(executorOwnedRestore):
+            let prepared = executorOwnedRestore.restore
+            let preparedDisposition: SourceDisposition?
+            do {
+                if prepared.linkResolution.didResolveLink {
+                    preparedDisposition = nil
+                } else {
+                    preparedDisposition = try await dispositionAsync(
+                        for: MediaSource(
+                            url: prepared.linkResolution.targetURL,
+                            kind: record.kind
+                        ),
+                        resourceIdentifier: prepared.resourceIdentifier,
+                        retaining: executorOwnedRestore,
+                        generation: generation
+                    )
+                }
+            } catch {
+                // The background relationship worker retains ownership until
+                // its real filesystem work exits, even if this caller leaves.
+                return false
+            }
+            guard generation == lifecycleGeneration, !Task.isCancelled else {
+                return false
+            }
             applyPreparedRestore(
-                executorOwnedRestore.restore,
+                prepared,
                 to: candidate,
                 pendingLinkedCandidates: &pendingLinkedCandidates,
-                executorOwnedRestore: executorOwnedRestore
+                executorOwnedRestore: executorOwnedRestore,
+                preparedDisposition: preparedDisposition
             )
         }
         return true
@@ -1535,7 +1640,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
         _ preparedRestore: PreparedMediaSourceRestore,
         to candidate: RestoreCandidate,
         pendingLinkedCandidates: inout [PendingLinkedCandidate],
-        executorOwnedRestore: ExecutorOwnedPreparedMediaSourceRestore? = nil
+        executorOwnedRestore: ExecutorOwnedPreparedMediaSourceRestore? = nil,
+        preparedDisposition: SourceDisposition? = nil
     ) {
         let record = candidate.record
         let resolvedURL = preparedRestore.resolvedURL
@@ -1556,7 +1662,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
                     targetSource: MediaSource(
                         url: linkResolution.targetURL,
                         kind: record.kind
-                    )
+                    ),
+                    resourceIdentifier: preparedRestore.resourceIdentifier
                 )
             )
             return
@@ -1564,7 +1671,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
 
         let source = MediaSource(url: resolvedURL, kind: record.kind)
         let comparisonURL = linkResolution.targetURL.standardizedFileURL
-        switch disposition(
+        switch preparedDisposition ?? disposition(
             for: source,
             comparisonURL: comparisonURL,
             resourceIdentifier: preparedRestore.resourceIdentifier
@@ -1594,7 +1701,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
                 bookmark: refreshedCandidate.record.bookmark,
                 replacingKeys: replacingKeys,
                 resourceIdentifier: preparedRestore.resourceIdentifier,
-                persistedRecord: refreshedCandidate.record
+                persistedRecord: refreshedCandidate.record,
+                comparisonPath: comparisonURL.path
             )
             executorOwnedRestore?.transferScopeToSession()
             for replacedURL in replacedURLs {

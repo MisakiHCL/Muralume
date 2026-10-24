@@ -65,6 +65,93 @@ final class SubtitleFileParserTests: XCTestCase {
         }
     }
 
+    func testSanitizerMatchesLegacyMarkupAndWhitespaceSemantics() throws {
+        let tokens = [
+            "plain", "<", ">", "<>", "<<>", "<i>", "</i>", "<br>",
+            "<BR/>", "<Br \t/>", "<br\u{0085}>", "<br\u{00A0}>",
+            "<br\u{2028}/>", "<br\u{200B}>", "<br/ >", "<broken", "\n",
+            "&amp;", "&lt;", "&gt;", "&quot;", "&#39;", "&nbsp;",
+            "中文", "e\u{0301}", "👩🏽‍💻", " \t"
+        ]
+        var seed: UInt64 = 0x51B71E
+        for _ in 0..<2_000 {
+            var input = ""
+            for _ in 0..<24 {
+                seed = seed &* 6_364_136_223_846_793_005 &+ 1
+                input += tokens[Int(seed >> 32) % tokens.count]
+            }
+            XCTAssertEqual(
+                try SubtitleTextSanitizer.sanitize(input),
+                legacySanitize(input), input
+            )
+        }
+    }
+
+    func testSanitizesBeforeApplyingFinalCharacterLimit() throws {
+        let raw = String(repeating: "<i></i>", count: 5_000)
+            + "  " + String(repeating: "&amp;", count: 5_000)
+        let url = try makeTemporaryFile(
+            extension: "srt", content: "1\n00:00:01,000 --> 00:00:02,000\n" + raw
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let timeline = try SubtitleFileParser().parse(url)
+
+        XCTAssertEqual(
+            timeline.cues.first?.text,
+            String(repeating: "&", count: ExternalSubtitlePolicy.maximumCueCharacters)
+        )
+    }
+
+    func testLongUnterminatedMarkupDoesNotRescanEveryOpeningBracket() throws {
+        let url = try makeTemporaryFile(
+            extension: "srt",
+            content: "1\n00:00:01,000 --> 00:00:02,000\n"
+                + String(repeating: "<", count: 64 * 1_024)
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+        let start = ContinuousClock.now
+
+        let timeline = try SubtitleFileParser().parse(url)
+
+        XCTAssertEqual(
+            timeline.cues.first?.text,
+            String(repeating: "<", count: ExternalSubtitlePolicy.maximumCueCharacters)
+        )
+        // The old quadratic expression takes about 25 seconds for this input.
+        // This loose limit allows substantial CI variance for a linear scan.
+        XCTAssertLessThan(start.duration(to: .now), .seconds(2))
+    }
+
+    func testSanitizerHonorsTaskCancellation() async {
+        let task = Task.detached {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try SubtitleTextSanitizer.sanitize(String(repeating: "<", count: 64 * 1_024))
+        }
+        do {
+            _ = try await task.value
+            XCTFail("Cancelled subtitle sanitization completed")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+    }
+
+    private func legacySanitize(_ text: String) -> String {
+        var result = text.replacingOccurrences(
+            of: "(?i)<br\\s*/?>", with: "\n", options: .regularExpression
+        ).replacingOccurrences(
+            of: "<[^>]+>", with: "", options: .regularExpression
+        )
+        let entities = [
+            "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"",
+            "&#39;": "'", "&nbsp;": " "
+        ]
+        for (entity, replacement) in entities {
+            result = result.replacingOccurrences(of: entity, with: replacement)
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func makeTemporaryFile(
         extension fileExtension: String,
         content: String
@@ -170,6 +257,89 @@ final class SubtitleSidecarDiscoveryTests: XCTestCase {
 
 @MainActor
 final class ExternalSubtitleControllerTests: XCTestCase {
+    func testDiscoveryAndParsingShareOneWorkerAndKeepOnlyLatestPendingRequest() async {
+        let work = BlockingSubtitleWork()
+        defer { work.release() }
+        let engine = TestPlaybackEngine()
+        let controller = ExternalSubtitleController(engine: engine, parser: work, discovery: work)
+        let firstMedia = URL(fileURLWithPath: "/tmp/first.mp4")
+        let latestMedia = URL(fileURLWithPath: "/tmp/latest.mp4")
+        let latestSubtitle = URL(fileURLWithPath: "/tmp/latest.srt")
+        var activations = 0
+        controller.prepare(for: firstMedia) { activations += 1 }
+        await waitUntil { work.calls == ["discover:first.mp4"] }
+
+        controller.loadUserSelected(URL(fileURLWithPath: "/tmp/stale.srt"), for: firstMedia) {
+            activations += 1
+        }
+        controller.prepare(for: latestMedia) { activations += 1 }
+        controller.loadUserSelected(latestSubtitle, for: latestMedia) { activations += 1 }
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(work.calls, ["discover:first.mp4"])
+
+        work.release()
+        await waitUntil { controller.track?.url == latestSubtitle }
+
+        XCTAssertEqual(work.calls, ["discover:first.mp4", "parse:latest.srt"])
+        XCTAssertEqual(work.maximumConcurrentCalls, 1)
+        XCTAssertEqual(activations, 1)
+        XCTAssertFalse(controller.isLoading)
+    }
+
+    func testClearKeepsWorkerSlotUntilCancelledParserReallyReturns() async {
+        let work = BlockingSubtitleWork()
+        defer { work.release() }
+        let engine = TestPlaybackEngine()
+        let controller = ExternalSubtitleController(engine: engine, parser: work)
+        let media = URL(fileURLWithPath: "/tmp/video.mp4")
+        let firstSubtitle = URL(fileURLWithPath: "/tmp/first.srt")
+        let lastSubtitle = URL(fileURLWithPath: "/tmp/last.srt")
+        var staleActivations = 0
+        controller.prepare(for: media) {}
+        controller.loadUserSelected(firstSubtitle, for: media) { staleActivations += 1 }
+        await waitUntil { work.calls == ["parse:first.srt"] }
+
+        controller.clear(removeRememberedAssociation: false)
+        XCTAssertFalse(controller.isLoading)
+        XCTAssertNil(controller.track)
+        for index in 0..<100 {
+            controller.loadUserSelected(
+                URL(fileURLWithPath: "/tmp/discarded-\(index).srt"), for: media
+            ) { staleActivations += 1 }
+        }
+        controller.loadUserSelected(lastSubtitle, for: media) {}
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(work.calls, ["parse:first.srt"])
+
+        work.release()
+        await waitUntil { controller.track?.url == lastSubtitle }
+
+        XCTAssertEqual(work.calls, ["parse:first.srt", "parse:last.srt"])
+        XCTAssertEqual(work.maximumConcurrentCalls, 1)
+        XCTAssertEqual(staleActivations, 0)
+    }
+
+    func testControllerCanReleaseWhileActualCancelledReadFinishes() async {
+        let work = BlockingSubtitleWork()
+        defer { work.release() }
+        let engine = TestPlaybackEngine()
+        var controller: ExternalSubtitleController? = ExternalSubtitleController(
+            engine: engine, parser: work
+        )
+        weak var weakController = controller
+        let media = URL(fileURLWithPath: "/tmp/video.mp4")
+        controller?.prepare(for: media) {}
+        controller?.loadUserSelected(URL(fileURLWithPath: "/tmp/first.srt"), for: media) {}
+        await waitUntil { work.calls == ["parse:first.srt"] }
+
+        controller = nil
+
+        XCTAssertNil(weakController)
+        work.release()
+        await waitUntil { work.completedCalls == 1 }
+        XCTAssertEqual(work.maximumConcurrentCalls, 1)
+    }
+
     func testExternalSubtitleSuppressesAndRestoresEmbeddedSelection() async throws {
         let subtitleURL = try makeTemporarySubtitle()
         defer { try? FileManager.default.removeItem(at: subtitleURL) }
@@ -211,11 +381,12 @@ final class ExternalSubtitleControllerTests: XCTestCase {
     private func waitUntil(
         _ condition: @escaping @MainActor () -> Bool
     ) async {
-        for _ in 0..<500 {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < deadline {
             if condition() {
                 return
             }
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
         }
         XCTFail("Timed out waiting for external subtitle load")
     }
@@ -246,5 +417,49 @@ final class ExternalSubtitleControllerTests: XCTestCase {
             effectiveSubtitleOptionID: nil,
             allowsEmptySubtitleSelection: true
         )
+    }
+}
+
+/// Ignores cancellation until explicitly released, like synchronous filesystem
+/// work that has not yet returned. Discovery and parsing use the same counter.
+private final class BlockingSubtitleWork:
+    SubtitleFileParsing, ExternalSubtitleDiscovering, @unchecked Sendable {
+    private let condition = NSCondition()
+    private var isBlocked = true
+    private var recordedCalls: [String] = []
+    private var activeCalls = 0
+    private var peakActiveCalls = 0
+    private var finishedCalls = 0
+
+    var calls: [String] { condition.withLock { recordedCalls } }
+    var maximumConcurrentCalls: Int { condition.withLock { peakActiveCalls } }
+    var completedCalls: Int { condition.withLock { finishedCalls } }
+
+    func parse(_ url: URL) throws -> SubtitleTimeline {
+        recordAndWait("parse:" + url.lastPathComponent)
+        return SubtitleTimeline(cues: [SubtitleCue(startTime: 1, endTime: 2, text: "Loaded")])
+    }
+
+    func discover(for mediaURL: URL, preferredLanguageCodes: [String]) -> URL? {
+        recordAndWait("discover:" + mediaURL.lastPathComponent)
+        return mediaURL.deletingPathExtension().appendingPathExtension("srt")
+    }
+
+    func release() {
+        condition.withLock {
+            isBlocked = false
+            condition.broadcast()
+        }
+    }
+
+    private func recordAndWait(_ name: String) {
+        condition.lock()
+        recordedCalls.append(name)
+        activeCalls += 1
+        peakActiveCalls = max(peakActiveCalls, activeCalls)
+        while isBlocked { condition.wait() }
+        activeCalls -= 1
+        finishedCalls += 1
+        condition.unlock()
     }
 }

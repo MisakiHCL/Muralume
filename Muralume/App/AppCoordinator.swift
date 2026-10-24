@@ -44,6 +44,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     private var hasStarted = false
     private var isShutDown = false
     private var externalOpenGeneration: UInt64 = 0
+    private var externalOpenTask: Task<Void, Never>?
     private var presentationIntentGeneration: UInt64 = 0
     private var dynamicDesktopReturnContext: MediaLibraryPlaybackContext?
 
@@ -636,6 +637,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
 
         beginPresentationIntent()
         cancelSourceAccessRetry()
+        externalOpenTask?.cancel()
         externalOpenGeneration &+= 1
         let generation = externalOpenGeneration
         if dynamicDesktopReturnContext == nil,
@@ -652,9 +654,14 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         }
         let pendingInitialRestore = cancelInitialRestore()
 
-        Task { [weak self] in
+        externalOpenTask = Task { [weak self] in
             guard let self else {
                 return
+            }
+            defer {
+                if generation == externalOpenGeneration {
+                    externalOpenTask = nil
+                }
             }
             if let pendingInitialRestore {
                 await pendingInitialRestore.value
@@ -729,6 +736,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         }
         beginPresentationIntent()
         cancelSourceAccessRetry()
+        externalOpenTask?.cancel()
         externalOpenGeneration &+= 1
         let generation = externalOpenGeneration
         playerChrome.setSettingsPresented(false)
@@ -809,6 +817,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         automaticLibraryRefresh.stop()
         videoScreenshotController?.cancel()
         externalOpenGeneration &+= 1
+        let pendingExternalOpen = externalOpenTask
+        externalOpenTask?.cancel()
+        externalOpenTask = nil
         clearDynamicDesktopReturnContext()
 
         let pendingInitialRestore = cancelInitialRestore(
@@ -826,6 +837,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         desktopSession.shutdown()
         await pendingInitialRestore?.value
         await pendingSourceAccessRetry?.value
+        await pendingExternalOpen?.value
         for task in pendingMediaImports { await task.value }
         await mediaThumbnailProvider.shutdown()
         await customPlaylistPlaybackBridge.shutdown()

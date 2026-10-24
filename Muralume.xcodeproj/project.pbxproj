@@ -204,6 +204,8 @@
 		0E7E0F807CBA4CA79FA82046 /* UserSelectedMediaImportExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D63FEEA320FA41EFBA44DC15 /* UserSelectedMediaImportExecutor.swift */; };
 		FD3A9882F7964CDDB3689242 /* EmbeddedSubtitlePlaybackController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92C6CEB31B0C4DC2A49B61C3 /* EmbeddedSubtitlePlaybackController.swift */; };
 		16B4377C9ECC4D8A8FE7C182 /* EmbeddedSubtitlePlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 060965ED2E4F42E997A0D10C /* EmbeddedSubtitlePlaybackTests.swift */; };
+		93B9F10CD4074327A436716A /* TemporaryPlaybackSessionConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8204D40A96B4A63AC870490 /* TemporaryPlaybackSessionConcurrencyTests.swift */; };
+		3C5FAD13A78F44D08400E8E5 /* FilePlaybackProgressJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = CED56C208EB24DA6866FC944 /* FilePlaybackProgressJournal.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -429,6 +431,8 @@
 		D63FEEA320FA41EFBA44DC15 /* UserSelectedMediaImportExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserSelectedMediaImportExecutor.swift; sourceTree = "<group>"; };
 		92C6CEB31B0C4DC2A49B61C3 /* EmbeddedSubtitlePlaybackController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedSubtitlePlaybackController.swift; sourceTree = "<group>"; };
 		060965ED2E4F42E997A0D10C /* EmbeddedSubtitlePlaybackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedSubtitlePlaybackTests.swift; sourceTree = "<group>"; };
+		F8204D40A96B4A63AC870490 /* TemporaryPlaybackSessionConcurrencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporaryPlaybackSessionConcurrencyTests.swift; sourceTree = "<group>"; };
+		CED56C208EB24DA6866FC944 /* FilePlaybackProgressJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePlaybackProgressJournal.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -506,6 +510,7 @@
 				F23000000000000000000001 /* AVFoundationMediaSelectionContext.swift */,
 				F18000000000000000000004 /* EmbeddedSubtitleParser.swift */,
 				F19000000000000000000002 /* AVAssetVideoInformationLoader.swift */,
+				CED56C208EB24DA6866FC944 /* FilePlaybackProgressJournal.swift */,
 				92C6CEB31B0C4DC2A49B61C3 /* EmbeddedSubtitlePlaybackController.swift */,
 				F17000000000000000000002 /* MacVideoScreenshotController.swift */,
 				D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */,
@@ -622,6 +627,7 @@
 			isa = PBXGroup;
 			children = (
 				C10000000000000000000001 /* AppCoordinatorTests.swift */,
+				F8204D40A96B4A63AC870490 /* TemporaryPlaybackSessionConcurrencyTests.swift */,
 				AC0000000000000000000005 /* AppLocalizationControllerTests.swift */,
 				B30000000000000000000002 /* AppPreferencesStoreTests.swift */,
 				FA0000000000000000000003 /* DefaultVideoPlayerControllerTests.swift */,
@@ -1316,6 +1322,7 @@
 				F23000000000000000000011 /* AVFoundationMediaSelectionContext.swift in Sources */,
 				F18000000000000000000003 /* EmbeddedSubtitleParser.swift in Sources */,
 				F19000000000000000000012 /* AVAssetVideoInformationLoader.swift in Sources */,
+				3C5FAD13A78F44D08400E8E5 /* FilePlaybackProgressJournal.swift in Sources */,
 				FD3A9882F7964CDDB3689242 /* EmbeddedSubtitlePlaybackController.swift in Sources */,
 				F17000000000000000000012 /* MacVideoScreenshotController.swift in Sources */,
 				EB1000000000000000000013 /* SubtitleFileParser.swift in Sources */,
@@ -1384,6 +1391,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C10000000000000000000011 /* AppCoordinatorTests.swift in Sources */,
+				93B9F10CD4074327A436716A /* TemporaryPlaybackSessionConcurrencyTests.swift in Sources */,
 				AE0000000000000000000011 /* AppDelegateTests.swift in Sources */,
 				AC0000000000000000000015 /* AppLocalizationControllerTests.swift in Sources */,
 				B30000000000000000000012 /* AppPreferencesStoreTests.swift in Sources */,

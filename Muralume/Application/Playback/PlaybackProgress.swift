@@ -36,10 +36,38 @@ struct PlaybackProgressSnapshot: Codable, Equatable, Sendable {
 
     let schemaVersion: Int
     let entries: [Entry]
+    /// Journal records through this sequence are already reflected in entries.
+    /// Older JSON snapshots omit the field and therefore start at zero.
+    let checkpointSequence: UInt64
 
-    init(entries: [Entry]) {
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case entries
+        case checkpointSequence
+    }
+
+    init(entries: [Entry], checkpointSequence: UInt64 = 0) {
         schemaVersion = Self.currentSchemaVersion
         self.entries = entries
+        self.checkpointSequence = checkpointSequence
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        entries = try container.decode([Entry].self, forKey: .entries)
+        checkpointSequence = try container.decodeIfPresent(
+            UInt64.self, forKey: .checkpointSequence
+        ) ?? 0
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(entries, forKey: .entries)
+        if checkpointSequence > 0 {
+            try container.encode(checkpointSequence, forKey: .checkpointSequence)
+        }
     }
 
     var isValid: Bool {

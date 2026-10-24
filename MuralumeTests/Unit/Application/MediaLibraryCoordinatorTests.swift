@@ -291,6 +291,64 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         }
     }
 
+    func testPreparedSortReusesImmutableReferenceIndexAndRootMetadata() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/Prepared Sort Sharing")
+        let first = makeItem(rootURL: rootURL, name: "First", path: "First.mp4")
+        let second = makeItem(rootURL: rootURL, name: "Second", path: "Second.mp4")
+        let library = PreparedMediaLibraryItems(
+            items: [second, first],
+            itemsByID: [first.id: first, second.id: second]
+        )
+        let sorted = try await DefaultMediaLibrarySnapshotPreparer().sort(
+            library, using: MediaLibrarySort()
+        )
+        XCTAssertEqual(sorted.items.map(\.id), [first.id, second.id])
+        XCTAssertEqual(sorted.itemsByID, library.itemsByID)
+        XCTAssertEqual(sorted.rootURLsByPath, library.rootURLsByPath)
+        XCTAssertEqual(
+            sorted.resolutionIndex.storageIdentityForTesting,
+            library.resolutionIndex.storageIdentityForTesting
+        )
+    }
+
+    func testLargeLibraryMissIndexesOnlyRootsAndSortReusesContentIndex() async {
+        let rootURL = URL(fileURLWithPath: "/tmp/Root Indexed Large Library")
+        let libraryItems = (0..<10_000).map {
+            makeItem(rootURL: rootURL, name: "Clip \($0)", path: "Clip-\($0).mp4")
+        }
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(
+                roots: [MediaLibraryRoot(url: rootURL, displayName: "Library")],
+                items: libraryItems
+            )
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        let contentRevision = fixture.coordinator.itemsContentRevision
+        let orderRevision = fixture.coordinator.itemsRevision
+        let outsideURL = URL(fileURLWithPath: "/tmp/Root Indexed Large Library Other/New.mp4")
+        XCTAssertNil(fixture.coordinator.libraryItem(matching: outsideURL))
+        XCTAssertEqual(fixture.coordinator.canonicalLookupRootCountForTesting, 1)
+        XCTAssertEqual(fixture.coordinator.canonicalItemLookupIndexBuildCountForTesting, 1)
+
+        fixture.coordinator.toggleSortDirection()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while fixture.coordinator.itemsRevision == orderRevision,
+              ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        XCTAssertGreaterThan(fixture.coordinator.itemsRevision, orderRevision)
+        XCTAssertEqual(fixture.coordinator.itemsContentRevision, contentRevision)
+        XCTAssertNil(fixture.coordinator.libraryItem(matching: outsideURL))
+        XCTAssertEqual(fixture.coordinator.canonicalLookupRootCountForTesting, 1)
+        XCTAssertEqual(fixture.coordinator.canonicalItemLookupIndexBuildCountForTesting, 1)
+        await fixture.coordinator.shutdown()
+        XCTAssertNil(fixture.coordinator.mediaReferenceResolutionIndex.resolve(
+            MediaReference(item: libraryItems[0])
+        ))
+    }
+
     func testCanonicalItemLookupIndexIsReusedUntilItemsChange()
         async throws {
         let fileManager = FileManager.default
@@ -655,11 +713,11 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             await Task.yield()
         }
 
-        let secondResolution = try await session.resolve(
-            [secondItem.url],
-            libraryItems: [secondItem]
-        )
-        probe.finishBlockedCall()
+        let secondTask = Task {
+            try await session.resolve(
+                [secondItem.url], libraryItems: [secondItem]
+            )
+        }
 
         do {
             _ = try await firstResolution.value
@@ -667,6 +725,10 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         } catch is CancellationError {
             // Expected: the second resolve invalidates and cancels the first.
         }
+        // A cancelled, non-cooperative worker keeps the one real work slot
+        // until it exits; the latest request must wait for that release.
+        probe.finishBlockedCall()
+        let secondResolution = try await secondTask.value
         XCTAssertEqual(secondResolution.items, [secondItem])
         XCTAssertTrue(secondResolution.temporaryItemIDs.isEmpty)
     }

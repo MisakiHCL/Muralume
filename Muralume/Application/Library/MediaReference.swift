@@ -66,6 +66,9 @@ struct MediaReference: Codable, Hashable, Sendable {
 }
 
 struct MediaReferenceResolutionIndex: Sendable {
+#if DEBUG
+    let storageIdentityForTesting = UUID()
+#endif
     private let itemsByID: [LibraryMediaItem.ID: LibraryMediaItem]
     private let itemsByFileIdentity: [
         MediaFileIdentity: [LibraryMediaItem]
@@ -87,6 +90,20 @@ struct MediaReferenceResolutionIndex: Sendable {
         }
         self.itemsByID = itemsByID
         self.itemsByFileIdentity = itemsByFileIdentity
+    }
+
+    /// Prepared libraries already own this immutable dictionary. Share its
+    /// storage instead of allocating another full item lookup for each user.
+    init(itemsByID: [LibraryMediaItem.ID: LibraryMediaItem]) {
+        var identities: [MediaFileIdentity: [LibraryMediaItem]] = [:]
+        identities.reserveCapacity(itemsByID.count)
+        for item in itemsByID.values {
+            if let identity = item.fileIdentity {
+                identities[identity, default: []].append(item)
+            }
+        }
+        self.itemsByID = itemsByID
+        itemsByFileIdentity = identities
     }
 
     func resolve(_ reference: MediaReference) -> LibraryMediaItem? {

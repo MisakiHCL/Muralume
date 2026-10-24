@@ -378,6 +378,22 @@ struct CustomPlaylistCollection: Codable, Equatable, Sendable {
         return didChange
     }
 
+    mutating func reconcileCancellable(
+        using index: MediaReferenceResolutionIndex,
+        now: Date = Date()
+    ) throws -> Bool {
+        var didChange = false
+        for playlistIndex in playlists.indices {
+            try Task.checkCancellation()
+            didChange = playlists[playlistIndex].reconcile(
+                using: index,
+                now: now
+            ) || didChange
+        }
+        try Task.checkCancellation()
+        return didChange
+    }
+
     func resolvedItems(
         in playlistID: CustomPlaylist.ID,
         using items: [LibraryMediaItem]

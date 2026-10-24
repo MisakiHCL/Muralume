@@ -585,6 +585,7 @@ final class CustomPlaylistTests: XCTestCase {
 
         let playlistID = try controller.createPlaylist(named: "Favorites")
         _ = try controller.add(items: [item], to: playlistID)
+        await controller.waitForLibraryReconciliation()
         let playlist = try XCTUnwrap(controller.collection.playlist(id: playlistID))
         _ = controller.detailProjection(
             for: playlist, query: "", using: [item], itemsRevision: 1
@@ -599,6 +600,7 @@ final class CustomPlaylistTests: XCTestCase {
         // No detail read follows this update: invalidation must be eager.
         controller.updateAvailableItems([], itemsRevision: 2)
         XCTAssertFalse(controller.hasCachedDetailProjection)
+        await controller.waitForLibraryReconciliation()
         XCTAssertEqual(controller.resolutionIndexRecomputationCount, 2)
         let result = controller.detailProjection(
             for: playlist, query: "", using: [], itemsRevision: 2
@@ -620,14 +622,106 @@ final class CustomPlaylistTests: XCTestCase {
         let playlistID = try controller.createPlaylist(named: "Sky")
         _ = try controller.add(items: [first, missing, second], to: playlistID)
         let playlist = try XCTUnwrap(controller.collection.playlist(id: playlistID))
+        XCTAssertEqual(controller.resolutionIndexRecomputationCount, 0)
         let operation = controller.detailSearchOperation(
             for: playlist, query: "sky", using: [first, second], itemsRevision: 1
         )
+        XCTAssertEqual(controller.resolutionIndexRecomputationCount, 0)
         let result = try await Task.detached { try await operation() }.value
         XCTAssertEqual(result.entries.map(\.id), playlist.entries.map(\.id))
         XCTAssertEqual(result.resolvedItemsByEntryID.count, 2)
         XCTAssertEqual(result.entryID(for: second.id), playlist.entries.last?.id)
         XCTAssertNil(result.resolvedItemsByEntryID[playlist.entries[1].id])
+        await controller.shutdown()
+    }
+
+    func testLibraryReconciliationCoalescesAndRejectsStaleLibraryAndUserEdits()
+        async throws {
+        let gate = CustomPlaylistReconciliationGate()
+        let controller = CustomPlaylistController(
+            store: CustomPlaylistStoreSpy(),
+            reconcileOperation: { collection, index in
+                await gate.reconcile(
+                    collection,
+                    using: index,
+                    ranOnMainThread: playlistReconciliationIsMainThread()
+                )
+            }
+        )
+        await controller.startAndWait()
+        let identity = MediaFileIdentity(
+            volumeIdentifier: Data([41]), fileIdentifier: Data([42])
+        )
+        let original = makeItem(name: "Original", relativePath: "Original.mov", identity: identity)
+        let first = makeItem(name: "First", relativePath: "First.mov", identity: identity)
+        let superseded = makeItem(name: "Superseded", relativePath: "Superseded.mov", identity: identity)
+        let latest = makeItem(name: "Latest", relativePath: "Latest.mov", identity: identity)
+        let playlistID = try controller.createPlaylist(named: "Favorites")
+        try controller.add(items: [original], to: playlistID)
+        controller.updateAvailableItems(
+            [first], itemsRevision: 1, contentRevision: 1,
+            resolutionIndex: MediaReferenceResolutionIndex(items: [first])
+        )
+        await gate.waitForFirstWorker()
+        try controller.renamePlaylist(id: playlistID, to: "User Edited")
+        controller.updateAvailableItems(
+            [superseded], itemsRevision: 2, contentRevision: 2,
+            resolutionIndex: MediaReferenceResolutionIndex(items: [superseded])
+        )
+        controller.updateAvailableItems(
+            [latest], itemsRevision: 3, contentRevision: 3,
+            resolutionIndex: MediaReferenceResolutionIndex(items: [latest])
+        )
+        let callsWhileBlocked = await gate.callCount
+        XCTAssertEqual(callsWhileBlocked, 1)
+        await gate.releaseFirstWorker()
+        await controller.waitForLibraryReconciliation()
+        let playlist = try XCTUnwrap(controller.collection.playlist(id: playlistID))
+        XCTAssertEqual(playlist.name, "User Edited")
+        XCTAssertEqual(playlist.entries.first?.media.mediaItemID, latest.id)
+        let calls = await gate.callCount
+        let maximumRunning = await gate.maximumRunning
+        let ranOnMainThread = await gate.ranOnMainThread
+        XCTAssertEqual(calls, 2)
+        XCTAssertEqual(maximumRunning, 1)
+        XCTAssertFalse(ranOnMainThread)
+        await controller.shutdown()
+    }
+
+    func testOrderOnlyLibraryRevisionReusesIndexWithoutReconciliation() async throws {
+        let gate = CustomPlaylistReconciliationGate(blocksFirstWorker: false)
+        let controller = CustomPlaylistController(
+            store: CustomPlaylistStoreSpy(),
+            reconcileOperation: { collection, index in
+                await gate.reconcile(
+                    collection,
+                    using: index,
+                    ranOnMainThread: playlistReconciliationIsMainThread()
+                )
+            }
+        )
+        await controller.startAndWait()
+        let first = makeItem(name: "First", relativePath: "First.mov")
+        let second = makeItem(name: "Second", relativePath: "Second.mov")
+        let playlistID = try controller.createPlaylist(named: "Favorites")
+        try controller.add(items: [second, first], to: playlistID)
+        let index = MediaReferenceResolutionIndex(items: [first, second])
+        controller.updateAvailableItems(
+            [first, second], itemsRevision: 1, contentRevision: 1, resolutionIndex: index
+        )
+        await controller.waitForLibraryReconciliation()
+        controller.updateAvailableItems(
+            [second, first], itemsRevision: 2, contentRevision: 1, resolutionIndex: index
+        )
+        await controller.waitForLibraryReconciliation()
+        let calls = await gate.callCount
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(controller.resolutionIndexRecomputationCount, 1)
+        XCTAssertEqual(
+            controller.resolvedItems(in: playlistID, using: [second, first], itemsRevision: 2),
+            [second, first]
+        )
+        XCTAssertEqual(controller.resolutionIndexRecomputationCount, 1)
         await controller.shutdown()
     }
 
@@ -719,4 +813,55 @@ private actor CustomPlaylistStoreSpy: CustomPlaylistStoring {
             loadValue = last
         }
     }
+}
+
+private actor CustomPlaylistReconciliationGate {
+    let blocksFirstWorker: Bool
+    private var firstWorker: CheckedContinuation<Void, Never>?
+    private var firstWorkerWaiter: CheckedContinuation<Void, Never>?
+    private(set) var callCount = 0
+    private var running = 0
+    private(set) var maximumRunning = 0
+    private(set) var ranOnMainThread = false
+
+    init(blocksFirstWorker: Bool = true) {
+        self.blocksFirstWorker = blocksFirstWorker
+    }
+
+    func reconcile(
+        _ collection: CustomPlaylistCollection,
+        using index: MediaReferenceResolutionIndex,
+        ranOnMainThread: Bool
+    ) async -> CustomPlaylistCollection? {
+        callCount += 1
+        running += 1
+        maximumRunning = max(maximumRunning, running)
+        self.ranOnMainThread = self.ranOnMainThread || ranOnMainThread
+        if callCount == 1, blocksFirstWorker {
+            await withCheckedContinuation { continuation in
+                firstWorker = continuation
+                firstWorkerWaiter?.resume()
+                firstWorkerWaiter = nil
+            }
+        }
+        running -= 1
+        // Deliberately ignore cancellation: stale result publication must be
+        // rejected even when the expensive operation does finish normally.
+        var updated = collection
+        return updated.reconcile(using: index) ? updated : nil
+    }
+
+    func waitForFirstWorker() async {
+        guard firstWorker == nil else { return }
+        await withCheckedContinuation { firstWorkerWaiter = $0 }
+    }
+
+    func releaseFirstWorker() {
+        firstWorker?.resume()
+        firstWorker = nil
+    }
+}
+
+private func playlistReconciliationIsMainThread() -> Bool {
+    Thread.isMainThread
 }
