@@ -635,7 +635,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             return
         }
 
-        beginPresentationIntent()
+        let presentationGeneration = beginPresentationIntent()
+        let playbackIntentRevision = library.playbackSelectionIntentRevision
         cancelSourceAccessRetry()
         externalOpenTask?.cancel()
         externalOpenGeneration &+= 1
@@ -666,6 +667,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             if let pendingInitialRestore {
                 await pendingInitialRestore.value
                 guard generation == externalOpenGeneration,
+                      presentationGeneration == presentationIntentGeneration,
+                      playbackIntentRevision == library.playbackSelectionIntentRevision,
+                      !Task.isCancelled,
                       !isShutDown else {
                     return
                 }
@@ -675,6 +679,9 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             }
 
             guard generation == externalOpenGeneration,
+                      presentationGeneration == presentationIntentGeneration,
+                      playbackIntentRevision == library.playbackSelectionIntentRevision,
+                      !Task.isCancelled,
                   !isShutDown else {
                 return
             }
@@ -684,21 +691,35 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                 await desktopSession.waitForTransitionToSettle()
             }
             guard generation == externalOpenGeneration,
+                      presentationGeneration == presentationIntentGeneration,
+                      playbackIntentRevision == library.playbackSelectionIntentRevision,
+                      !Task.isCancelled,
                   !isShutDown else {
                 return
             }
             showMainWindowInStandardMode()
 
-            var libraryItem = singleLibraryItem(forOpenURLs: urls)
+            var libraryItem = await singleLibraryItem(forOpenURLs: urls)
+            guard generation == externalOpenGeneration,
+                      presentationGeneration == presentationIntentGeneration,
+                      playbackIntentRevision == library.playbackSelectionIntentRevision,
+                      !Task.isCancelled, !isShutDown else { return }
             if urls.count == 1,
                libraryItem == nil,
                library.scanState == .scanning {
                 _ = await library.waitForStartupScan(after: .alreadyStarted)
                 guard generation == externalOpenGeneration,
+                      presentationGeneration == presentationIntentGeneration,
+                      playbackIntentRevision == library.playbackSelectionIntentRevision,
+                      !Task.isCancelled,
                       !isShutDown else {
                     return
                 }
-                libraryItem = singleLibraryItem(forOpenURLs: urls)
+                libraryItem = await singleLibraryItem(forOpenURLs: urls)
+                guard generation == externalOpenGeneration,
+                      presentationGeneration == presentationIntentGeneration,
+                      playbackIntentRevision == library.playbackSelectionIntentRevision,
+                      !Task.isCancelled, !isShutDown else { return }
             }
 
             if let libraryItem {
@@ -717,7 +738,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
 
             let didOpen = await library.openFilesTemporarily(urls)
             guard generation == externalOpenGeneration,
-                  !isShutDown else {
+                  presentationGeneration == presentationIntentGeneration,
+                  !Task.isCancelled, !isShutDown else {
                 return
             }
             if didOpen {
@@ -942,6 +964,30 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         return presentationIntentGeneration
     }
 
+    private func commitPreparedImport(
+        _ preparation: MediaLibraryImportPreparation,
+        autoplayExplicitFiles: Bool
+    ) {
+        guard library.supportsAsynchronousImportPreparation else {
+            library.commitImport(preparation, autoplayExplicitFiles: autoplayExplicitFiles)
+            return
+        }
+        let presentationGeneration = presentationIntentGeneration
+        let selectionRevision = library.playbackSelectionIntentRevision
+        performMediaImport { [weak self] in
+            guard let self else { return }
+            await library.commitImportAsync(
+                preparation, autoplayExplicitFiles: autoplayExplicitFiles,
+                shouldAutoplayProvider: { [weak self] in
+                    guard let self else { return false }
+                    return !isShutDown && presentationGeneration == presentationIntentGeneration
+                        && selectionRevision == library.playbackSelectionIntentRevision
+                        && canImportMedia
+                }
+            )
+        }
+    }
+
     private func commitPreparedDropAfterCancellingInitialRestore(
         _ preparation: MediaLibraryImportPreparation,
         autoplayExplicitFiles: Bool,
@@ -949,7 +995,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         playbackIntentRevision: UInt64
     ) {
         guard let pendingTask = cancelInitialRestore() else {
-            library.commitImport(
+            commitPreparedImport(
                 preparation,
                 autoplayExplicitFiles: autoplayExplicitFiles
                     && presentationGeneration == presentationIntentGeneration
@@ -980,7 +1026,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             guard !isShutDown else {
                 return
             }
-            library.commitImport(
+            commitPreparedImport(
                 preparation,
                 autoplayExplicitFiles:
                     restoreGeneration == initialRestoreGeneration
@@ -1070,11 +1116,11 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
 
     private func singleLibraryItem(
         forOpenURLs urls: [URL]
-    ) -> LibraryMediaItem? {
+    ) async -> LibraryMediaItem? {
         guard urls.count == 1, let url = urls.first else {
             return nil
         }
-        return library.libraryItem(matching: url)
+        return await library.libraryItem(matching: url)
     }
 
     func clearDynamicDesktopReturnContext() {

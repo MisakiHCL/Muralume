@@ -4,6 +4,8 @@ struct DesktopLayoutView: View {
     @ObservedObject var desktopScene: DesktopSceneController
 
     let items: [LibraryMediaItem]
+    let itemsRevision: UInt64
+    let itemsByID: [LibraryMediaItem.ID: LibraryMediaItem]
     let currentItem: LibraryMediaItem?
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let cancel: () -> Void
@@ -183,6 +185,7 @@ struct DesktopLayoutView: View {
                     } else {
                         DesktopMediaSelectionControl(
                             items: items,
+                            itemsRevision: itemsRevision,
                             selectedItem: assignment.mediaItemID.flatMap {
                                 itemsByID[$0]
                             },
@@ -350,12 +353,6 @@ struct DesktopLayoutView: View {
         }
         return desktopScene.connectedDisplays.first {
             $0.id == selectedDisplayID
-        }
-    }
-
-    private var itemsByID: [LibraryMediaItem.ID: LibraryMediaItem] {
-        items.reduce(into: [:]) { result, item in
-            result[item.id] = item
         }
     }
 

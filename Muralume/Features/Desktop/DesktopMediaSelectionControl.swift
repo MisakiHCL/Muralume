@@ -1,8 +1,10 @@
+import Combine
 import CoreGraphics
 import SwiftUI
 
 struct DesktopMediaSelectionControl: View {
     let items: [LibraryMediaItem]
+    let itemsRevision: UInt64
     let selectedItem: LibraryMediaItem?
     let provider: any MediaThumbnailProviding
     let select: (LibraryMediaItem) -> Void
@@ -31,6 +33,7 @@ struct DesktopMediaSelectionControl: View {
             .popover(isPresented: $isPickerPresented, arrowEdge: .trailing) {
                 DesktopMediaLibraryPicker(
                     items: items,
+                    itemsRevision: itemsRevision,
                     selectedItemID: selectedItem?.id,
                     provider: provider,
                     select: selectAndDismiss
@@ -108,14 +111,32 @@ struct DesktopMediaSelectionControl: View {
 
 private struct DesktopMediaLibraryPicker: View {
     let items: [LibraryMediaItem]
+    let itemsRevision: UInt64
     let selectedItemID: LibraryMediaItem.ID?
     let provider: any MediaThumbnailProviding
     let select: (LibraryMediaItem) -> Void
 
     @State private var query = ""
+    @State private var systemLocaleIdentifier = Locale.current.identifier
+    @StateObject private var searchProjection =
+        LatestMediaSearch<[LibraryMediaItem]>()
+    @Environment(\.locale) private var locale
 
     var body: some View {
-        VStack(spacing: MuralumeTheme.Spacing.medium) {
+        let search = DesktopMediaSearch(query: query)
+        let requestID = DesktopMediaSearchRequestID(
+            itemsRevision: itemsRevision,
+            query: search.query,
+            localeIdentifier: locale.identifier,
+            systemLocaleIdentifier: systemLocaleIdentifier
+        )
+        let requestedItems = items
+        // Both the rows and empty state consume this one completed projection.
+        // An unfinished search must not announce an empty result.
+        let displayedItems = search.query.isEmpty
+            ? items
+            : searchProjection.result(for: requestID)
+        return VStack(spacing: MuralumeTheme.Spacing.medium) {
             TextField("desktop.layout.search", text: $query)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier(
@@ -124,11 +145,11 @@ private struct DesktopMediaLibraryPicker: View {
 
             ScrollView {
                 LazyVStack(spacing: MuralumeTheme.Spacing.small) {
-                    ForEach(filteredItems) { item in
+                    ForEach(displayedItems ?? []) { item in
                         mediaRow(for: item)
                     }
 
-                    if filteredItems.isEmpty {
+                    if displayedItems?.isEmpty == true {
                         Text("desktop.layout.noVideo")
                             .font(.callout)
                             .foregroundStyle(
@@ -141,6 +162,19 @@ private struct DesktopMediaLibraryPicker: View {
         }
         .padding(MuralumeTheme.Spacing.large)
         .frame(width: 400, height: 360)
+        .task(id: requestID) {
+            search.updateProjection(
+                searchProjection, requestID: requestID, items: requestedItems
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSLocale.currentLocaleDidChangeNotification
+        )) { _ in
+            systemLocaleIdentifier = Locale.current.identifier
+        }
+        .onDisappear {
+            searchProjection.cancel()
+        }
     }
 
     private func mediaRow(for item: LibraryMediaItem) -> some View {
@@ -184,22 +218,6 @@ private struct DesktopMediaLibraryPicker: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-
-    private var filteredItems: [LibraryMediaItem] {
-        let trimmedQuery = query.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-        guard !trimmedQuery.isEmpty else {
-            return items
-        }
-        return items.filter {
-            $0.displayName.localizedStandardContains(trimmedQuery)
-                || $0.rootName.localizedStandardContains(trimmedQuery)
-                || $0.relativeDirectory.localizedStandardContains(
-                    trimmedQuery
-                )
-        }
     }
 }
 

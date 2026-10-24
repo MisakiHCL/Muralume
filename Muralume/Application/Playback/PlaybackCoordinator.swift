@@ -212,7 +212,7 @@ final class PlaybackCoordinator: ObservableObject {
         initialPosition: TimeInterval? = nil,
         transition: PlaybackItemTransition = .immediate
     ) async -> PlaybackLoadResult {
-        guard presentation != .terminating else {
+        guard !Task.isCancelled, presentation != .terminating else {
             return .cancelled
         }
 

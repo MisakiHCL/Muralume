@@ -231,6 +231,8 @@ struct PlayerScreen<PlayerSurface: View>: View {
             DesktopLayoutView(
                 desktopScene: desktopScene,
                 items: library.items,
+                itemsRevision: library.itemsRevision,
+                itemsByID: library.libraryItemsByID,
                 currentItem: library.currentItem,
                 mediaThumbnailProvider: mediaThumbnailProvider,
                 cancel: actions.cancelDesktopLayout,

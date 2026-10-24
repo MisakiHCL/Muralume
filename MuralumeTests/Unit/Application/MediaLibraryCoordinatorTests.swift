@@ -328,7 +328,8 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         let contentRevision = fixture.coordinator.itemsContentRevision
         let orderRevision = fixture.coordinator.itemsRevision
         let outsideURL = URL(fileURLWithPath: "/tmp/Root Indexed Large Library Other/New.mp4")
-        XCTAssertNil(fixture.coordinator.libraryItem(matching: outsideURL))
+        let lookupResult1 = await fixture.coordinator.libraryItem(matching: outsideURL)
+        XCTAssertNil(lookupResult1)
         XCTAssertEqual(fixture.coordinator.canonicalLookupRootCountForTesting, 1)
         XCTAssertEqual(fixture.coordinator.canonicalItemLookupIndexBuildCountForTesting, 1)
 
@@ -340,7 +341,8 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         }
         XCTAssertGreaterThan(fixture.coordinator.itemsRevision, orderRevision)
         XCTAssertEqual(fixture.coordinator.itemsContentRevision, contentRevision)
-        XCTAssertNil(fixture.coordinator.libraryItem(matching: outsideURL))
+        let lookupResult2 = await fixture.coordinator.libraryItem(matching: outsideURL)
+        XCTAssertNil(lookupResult2)
         XCTAssertEqual(fixture.coordinator.canonicalLookupRootCountForTesting, 1)
         XCTAssertEqual(fixture.coordinator.canonicalItemLookupIndexBuildCountForTesting, 1)
         await fixture.coordinator.shutdown()
@@ -405,8 +407,9 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         await waitForScan(fixture.coordinator)
 
         for _ in 0..<50 {
+            let lookupResult3 = await fixture.coordinator.libraryItem(matching: firstRealURL)
             XCTAssertEqual(
-                fixture.coordinator.libraryItem(matching: firstRealURL),
+                lookupResult3,
                 firstItem
             )
         }
@@ -425,8 +428,9 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         fixture.coordinator.refresh()
         await waitForScan(fixture.coordinator)
 
+        let lookupResult4 = await fixture.coordinator.libraryItem(matching: secondRealURL)
         XCTAssertEqual(
-            fixture.coordinator.libraryItem(matching: secondRealURL),
+            lookupResult4,
             secondItem
         )
         XCTAssertEqual(
@@ -492,8 +496,9 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
         fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
 
+        let lookupResult5 = await fixture.coordinator.libraryItem(matching: firstRealURL)
         XCTAssertEqual(
-            fixture.coordinator.libraryItem(matching: firstRealURL),
+            lookupResult5,
             item
         )
         XCTAssertEqual(
@@ -508,11 +513,13 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             withDestinationURL: secondRealRootURL
         )
 
+        let lookupResult6 = await fixture.coordinator.libraryItem(matching: secondRealURL)
         XCTAssertEqual(
-            fixture.coordinator.libraryItem(matching: secondRealURL),
+            lookupResult6,
             item
         )
-        XCTAssertNil(fixture.coordinator.libraryItem(matching: firstRealURL))
+        let lookupResult7 = await fixture.coordinator.libraryItem(matching: firstRealURL)
+        XCTAssertNil(lookupResult7)
         XCTAssertEqual(
             fixture.coordinator
                 .canonicalItemLookupIndexBuildCountForTesting,

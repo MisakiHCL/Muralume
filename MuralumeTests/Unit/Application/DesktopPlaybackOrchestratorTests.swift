@@ -377,6 +377,64 @@ final class DesktopPlaybackOrchestratorTests: XCTestCase {
         await orchestrator.stopAndDrain()
     }
 
+    func testReplacementWaitsForActualDrainAndCoalescesIndependentlyPerDisplay()
+        async throws {
+        let drainGate = DesktopEngineDrainGate()
+        var engines: [TestPlaybackEngine] = []
+        let orchestrator = DesktopPlaybackOrchestrator {
+            let engine = TestPlaybackEngine()
+            engines.append(engine)
+            return engine
+        }
+        let first = displayID("a-blocked")
+        let second = displayID("b-independent")
+        let oldItem = itemID("old.mp4")
+        let independentItem = itemID("independent.mp4")
+        try await orchestrator.start(
+            assignments: [
+                assignment(first, itemID: oldItem),
+                assignment(second, itemID: independentItem)
+            ],
+            surfaces: [
+                first: TestPlaybackSurface(id: .desktop),
+                second: TestPlaybackSurface(id: .desktop)
+            ]
+        ) { self.source(for: $0) }
+        await waitUntil { engines.count == 2 && engines.allSatisfy(\.isPlaying) }
+        engines[0].pendingWorkDrainer = { await drainGate.wait() }
+        for index in 0..<100 {
+            orchestrator.setAssignments([
+                assignment(first, itemID: itemID("latest-\(index).mp4")),
+                assignment(second, itemID: independentItem)
+            ])
+        }
+        await waitUntil { drainGate.isWaiting }
+        XCTAssertEqual(engines.count, 2)
+        XCTAssertTrue(engines[1].isPlaying)
+        XCTAssertTrue(orchestrator.activeMediaItemIDs.contains(oldItem))
+        XCTAssertEqual(orchestrator.displayStates[first], .loading)
+
+        // An independent display can replace its engine even while the first
+        // one's actual AVFoundation operation has not returned.
+        let newIndependentItem = itemID("new-independent.mp4")
+        orchestrator.setAssignments([
+            assignment(first, itemID: itemID("latest-99.mp4")),
+            assignment(second, itemID: newIndependentItem)
+        ])
+        await waitUntil { engines.count == 3 && engines[2].isPlaying }
+        XCTAssertEqual(engines[2].loadedSources.last, source(for: newIndependentItem))
+        XCTAssertTrue(orchestrator.activeMediaItemIDs.contains(oldItem))
+
+        drainGate.open()
+        await waitUntil { engines.count == 4 && engines[3].isPlaying }
+        XCTAssertEqual(
+            engines[3].loadedSources.map(\.url),
+            [source(for: itemID("latest-99.mp4")).url]
+        )
+        XCTAssertFalse(orchestrator.activeMediaItemIDs.contains(oldItem))
+        await orchestrator.stopAndDrain()
+    }
+
     private func displayID(_ value: String) -> DesktopDisplayID {
         DesktopDisplayID(rawValue: value)
     }
@@ -417,5 +475,23 @@ final class DesktopPlaybackOrchestratorTests: XCTestCase {
             await Task.yield()
         }
         XCTAssertTrue(condition())
+    }
+}
+
+@MainActor
+private final class DesktopEngineDrainGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isOpen = false
+    var isWaiting: Bool { continuation != nil }
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func open() {
+        isOpen = true
+        continuation?.resume()
+        continuation = nil
     }
 }

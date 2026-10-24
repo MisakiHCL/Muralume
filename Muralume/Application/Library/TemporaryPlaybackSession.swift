@@ -139,6 +139,7 @@ final class TemporaryPlaybackSession {
     private let scanner: any MediaLibraryScanning
     private let matcher: TemporaryPlaybackMatcher
     private let scopeAccess: TemporaryPlaybackSecurityScopeAccess
+    private let inputPreparationTemporaryDirectoryURL: URL
     private let workPool = BoundedMediaWorkPool(
         maximumConcurrentWorkCount: 1,
         maximumQueuedWorkCount: 1
@@ -152,11 +153,13 @@ final class TemporaryPlaybackSession {
         canonicalPath: @escaping @Sendable (URL) -> String = {
             $0.standardizedFileURL.resolvingSymlinksInPath().path
         },
-        scopeAccess: TemporaryPlaybackSecurityScopeAccess = .live
+        scopeAccess: TemporaryPlaybackSecurityScopeAccess = .live,
+        inputPreparationTemporaryDirectoryURL: URL = FileManager.default.temporaryDirectory
     ) {
         self.scanner = scanner
         matcher = TemporaryPlaybackMatcher(canonicalPath: canonicalPath)
         self.scopeAccess = scopeAccess
+        self.inputPreparationTemporaryDirectoryURL = inputPreparationTemporaryDirectoryURL
     }
 
     deinit { activeResolutionTask?.cancel() }
@@ -172,6 +175,7 @@ final class TemporaryPlaybackSession {
         let scanner = scanner
         let matcher = matcher
         let scopeAccess = scopeAccess
+        let inputPreparationTemporaryDirectoryURL = inputPreparationTemporaryDirectoryURL
         let pool = workPool
         // Normalization, scanning and matching share one real-work budget.
         // Superseding a caller removes its queued work immediately, but a
@@ -184,7 +188,8 @@ final class TemporaryPlaybackSession {
                     librarySourceURLs: librarySourceURLs,
                     scanner: scanner,
                     matcher: matcher,
-                    scopeAccess: scopeAccess
+                    scopeAccess: scopeAccess,
+                    inputPreparationTemporaryDirectoryURL: inputPreparationTemporaryDirectoryURL
                 )
             }
         }
@@ -222,7 +227,8 @@ final class TemporaryPlaybackSession {
         librarySourceURLs: [URL],
         scanner: any MediaLibraryScanning,
         matcher: TemporaryPlaybackMatcher,
-        scopeAccess: TemporaryPlaybackSecurityScopeAccess
+        scopeAccess: TemporaryPlaybackSecurityScopeAccess,
+        inputPreparationTemporaryDirectoryURL: URL
     ) async throws -> PreparedResolution {
         // Matching also resolves library roots. Its independent claims use the
         // exact session URLs and outlive caller cancellation/source shutdown.
@@ -230,8 +236,9 @@ final class TemporaryPlaybackSession {
             TemporaryPlaybackScopeLease(url: $0, access: scopeAccess)
         }
         defer { withExtendedLifetime(libraryScopes) {} }
-        let batch = try supportedUniqueFiles(
-            requestedURLs, canonicalPath: matcher.canonicalPath
+        let batch = try await supportedUniqueFiles(
+            requestedURLs, canonicalPath: matcher.canonicalPath,
+            temporaryDirectoryURL: inputPreparationTemporaryDirectoryURL
         )
         guard !batch.urls.isEmpty else {
             return PreparedResolution(
@@ -272,17 +279,24 @@ final class TemporaryPlaybackSession {
 
     private nonisolated static func supportedUniqueFiles(
         _ urls: [URL],
-        canonicalPath: TemporaryPlaybackMatcher.CanonicalPathResolver
-    ) throws -> RequestedFileBatch {
-        var knownPaths: Set<String> = []
+        canonicalPath: TemporaryPlaybackMatcher.CanonicalPathResolver,
+        temporaryDirectoryURL: URL
+    ) async throws -> RequestedFileBatch {
+        let knownPaths = TemporaryPlaybackInputDeduplicator(
+            temporaryDirectoryURL: temporaryDirectoryURL
+        )
         var supportedFiles: [URL] = []
         var canonicalPaths: [String] = []
         var skippedItemCount = 0
         supportedFiles.reserveCapacity(
             min(urls.count, MediaImportPolicy.maximumTopLevelSourceCount)
         )
-        for requestedURL in urls {
+        for (index, requestedURL) in urls.enumerated() {
             try Task.checkCancellation()
+            if index.isMultiple(of: TemporaryPlaybackInputDeduplicator.Budget.normalizationBatchSize) {
+                await Task.yield()
+                try Task.checkCancellation()
+            }
             guard requestedURL.isFileURL else {
                 skippedItemCount += 1
                 continue
@@ -295,7 +309,8 @@ final class TemporaryPlaybackSession {
                 continue
             }
             let path = canonicalPath(url)
-            guard knownPaths.insert(path).inserted else { continue }
+            try Task.checkCancellation()
+            guard try knownPaths.insertCanonicalPath(path) else { continue }
             guard supportedFiles.count
                     < MediaImportPolicy.maximumTopLevelSourceCount else {
                 skippedItemCount += 1

@@ -34,7 +34,8 @@ final class DesktopLoopPlaybackNode {
     private var gate = PlaybackGate()
     private var rate: PlaybackRate
     private var loadTask: Task<Void, Never>?
-    private var cancelledLoadTasks: [Task<Void, Never>] = []
+    private var cancelledLoadTasks: [UInt64: Task<Void, Never>] = [:]
+    private var loadTaskGeneration: UInt64?
     private var generation: UInt64 = 0
     private var isReady = false
     private var isShutDown = false
@@ -54,7 +55,7 @@ final class DesktopLoopPlaybackNode {
 
     deinit {
         loadTask?.cancel()
-        cancelledLoadTasks.forEach { $0.cancel() }
+        cancelledLoadTasks.values.forEach { $0.cancel() }
     }
 
     func start(
@@ -75,15 +76,17 @@ final class DesktopLoopPlaybackNode {
         enforceDesktopAudioPolicy()
         state = .loading
 
+        loadTaskGeneration = expectedGeneration
         loadTask = Task { @MainActor [weak self, weak surface] in
-            guard let self, let surface else {
-                return
-            }
+            guard let self else { return }
             defer {
+                cancelledLoadTasks[expectedGeneration] = nil
                 if generation == expectedGeneration {
                     loadTask = nil
+                    loadTaskGeneration = nil
                 }
             }
+            guard let surface else { return }
 
             do {
                 _ = try await engine.load(source)
@@ -190,7 +193,7 @@ final class DesktopLoopPlaybackNode {
     /// Callers that are about to release a security scope must use this path.
     func stopAndDrain() async {
         shutdown()
-        let tasksToDrain = cancelledLoadTasks
+        let tasksToDrain = Array(cancelledLoadTasks.values)
         for task in tasksToDrain {
             await task.value
         }
@@ -295,10 +298,10 @@ final class DesktopLoopPlaybackNode {
     }
 
     private func preserveAndCancelLoadTask() {
-        guard let loadTask else {
+        guard let loadTask, let loadTaskGeneration else {
             return
         }
         loadTask.cancel()
-        cancelledLoadTasks.append(loadTask)
+        cancelledLoadTasks[loadTaskGeneration] = loadTask
     }
 }

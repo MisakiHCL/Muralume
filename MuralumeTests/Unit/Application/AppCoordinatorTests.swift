@@ -1985,6 +1985,39 @@ final class AppCoordinatorTests: XCTestCase {
         return secondItem
     }
 
+    func testNewPlaybackOrCloseIntentWinsWhileFinderCanonicalLookupIsBlocked() async {
+        for shouldClose in [false, true] {
+            let probe = CanonicalPathThreadProbe(blockingCallNumber: 1)
+            let fixture = makeFixture(
+                launchStatus: .disabled, sessionPresentation: .player,
+                canonicalLookup: .init(resolve: { URL(fileURLWithPath: probe.resolve($0)) })
+            )
+            defer { probe.finishBlockedCall() }
+            fixture.coordinator.start(source: .interactive)
+            await waitUntil { fixture.library.scanState == .ready && fixture.playback.readiness == .ready }
+            let outside = URL(fileURLWithPath: "/tmp/Unindexed Finder Request.mp4")
+            fixture.coordinator.handleOpenFiles([outside])
+            let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+            while !probe.didBeginBlockedCall, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+            XCTAssertTrue(probe.didBeginBlockedCall)
+            XCTAssertFalse(probe.didRunOnMainThread)
+            if shouldClose { fixture.coordinator.dismissMainWindow() }
+            else { fixture.coordinator.playLibraryItem(fixture.item) }
+            probe.finishBlockedCall()
+            // Wait behind the first physical resolver, then allow its actor
+            // continuation to observe the newer presentation/selection intent.
+            _ = await fixture.library.libraryItem(matching: outside)
+            for _ in 0..<20 { await Task.yield() }
+            XCTAssertEqual(fixture.playback.source?.url, fixture.item.url)
+            XCTAssertEqual(fixture.library.currentItemID, fixture.item.id)
+            XCTAssertFalse(fixture.library.isExternalPlaybackContext)
+            if shouldClose { XCTAssertTrue(fixture.playback.isPlayerWindowDismissed) }
+            await fixture.coordinator.shutdown()
+        }
+    }
+
     private func makeFixture(
         launchStatus: LaunchAtLoginStatus,
         blockPresetLoad: Bool = false,
@@ -2005,7 +2038,8 @@ final class AppCoordinatorTests: XCTestCase {
             any MediaSourceAccessRecoveryMonitoring =
                 AppCoordinatorSourceAccessRecoveryMonitorSpy(),
         automaticLibraryRefreshSchedule:
-            MediaLibraryAutomaticRefreshSchedule = .production
+            MediaLibraryAutomaticRefreshSchedule = .production,
+        canonicalLookup: MediaLibraryCanonicalLookup = MediaLibraryCanonicalLookup()
     ) -> AppCoordinatorFixture {
         let rootURL = URL(
             fileURLWithPath: "/tmp/AppCoordinatorTests/Library"
@@ -2062,7 +2096,8 @@ final class AppCoordinatorTests: XCTestCase {
             mediaSession: mediaSession,
             scanner: scanner,
             mediaThumbnailProvider: thumbnailProvider,
-            playbackOrder: .ordered
+            playbackOrder: .ordered,
+            canonicalLookup: canonicalLookup
         )
         let playlists = CustomPlaylistController(
             store: AppCoordinatorCustomPlaylistStore(

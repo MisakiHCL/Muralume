@@ -92,6 +92,7 @@ final class TestPlaybackEngine: PlaybackEngine {
     private(set) var playbackEvents: [PlaybackEvent] = []
     var loadErrorsByURL: [URL: PlaybackEngineError] = [:]
     var attachmentErrorsBySurfaceID: [PlaybackSurfaceID: PlaybackEngineError] = [:]
+    var pendingWorkDrainer: (@MainActor () async -> Void)?
     var shouldBlockLoads = false
     var shouldBlockAttachments = false
     var blockedAttachmentError: PlaybackEngineError?
@@ -126,6 +127,10 @@ final class TestPlaybackEngine: PlaybackEngine {
     ) async throws -> TimeInterval {
         loadedTransitions.append(transition)
         return try await load(source)
+    }
+
+    func drainPendingWork() async {
+        await pendingWorkDrainer?()
     }
 
     func finishBlockedLoad(duration: TimeInterval = 120) {

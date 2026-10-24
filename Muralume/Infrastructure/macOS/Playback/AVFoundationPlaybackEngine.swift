@@ -29,6 +29,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     private var selectedEmbeddedSubtitleCursor: SubtitleTimelineCursor?
     private var subtitleSourceURL: URL?
     private let embeddedSubtitleParser: any EmbeddedSubtitleParsing
+    private let assetLoadController: AVFoundationAssetLoadController
     private lazy var embeddedSubtitlePlayback = EmbeddedSubtitlePlaybackController(
         parser: embeddedSubtitleParser
     ) { [weak self] timeline in
@@ -67,9 +68,11 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
 
     init(
         player: AVPlayer = AVQueuePlayer(),
-        embeddedSubtitleParser: any EmbeddedSubtitleParsing = EmbeddedSubtitleParser()
+        embeddedSubtitleParser: any EmbeddedSubtitleParsing = EmbeddedSubtitleParser(),
+        assetLoadController: AVFoundationAssetLoadController = AVFoundationAssetLoadController()
     ) {
         self.embeddedSubtitleParser = embeddedSubtitleParser
+        self.assetLoadController = assetLoadController
         self.player = player
         configuredVolume = PlaybackVolume(rawValue: player.volume)
         configuredMuted = player.isMuted
@@ -84,6 +87,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         _ source: ResolvedMediaSource,
         transition: PlaybackItemTransition
     ) async throws -> TimeInterval {
+        guard !Task.isCancelled else { throw PlaybackEngineError.superseded }
         cancelActiveTransition(reconnectActivePlayer: true)
         seekCoalescer.invalidate()
         let outgoingPlayer = player
@@ -112,42 +116,18 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         selectedEmbeddedSubtitleCursor = nil
         publishEmbeddedSubtitleCueText(nil)
 
-        let sourceLease: MediaPlaybackURLLease
         do {
-            sourceLease = try MediaPlaybackURLLease(sourceURL: source.url)
-        } catch {
-            throw PlaybackEngineError.cannotOpen
-        }
-        let asset = AVURLAsset(url: sourceLease.url)
-
-        do {
-            async let playable = asset.load(.isPlayable)
-            async let duration = asset.load(.duration)
-            async let videoTracks = asset.loadTracks(withMediaType: .video)
-            async let audioGroup = asset.loadMediaSelectionGroup(
-                for: .audible
-            )
-            async let subtitleGroup = asset.loadMediaSelectionGroup(
-                for: .legible
-            )
-            let (
-                isPlayable,
-                assetDuration,
-                tracks,
-                loadedAudioGroup,
-                loadedSubtitleGroup
-            ) = try await (
-                playable,
-                duration,
-                videoTracks,
-                audioGroup,
-                subtitleGroup
-            )
+            let loaded = try await assetLoadController.load(source.url)
+            let asset = loaded.asset
+            let sourceLease = loaded.lease
+            let metadata = loaded.metadata
+            let loadedAudioGroup = metadata.audioGroup
+            let loadedSubtitleGroup = metadata.subtitleGroup
             try Task.checkCancellation()
             guard generation == loadGeneration else {
                 throw PlaybackEngineError.superseded
             }
-            guard isPlayable, !tracks.isEmpty else {
+            guard metadata.isPlayable, !metadata.videoTracks.isEmpty else {
                 throw PlaybackEngineError.unsupported
             }
 
@@ -195,7 +175,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
                 installTimeControlObservation()
             }
 
-            let seconds = assetDuration.seconds
+            let seconds = metadata.duration.seconds
             return seconds.isFinite && seconds > 0 ? seconds : 0
         } catch let error as PlaybackEngineError {
             throw error
@@ -664,6 +644,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     }
 
     func stop() {
+        assetLoadController.cancelAll()
         embeddedSubtitlePlayback.cancel(invalidateValidation: true)
         subtitleSourceURL = nil
         loadGeneration &+= 1
@@ -858,6 +839,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     }
 
     func drainPendingWork() async {
+        await assetLoadController.drain()
         await embeddedSubtitlePlayback.drain()
     }
 
@@ -985,6 +967,10 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
             elapsedNanoseconds += PlaybackPolicy.surfacePollIntervalNanoseconds
         }
 
+        try Task.checkCancellation()
+        guard generation == loadGeneration else {
+            throw PlaybackEngineError.superseded
+        }
         guard item.status == .readyToPlay else {
             throw PlaybackEngineError.cannotOpen
         }

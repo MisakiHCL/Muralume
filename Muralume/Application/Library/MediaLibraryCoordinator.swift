@@ -188,17 +188,6 @@ final class MediaLibraryCoordinator: ObservableObject {
         }
     }
 
-    private struct CanonicalItemLookupIndex {
-        struct RootResolution {
-            let rootURL: URL
-            let canonicalPath: String
-            let canonicalComponents: [String]
-        }
-
-        let contentRevision: UInt64
-        let rootResolutions: [RootResolution]
-    }
-
     /// Search projections use the revision as the identity of `items`.
     /// Publishing both fields together prevents a will-set observer from
     /// pairing a new revision with the previous collection.
@@ -258,6 +247,8 @@ final class MediaLibraryCoordinator: ObservableObject {
 
     var itemsContentRevision: UInt64 { itemsSnapshot.contentRevision }
 
+    var libraryItemsByID: [LibraryMediaItem.ID: LibraryMediaItem] { visibleItemsByID }
+
     var mediaReferenceResolutionIndex: MediaReferenceResolutionIndex {
         itemsSnapshot.resolutionIndex
     }
@@ -292,11 +283,11 @@ final class MediaLibraryCoordinator: ObservableObject {
             ?? visibleItemsByID[currentItemID]
     }
 
-    func libraryItem(matching url: URL) -> LibraryMediaItem? {
+    func libraryItem(matching url: URL) async -> LibraryMediaItem? {
         guard url.isFileURL else {
             return nil
         }
-        return firstItem(matching: [url])
+        return try? await firstItemAsync(matching: [url])
     }
 
     func mediaItem(
@@ -416,7 +407,17 @@ final class MediaLibraryCoordinator: ObservableObject {
     private let snapshotPreparer: any MediaLibrarySnapshotPreparing
     private let preferencesStore: (any AppPreferencesStoring)?
     private let playbackProgressStore: (any PlaybackProgressStoring)?
-    private let reshuffleRestoredQueue: RestoredPlaybackQueueShuffler
+    private let reshuffleRestoredQueue: RestoredPlaybackQueueShuffler?
+    private let canonicalLookup: MediaLibraryCanonicalLookup
+    private let canonicalLookupPool = BoundedMediaWorkPool(
+        maximumConcurrentWorkCount: 1, maximumQueuedWorkCount: 256
+    )
+    private let queueRestorationPreparer: any MediaLibraryQueueRestorationPreparing
+    private let queueRestorationPool = BoundedMediaWorkPool(
+        maximumConcurrentWorkCount: 1, maximumQueuedWorkCount: 1
+    )
+    private var queueRestorationTask: Task<MediaLibraryQueueRestorePreparation, Error>?
+    private var queueRestorationGeneration: UInt64 = 0
     private let temporaryPlaybackSession: TemporaryPlaybackSession
 
     private var activeSources: [MediaSource] = []
@@ -424,7 +425,7 @@ final class MediaLibraryCoordinator: ObservableObject {
     private var visibleItemsByID: [
         LibraryMediaItem.ID: LibraryMediaItem
     ] = [:]
-    private var canonicalItemLookupIndex: CanonicalItemLookupIndex?
+    private var canonicalItemLookupIndex: MediaLibraryCanonicalLookupIndex?
     private var cachedQueueSnapshot:
         PlaybackQueueSnapshot<LibraryMediaItem.ID>?
     private var queue: PlaybackQueue<LibraryMediaItem.ID>? {
@@ -486,9 +487,10 @@ final class MediaLibraryCoordinator: ObservableObject {
         sort: MediaLibrarySort = MediaLibrarySort(),
         preferencesStore: (any AppPreferencesStoring)? = nil,
         playbackProgressStore: (any PlaybackProgressStoring)? = nil,
-        reshuffleRestoredQueue: @escaping RestoredPlaybackQueueShuffler = {
-            $0.reshufflePendingItems()
-        }
+        reshuffleRestoredQueue: RestoredPlaybackQueueShuffler? = nil,
+        queueRestorationPreparer: any MediaLibraryQueueRestorationPreparing =
+            DefaultMediaLibraryQueueRestorationPreparer(),
+        canonicalLookup: MediaLibraryCanonicalLookup = MediaLibraryCanonicalLookup()
     ) {
         self.playback = playback
         self.sourceSelector = sourceSelector
@@ -505,6 +507,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         self.preferencesStore = preferencesStore
         self.playbackProgressStore = playbackProgressStore
         self.reshuffleRestoredQueue = reshuffleRestoredQueue
+        self.queueRestorationPreparer = queueRestorationPreparer
+        self.canonicalLookup = canonicalLookup
 
         playback.itemEndedHandler = { [weak self] in
             self?.handleItemEnded() ?? .unhandled
@@ -813,7 +817,16 @@ final class MediaLibraryCoordinator: ObservableObject {
             selectedURLs, incomingScopePolicy: incomingScopePolicy
         )
         guard !isShutDown, rootIDsPendingRemoval.isEmpty else { return nil }
-        guard !Task.isCancelled,
+        let requestedFileMatches: [LibraryMediaItem?]?
+        do {
+            if !Task.isCancelled, isCurrentSourceAccessOperation(operationGeneration) {
+                requestedFileMatches = try await itemsAsync(
+                    matching: update.requestedFileURLs,
+                    sourceURLs: update.activeSources.map(\.url)
+                )
+            } else { requestedFileMatches = nil }
+        } catch { requestedFileMatches = nil }
+        guard !Task.isCancelled, requestedFileMatches != nil,
               isCurrentSourceAccessOperation(operationGeneration) else {
             // A cancelled batch may already have durably accepted a prefix.
             // Keep those grants visible without reviving its stale play intent.
@@ -843,13 +856,15 @@ final class MediaLibraryCoordinator: ObservableObject {
             return nil
         }
         return finishImportPreparation(
-            update, previouslyPreparedSources: previousSources
+            update, previouslyPreparedSources: previousSources,
+            requestedFileMatches: requestedFileMatches
         )
     }
 
     private func finishImportPreparation(
         _ update: MediaAccessUpdate,
-        previouslyPreparedSources: [MediaSource]
+        previouslyPreparedSources: [MediaSource],
+        requestedFileMatches preparedMatches: [LibraryMediaItem?]? = nil
     ) -> MediaLibraryImportPreparation? {
         if update.acceptedRequestCount == 0 {
             importNotice = switch update.exclusiveRejectionReason {
@@ -884,7 +899,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         preparedSourcesNeedRefresh =
             preparedSourcesNeedRefresh || update.didChangeSources
         if !requestedFileURLs.isEmpty {
-            let requestedFileMatches = items(matching: requestedFileURLs)
+            let requestedFileMatches = preparedMatches ?? items(matching: requestedFileURLs)
             pendingExplicitImportNeedsQueueExpansion =
                 pendingExplicitImportNeedsQueueExpansion
                     || requestedFileMatches.contains {
@@ -941,16 +956,64 @@ final class MediaLibraryCoordinator: ObservableObject {
         guard !isShutDown, rootIDsPendingRemoval.isEmpty else { return nil }
         let urls = sourceSelector.selectSources(for: intent)
         guard let preparation = await prepareImportAsync(urls) else { return nil }
-        commitImport(
-            preparation,
-            autoplayExplicitFiles: autoplay && shouldAutoplayProvider()
+        await commitImportAsync(
+            preparation, autoplayExplicitFiles: autoplay,
+            shouldAutoplayProvider: shouldAutoplayProvider
         )
         return scanState == .scanning ? .scanStarted : .alreadyStarted
     }
 
+    func commitImportAsync(
+        _ preparation: MediaLibraryImportPreparation,
+        autoplayExplicitFiles: Bool = true,
+        shouldAutoplayProvider: @MainActor () -> Bool = { true }
+    ) async {
+        guard !isShutDown, rootIDsPendingRemoval.isEmpty,
+              preparation.generation == importGeneration,
+              preparation.generation > lastCommittedImportGeneration else { return }
+        let selectionRevision = playbackSelectionIntentRevision
+        let explicitURLs = pendingExplicitFileURLs
+        let autoplayURLs = pendingAutoplayFileURLs
+        let matches: [LibraryMediaItem?]
+        let autoplayItem: LibraryMediaItem?
+        do {
+            if autoplayExplicitFiles {
+                let allMatches = try await itemsAsync(
+                    matching: explicitURLs + autoplayURLs,
+                    sourceURLs: latestPreparedSources.map(\.url)
+                )
+                matches = Array(allMatches.prefix(explicitURLs.count))
+                autoplayItem = allMatches.dropFirst(explicitURLs.count).compactMap { $0 }.first
+            } else {
+                matches = []
+                autoplayItem = nil
+            }
+        } catch { return }
+        guard !Task.isCancelled else { return }
+        commitImport(
+            preparation,
+            autoplayExplicitFiles: autoplayExplicitFiles
+                && selectionRevision == playbackSelectionIntentRevision
+                && shouldAutoplayProvider(),
+            preparedMatches: matches, preparedAutoplayItem: autoplayItem
+        )
+    }
+
+    /// Compatibility entry point for synchronous source selectors. Live
+    /// filesystem-backed sessions prepare and commit through the async path.
     func commitImport(
         _ preparation: MediaLibraryImportPreparation,
         autoplayExplicitFiles: Bool = true
+    ) {
+        commitImport(preparation, autoplayExplicitFiles: autoplayExplicitFiles,
+                     preparedMatches: nil, preparedAutoplayItem: nil)
+    }
+
+    private func commitImport(
+        _ preparation: MediaLibraryImportPreparation,
+        autoplayExplicitFiles: Bool,
+        preparedMatches: [LibraryMediaItem?]?,
+        preparedAutoplayItem: LibraryMediaItem?
     ) {
         guard !isShutDown,
               rootIDsPendingRemoval.isEmpty,
@@ -977,11 +1040,12 @@ final class MediaLibraryCoordinator: ObservableObject {
             return
         }
 
-        let explicitFileMatches = items(matching: explicitFileURLs)
+        let explicitFileMatches = preparedMatches ?? items(matching: explicitFileURLs)
         let everyExplicitFileIsVisible = !explicitFileURLs.isEmpty
             && explicitFileMatches.allSatisfy { $0 != nil }
-        if everyExplicitFileIsVisible,
-           let existingItem = firstItem(matching: pendingAutoplayFileURLs) {
+        let autoplayItem = preparedMatches != nil
+            ? preparedAutoplayItem : firstItem(matching: pendingAutoplayFileURLs)
+        if everyExplicitFileIsVisible, let existingItem = autoplayItem {
             activateImportedItem(
                 existingItem,
                 expandQueue: needsQueueExpansion
@@ -1042,10 +1106,12 @@ final class MediaLibraryCoordinator: ObservableObject {
         guard let preparation = await prepareImportAsync(
                 [item.url], incomingScopePolicy: .callerManaged
               ) else { return false }
-        commitImport(
+        await commitImportAsync(
             preparation,
-            autoplayExplicitFiles: selectionRevision == playbackSelectionIntentRevision
-                && !playback.isPlayerWindowDismissed
+            shouldAutoplayProvider: {
+                selectionRevision == self.playbackSelectionIntentRevision
+                    && !self.playback.isPlayerWindowDismissed
+            }
         )
         return true
     }
@@ -1060,7 +1126,7 @@ final class MediaLibraryCoordinator: ObservableObject {
               let preparation = await prepareImportAsync(
                 urls, incomingScopePolicy: .callerManaged
               ) else { return false }
-        commitImport(preparation, autoplayExplicitFiles: false)
+        await commitImportAsync(preparation, autoplayExplicitFiles: false)
         return preparation.acceptedEveryRequest
     }
 
@@ -1944,135 +2010,103 @@ final class MediaLibraryCoordinator: ObservableObject {
         collectionItems: [LibraryMediaItem]? = nil,
         attachToPlayerSurface: Bool = false
     ) async -> MediaLibraryQueueRestoreResult {
-        guard !Task.isCancelled,
-              !isShutDown,
-              rootIDsPendingRemoval.isEmpty else {
+        guard !Task.isCancelled, !isShutDown, rootIDsPendingRemoval.isEmpty else {
             return .cancelled
         }
-        guard scanState == .ready else {
-            return .temporarilyUnavailable
-        }
-        let resolvedCollectionItems: [LibraryMediaItem]? = switch
-            playbackCollection {
-        case .mediaLibrary, .fixed:
-            nil
-        case let .customPlaylist(id):
-            collectionItems ?? customPlaylistItemsProvider?(id)
-        }
-        let restoredPlaybackCollection: PlaybackCollection
-        if case .customPlaylist = playbackCollection,
-           resolvedCollectionItems == nil {
-            // A saved playlist may have been deleted before this queue is
-            // restored. Preserve the surviving media as a fixed queue rather
-            // than persisting a dangling playlist identity indefinitely.
-            restoredPlaybackCollection = .fixed
-        } else {
-            restoredPlaybackCollection = playbackCollection
-        }
-        let availableItemsByID = visibleItemsByID
-        let resolvedItemsByQueuedID = MediaReferenceResolutionIndex(
-            items: items
-        ).resolvePersistedQueueItems(
-            queuedItemIDs: snapshot.items,
-            references: queueMediaReferences
-        )
-        let canonicalSnapshot = remappedQueueSnapshot(
-            snapshot,
-            using: resolvedItemsByQueuedID
-        )
-        guard var restoredQueue = PlaybackQueue(
-            snapshot: canonicalSnapshot
-        ) else {
-            return .permanentlyUnavailable
-        }
-        var missingItemIDs: Set<LibraryMediaItem.ID> = []
-        for itemID in canonicalSnapshot.items
-        where availableItemsByID[itemID] == nil {
-            missingItemIDs.insert(itemID)
-        }
-        if !missingItemIDs.isEmpty {
-            let requestedRootPaths = Set(
-                activeSources.map { $0.id.standardizedPath }
-            )
-            let missingMediaPathComponents = Set(
-                missingItemIDs.map(\.standardizedMediaPath)
-            ).map {
-                LexicalPathCoverageIndex.pathComponents(for: $0)
-            }
-            let incompleteRootCoverage = LexicalPathCoverageIndex(
-                sourcePaths: incompleteRootPaths
-            )
-            let requestedRootCoverage = LexicalPathCoverageIndex(
-                sourcePaths: requestedRootPaths
-            )
-            let visibleRootCoverage = LexicalPathCoverageIndex(
-                sourcePaths: roots.map(\.id.standardizedPath)
-            )
-            let hasIncompleteRoot = missingMediaPathComponents.contains {
-                incompleteRootCoverage.covers(mediaPathComponents: $0)
-            }
-            let hasUnavailableRequestedRoot = missingMediaPathComponents
-                .contains {
-                    requestedRootCoverage.covers(mediaPathComponents: $0)
-                        && !visibleRootCoverage.covers(
-                            mediaPathComponents: $0
-                        )
-                }
-            let hasPossiblyUnavailableUnresolvedRoot =
-                mediaSession.hasUnavailablePersistedSources
-                    && missingMediaPathComponents.contains {
-                        !visibleRootCoverage.covers(mediaPathComponents: $0)
-                    }
-            if hasIncompleteRoot
-                || hasUnavailableRequestedRoot
-                || hasPossiblyUnavailableUnresolvedRoot {
-                return .temporarilyUnavailable
+        guard scanState == .ready else { return .temporarilyUnavailable }
+        queueRestorationGeneration &+= 1
+        let restorationGeneration = queueRestorationGeneration
+        queueRestorationTask?.cancel()
+        let selectionRevision = playbackSelectionIntentRevision
+        let capturedQueueState = queueStateRevision
+        let capturedLoadGeneration = loadGeneration
+        defer {
+            if restorationGeneration == queueRestorationGeneration {
+                queueRestorationTask = nil
             }
         }
-
-        invalidateLoad()
-        if !missingItemIDs.isEmpty {
-            _ = restoredQueue.remove(missingItemIDs)
-        }
-        if case .customPlaylist = playbackCollection,
-           let resolvedCollectionItems {
-            _ = restoredQueue.synchronizeItems(
-                resolvedCollectionItems.map(\.id),
-                pendingOrderPolicy: .authoritative
+        while true {
+            guard !Task.isCancelled, !isShutDown, rootIDsPendingRemoval.isEmpty,
+                  restorationGeneration == queueRestorationGeneration,
+                  selectionRevision == playbackSelectionIntentRevision,
+                  capturedQueueState == queueStateRevision,
+                  capturedLoadGeneration == loadGeneration else { return .cancelled }
+            guard scanState == .ready else { return .temporarilyUnavailable }
+            let resolvedCollectionItems: [LibraryMediaItem]? = switch playbackCollection {
+            case .mediaLibrary, .fixed: nil
+            case let .customPlaylist(id): collectionItems ?? customPlaylistItemsProvider?(id)
+            }
+            let restoredCollection: PlaybackCollection
+            if case .customPlaylist = playbackCollection, resolvedCollectionItems == nil {
+                restoredCollection = .fixed
+            } else { restoredCollection = playbackCollection }
+            let contentRevision = itemsContentRevision
+            let sourceRevision = sourceAccessOperationGeneration
+            let requestedOrder = playbackOrder
+            let request = MediaLibraryQueueRestoreRequest(
+                snapshot: snapshot, references: queueMediaReferences,
+                resolutionIndex: mediaReferenceResolutionIndex, itemsByID: visibleItemsByID,
+                collectionItems: resolvedCollectionItems,
+                requestedRootPaths: Set(activeSources.map(\.id.standardizedPath)),
+                visibleRootPaths: Set(roots.map(\.id.standardizedPath)),
+                incompleteRootPaths: incompleteRootPaths,
+                hasUnavailableSources: mediaSession.hasUnavailablePersistedSources,
+                playbackOrder: requestedOrder, usesCustomShuffler: reshuffleRestoredQueue != nil
+            )
+            let pool = queueRestorationPool
+            let preparer = queueRestorationPreparer
+            let task = Task {
+                try await pool.run { try await preparer.prepare(request) }
+            }
+            queueRestorationTask = task
+            let preparation: MediaLibraryQueueRestorePreparation
+            do {
+                preparation = try await withTaskCancellationHandler {
+                    try await task.value
+                } onCancel: { task.cancel() }
+            } catch { return .cancelled }
+            guard !Task.isCancelled, !isShutDown, rootIDsPendingRemoval.isEmpty,
+                  restorationGeneration == queueRestorationGeneration,
+                  selectionRevision == playbackSelectionIntentRevision,
+                  capturedQueueState == queueStateRevision,
+                  capturedLoadGeneration == loadGeneration else { return .cancelled }
+            // Library and playlist edits can interleave while the pure worker
+            // runs. Retry only data changes; a newer playback intent wins.
+            guard contentRevision == itemsContentRevision,
+                  sourceRevision == sourceAccessOperationGeneration,
+                  requestedOrder == playbackOrder else { continue }
+            if case let .customPlaylist(id) = playbackCollection, collectionItems == nil,
+               customPlaylistItemsProvider?(id) != resolvedCollectionItems { continue }
+            let prepared: PreparedMediaLibraryQueueRestore
+            switch preparation {
+            case .temporarilyUnavailable: return .temporarilyUnavailable
+            case .invalidSnapshot: return .permanentlyUnavailable
+            case .emptyQueue:
+                stopPlaybackAndClearQueue()
+                return .permanentlyUnavailable
+            case let .ready(value): prepared = value
+            }
+            var restoredQueue = prepared.queue
+            if snapshot.order == requestedOrder, requestedOrder == .shuffled {
+                reshuffleRestoredQueue?(&restoredQueue)
+            }
+            guard let restoredItemID = restoredQueue.currentItem else {
+                return .permanentlyUnavailable
+            }
+            invalidateLoad()
+            queueItemsByID = prepared.itemsByID
+            playbackQueueMembership = Self.queueMembership(for: restoredCollection)
+            queue = restoredQueue
+            currentItemID = restoredItemID
+            publishQueueChange()
+            replaceUnavailableItemIDs(
+                with: unavailableItemIDs.intersection(visibleItemsByID.keys)
+            )
+            return await loadRestoredQueueItem(
+                attemptsRemaining: restoredQueue.count,
+                attachToPlayerSurface: attachToPlayerSurface
             )
         }
-        guard !restoredQueue.isEmpty,
-              let restoredItemID = restoredQueue.currentItem else {
-            stopPlaybackAndClearQueue()
-            return .permanentlyUnavailable
-        }
-
-        // The cached global mode is the runtime truth. A real process restore
-        // also refreshes the unplayed part of an existing shuffled round.
-        if restoredQueue.order != playbackOrder {
-            restoredQueue.setOrder(playbackOrder)
-        } else if playbackOrder == .shuffled {
-            reshuffleRestoredQueue(&restoredQueue)
-        }
-
-        let activeItemIDs = Set(restoredQueue.items)
-        queueItemsByID = availableItemsByID.filter {
-            activeItemIDs.contains($0.key)
-        }
-        playbackQueueMembership = Self.queueMembership(
-            for: restoredPlaybackCollection
-        )
-        queue = restoredQueue
-        currentItemID = restoredItemID
-        publishQueueChange()
-        replaceUnavailableItemIDs(
-            with: unavailableItemIDs.intersection(availableItemsByID.keys)
-        )
-
-        return await loadRestoredQueueItem(
-            attemptsRemaining: restoredQueue.count,
-            attachToPlayerSurface: attachToPlayerSurface
-        )
     }
 
     func discardRestoredQueue() {
@@ -2084,6 +2118,9 @@ final class MediaLibraryCoordinator: ObservableObject {
             return
         }
         isShutDown = true
+        queueRestorationGeneration &+= 1
+        queueRestorationTask?.cancel()
+        queueRestorationTask = nil
         invalidateSourceAccessOperation()
         temporaryPlaybackGeneration &+= 1
         temporaryPlaybackSession.end()
@@ -2187,20 +2224,21 @@ final class MediaLibraryCoordinator: ObservableObject {
                             representedCandidates,
                             scanGeneration: generation
                         )
-                        if isExplicitIntentCurrent(
-                            explicitIntentGeneration
-                        ), let candidate = firstItem(
-                            matching: autoplayFileURLs,
-                            in: representedCandidates
-                        ) {
-                            activateImportedItem(
-                                candidate,
-                                expandQueue: expandQueueForExplicitImport
+                        if isExplicitIntentCurrent(explicitIntentGeneration) {
+                            let selectionRevision = playbackSelectionIntentRevision
+                            let candidate = try await firstItemAsync(
+                                matching: autoplayFileURLs, in: representedCandidates
                             )
-                            clearPendingExplicitImport(
-                                matching: explicitIntentGeneration
-                            )
-                            didFulfillExplicitIntent = true
+                            try Task.checkCancellation()
+                            guard generation == scanGeneration, !isShutDown else { return }
+                            if selectionRevision != playbackSelectionIntentRevision {
+                                clearPendingExplicitImport(matching: explicitIntentGeneration)
+                                didFulfillExplicitIntent = true
+                            } else if isExplicitIntentCurrent(explicitIntentGeneration), let candidate {
+                                activateImportedItem(candidate, expandQueue: expandQueueForExplicitImport)
+                                clearPendingExplicitImport(matching: explicitIntentGeneration)
+                                didFulfillExplicitIntent = true
+                            }
                         }
                         if sourcePathSet(sources)
                             == sourcePathSet(candidateSources) {
@@ -2234,17 +2272,15 @@ final class MediaLibraryCoordinator: ObservableObject {
                 )
                 if !didFulfillExplicitIntent,
                    isExplicitIntentCurrent(explicitIntentGeneration) {
-                    if let candidate = firstItem(
-                        matching: autoplayFileURLs
-                    ) {
-                        activateImportedItem(
-                            candidate,
-                            expandQueue: expandQueueForExplicitImport
-                        )
+                    let selectionRevision = playbackSelectionIntentRevision
+                    let candidate = try await firstItemAsync(matching: autoplayFileURLs)
+                    try Task.checkCancellation()
+                    guard generation == scanGeneration, !isShutDown else { return }
+                    if selectionRevision == playbackSelectionIntentRevision,
+                       isExplicitIntentCurrent(explicitIntentGeneration), let candidate {
+                        activateImportedItem(candidate, expandQueue: expandQueueForExplicitImport)
                     }
-                    clearPendingExplicitImport(
-                        matching: explicitIntentGeneration
-                    )
+                    clearPendingExplicitImport(matching: explicitIntentGeneration)
                 }
                 if let importGeneration,
                    importGeneration == self.importGeneration,
@@ -2709,6 +2745,53 @@ final class MediaLibraryCoordinator: ObservableObject {
         }
     }
 
+    private func firstItemAsync(
+        matching urls: [URL], in candidates: [LibraryMediaItem]? = nil
+    ) async throws -> LibraryMediaItem? {
+        try await itemsAsync(matching: urls, in: candidates).compactMap { $0 }.first
+    }
+
+    private func itemsAsync(
+        matching urls: [URL], in candidates: [LibraryMediaItem]? = nil,
+        sourceURLs: [URL]? = nil
+    ) async throws -> [LibraryMediaItem?] {
+        while true {
+            try Task.checkCancellation()
+            guard !isShutDown else { throw CancellationError() }
+            let revision = itemsContentRevision
+            let orderRevision = itemsRevision
+            let lookupItems = candidates ?? items
+            let itemsByID = candidates.map(Self.mediaItemsByID) ?? visibleItemsByID
+            let exact = urls.map { itemsByID[LibraryMediaItem.ID(mediaURL: $0)] }
+            if !exact.contains(where: { $0 == nil }) { return exact }
+            let roots = candidates.map { values in
+                Dictionary(values.map { ($0.id.rootPath, $0.rootURL) },
+                           uniquingKeysWith: { first, _ in first })
+            } ?? itemsSnapshot.rootURLsByPath
+            // Equal URL strings can carry different bookmark scope contexts.
+            // Both bounded source snapshots retain their exact claims.
+            let sourceClaims = activeSources.map(\.url) + (sourceURLs ?? [])
+            let request = MediaLibraryCanonicalLookupRequest(
+                urls: urls, items: lookupItems, itemsByID: itemsByID,
+                rootURLsByPath: roots, contentRevision: revision,
+                cachedIndex: candidates == nil ? canonicalItemLookupIndex : nil,
+                sourceURLs: sourceClaims
+            )
+            let lookup = canonicalLookup
+            let prepared = try await canonicalLookupPool.run { try lookup.prepare(request) }
+            try Task.checkCancellation()
+            guard !isShutDown else { throw CancellationError() }
+            if candidates == nil {
+                guard revision == itemsContentRevision, orderRevision == itemsRevision else { continue }
+                canonicalItemLookupIndex = prepared.index
+#if DEBUG
+                if prepared.rebuiltIndex { canonicalItemLookupIndexBuildCountForTesting += 1 }
+#endif
+            }
+            return prepared.matches
+        }
+    }
+
     private func firstItem(
         matching fileURLs: [URL],
         in candidates: [LibraryMediaItem]? = nil
@@ -2734,7 +2817,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         let canonicalIndex = if candidates == nil {
             canonicalItemLookupIndexForVisibleItems()
         } else {
-            makeCanonicalItemLookupIndex(
+            makeMediaLibraryCanonicalLookupIndex(
                 rootURLsByPath: Dictionary(
                     candidateItems.map { ($0.id.rootPath, $0.rootURL) },
                     uniquingKeysWith: { first, _ in first }
@@ -2767,7 +2850,7 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     private func canonicalItemLookupIndexForVisibleItems()
-        -> CanonicalItemLookupIndex {
+        -> MediaLibraryCanonicalLookupIndex {
         // A root symlink can be retargeted without publishing new items.
         // Revalidate only the roots before reusing the large item index.
         if let canonicalItemLookupIndex,
@@ -2779,7 +2862,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             return canonicalItemLookupIndex
         }
 
-        let index = makeCanonicalItemLookupIndex(
+        let index = makeMediaLibraryCanonicalLookupIndex(
             rootURLsByPath: itemsSnapshot.rootURLsByPath,
             contentRevision: itemsContentRevision
         )
@@ -2790,18 +2873,18 @@ final class MediaLibraryCoordinator: ObservableObject {
         return index
     }
 
-    private func makeCanonicalItemLookupIndex(
+    private func makeMediaLibraryCanonicalLookupIndex(
         rootURLsByPath: [String: URL],
         contentRevision: UInt64
-    ) -> CanonicalItemLookupIndex {
+    ) -> MediaLibraryCanonicalLookupIndex {
         let rootResolutions = rootURLsByPath.values.map { rootURL in
             let canonicalURL = canonicalComparisonURL(rootURL)
-            return CanonicalItemLookupIndex.RootResolution(
+            return MediaLibraryCanonicalLookupIndex.RootResolution(
                 rootURL: rootURL, canonicalPath: canonicalURL.path,
                 canonicalComponents: canonicalURL.pathComponents
             )
         }
-        return CanonicalItemLookupIndex(
+        return MediaLibraryCanonicalLookupIndex(
             contentRevision: contentRevision,
             rootResolutions: rootResolutions
         )

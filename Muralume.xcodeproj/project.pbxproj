@@ -206,6 +206,16 @@
 		16B4377C9ECC4D8A8FE7C182 /* EmbeddedSubtitlePlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 060965ED2E4F42E997A0D10C /* EmbeddedSubtitlePlaybackTests.swift */; };
 		93B9F10CD4074327A436716A /* TemporaryPlaybackSessionConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8204D40A96B4A63AC870490 /* TemporaryPlaybackSessionConcurrencyTests.swift */; };
 		3C5FAD13A78F44D08400E8E5 /* FilePlaybackProgressJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = CED56C208EB24DA6866FC944 /* FilePlaybackProgressJournal.swift */; };
+		90BB94FE97B342F5919B6EF9 /* DesktopMediaSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F31F9919C145DEBBE8C25B /* DesktopMediaSearch.swift */; };
+		87CF3E4300514603AC9A392D /* MediaLibraryCanonicalLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88DFB09E1C0444E88BD9029 /* MediaLibraryCanonicalLookup.swift */; };
+		C1B74067AD074F888CC80D7C /* MediaLibraryQueueRestorationPreparer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86A4B39A081F4F03B447C8EC /* MediaLibraryQueueRestorationPreparer.swift */; };
+		9F5BF9566874430FA74675EC /* TemporaryPlaybackInputDeduplicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B31F3C0055CC4FF780754678 /* TemporaryPlaybackInputDeduplicator.swift */; };
+		E5A9C8AB85EF4190B80B0D18 /* AVFoundationAssetLoadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38C4BC62BEA340278FBA6292 /* AVFoundationAssetLoadController.swift */; };
+		57D9A01BAFCE4B97ADDFCDE1 /* AVFoundationPlaybackLoadingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ED1E3C1D1CB4EB199AB3A1A /* AVFoundationPlaybackLoadingTests.swift */; };
+		6C594EABD2044E21B2C9A57E /* DesktopMediaSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01FCED70181247ECB150679F /* DesktopMediaSearchTests.swift */; };
+		CD646178AA7048A383E781A7 /* TemporaryPlaybackInputDeduplicatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57737C236A98449FA4338B87 /* TemporaryPlaybackInputDeduplicatorTests.swift */; };
+		C6D5CCB4195A4CF7969A57D9 /* MediaLibraryCanonicalLookupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EAF7155E5F8499D94485524 /* MediaLibraryCanonicalLookupTests.swift */; };
+		8070CC9B3F82450D870D8C9F /* MediaLibraryQueueRestorationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDAF22F71B65452080A97D9B /* MediaLibraryQueueRestorationTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -433,6 +443,16 @@
 		060965ED2E4F42E997A0D10C /* EmbeddedSubtitlePlaybackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedSubtitlePlaybackTests.swift; sourceTree = "<group>"; };
 		F8204D40A96B4A63AC870490 /* TemporaryPlaybackSessionConcurrencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporaryPlaybackSessionConcurrencyTests.swift; sourceTree = "<group>"; };
 		CED56C208EB24DA6866FC944 /* FilePlaybackProgressJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePlaybackProgressJournal.swift; sourceTree = "<group>"; };
+		B1F31F9919C145DEBBE8C25B /* DesktopMediaSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopMediaSearch.swift; sourceTree = "<group>"; };
+		B88DFB09E1C0444E88BD9029 /* MediaLibraryCanonicalLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryCanonicalLookup.swift; sourceTree = "<group>"; };
+		86A4B39A081F4F03B447C8EC /* MediaLibraryQueueRestorationPreparer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryQueueRestorationPreparer.swift; sourceTree = "<group>"; };
+		B31F3C0055CC4FF780754678 /* TemporaryPlaybackInputDeduplicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporaryPlaybackInputDeduplicator.swift; sourceTree = "<group>"; };
+		38C4BC62BEA340278FBA6292 /* AVFoundationAssetLoadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVFoundationAssetLoadController.swift; sourceTree = "<group>"; };
+		8ED1E3C1D1CB4EB199AB3A1A /* AVFoundationPlaybackLoadingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVFoundationPlaybackLoadingTests.swift; sourceTree = "<group>"; };
+		01FCED70181247ECB150679F /* DesktopMediaSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopMediaSearchTests.swift; sourceTree = "<group>"; };
+		57737C236A98449FA4338B87 /* TemporaryPlaybackInputDeduplicatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporaryPlaybackInputDeduplicatorTests.swift; sourceTree = "<group>"; };
+		8EAF7155E5F8499D94485524 /* MediaLibraryCanonicalLookupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryCanonicalLookupTests.swift; sourceTree = "<group>"; };
+		BDAF22F71B65452080A97D9B /* MediaLibraryQueueRestorationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryQueueRestorationTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -510,6 +530,7 @@
 				F23000000000000000000001 /* AVFoundationMediaSelectionContext.swift */,
 				F18000000000000000000004 /* EmbeddedSubtitleParser.swift */,
 				F19000000000000000000002 /* AVAssetVideoInformationLoader.swift */,
+				38C4BC62BEA340278FBA6292 /* AVFoundationAssetLoadController.swift */,
 				CED56C208EB24DA6866FC944 /* FilePlaybackProgressJournal.swift */,
 				92C6CEB31B0C4DC2A49B61C3 /* EmbeddedSubtitlePlaybackController.swift */,
 				F17000000000000000000002 /* MacVideoScreenshotController.swift */,
@@ -627,6 +648,10 @@
 			isa = PBXGroup;
 			children = (
 				C10000000000000000000001 /* AppCoordinatorTests.swift */,
+				BDAF22F71B65452080A97D9B /* MediaLibraryQueueRestorationTests.swift */,
+				8EAF7155E5F8499D94485524 /* MediaLibraryCanonicalLookupTests.swift */,
+				57737C236A98449FA4338B87 /* TemporaryPlaybackInputDeduplicatorTests.swift */,
+				01FCED70181247ECB150679F /* DesktopMediaSearchTests.swift */,
 				F8204D40A96B4A63AC870490 /* TemporaryPlaybackSessionConcurrencyTests.swift */,
 				AC0000000000000000000005 /* AppLocalizationControllerTests.swift */,
 				B30000000000000000000002 /* AppPreferencesStoreTests.swift */,
@@ -769,6 +794,7 @@
 			isa = PBXGroup;
 			children = (
 				AD0000000000000000000001 /* ApplicationPresenceControlling.swift */,
+				B1F31F9919C145DEBBE8C25B /* DesktopMediaSearch.swift */,
 				04EA790966A046CEBC7029BF /* DesktopHosting.swift */,
 				57303ACF6F0F43E7804B20A3 /* DesktopSessionCoordinator.swift */,
 				74A5203BC7984913AC2EB88C /* DesktopStatusPresenting.swift */,
@@ -845,6 +871,9 @@
 				FB0000000000000000000001 /* TemporaryPlaybackSession.swift */,
 				C2F84888D54F7A676BDBEA77 /* MediaReference.swift */,
 				4C04FA1EFB53F38295077A37 /* CustomPlaylist.swift */,
+				B31F3C0055CC4FF780754678 /* TemporaryPlaybackInputDeduplicator.swift */,
+				86A4B39A081F4F03B447C8EC /* MediaLibraryQueueRestorationPreparer.swift */,
+				B88DFB09E1C0444E88BD9029 /* MediaLibraryCanonicalLookup.swift */,
 				369E39088771FE07E72F36EC /* CustomPlaylistController.swift */,
 				9D7BC8F805672D4BE8D8DE0F /* MediaCollectionSearch.swift */,
 				B5B3A77164612191AD6646DE /* PlaybackCollection.swift */,
@@ -988,6 +1017,7 @@
 			isa = PBXGroup;
 			children = (
 				25EA2A620F0248ECAA3D369A /* AVFoundationPlaybackEngineTests.swift */,
+				8ED1E3C1D1CB4EB199AB3A1A /* AVFoundationPlaybackLoadingTests.swift */,
 				060965ED2E4F42E997A0D10C /* EmbeddedSubtitlePlaybackTests.swift */,
 				F22000000000000000000002 /* MediaPlaybackCompatibilityTests.swift */,
 				F23000000000000000000002 /* SeamlessPlaybackTransitionTests.swift */,
@@ -1245,6 +1275,7 @@
 				B20000000000000000000011 /* MacMainMenuController.swift in Sources */,
 				F12000000000000000000001 /* MacMediaSearchMenuCommand.swift in Sources */,
 				AD0000000000000000000011 /* ApplicationPresenceControlling.swift in Sources */,
+				90BB94FE97B342F5919B6EF9 /* DesktopMediaSearch.swift in Sources */,
 				503929CB4E9F4F67A28AB24C /* DesktopHosting.swift in Sources */,
 				A81963B767464C4EA9C5E7A6 /* DesktopSessionCoordinator.swift in Sources */,
 				8B219C03A6BB4C95BECB2374 /* DesktopStatusPresenting.swift in Sources */,
@@ -1322,6 +1353,7 @@
 				F23000000000000000000011 /* AVFoundationMediaSelectionContext.swift in Sources */,
 				F18000000000000000000003 /* EmbeddedSubtitleParser.swift in Sources */,
 				F19000000000000000000012 /* AVAssetVideoInformationLoader.swift in Sources */,
+				E5A9C8AB85EF4190B80B0D18 /* AVFoundationAssetLoadController.swift in Sources */,
 				3C5FAD13A78F44D08400E8E5 /* FilePlaybackProgressJournal.swift in Sources */,
 				FD3A9882F7964CDDB3689242 /* EmbeddedSubtitlePlaybackController.swift in Sources */,
 				F17000000000000000000012 /* MacVideoScreenshotController.swift in Sources */,
@@ -1362,6 +1394,9 @@
 				2CC637A1BABB9D96CD6D1A53 /* DesktopMediaSelectionControl.swift in Sources */,
 				2907B982357F9ABEEF327508 /* MediaReference.swift in Sources */,
 				DF3210AADD83404E21A8C874 /* CustomPlaylist.swift in Sources */,
+				9F5BF9566874430FA74675EC /* TemporaryPlaybackInputDeduplicator.swift in Sources */,
+				C1B74067AD074F888CC80D7C /* MediaLibraryQueueRestorationPreparer.swift in Sources */,
+				87CF3E4300514603AC9A392D /* MediaLibraryCanonicalLookup.swift in Sources */,
 				D98FAF7E0A423C85393A76DE /* CustomPlaylistController.swift in Sources */,
 				E3E4C365E7AA107D20770C13 /* FileCustomPlaylistStore.swift in Sources */,
 				4DE64487F4EA2FB66E4FD059 /* MediaCollectionSearch.swift in Sources */,
@@ -1391,6 +1426,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				C10000000000000000000011 /* AppCoordinatorTests.swift in Sources */,
+				8070CC9B3F82450D870D8C9F /* MediaLibraryQueueRestorationTests.swift in Sources */,
+				C6D5CCB4195A4CF7969A57D9 /* MediaLibraryCanonicalLookupTests.swift in Sources */,
+				CD646178AA7048A383E781A7 /* TemporaryPlaybackInputDeduplicatorTests.swift in Sources */,
+				6C594EABD2044E21B2C9A57E /* DesktopMediaSearchTests.swift in Sources */,
 				93B9F10CD4074327A436716A /* TemporaryPlaybackSessionConcurrencyTests.swift in Sources */,
 				AE0000000000000000000011 /* AppDelegateTests.swift in Sources */,
 				AC0000000000000000000015 /* AppLocalizationControllerTests.swift in Sources */,
@@ -1417,6 +1456,7 @@
 				D92000000000000000000011 /* FileSystemMediaAvailabilityTests.swift in Sources */,
 				AB0000000000000000000002 /* UserSelectedMediaSessionTests.swift in Sources */,
 				004C99C5AE9B45B3AE32AB2A /* AVFoundationPlaybackEngineTests.swift in Sources */,
+				57D9A01BAFCE4B97ADDFCDE1 /* AVFoundationPlaybackLoadingTests.swift in Sources */,
 				16B4377C9ECC4D8A8FE7C182 /* EmbeddedSubtitlePlaybackTests.swift in Sources */,
 				F22000000000000000000012 /* MediaPlaybackCompatibilityTests.swift in Sources */,
 				F23000000000000000000012 /* SeamlessPlaybackTransitionTests.swift in Sources */,

@@ -74,6 +74,7 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
     }
 
     private struct PendingDrain {
+        let displayID: DesktopDisplayID
         let itemID: LibraryMediaItem.ID
         let task: Task<Void, Never>
     }
@@ -360,6 +361,13 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
             }
         }
         removeNode(for: displayID)
+        // Replacing an engine cannot bypass its real worker budget. Keep only
+        // the latest assignment in the existing dictionary while this display
+        // drains; another display remains independent and can load normally.
+        if pendingDrains.values.contains(where: { $0.displayID == displayID }) {
+            publish(.loading, for: displayID)
+            return
+        }
 
         guard let source = sourceResolver?(itemID) else {
             publish(.failed(.cannotOpen), for: displayID)
@@ -409,19 +417,19 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
         }
         activeNode.node.stateDidChangeHandler = nil
         activeNode.node.shutdown()
-        scheduleDrain(for: activeNode)
+        scheduleDrain(for: activeNode, displayID: displayID)
         displayStates[displayID] = nil
         displayFailures[displayID] = nil
         playbackStateDidChangeHandler?()
     }
 
     private func removeAllNodes() {
-        let activeNodes = Array(nodes.values)
+        let activeNodes = Array(nodes)
         nodes.removeAll()
-        activeNodes.forEach { activeNode in
+        activeNodes.forEach { displayID, activeNode in
             activeNode.node.stateDidChangeHandler = nil
             activeNode.node.shutdown()
-            scheduleDrain(for: activeNode)
+            scheduleDrain(for: activeNode, displayID: displayID)
         }
         displayStates.removeAll()
         displayFailures.removeAll()
@@ -524,15 +532,24 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
         return .failed(Self.aggregateFailure(failures))
     }
 
-    private func scheduleDrain(for activeNode: ActiveNode) {
+    private func scheduleDrain(
+        for activeNode: ActiveNode,
+        displayID: DesktopDisplayID
+    ) {
         nextDrainID &+= 1
         let drainID = nextDrainID
         let node = activeNode.node
         let drainTask = Task { @MainActor [weak self, node] in
             await node.stopAndDrain()
-            self?.pendingDrains[drainID] = nil
+            guard let self else { return }
+            pendingDrains[drainID] = nil
+            guard isStarted, !isShutDown else { return }
+            // Read the current assignment and surface after the actual drain;
+            // intermediate requests were coalesced without creating engines.
+            reconcilePlaybackNode(for: displayID)
         }
         pendingDrains[drainID] = PendingDrain(
+            displayID: displayID,
             itemID: activeNode.itemID,
             task: drainTask
         )
