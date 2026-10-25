@@ -1700,7 +1700,7 @@ final class MediaLibraryCoordinator: ObservableObject {
                     defer { withExtendedLifetime(access) {} }
                     try access.acquire(for: storage.request)
                     let plan = try await preparer.prepare(storage.request)
-                    return await MainActor.run { () -> AppliedRootRemoval? in
+                    return await MainActor.run { [weak self] () -> AppliedRootRemoval? in
                         guard let self, !self.isShutDown,
                               stamp.itemsRevision == self.itemsRevision,
                               stamp.queueStateRevision == self.queueStateRevision,
@@ -2615,7 +2615,7 @@ final class MediaLibraryCoordinator: ObservableObject {
                     defer { withExtendedLifetime(storage) {} }
                     let plan = try await storage.request.prepare(using: preparer)
                     try Task.checkCancellation()
-                    return try await MainActor.run {
+                    return try await MainActor.run { [weak self] in
                         try Task.checkCancellation()
                         guard let self, generation == self.scanGeneration,
                               !self.isShutDown else { throw CancellationError() }
