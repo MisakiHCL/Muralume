@@ -87,7 +87,9 @@ final class PreparedPlaybackQueueTests: XCTestCase {
         XCTAssertEqual(selected.currentItem?.value, 7_777)
         XCTAssertEqual(workWithoutSelection.hashes, 0)
         XCTAssertLessThanOrEqual(workWithSelection.hashes, 8)
-        XCTAssertLessThanOrEqual(workWithSelection.comparisons, 8)
+        // Hash-table probe lengths vary with each process's randomized seed.
+        // Keep a fixed allowance while still rejecting any collection scan.
+        XCTAssertLessThanOrEqual(workWithSelection.comparisons, 64)
     }
 
     func testPreparedSynchronizationMatchesLegacyNavigationAndRandomState() {

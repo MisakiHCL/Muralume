@@ -7,6 +7,7 @@ enum ExternalSubtitlePolicy {
     static let maximumCueCharacters = 4_096
     static let maximumDirectoryEntries = 512
     static let maximumStoredAssociations = 64
+    static let maximumPendingAssociationRemovals = maximumStoredAssociations
     static let maximumBookmarkBytes = 64 * 1_024
     static let timeUpdateInterval: TimeInterval = 0.05
 }
@@ -155,11 +156,10 @@ protocol ExternalSubtitleDiscovering: Sendable {
     ) -> URL?
 }
 
-@MainActor
-protocol ExternalSubtitleAssociationStoring: AnyObject {
-    func subtitleURL(for mediaURL: URL) -> URL?
-    func save(subtitleURL: URL, for mediaURL: URL)
-    func removeSubtitleURL(for mediaURL: URL)
+protocol ExternalSubtitleAssociationStoring: AnyObject, Sendable {
+    func subtitleURL(for mediaURL: URL) async -> URL?
+    func save(subtitleURL: URL, for mediaURL: URL) async
+    func removeSubtitleURL(for mediaURL: URL) async
 }
 
 @MainActor

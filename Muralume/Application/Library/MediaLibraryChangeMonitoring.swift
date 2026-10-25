@@ -5,11 +5,11 @@ enum MediaLibraryAutomaticRefreshPolicy {
     static let scanFailureRetryNanoseconds: UInt64 = 5_000_000_000
     static let installationRetryNanoseconds: UInt64 = 5_000_000_000
     static let installationRecoveryNanoseconds: UInt64 = 60_000_000_000
-    /// FSEvents can start successfully but still omit notifications for some
-    /// removable, network, cloud-placeholder, and FUSE-backed folders. A
-    /// bounded authoritative rescan keeps an active library convergent without
-    /// turning the normal one-second event path into continuous polling.
+    /// Unknown, removable and network roots retain a one-minute fallback.
     static let reconciliationNanoseconds: UInt64 = 60_000_000_000
+    /// Reliable internal volumes still reconcile when their event stream is
+    /// silent, but avoid rebuilding an unchanged directory listing every minute.
+    static let extendedReconciliationIntervalMultiplier: UInt64 = 5
     static let maximumInstallationRetryCount = 3
 }
 
@@ -38,6 +38,11 @@ enum MediaLibraryFolderRootNormalizer {
     }
 }
 
+enum MediaLibraryReconciliationCadence: Equatable, Sendable {
+    case standard
+    case extended
+}
+
 @MainActor
 protocol MediaLibraryChangeMonitoring: AnyObject {
     /// Returns whether monitoring is active for the requested roots. An empty
@@ -47,7 +52,20 @@ protocol MediaLibraryChangeMonitoring: AnyObject {
         folderURLs: [URL],
         onChange: @escaping @Sendable () -> Void
     ) -> Bool
+    /// Defaults to the conservative cadence. Implementations may inspect volume
+    /// characteristics off actor; callers cancel this work when roots change.
+    func reconciliationCadence(
+        for folderURLs: [URL]
+    ) async -> MediaLibraryReconciliationCadence
     func stop()
+}
+
+extension MediaLibraryChangeMonitoring {
+    func reconciliationCadence(
+        for folderURLs: [URL]
+    ) async -> MediaLibraryReconciliationCadence {
+        .standard
+    }
 }
 
 @MainActor
@@ -85,6 +103,9 @@ extension MediaLibraryCoordinator {
 /// will-set delivery cannot make the controller observe stale target state.
 @MainActor
 final class MediaLibraryAutomaticRefreshController {
+    typealias ReconciliationDelayer = @MainActor (UInt64) async throws -> Void
+    typealias ReconciliationUptime = @MainActor () -> UInt64
+
     private struct ScanMarker {
         let generation: UInt64
         let dirtyRevisionAtStart: UInt64
@@ -97,6 +118,9 @@ final class MediaLibraryAutomaticRefreshController {
     private let installationRetryNanoseconds: UInt64
     private let installationRecoveryNanoseconds: UInt64
     private let reconciliationNanoseconds: UInt64
+    private let extendedReconciliationNanoseconds: UInt64
+    private let reconciliationDelayer: ReconciliationDelayer
+    private let reconciliationUptime: ReconciliationUptime
     private let maximumInstallationRetryCount: Int
 
     private var folderURLs: [URL] = []
@@ -107,6 +131,11 @@ final class MediaLibraryAutomaticRefreshController {
     private var refreshTask: Task<Void, Never>?
     private var installationRetryTask: Task<Void, Never>?
     private var reconciliationTask: Task<Void, Never>?
+    private var reconciliationAnchorNanoseconds: UInt64?
+    private var cadenceTask: Task<Void, Never>?
+    private var reconciliationCadence: MediaLibraryReconciliationCadence = .standard
+    private var isMonitorInstalled = false
+    private var lastScanSucceeded: Bool
     private var isStarted = false
     private var wasScanning = false
     private var hasPendingRefreshRequest = false
@@ -126,6 +155,12 @@ final class MediaLibraryAutomaticRefreshController {
                 .installationRecoveryNanoseconds,
         reconciliationNanoseconds: UInt64 =
             MediaLibraryAutomaticRefreshPolicy.reconciliationNanoseconds,
+        reconciliationDelayer: @escaping ReconciliationDelayer = { nanoseconds in
+            try await Task.sleep(nanoseconds: nanoseconds)
+        },
+        reconciliationUptime: @escaping ReconciliationUptime = {
+            DispatchTime.now().uptimeNanoseconds
+        },
         maximumInstallationRetryCount: Int =
             MediaLibraryAutomaticRefreshPolicy.maximumInstallationRetryCount
     ) {
@@ -137,6 +172,15 @@ final class MediaLibraryAutomaticRefreshController {
         self.installationRecoveryNanoseconds =
             installationRecoveryNanoseconds
         self.reconciliationNanoseconds = max(1, reconciliationNanoseconds)
+        let (extendedInterval, overflowed) = max(1, reconciliationNanoseconds)
+            .multipliedReportingOverflow(
+                by: MediaLibraryAutomaticRefreshPolicy
+                    .extendedReconciliationIntervalMultiplier
+            )
+        extendedReconciliationNanoseconds = overflowed ? .max : extendedInterval
+        lastScanSucceeded = target.automaticRefreshLastScanSucceeded
+        self.reconciliationDelayer = reconciliationDelayer
+        self.reconciliationUptime = reconciliationUptime
         self.maximumInstallationRetryCount = max(
             0,
             maximumInstallationRetryCount
@@ -180,6 +224,7 @@ final class MediaLibraryAutomaticRefreshController {
             return
         }
 
+        self.lastScanSucceeded = lastScanSucceeded
         guard wasScanning else {
             if !hasPendingRefreshRequest {
                 scheduleRefreshIfNeeded()
@@ -200,6 +245,11 @@ final class MediaLibraryAutomaticRefreshController {
             )
         }
         scanMarker = nil
+        if scanSucceeded {
+            // Mounts may change without changing a root's path. Recheck after
+            // authoritative scans rather than retaining a lifetime volume hint.
+            resolveReconciliationCadence()
+        }
         scheduleRefreshIfNeeded(
             delayNanoseconds: scanSucceeded
                 ? debounceNanoseconds
@@ -235,6 +285,11 @@ final class MediaLibraryAutomaticRefreshController {
         installationRetryTask = nil
         reconciliationTask?.cancel()
         reconciliationTask = nil
+        reconciliationAnchorNanoseconds = nil
+        cadenceTask?.cancel()
+        cadenceTask = nil
+        reconciliationCadence = .standard
+        isMonitorInstalled = false
         folderURLs = []
         dirtyRevision = 0
         coveredRevision = 0
@@ -260,6 +315,11 @@ final class MediaLibraryAutomaticRefreshController {
         installationRetryTask = nil
         reconciliationTask?.cancel()
         reconciliationTask = nil
+        reconciliationAnchorNanoseconds = nil
+        cadenceTask?.cancel()
+        cadenceTask = nil
+        reconciliationCadence = .standard
+        isMonitorInstalled = false
         self.folderURLs = normalizedURLs
         dirtyRevision = 0
         coveredRevision = 0
@@ -271,6 +331,7 @@ final class MediaLibraryAutomaticRefreshController {
             generation: generation,
             retryNumber: 0
         )
+        resolveReconciliationCadence()
         scheduleReconciliationIfNeeded()
     }
 
@@ -289,6 +350,7 @@ final class MediaLibraryAutomaticRefreshController {
                 self?.recordChange(generation: installationGeneration)
             }
         }
+        isMonitorInstalled = installed
         guard !installed else {
             installationRetryTask = nil
             if monitoringGapNeedsReconciliation {
@@ -304,6 +366,28 @@ final class MediaLibraryAutomaticRefreshController {
             retryNumber: retryNumber + 1
         )
         return false
+    }
+
+    private func resolveReconciliationCadence() {
+        cadenceTask?.cancel()
+        cadenceTask = nil
+        reconciliationCadence = .standard
+        guard !folderURLs.isEmpty else { return }
+        let requestedGeneration = generation
+        let requestedFolders = folderURLs
+        cadenceTask = Task { @MainActor [weak self, monitor] in
+            let cadence = await monitor.reconciliationCadence(for: requestedFolders)
+            guard !Task.isCancelled,
+                  let self,
+                  self.isStarted,
+                  requestedGeneration == self.generation else { return }
+            self.cadenceTask = nil
+            guard cadence != self.reconciliationCadence else { return }
+            self.reconciliationCadence = cadence
+            self.reconciliationTask?.cancel()
+            self.reconciliationTask = nil
+            self.scheduleReconciliationIfNeeded()
+        }
     }
 
     private func scheduleMonitorInstallationRetry(
@@ -380,6 +464,7 @@ final class MediaLibraryAutomaticRefreshController {
         refreshTask = nil
         reconciliationTask?.cancel()
         reconciliationTask = nil
+        reconciliationAnchorNanoseconds = nil
         scanMarker = ScanMarker(
             generation: generation,
             dirtyRevisionAtStart: dirtyRevision
@@ -396,21 +481,33 @@ final class MediaLibraryAutomaticRefreshController {
         }
 
         let scheduledGeneration = generation
-        let delayNanoseconds = reconciliationNanoseconds
+        let intervalNanoseconds = reconciliationCadence == .extended
+            && isMonitorInstalled && lastScanSucceeded
+            ? extendedReconciliationNanoseconds
+            : reconciliationNanoseconds
+        let now = reconciliationUptime()
+        let anchor = reconciliationAnchorNanoseconds ?? now
+        reconciliationAnchorNanoseconds = anchor
+        // Classification may finish long after the timer starts. Keep the
+        // original monotonic deadline when replacing the cadence hint.
+        let elapsed = now >= anchor ? now - anchor : 0
+        let delayNanoseconds = intervalNanoseconds > elapsed
+            ? intervalNanoseconds - elapsed : 0
+        let reconciliationDelayer = reconciliationDelayer
         reconciliationTask = Task { @MainActor [weak self] in
             do {
-                try await Task.sleep(
-                    nanoseconds: delayNanoseconds
-                )
+                try await reconciliationDelayer(delayNanoseconds)
             } catch {
                 return
             }
-            guard let self,
+            guard !Task.isCancelled,
+                  let self,
                   self.isStarted,
                   scheduledGeneration == self.generation else {
                 return
             }
             self.reconciliationTask = nil
+            self.reconciliationAnchorNanoseconds = nil
             self.recordChange(generation: scheduledGeneration)
             // If the target temporarily rejects this refresh, keep the
             // watchdog alive. An accepted scan cancels this replacement task

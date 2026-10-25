@@ -228,6 +228,10 @@
 		41D8244D730244EDAC2ED639 /* PreparedPlaybackQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82F3AD680CA04856A989D3EA /* PreparedPlaybackQueueTests.swift */; };
 		F0ED1888D4F14FFEA11B6BE3 /* MediaLibraryPreparationReuseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 051D9F0B57584DEAB400A4EF /* MediaLibraryPreparationReuseTests.swift */; };
 		F4C26E7163AA4B259B4D7C24 /* MediaFileIdentityHashingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BB3F21808B4013B801FDE6 /* MediaFileIdentityHashingTests.swift */; };
+		A789F96B3EA640B385A38578 /* MediaLibraryRemovalPreparer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11FCA0D4287E43D588847B08 /* MediaLibraryRemovalPreparer.swift */; };
+		D6F27FD298964CCC8C849179 /* MediaLibraryRemovalPreparationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77AF1A7818404E6BB45B2ECE /* MediaLibraryRemovalPreparationTests.swift */; };
+		5B2D4947A77840B6B40A977F /* PlaybackQueueSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C6D302AFC204A4595A10CB5 /* PlaybackQueueSchedule.swift */; };
+		54F9E1C4E969459DAB9E9583 /* PlaybackQueuePerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F59B9FAD6B974DD38D02DD2A /* PlaybackQueuePerformanceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -477,6 +481,10 @@
 		82F3AD680CA04856A989D3EA /* PreparedPlaybackQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedPlaybackQueueTests.swift; sourceTree = "<group>"; };
 		051D9F0B57584DEAB400A4EF /* MediaLibraryPreparationReuseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryPreparationReuseTests.swift; sourceTree = "<group>"; };
 		56BB3F21808B4013B801FDE6 /* MediaFileIdentityHashingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaFileIdentityHashingTests.swift; sourceTree = "<group>"; };
+		11FCA0D4287E43D588847B08 /* MediaLibraryRemovalPreparer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryRemovalPreparer.swift; sourceTree = "<group>"; };
+		77AF1A7818404E6BB45B2ECE /* MediaLibraryRemovalPreparationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryRemovalPreparationTests.swift; sourceTree = "<group>"; };
+		6C6D302AFC204A4595A10CB5 /* PlaybackQueueSchedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackQueueSchedule.swift; sourceTree = "<group>"; };
+		F59B9FAD6B974DD38D02DD2A /* PlaybackQueuePerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackQueuePerformanceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -677,6 +685,7 @@
 				E610EB1EFFB24D92BB862135 /* MediaLibrarySnapshotPreparationTests.swift */,
 				11A20D7CD1664DD5920F3C8C /* TemporaryPlaybackLibrarySnapshotTests.swift */,
 				6653B81C0BFA469B941934C7 /* MediaLibraryPublicationPlanTests.swift */,
+				77AF1A7818404E6BB45B2ECE /* MediaLibraryRemovalPreparationTests.swift */,
 				9C55B8247B71438F8C81A282 /* CustomPlaylistSynchronizationTests.swift */,
 				BDAF22F71B65452080A97D9B /* MediaLibraryQueueRestorationTests.swift */,
 				8EAF7155E5F8499D94485524 /* MediaLibraryCanonicalLookupTests.swift */,
@@ -815,6 +824,7 @@
 			children = (
 				889EFC2BF9A60D84ADA53D6E /* PlaybackGateTests.swift */,
 				82F3AD680CA04856A989D3EA /* PreparedPlaybackQueueTests.swift */,
+				F59B9FAD6B974DD38D02DD2A /* PlaybackQueuePerformanceTests.swift */,
 				AA0000000000000000000008 /* PlaybackQueueTests.swift */,
 			);
 			name = Domain;
@@ -904,6 +914,7 @@
 				4C04FA1EFB53F38295077A37 /* CustomPlaylist.swift */,
 				F4601DBC804743ED8E1FBD90 /* TemporaryPlaybackLibrarySnapshot.swift */,
 				8B1F0F30B61943FBB8FBF9CD /* MediaLibraryPublicationPlan.swift */,
+				11FCA0D4287E43D588847B08 /* MediaLibraryRemovalPreparer.swift */,
 				B31F3C0055CC4FF780754678 /* TemporaryPlaybackInputDeduplicator.swift */,
 				86A4B39A081F4F03B447C8EC /* MediaLibraryQueueRestorationPreparer.swift */,
 				B88DFB09E1C0444E88BD9029 /* MediaLibraryCanonicalLookup.swift */,
@@ -924,6 +935,7 @@
 				AA0000000000000000000001 /* PlaybackQueue.swift */,
 				0D6E2E6EF4C84C50B93A3851 /* PreparedPlaybackQueueItems.swift */,
 				CFC18BAC514F4A24944A06C4 /* PlaybackQueueHistoryBuffer.swift */,
+				6C6D302AFC204A4595A10CB5 /* PlaybackQueueSchedule.swift */,
 				5E22039AC00C4E35ADBD1BE1 /* PlaybackQueueSnapshot.swift */,
 			);
 			name = Queue;
@@ -1350,6 +1362,7 @@
 				AA0000000000000000000011 /* PlaybackQueue.swift in Sources */,
 				D4DE4D2D842342E68A5FDDBC /* PreparedPlaybackQueueItems.swift in Sources */,
 				D96C1FE60C8448CA9752F71C /* PlaybackQueueHistoryBuffer.swift in Sources */,
+				5B2D4947A77840B6B40A977F /* PlaybackQueueSchedule.swift in Sources */,
 				DB1991EC79FD4D2ABD76FAEC /* PlaybackQueueSnapshot.swift in Sources */,
 				F52129EF7CDA0DFCABB9582F /* DesktopStatusMenuController.swift in Sources */,
 				C40000000000000000000011 /* FixedHeightVirtualizedTable.swift in Sources */,
@@ -1434,6 +1447,7 @@
 				DF3210AADD83404E21A8C874 /* CustomPlaylist.swift in Sources */,
 				58AB633C23184DA3BD29D2A0 /* TemporaryPlaybackLibrarySnapshot.swift in Sources */,
 				D4C2D6D0650143D4A2A9F7F9 /* MediaLibraryPublicationPlan.swift in Sources */,
+				A789F96B3EA640B385A38578 /* MediaLibraryRemovalPreparer.swift in Sources */,
 				9F5BF9566874430FA74675EC /* TemporaryPlaybackInputDeduplicator.swift in Sources */,
 				C1B74067AD074F888CC80D7C /* MediaLibraryQueueRestorationPreparer.swift in Sources */,
 				87CF3E4300514603AC9A392D /* MediaLibraryCanonicalLookup.swift in Sources */,
@@ -1471,6 +1485,7 @@
 				7AC7BB726D264386849CFB10 /* MediaLibrarySnapshotPreparationTests.swift in Sources */,
 				4B8DC524EE894148908109E3 /* TemporaryPlaybackLibrarySnapshotTests.swift in Sources */,
 				87878EAE0DAE43D1A37B8619 /* MediaLibraryPublicationPlanTests.swift in Sources */,
+				D6F27FD298964CCC8C849179 /* MediaLibraryRemovalPreparationTests.swift in Sources */,
 				296E3B3084954539B4E3A9F2 /* CustomPlaylistSynchronizationTests.swift in Sources */,
 				8070CC9B3F82450D870D8C9F /* MediaLibraryQueueRestorationTests.swift in Sources */,
 				C6D5CCB4195A4CF7969A57D9 /* MediaLibraryCanonicalLookupTests.swift in Sources */,
@@ -1498,6 +1513,7 @@
 				C30000000000000000000015 /* PlaybackSessionControllerTests.swift in Sources */,
 				628DEF8A0A9BCE74862C63C4 /* PlaybackGateTests.swift in Sources */,
 				41D8244D730244EDAC2ED639 /* PreparedPlaybackQueueTests.swift in Sources */,
+				54F9E1C4E969459DAB9E9583 /* PlaybackQueuePerformanceTests.swift in Sources */,
 				AA0000000000000000000018 /* PlaybackQueueTests.swift in Sources */,
 				AA000000000000000000001B /* FileSystemMediaLibraryScannerTests.swift in Sources */,
 				D92000000000000000000011 /* FileSystemMediaAvailabilityTests.swift in Sources */,

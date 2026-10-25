@@ -1,5 +1,23 @@
 import CoreServices
+import Darwin
 import Foundation
+
+struct MediaLibraryReconciliationVolume: Sendable {
+    let isLocal: Bool?
+    let isInternal: Bool?
+    let isRemovable: Bool?
+    let isEjectable: Bool?
+    let isUbiquitous: Bool?
+    let fileSystemType: String?
+
+    var allowsExtendedReconciliation: Bool {
+        isLocal == true && isInternal == true
+            && isRemovable == false && isEjectable == false
+            // Foundation omits this value for ordinary local directories.
+            && isUbiquitous != true
+            && (fileSystemType == "apfs" || fileSystemType == "hfs")
+    }
+}
 
 enum FSEventsMediaLibraryChangePolicy {
     static let latency: CFTimeInterval = 1
@@ -67,6 +85,14 @@ private let mediaLibraryFSEventsContextRelease: CFAllocatorReleaseCallBack = {
 @MainActor
 final class FSEventsMediaLibraryChangeMonitor:
     MediaLibraryChangeMonitoring {
+    typealias VolumeInspection = @Sendable (URL) -> MediaLibraryReconciliationVolume?
+
+    // A blocked volume lookup retains its real slot after caller cancellation.
+    private let volumeInspectionPool = BoundedMediaWorkPool(
+        maximumConcurrentWorkCount: 1,
+        maximumQueuedWorkCount: 1
+    )
+    private let inspectVolume: VolumeInspection
     private let callbackQueue = DispatchQueue(
         label: "com.muralume.media-library-folder-monitor"
     )
@@ -76,6 +102,13 @@ final class FSEventsMediaLibraryChangeMonitor:
     nonisolated(unsafe) private var stream: FSEventStreamRef?
     private var callbackBox: FSEventsCallbackBox?
     private var activeFolderURLs: [URL] = []
+
+    init(
+        inspectVolume: @escaping VolumeInspection =
+            FSEventsMediaLibraryChangeMonitor.inspectVolume
+    ) {
+        self.inspectVolume = inspectVolume
+    }
 
     deinit {
         callbackBox?.disable()
@@ -143,6 +176,61 @@ final class FSEventsMediaLibraryChangeMonitor:
 
     func stop() {
         stopStream()
+    }
+
+    func reconciliationCadence(
+        for folderURLs: [URL]
+    ) async -> MediaLibraryReconciliationCadence {
+        guard !folderURLs.isEmpty,
+              folderURLs.count <= MediaImportPolicy.maximumActiveSourceCount else {
+            return .standard
+        }
+        let inspectVolume = inspectVolume
+        return (try? await volumeInspectionPool.run {
+            for url in folderURLs {
+                try Task.checkCancellation()
+                let allowsExtended = autoreleasepool {
+                    // Root removal may cancel the caller before blocked I/O
+                    // returns. Keep this reader's own scope until it exits.
+                    let hasScope = url.startAccessingSecurityScopedResource()
+                    defer {
+                        if hasScope { url.stopAccessingSecurityScopedResource() }
+                    }
+                    return inspectVolume(url)?.allowsExtendedReconciliation == true
+                }
+                try Task.checkCancellation()
+                guard allowsExtended else { return .standard }
+            }
+            return .extended
+        }) ?? .standard
+    }
+
+    private nonisolated static func inspectVolume(
+        at url: URL
+    ) -> MediaLibraryReconciliationVolume? {
+        guard let values = try? url.resourceValues(forKeys: [
+            .volumeIsLocalKey, .volumeIsInternalKey, .volumeIsRemovableKey,
+            .volumeIsEjectableKey, .isUbiquitousItemKey
+        ]) else { return nil }
+        var fileSystem = statfs()
+        let result = url.withUnsafeFileSystemRepresentation { path in
+            path.map { statfs($0, &fileSystem) } ?? -1
+        }
+        let fileSystemType: String? = result == 0
+            ? withUnsafePointer(to: &fileSystem.f_fstypename) { name in
+                name.withMemoryRebound(to: CChar.self, capacity: Int(MFSNAMELEN)) {
+                    String(cString: $0)
+                }
+            }
+            : nil
+        return MediaLibraryReconciliationVolume(
+            isLocal: values.volumeIsLocal,
+            isInternal: values.volumeIsInternal,
+            isRemovable: values.volumeIsRemovable,
+            isEjectable: values.volumeIsEjectable,
+            isUbiquitous: values.isUbiquitousItem,
+            fileSystemType: fileSystemType
+        )
     }
 
     private func stopStream() {

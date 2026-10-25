@@ -445,13 +445,14 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
 
         let rootPathComponents = root.url.standardizedFileURL.pathComponents
 
-        while true {
+        // Resource values, URL transforms and identifier archiving also create
+        // Objective-C temporaries. Drain all per-entry work, not just nextObject,
+        // while the snapshot retains only its completed media items.
+        while try autoreleasepool(invoking: { () throws -> Bool in
             try Task.checkCancellation()
             try budget.checkpoint()
-            guard let fileURL = autoreleasepool(
-                invoking: { enumerator.nextObject() as? URL }
-            ) else {
-                break
+            guard let fileURL = enumerator.nextObject() as? URL else {
+                return false
             }
             let values: URLResourceValues
             do {
@@ -460,33 +461,33 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                 // One unreadable descendant must not hide the rest of an
                 // otherwise accessible media root.
                 rootFailureRecorder.record(fileURL)
-                continue
+                return true
             }
 
             if values.isSymbolicLink == true {
-                continue
+                return true
             }
             if values.isHidden == true {
                 if values.isDirectory == true {
                     enumerator.skipDescendants()
                 }
-                continue
+                return true
             }
             if values.isPackage == true {
                 if values.isDirectory == true {
                     enumerator.skipDescendants()
                 }
-                continue
+                return true
             }
             guard values.isRegularFile == true else {
-                continue
+                return true
             }
 
             let fileExtension = fileURL.pathExtension.lowercased()
             guard MediaLibraryFilePolicy.supportedVideoExtensions.contains(
                 fileExtension
             ) else {
-                continue
+                return true
             }
 
             let relativeItemPath: String
@@ -497,7 +498,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                 )
             } catch {
                 rootFailureRecorder.record(fileURL)
-                continue
+                return true
             }
             let item = LibraryMediaItem(
                 rootURL: root.url,
@@ -521,7 +522,8 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
             )
             try budget.reserveMemory(for: item)
             onItem(item)
-        }
+            return true
+        }) {}
 
         if let failedURL = rootFailureRecorder.failedRootURL {
             throw MediaLibraryScanError.enumerationFailed(

@@ -242,6 +242,25 @@ final class MediaLibraryCoordinator: ObservableObject {
         let previousCanonicalIndex: MediaLibraryCanonicalLookupIndex?
     }
 
+    private struct AppliedRootRemoval: Sendable {
+        let removedItemIDs: Set<LibraryMediaItem.ID>
+        let thumbnailRootIDs: Set<MediaLibraryRoot.ID>
+        let supersededThumbnailRootPaths: Set<String>
+        let removedCurrentItem: Bool
+        let playbackTouched: Bool
+        let shouldAutoplay: Bool
+        let loadTasks: [Task<Void, Never>]
+        let reloadItemID: LibraryMediaItem.ID?
+        let reloadGeneration: UInt64
+    }
+
+    private struct RemovalStorage: Sendable {
+        let request: MediaLibraryRemovalRequest
+        let previousSnapshot: ItemsSnapshot
+        let previousItemsByID: [LibraryMediaItem.ID: LibraryMediaItem]
+        let previousCanonicalIndex: MediaLibraryCanonicalLookupIndex?
+    }
+
     @Published private(set) var scanState: MediaLibraryScanState = .idle
     @Published private(set) var roots: [MediaLibraryRoot] = []
     @Published private var itemsSnapshot = ItemsSnapshot(
@@ -450,6 +469,7 @@ final class MediaLibraryCoordinator: ObservableObject {
     private let scanner: any MediaLibraryScanning
     private let mediaThumbnailProvider: any MediaThumbnailProviding
     private let snapshotPreparer: any MediaLibrarySnapshotPreparing
+    private let removalPreparer: any MediaLibraryRemovalPreparing
     private let preferencesStore: (any AppPreferencesStoring)?
     private let playbackProgressStore: (any PlaybackProgressStoring)?
     private let reshuffleRestoredQueue: RestoredPlaybackQueueShuffler?
@@ -509,6 +529,12 @@ final class MediaLibraryCoordinator: ObservableObject {
     private var currentLoadTaskID: UUID?
     private var loadedItemID: LibraryMediaItem.ID?
     private var rootIDsPendingRemoval: Set<MediaLibraryRoot.ID> = []
+    private var rootRemovalTasks: [MediaLibraryRoot.ID: Task<Void, Never>] = [:]
+    private var rootRemovalPreparationTasks:
+        [MediaLibraryRoot.ID: Task<AppliedRootRemoval?, Error>] = [:]
+    private let removalWorkPool = BoundedMediaWorkPool(
+        maximumConcurrentWorkCount: 1, maximumQueuedWorkCount: 1
+    )
     private var scanGeneration: UInt64 = 0
     private var sortGeneration: UInt64 = 0
     private var importGeneration: UInt64 = 0
@@ -542,7 +568,9 @@ final class MediaLibraryCoordinator: ObservableObject {
         reshuffleRestoredQueue: RestoredPlaybackQueueShuffler? = nil,
         queueRestorationPreparer: any MediaLibraryQueueRestorationPreparing =
             DefaultMediaLibraryQueueRestorationPreparer(),
-        canonicalLookup: MediaLibraryCanonicalLookup = MediaLibraryCanonicalLookup()
+        canonicalLookup: MediaLibraryCanonicalLookup = MediaLibraryCanonicalLookup(),
+        removalPreparer: any MediaLibraryRemovalPreparing =
+            DefaultMediaLibraryRemovalPreparer()
     ) {
         self.playback = playback
         self.sourceSelector = sourceSelector
@@ -550,6 +578,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         self.scanner = scanner
         self.mediaThumbnailProvider = mediaThumbnailProvider
         self.snapshotPreparer = snapshotPreparer
+        self.removalPreparer = removalPreparer
         temporaryPlaybackSession = TemporaryPlaybackSession(
             scanner: scanner
         )
@@ -1530,107 +1559,38 @@ final class MediaLibraryCoordinator: ObservableObject {
               rootIDsPendingRemoval.insert(root.id).inserted else {
             return
         }
+        // Source removals are durable user actions. A cancelled view task must
+        // not abandon one after its persisted grant has been marked removed.
+        // Serialize them so overlapping roots never publish competing plans.
+        let predecessors = Array(rootRemovalTasks.values)
+        let task = Task { [self] in
+            for predecessor in predecessors { await predecessor.value }
+            await performRootRemoval(root)
+        }
+        rootRemovalTasks[root.id] = task
+        await task.value
+        rootRemovalTasks[root.id] = nil
+        rootIDsPendingRemoval.remove(root.id)
+    }
+
+    private func performRootRemoval(_ root: MediaLibraryRoot) async {
+        guard !isShutDown else { return }
         invalidateSourceAccessOperation()
         invalidatePendingImport()
-        defer {
-            rootIDsPendingRemoval.remove(root.id)
-        }
-
-        // Capture source ownership, then persist the user's decision before
-        // cancelling consumers. Keep the active security scope until every
-        // scanner, thumbnail request, and playback load has drained.
         let removedSource = MediaSource(url: root.url, kind: root.kind)
-        let pendingRemovalPaths = Set(
-            rootIDsPendingRemoval.map(\.standardizedPath)
-        )
-        let remainingActiveSources = mediaSession.restoreSources().filter {
-            !pendingRemovalPaths.contains($0.id.standardizedPath)
-        }
         mediaSession.prepareToRemoveSource(removedSource)
-        let removedRootPath = root.id.standardizedPath
-        let removedSourceDescriptor = sourcePathDescriptors(
-            for: [removedSource]
-        )[0]
-        let remainingSourceDescriptors = sourcePathDescriptors(
-            for: remainingActiveSources
-        )
-        var mediaPathDescriptorsByPath: [String: MediaPathDescriptor] = [:]
-        func descriptor(for mediaURL: URL) -> MediaPathDescriptor {
-            let standardizedPath = mediaURL.standardizedFileURL.path
-            if let descriptor = mediaPathDescriptorsByPath[standardizedPath] {
-                return descriptor
-            }
-            let descriptor = mediaPathDescriptor(for: mediaURL)
-            mediaPathDescriptorsByPath[standardizedPath] = descriptor
-            return descriptor
-        }
-        let knownItems = Array(queueItemsByID.values) + items
-        let removedItems = knownItems.filter { item in
-            let itemRootPath = descriptor(for: item.rootURL)
-            return removedSourceDescriptor.covers(itemRootPath)
-                && !remainingSourceDescriptors.contains { activeSource in
-                    activeSource.covers(itemRootPath)
-                }
-        }
-        let removedItemIDs = Set(removedItems.map(\.id))
-        let supersededRootPathsBeingRemoved = supersededThumbnailRootPaths
-            .filter {
-                removedSourceDescriptor.covers(
-                    descriptor(for: URL(fileURLWithPath: $0))
-                )
-            }
-        let removedThumbnailRootIDs = Set(
-            removedItems.map {
-                MediaLibraryRoot.ID(standardizedPath: $0.id.rootPath)
-            }
-        ).union(
-            supersededRootPathsBeingRemoved.map {
-                MediaLibraryRoot.ID(standardizedPath: $0)
-            }
-        ).union([root.id])
-
         let scanTasksToDrain = cancelAllScanTasks()
-        let playbackTouchesRemovedItems =
-            loadedItemID.map(removedItemIDs.contains) == true
-            || loadTasks.values.contains {
-                removedItemIDs.contains($0.itemID)
-            }
-            || (
-                currentItemID.map(removedItemIDs.contains) == true
-                    && playback.readiness != .empty
-            )
-        let shouldAutoplayAfterDrain = playback.isPlaybackRequested
-            || currentLoadTaskRecord?.autoplay == true
-        let loadTasksToDrain: [Task<Void, Never>]
-        if playbackTouchesRemovedItems {
-            loadTasksToDrain = cancelAllLoadTasks()
-            playback.stop()
-            loadedItemID = nil
-        } else {
-            loadTasksToDrain = []
-        }
-
-        roots.removeAll {
-            $0.id == root.id
-        }
-        replaceItems(
-            with: items.filter { !removedItemIDs.contains($0.id) }
-        )
-        replaceUnavailableItemIDs(
-            with: unavailableItemIDs.subtracting(removedItemIDs)
-        )
-        for itemID in removedItemIDs {
-            queueItemsByID[itemID] = nil
-        }
-        installActiveSources(
-            activeSources.filter {
-                $0.id.standardizedPath != removedRootPath
-            }
-        )
-
-        let removedCurrentItem = removeItemsFromActiveQueue(removedItemIDs)
-        let expectedReloadItemID = currentItemID
-        let reloadGeneration = loadGeneration
+        let sortTasksToDrain = cancelAllSortTasks()
+        guard let applied = await prepareAndApplyRootRemoval(root) else { return }
+        let removedItemIDs = applied.removedItemIDs
+        let removedThumbnailRootIDs = applied.thumbnailRootIDs
+        let supersededRootPathsBeingRemoved = applied.supersededThumbnailRootPaths
+        let playbackTouchesRemovedItems = applied.playbackTouched
+        let shouldAutoplayAfterDrain = applied.shouldAutoplay
+        let loadTasksToDrain = applied.loadTasks
+        let removedCurrentItem = applied.removedCurrentItem
+        let expectedReloadItemID = applied.reloadItemID
+        let reloadGeneration = applied.reloadGeneration
 
         let thumbnailDrainTask = Task { @MainActor [mediaThumbnailProvider] in
             for rootID in removedThumbnailRootIDs.sorted(by: {
@@ -1644,6 +1604,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         for task in scanTasksToDrain {
             await task.value
         }
+        for task in sortTasksToDrain { await task.value }
         for task in loadTasksToDrain {
             await task.value
         }
@@ -1697,6 +1658,116 @@ final class MediaLibraryCoordinator: ObservableObject {
         } else {
             refresh(using: remainingSources)
         }
+    }
+
+    private func prepareAndApplyRootRemoval(
+        _ root: MediaLibraryRoot
+    ) async -> AppliedRootRemoval? {
+        while !isShutDown {
+            let stamp = PublicationStamp(
+                itemsRevision: itemsRevision, queueStateRevision: queueStateRevision,
+                queueMetadataRevision: queueMetadataRevision,
+                unavailableRevision: unavailableItemsRevision,
+                temporaryGeneration: temporaryPlaybackGeneration,
+                loadedItemID: loadedItemID, membership: playbackQueueMembership
+            )
+            let sourceRevision = sourceAccessOperationGeneration
+            let requestedSort = sort
+            let pendingRoots = rootIDsPendingRemoval
+            let pendingRootPaths = Set(pendingRoots.map(\.standardizedPath))
+            let sessionSources = mediaSession.restoreSources()
+            let remainingSources = sessionSources.filter {
+                !pendingRootPaths.contains($0.id.standardizedPath)
+            }
+            var storage: RemovalStorage? = RemovalStorage(
+                request: MediaLibraryRemovalRequest(
+                    root: root, remainingSources: remainingSources,
+                    sourceAccessURLs: sessionSources.map(\.url),
+                    library: itemsSnapshot.library, queue: queue, currentItemID: currentItemID,
+                    queueItemsByID: queueItemsByID, unavailableItemIDs: unavailableItemIDs,
+                    supersededThumbnailRootPaths: supersededThumbnailRootPaths
+                ),
+                previousSnapshot: itemsSnapshot, previousItemsByID: visibleItemsByID,
+                previousCanonicalIndex: canonicalItemLookupIndex
+            )
+            let pool = removalWorkPool
+            let preparer = removalPreparer
+            let task = Task<AppliedRootRemoval?, Error>.detached(priority: .userInitiated) {
+                [weak self, storage = storage!] in
+                try await pool.run {
+                    defer { withExtendedLifetime(storage) {} }
+                    let access = MediaLibraryRemovalScopeLease()
+                    defer { withExtendedLifetime(access) {} }
+                    try access.acquire(for: storage.request)
+                    let plan = try await preparer.prepare(storage.request)
+                    return await MainActor.run { () -> AppliedRootRemoval? in
+                        guard let self, !self.isShutDown,
+                              stamp.itemsRevision == self.itemsRevision,
+                              stamp.queueStateRevision == self.queueStateRevision,
+                              stamp.queueMetadataRevision == self.queueMetadataRevision,
+                              stamp.unavailableRevision == self.unavailableItemsRevision,
+                              stamp.temporaryGeneration == self.temporaryPlaybackGeneration,
+                              stamp.loadedItemID == self.loadedItemID,
+                              stamp.membership == self.playbackQueueMembership,
+                              sourceRevision == self.sourceAccessOperationGeneration,
+                              requestedSort == self.sort,
+                              pendingRoots == self.rootIDsPendingRemoval else { return nil }
+                        return self.applyRootRemoval(plan, root: root)
+                    }
+                }
+            }
+            storage = nil
+            rootRemovalPreparationTasks[root.id] = task
+            do {
+                let applied = try await task.value
+                rootRemovalPreparationTasks[root.id] = nil
+                if let applied { return applied }
+            } catch {
+                rootRemovalPreparationTasks[root.id] = nil
+                // The durable operation owns its worker and is not cancelled
+                // by a view disappearing. A cooperative yield prevents a
+                // transient worker rejection from busy-looping.
+                await Task.yield()
+            }
+        }
+        return nil
+    }
+
+    private func applyRootRemoval(
+        _ plan: MediaLibraryRemovalPlan, root: MediaLibraryRoot
+    ) -> AppliedRootRemoval {
+        let removedIDs = plan.removedItemIDs
+        let touchesPlayback = loadedItemID.map(removedIDs.contains) == true
+            || loadTasks.values.contains { removedIDs.contains($0.itemID) }
+            || (currentItemID.map(removedIDs.contains) == true && playback.readiness != .empty)
+        let shouldAutoplay = playback.isPlaybackRequested || currentLoadTaskRecord?.autoplay == true
+        let pendingLoads: [Task<Void, Never>]
+        if touchesPlayback {
+            pendingLoads = cancelAllLoadTasks()
+            playback.stop()
+            loadedItemID = nil
+        } else { pendingLoads = [] }
+        roots.removeAll { $0.id == root.id }
+        replaceItems(with: plan.library, knownChanged: plan.libraryChanged)
+        replaceUnavailableItemIDs(with: unavailableItemIDs.subtracting(removedIDs))
+        queueItemsByID = plan.queueItemsByID
+        if plan.queueChanged {
+            if let nextQueue = plan.queue {
+                queue = nextQueue
+                publishQueueChange()
+                if plan.removedCurrentItem { currentItemID = nextQueue.currentItem }
+            } else { clearActiveQueue() }
+        }
+        installActiveSources(activeSources.filter {
+            $0.id.standardizedPath != root.id.standardizedPath
+        })
+        return AppliedRootRemoval(
+            removedItemIDs: removedIDs, thumbnailRootIDs: plan.thumbnailRootIDs,
+            supersededThumbnailRootPaths: plan.supersededThumbnailRootPaths,
+            removedCurrentItem: plan.removedCurrentItem,
+            playbackTouched: touchesPlayback, shouldAutoplay: shouldAutoplay,
+            loadTasks: pendingLoads, reloadItemID: currentItemID, reloadGeneration: loadGeneration
+        )
     }
 
     func refresh() {
@@ -2228,6 +2299,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             return
         }
         isShutDown = true
+        rootRemovalPreparationTasks.values.forEach { $0.cancel() }
         queueRestorationGeneration &+= 1
         queueRestorationTask?.cancel()
         queueRestorationTask = nil
@@ -2256,6 +2328,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         for task in pendingSortTasks {
             await task.value
         }
+
+        for task in Array(rootRemovalTasks.values) { await task.value }
 
         await prepareForMediaScopeShutdownHandler?()
         mediaSession.stop()
@@ -3246,44 +3320,6 @@ final class MediaLibraryCoordinator: ObservableObject {
 
     private func canonicalComparisonURL(_ url: URL) -> URL {
         url.resolvingSymlinksInPath().standardizedFileURL
-    }
-
-    @discardableResult
-    private func removeItemsFromActiveQueue(
-        _ removedItemIDs: Set<LibraryMediaItem.ID>
-    ) -> Bool {
-        guard !removedItemIDs.isEmpty, var queue else {
-            return false
-        }
-
-        let removedCurrentItem = currentItemID.map {
-            removedItemIDs.contains($0)
-        } == true
-        var nextItemID = queue.remove(removedItemIDs)
-
-        if removedCurrentItem,
-           let candidateItemID = nextItemID,
-           unavailableItemIDs.contains(candidateItemID) {
-            nextItemID = nextAvailableItem(
-                in: &queue,
-                maximumAdvances: queue.count,
-                excluding: candidateItemID
-            )
-        }
-
-        guard !queue.isEmpty, let nextItemID else {
-            clearActiveQueue()
-            return removedCurrentItem
-        }
-
-        self.queue = queue
-        publishQueueChange()
-        guard removedCurrentItem else {
-            return false
-        }
-
-        currentItemID = nextItemID
-        return true
     }
 
     private func stopPlaybackAndClearQueue() {

@@ -5,6 +5,7 @@ struct PlaybackQueueLocation<Item: Sendable>: Sendable {
 }
 
 struct PlaybackQueueHistoryBuffer<Element: Sendable>: Sendable {
+    private static var capacityRetentionDivisor: Int { 4 }
     private var storage: [Element?]
     private var startIndex = 0
     private(set) var count = 0
@@ -12,6 +13,8 @@ struct PlaybackQueueHistoryBuffer<Element: Sendable>: Sendable {
     var isEmpty: Bool {
         count == 0
     }
+
+    var capacity: Int { storage.count }
 
     var elements: [Element] {
         elements(in: 0..<count)
@@ -99,13 +102,15 @@ struct PlaybackQueueHistoryBuffer<Element: Sendable>: Sendable {
         replaceElements(with: elements.map(transform))
     }
 
-    mutating func ensureCapacity(_ minimumCapacity: Int) {
-        guard minimumCapacity > storage.count else {
+    mutating func resizeIfNeeded(_ targetCapacity: Int) {
+        precondition(targetCapacity > 0)
+        let shouldShrink = targetCapacity <= storage.count / Self.capacityRetentionDivisor
+        guard targetCapacity > storage.count || shouldShrink else {
             return
         }
 
-        let retainedElements = elements
-        storage = Array(repeating: nil, count: minimumCapacity)
+        let retainedElements = suffixElements(maximumCount: targetCapacity)
+        storage = Array(repeating: nil, count: targetCapacity)
         startIndex = 0
         count = 0
         for element in retainedElements {

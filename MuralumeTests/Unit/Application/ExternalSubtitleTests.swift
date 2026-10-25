@@ -463,3 +463,411 @@ private final class BlockingSubtitleWork:
         condition.unlock()
     }
 }
+
+@MainActor
+final class ExternalSubtitleAssociationStoreTests: XCTestCase {
+    func testLookupCachesRecordsAndCoalescesRecencyWritesOffMainThread() async {
+        let probe = SubtitleAssociationProbe()
+        let store = makeStore(probe, recencySaveDelay: .milliseconds(100))
+        let media = URL(fileURLWithPath: "/tmp/movie.mp4")
+        let subtitle = URL(fileURLWithPath: "/tmp/movie.srt")
+        await store.save(subtitleURL: subtitle, for: media)
+        for _ in 0..<20 {
+            let result = await store.subtitleURL(for: media)
+            XCTAssertEqual(result, subtitle)
+        }
+        XCTAssertEqual(probe.readCount, 1)
+        XCTAssertEqual(probe.writeCount, 1)
+        XCTAssertFalse(probe.didWorkOnMainThread)
+        await waitUntil { probe.writeCount == 2 }
+        XCTAssertEqual(probe.writeCount, 2)
+    }
+
+    func testCacheIsBoundedAndIsolatedBetweenStoreInstances() async throws {
+        let firstProbe = SubtitleAssociationProbe()
+        let first = makeStore(firstProbe)
+        let secondProbe = SubtitleAssociationProbe()
+        let second = makeStore(secondProbe)
+        for index in 0..<(ExternalSubtitlePolicy.maximumStoredAssociations + 10) {
+            await first.save(
+                subtitleURL: URL(fileURLWithPath: "/tmp/subtitle-\(index).srt"),
+                for: URL(fileURLWithPath: "/tmp/movie-\(index).mp4")
+            )
+        }
+        let encoded = try XCTUnwrap(firstProbe.data)
+        let records = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [[String: Any]])
+        XCTAssertEqual(records.count, ExternalSubtitlePolicy.maximumStoredAssociations)
+        let isolated = await second.subtitleURL(for: URL(fileURLWithPath: "/tmp/movie-73.mp4"))
+        XCTAssertNil(isolated)
+        XCTAssertEqual(secondProbe.readCount, 1)
+        XCTAssertEqual(secondProbe.writeCount, 0)
+    }
+
+    func testStaleBookmarkRefreshPersistsAndNextLookupUsesUpdatedRecord() async {
+        let probe = SubtitleAssociationProbe()
+        let media = URL(fileURLWithPath: "/tmp/movie.mp4")
+        let oldSubtitle = URL(fileURLWithPath: "/tmp/old.srt")
+        let newSubtitle = URL(fileURLWithPath: "/tmp/new.srt")
+        let initial = makeStore(probe)
+        await initial.save(subtitleURL: oldSubtitle, for: media)
+        let store = UserDefaultsExternalSubtitleAssociationStore(
+            bookmarkIO: ExternalSubtitleBookmarkIO(
+                resolve: { data in
+                    let old = data == Data(oldSubtitle.absoluteString.utf8)
+                    return .init(url: newSubtitle, isStale: old)
+                },
+                create: { Data($0.absoluteString.utf8) }
+            ),
+            recencySaveDelay: .seconds(60), persistence: probe.persistence
+        )
+        let first = await store.subtitleURL(for: media)
+        XCTAssertEqual(first, newSubtitle)
+        XCTAssertEqual(probe.writeCount, 2)
+        let second = await store.subtitleURL(for: media)
+        XCTAssertEqual(second, newSubtitle)
+        XCTAssertEqual(probe.writeCount, 2)
+    }
+
+    func testCancelledLookupCannotRestoreAnAssociationRemovedOrReplacedLater() async {
+        let probe = SubtitleAssociationProbe()
+        let gate = SubtitleBookmarkGate()
+        defer { gate.open() }
+        let media = URL(fileURLWithPath: "/tmp/movie.mp4")
+        let oldSubtitle = URL(fileURLWithPath: "/tmp/old.srt")
+        let newSubtitle = URL(fileURLWithPath: "/tmp/new.srt")
+        let initial = makeStore(probe)
+        await initial.save(subtitleURL: oldSubtitle, for: media)
+        let store = makeStore(probe, gate: gate)
+        let lookup = Task { await store.subtitleURL(for: media) }
+        await waitUntil { gate.isWaiting }
+        lookup.cancel()
+        let replacement = Task {
+            await store.removeSubtitleURL(for: media)
+            await store.save(subtitleURL: newSubtitle, for: media)
+        }
+        gate.open()
+        let cancelledResult = await lookup.value
+        XCTAssertNil(cancelledResult)
+        await replacement.value
+        let result = await store.subtitleURL(for: media)
+        XCTAssertEqual(result, newSubtitle)
+        await store.removeSubtitleURL(for: media)
+        let removedResult = await store.subtitleURL(for: media)
+        XCTAssertNil(removedResult)
+        XCTAssertNil(probe.data)
+    }
+
+    private func makeStore(
+        _ probe: SubtitleAssociationProbe,
+        gate: SubtitleBookmarkGate? = nil,
+        recencySaveDelay: Duration = .seconds(60)
+    ) -> UserDefaultsExternalSubtitleAssociationStore {
+        UserDefaultsExternalSubtitleAssociationStore(
+            bookmarkIO: probe.bookmarkIO(gate: gate),
+            recencySaveDelay: recencySaveDelay, persistence: probe.persistence
+        )
+    }
+
+    private func waitUntil(_ condition: @escaping @MainActor () -> Bool) async {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < deadline {
+            if condition() { return }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        XCTFail("Timed out waiting for subtitle association work")
+    }
+}
+
+extension ExternalSubtitleControllerTests {
+    func testClearDuringLookupDoesNotReactivateRemovedAssociationOnImmediatePrepare() async {
+        let probe = SubtitleAssociationProbe()
+        let gate = SubtitleBookmarkGate()
+        defer { gate.open() }
+        let media = URL(fileURLWithPath: "/tmp/movie.mp4")
+        let remembered = URL(fileURLWithPath: "/tmp/remembered.srt")
+        let initial = UserDefaultsExternalSubtitleAssociationStore(
+            bookmarkIO: probe.bookmarkIO(), persistence: probe.persistence
+        )
+        await initial.save(subtitleURL: remembered, for: media)
+        let store = UserDefaultsExternalSubtitleAssociationStore(
+            bookmarkIO: probe.bookmarkIO(gate: gate), persistence: probe.persistence
+        )
+        let work = BlockingSubtitleWork()
+        work.release()
+        let controller = ExternalSubtitleController(
+            engine: TestPlaybackEngine(), parser: work, associationStore: store
+        )
+        var activations = 0
+        controller.prepare(for: media) { activations += 1 }
+        await waitUntil { gate.isWaiting }
+        controller.clear(removeRememberedAssociation: true)
+        controller.prepare(for: media) { activations += 1 }
+        gate.open()
+        await waitUntil { probe.data == nil && !controller.isLoading }
+        XCTAssertNil(controller.track)
+        XCTAssertEqual(activations, 0)
+        XCTAssertTrue(work.calls.isEmpty)
+    }
+
+    func testRememberedLookupSharesWorkerAndUserSelectionSupersedesLateResult() async {
+        let probe = SubtitleAssociationProbe()
+        let gate = SubtitleBookmarkGate()
+        defer { gate.open() }
+        let media = URL(fileURLWithPath: "/tmp/movie.mp4")
+        let oldSubtitle = URL(fileURLWithPath: "/tmp/old.srt")
+        let newSubtitle = URL(fileURLWithPath: "/tmp/new.srt")
+        let initial = UserDefaultsExternalSubtitleAssociationStore(
+            bookmarkIO: probe.bookmarkIO(), persistence: probe.persistence
+        )
+        await initial.save(subtitleURL: oldSubtitle, for: media)
+        let store = UserDefaultsExternalSubtitleAssociationStore(
+            bookmarkIO: probe.bookmarkIO(gate: gate), persistence: probe.persistence
+        )
+        let work = BlockingSubtitleWork()
+        work.release()
+        let controller = ExternalSubtitleController(
+            engine: TestPlaybackEngine(), parser: work, discovery: work,
+            associationStore: store
+        )
+        var staleActivations = 0
+        var selectedActivations = 0
+        controller.prepare(for: media) { staleActivations += 1 }
+        await waitUntil { gate.isWaiting }
+        for index in 0..<100 {
+            controller.prepare(for: URL(fileURLWithPath: "/tmp/discarded-\(index).mp4")) {
+                staleActivations += 1
+            }
+        }
+        controller.prepare(for: media) { staleActivations += 1 }
+        controller.loadUserSelected(newSubtitle, for: media) { selectedActivations += 1 }
+        XCTAssertTrue(controller.isLoading)
+        XCTAssertTrue(work.calls.isEmpty)
+        gate.open()
+        await waitUntil { selectedActivations == 1 }
+        XCTAssertEqual(controller.track?.url, newSubtitle)
+        XCTAssertEqual(controller.track?.origin, .userSelected)
+        XCTAssertEqual(work.calls, ["parse:new.srt"])
+        XCTAssertEqual(staleActivations, 0)
+        let remembered = await store.subtitleURL(for: media)
+        XCTAssertEqual(remembered, newSubtitle)
+        controller.clear(removeRememberedAssociation: true)
+        await waitUntil { probe.data == nil }
+        let removed = await store.subtitleURL(for: media)
+        XCTAssertNil(removed)
+    }
+
+    func testInvalidRememberedSubtitleIsRemovedBeforeDiscoveryFallback() async {
+        let probe = SubtitleAssociationProbe()
+        let media = URL(fileURLWithPath: "/tmp/movie.mp4")
+        let remembered = URL(fileURLWithPath: "/tmp/invalid.srt")
+        let fallback = URL(fileURLWithPath: "/tmp/movie.srt")
+        let store = UserDefaultsExternalSubtitleAssociationStore(
+            bookmarkIO: probe.bookmarkIO(), persistence: probe.persistence
+        )
+        await store.save(subtitleURL: remembered, for: media)
+        let work = FallbackSubtitleWork(invalidURL: remembered, fallbackURL: fallback)
+        let controller = ExternalSubtitleController(
+            engine: TestPlaybackEngine(), parser: work, discovery: work,
+            associationStore: store
+        )
+        var activations = 0
+        controller.prepare(for: media) { activations += 1 }
+        await waitUntil { controller.track != nil }
+        XCTAssertEqual(controller.track?.url, fallback)
+        XCTAssertEqual(controller.track?.origin, .discovered)
+        XCTAssertEqual(activations, 1)
+        let association = await store.subtitleURL(for: media)
+        XCTAssertNil(association)
+        XCTAssertNil(probe.data)
+    }
+}
+
+private final class SubtitleAssociationProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedData: Data?
+    private var reads = 0
+    private var writes = 0
+    private var workedOnMainThread = false
+
+    var data: Data? { lock.withLock { storedData } }
+    var readCount: Int { lock.withLock { reads } }
+    var writeCount: Int { lock.withLock { writes } }
+    var didWorkOnMainThread: Bool { lock.withLock { workedOnMainThread } }
+
+    var persistence: ExternalSubtitleAssociationPersistence {
+        ExternalSubtitleAssociationPersistence(
+            read: { [self] in
+                lock.withLock {
+                    reads += 1
+                    workedOnMainThread = workedOnMainThread || Thread.isMainThread
+                    return storedData
+                }
+            },
+            write: { [self] data in
+                lock.withLock {
+                    writes += 1
+                    workedOnMainThread = workedOnMainThread || Thread.isMainThread
+                    storedData = data
+                }
+            }
+        )
+    }
+
+    func bookmarkIO(gate: SubtitleBookmarkGate? = nil) -> ExternalSubtitleBookmarkIO {
+        ExternalSubtitleBookmarkIO(
+            resolve: { [self] data in
+                recordThread()
+                gate?.wait()
+                guard let raw = String(data: data, encoding: .utf8),
+                      let url = URL(string: raw) else { return nil }
+                return .init(url: url, isStale: false)
+            },
+            create: { [self] url in
+                recordThread()
+                return Data(url.absoluteString.utf8)
+            }
+        )
+    }
+
+    private func recordThread() {
+        lock.withLock { workedOnMainThread = workedOnMainThread || Thread.isMainThread }
+    }
+}
+
+private final class SubtitleBookmarkGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var blocked = true
+    private var waiting = false
+    var isWaiting: Bool { condition.withLock { waiting } }
+
+    func wait() {
+        condition.lock()
+        waiting = true
+        while blocked { condition.wait() }
+        condition.unlock()
+    }
+
+    func open() {
+        condition.withLock {
+            blocked = false
+            condition.broadcast()
+        }
+    }
+}
+
+private struct FallbackSubtitleWork: SubtitleFileParsing, ExternalSubtitleDiscovering {
+    let invalidURL: URL
+    let fallbackURL: URL
+    func parse(_ url: URL) throws -> SubtitleTimeline {
+        if url == invalidURL { throw ExternalSubtitleLoadFailure.invalidFormat }
+        return SubtitleTimeline(cues: [.init(startTime: 1, endTime: 2, text: "Fallback")])
+    }
+    func discover(for mediaURL: URL, preferredLanguageCodes: [String]) -> URL? { fallbackURL }
+}
+
+extension ExternalSubtitleControllerTests {
+    func testParsedSubtitleActivatesBeforeBlockedSaveAndClearDrainsBeforeLaterSave() async {
+        let saveGate = SubtitleBookmarkGate()
+        let removeGate = SubtitleBookmarkGate()
+        defer { saveGate.open(); removeGate.open() }
+        let probe = SubtitleAssociationMutationProbe()
+        let store = BlockingSubtitleAssociationStore(
+            probe: probe, saveGate: saveGate, removeGate: removeGate
+        )
+        let work = BlockingSubtitleWork()
+        work.release()
+        let engine = TestPlaybackEngine()
+        let controller = ExternalSubtitleController(
+            engine: engine, parser: work, associationStore: store
+        )
+        let media = URL(fileURLWithPath: "/tmp/movie.mp4")
+        let first = URL(fileURLWithPath: "/tmp/first.srt")
+        let latest = URL(fileURLWithPath: "/tmp/latest.srt")
+        var firstActivations = 0
+        var latestActivations = 0
+        controller.prepare(for: media) {}
+        controller.loadUserSelected(first, for: media) { firstActivations += 1 }
+        await waitUntil { saveGate.isWaiting }
+        XCTAssertEqual(firstActivations, 1)
+        XCTAssertEqual(controller.track?.url, first)
+        XCTAssertNotNil(engine.externalSubtitleTimeHandler)
+        for _ in 0..<1_000 { controller.clear(removeRememberedAssociation: true) }
+        controller.loadUserSelected(latest, for: media) { latestActivations += 1 }
+        saveGate.open()
+        await waitUntil { removeGate.isWaiting }
+        XCTAssertEqual(probe.calls, ["save:first.srt", "remove:movie.mp4"])
+        for _ in 0..<1_000 { controller.clear(removeRememberedAssociation: true) }
+        controller.loadUserSelected(latest, for: media) { latestActivations += 1 }
+        removeGate.open()
+        await waitUntil { probe.subtitle(for: media) == latest }
+        XCTAssertEqual(latestActivations, 1)
+        XCTAssertEqual(controller.track?.url, latest)
+        XCTAssertEqual(probe.calls, ["save:first.srt", "remove:movie.mp4", "save:latest.srt"])
+    }
+
+    func testBlockedAssociationRemovalQueueIsBoundedAndReportsOverflow() async {
+        let gate = SubtitleBookmarkGate()
+        defer { gate.open() }
+        let probe = SubtitleAssociationMutationProbe()
+        let store = BlockingSubtitleAssociationStore(probe: probe, removeGate: gate)
+        let work = BlockingSubtitleWork()
+        work.release()
+        let controller = ExternalSubtitleController(
+            engine: TestPlaybackEngine(), parser: work, associationStore: store
+        )
+        controller.prepare(for: URL(fileURLWithPath: "/tmp/first.mp4")) {}
+        controller.clear(removeRememberedAssociation: true)
+        await waitUntil { gate.isWaiting }
+        for index in 0..<(ExternalSubtitlePolicy.maximumPendingAssociationRemovals + 20) {
+            controller.prepare(for: URL(fileURLWithPath: "/tmp/movie-\(index).mp4")) {}
+            controller.clear(removeRememberedAssociation: true)
+        }
+        XCTAssertEqual(controller.failure, .cannotRead)
+        XCTAssertEqual(probe.calls.count, 1)
+        gate.open()
+        await waitUntil {
+            probe.calls.count == ExternalSubtitlePolicy.maximumPendingAssociationRemovals + 1
+        }
+        XCTAssertTrue(probe.calls.allSatisfy { $0.hasPrefix("remove:") })
+    }
+}
+
+private actor BlockingSubtitleAssociationStore: ExternalSubtitleAssociationStoring {
+    let probe: SubtitleAssociationMutationProbe
+    let saveGate: SubtitleBookmarkGate?
+    let removeGate: SubtitleBookmarkGate?
+
+    init(
+        probe: SubtitleAssociationMutationProbe,
+        saveGate: SubtitleBookmarkGate? = nil,
+        removeGate: SubtitleBookmarkGate? = nil
+    ) {
+        self.probe = probe
+        self.saveGate = saveGate
+        self.removeGate = removeGate
+    }
+
+    func subtitleURL(for mediaURL: URL) -> URL? { probe.subtitle(for: mediaURL) }
+    func save(subtitleURL: URL, for mediaURL: URL) {
+        probe.record("save:" + subtitleURL.lastPathComponent)
+        saveGate?.wait()
+        probe.save(subtitleURL, for: mediaURL)
+    }
+    func removeSubtitleURL(for mediaURL: URL) {
+        probe.record("remove:" + mediaURL.lastPathComponent)
+        removeGate?.wait()
+        probe.save(nil, for: mediaURL)
+    }
+}
+
+private final class SubtitleAssociationMutationProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedCalls: [String] = []
+    private var subtitles: [URL: URL] = [:]
+    var calls: [String] { lock.withLock { recordedCalls } }
+    func record(_ call: String) { lock.withLock { recordedCalls.append(call) } }
+    func subtitle(for media: URL) -> URL? { lock.withLock { subtitles[media] } }
+    func save(_ subtitle: URL?, for media: URL) {
+        lock.withLock { subtitles[media] = subtitle }
+    }
+}

@@ -16,6 +16,7 @@ func makeFixture(
         DefaultMediaLibrarySnapshotPreparer(),
     playbackProgressStore: (any PlaybackProgressStoring)? = nil,
     canonicalLookup: MediaLibraryCanonicalLookup = MediaLibraryCanonicalLookup(),
+    removalPreparer: any MediaLibraryRemovalPreparing = DefaultMediaLibraryRemovalPreparer(),
     queueRestorationPreparer: any MediaLibraryQueueRestorationPreparing =
         DefaultMediaLibraryQueueRestorationPreparer(),
     reshuffleRestoredQueue: @escaping RestoredPlaybackQueueShuffler = {
@@ -42,7 +43,8 @@ func makeFixture(
         playbackProgressStore: playbackProgressStore,
         reshuffleRestoredQueue: reshuffleRestoredQueue,
         queueRestorationPreparer: queueRestorationPreparer,
-        canonicalLookup: canonicalLookup
+        canonicalLookup: canonicalLookup,
+        removalPreparer: removalPreparer
     )
     return Fixture(
         coordinator: coordinator,

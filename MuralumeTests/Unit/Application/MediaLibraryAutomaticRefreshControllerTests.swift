@@ -105,6 +105,243 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         XCTAssertEqual(target.refreshRequestCount, 0)
     }
 
+    func testReliableInternalRootKeepsBoundedSilentWatcherFallback() async {
+        let monitor = AutomaticRefreshMonitorSpy()
+        monitor.cadence = .extended
+        let target = AutomaticRefreshTargetSpy()
+        target.startsScanningWhenRefreshIsAccepted = true
+        let delay = ReconciliationDelayRecorder()
+        let controller = makeController(
+            monitor: monitor,
+            target: target,
+            reconciliationDelayer: delay.wait
+        )
+        controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/internal-media")])
+
+        let extendedInterval = TestPolicy.reconciliationNanoseconds
+            * MediaLibraryAutomaticRefreshPolicy.extendedReconciliationIntervalMultiplier
+        await waitUntil { delay.intervals.last == extendedInterval }
+        XCTAssertEqual(target.refreshRequestCount, 0)
+
+        delay.release()
+        await waitUntil { target.refreshRequestCount == 1 }
+        XCTAssertTrue(target.isScanning)
+        controller.stop()
+    }
+
+    func testEventsRemainPromptDuringExtendedReconciliation() async {
+        let monitor = AutomaticRefreshMonitorSpy()
+        monitor.cadence = .extended
+        let target = AutomaticRefreshTargetSpy()
+        target.startsScanningWhenRefreshIsAccepted = true
+        let delay = ReconciliationDelayRecorder()
+        let controller = makeController(
+            monitor: monitor, target: target, reconciliationDelayer: delay.wait
+        )
+        controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/event-media")])
+        await waitUntil {
+            delay.intervals.last == TestPolicy.reconciliationNanoseconds
+                * MediaLibraryAutomaticRefreshPolicy.extendedReconciliationIntervalMultiplier
+        }
+
+        monitor.sendChange()
+        await waitUntil { target.refreshRequestCount == 1 }
+        XCTAssertTrue(target.isScanning)
+        controller.stop()
+    }
+
+    func testLateStandardClassificationPreservesOriginalWatchdog() async {
+        let monitor = AutomaticRefreshMonitorSpy()
+        var classification: CheckedContinuation<MediaLibraryReconciliationCadence, Never>?
+        monitor.resolveCadence = {
+            await withCheckedContinuation { classification = $0 }
+        }
+        let target = AutomaticRefreshTargetSpy()
+        target.startsScanningWhenRefreshIsAccepted = true
+        let delay = ReconciliationDelayRecorder()
+        let uptime = ReconciliationTestUptime()
+        let controller = makeController(
+            monitor: monitor, target: target, reconciliationDelayer: delay.wait,
+            reconciliationUptime: { uptime.value }
+        )
+        controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/slow-unknown-volume")])
+        await waitUntil { classification != nil && delay.intervals.count == 1 }
+
+        uptime.value = TestPolicy.reconciliationNanoseconds / 2
+        classification?.resume(returning: .standard)
+        await waitUntil { monitor.cadenceCompletionCount == 1 }
+        await Task.yield()
+        XCTAssertEqual(delay.intervals, [TestPolicy.reconciliationNanoseconds])
+
+        delay.release()
+        await waitUntil { target.refreshRequestCount == 1 }
+        controller.stop()
+    }
+
+    func testLateExtendedClassificationUsesOriginalMonotonicAnchor() async {
+        let monitor = AutomaticRefreshMonitorSpy()
+        var classification: CheckedContinuation<MediaLibraryReconciliationCadence, Never>?
+        monitor.resolveCadence = {
+            await withCheckedContinuation { classification = $0 }
+        }
+        let target = AutomaticRefreshTargetSpy()
+        let delay = ReconciliationDelayRecorder()
+        let uptime = ReconciliationTestUptime()
+        let controller = makeController(
+            monitor: monitor, target: target, reconciliationDelayer: delay.wait,
+            reconciliationUptime: { uptime.value }
+        )
+        controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/slow-internal-volume")])
+        await waitUntil { classification != nil && delay.intervals.count == 1 }
+
+        uptime.value = TestPolicy.reconciliationNanoseconds / 2
+        classification?.resume(returning: .extended)
+        await waitUntil { delay.intervals.count == 2 }
+        let maximumInterval = TestPolicy.reconciliationNanoseconds
+            * MediaLibraryAutomaticRefreshPolicy.extendedReconciliationIntervalMultiplier
+        XCTAssertEqual(delay.intervals.last, maximumInterval - uptime.value)
+        controller.stop()
+    }
+
+    func testSlowClassificationCannotBlockConservativeWatchdogDeadline() async {
+        let monitor = AutomaticRefreshMonitorSpy()
+        var classification: CheckedContinuation<MediaLibraryReconciliationCadence, Never>?
+        monitor.resolveCadence = {
+            await withCheckedContinuation { classification = $0 }
+        }
+        let target = AutomaticRefreshTargetSpy()
+        target.startsScanningWhenRefreshIsAccepted = true
+        let delay = ReconciliationDelayRecorder()
+        let controller = makeController(
+            monitor: monitor, target: target, reconciliationDelayer: delay.wait
+        )
+        controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/blocked-volume")])
+        await waitUntil { classification != nil && delay.intervals.count == 1 }
+        XCTAssertEqual(delay.intervals, [TestPolicy.reconciliationNanoseconds])
+
+        delay.release()
+        await waitUntil { target.refreshRequestCount == 1 }
+        XCTAssertTrue(target.isScanning)
+        controller.stop()
+        classification?.resume(returning: .extended)
+    }
+
+    func testFailedScanRestoresConservativeReconciliation() async {
+        let monitor = AutomaticRefreshMonitorSpy()
+        monitor.cadence = .extended
+        let target = AutomaticRefreshTargetSpy()
+        let delay = ReconciliationDelayRecorder()
+        let controller = makeController(
+            monitor: monitor, target: target, reconciliationDelayer: delay.wait
+        )
+        controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/failed-internal-media")])
+        await waitUntil {
+            delay.intervals.last == TestPolicy.reconciliationNanoseconds
+                * MediaLibraryAutomaticRefreshPolicy.extendedReconciliationIntervalMultiplier
+        }
+
+        target.isScanning = true
+        controller.scanStateDidChange()
+        target.lastScanSucceeded = false
+        target.isScanning = false
+        controller.scanStateDidChange()
+
+        await waitUntil { delay.intervals.last == TestPolicy.reconciliationNanoseconds }
+        controller.stop()
+    }
+
+    func testMonitorInstallationGapKeepsConservativeReconciliation() async {
+        let monitor = AutomaticRefreshMonitorSpy()
+        monitor.cadence = .extended
+        monitor.defaultUpdateResult = false
+        let target = AutomaticRefreshTargetSpy()
+        let delay = ReconciliationDelayRecorder()
+        let controller = makeController(
+            monitor: monitor, target: target, reconciliationDelayer: delay.wait
+        )
+        controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/unmonitored-internal-media")])
+
+        await waitUntil { monitor.cadenceRequestCount == 1 && !delay.intervals.isEmpty }
+        XCTAssertTrue(delay.intervals.allSatisfy {
+            $0 == TestPolicy.reconciliationNanoseconds
+        })
+        controller.stop()
+    }
+
+    func testStaleVolumeClassificationCannotExtendReplacementRoots() async {
+        let monitor = AutomaticRefreshMonitorSpy()
+        var classifications: [CheckedContinuation<MediaLibraryReconciliationCadence, Never>] = []
+        monitor.resolveCadence = {
+            await withCheckedContinuation { classifications.append($0) }
+        }
+        let target = AutomaticRefreshTargetSpy()
+        let delay = ReconciliationDelayRecorder()
+        let controller = makeController(
+            monitor: monitor, target: target, reconciliationDelayer: delay.wait
+        )
+        controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/old-internal-media")])
+        await waitUntil { classifications.count == 1 }
+        controller.update(folderURLs: [URL(fileURLWithPath: "/tmp/new-network-media")])
+        await waitUntil { classifications.count == 2 }
+
+        classifications[0].resume(returning: .extended)
+        classifications[1].resume(returning: .standard)
+        await Task.yield()
+        await Task.yield()
+        XCTAssertTrue(delay.intervals.allSatisfy {
+            $0 == TestPolicy.reconciliationNanoseconds
+        })
+        controller.stop()
+    }
+
+    func testOnlyKnownReliableInternalVolumesExtendReconciliation() {
+        func volume(
+            local: Bool? = true,
+            internalVolume: Bool? = true,
+            removable: Bool? = false,
+            ejectable: Bool? = false,
+            ubiquitous: Bool? = false,
+            fileSystem: String? = "apfs"
+        ) -> MediaLibraryReconciliationVolume {
+            .init(
+                isLocal: local, isInternal: internalVolume,
+                isRemovable: removable, isEjectable: ejectable,
+                isUbiquitous: ubiquitous, fileSystemType: fileSystem
+            )
+        }
+        XCTAssertTrue(volume().allowsExtendedReconciliation)
+        XCTAssertTrue(volume(fileSystem: "hfs").allowsExtendedReconciliation)
+        XCTAssertTrue(volume(ubiquitous: nil).allowsExtendedReconciliation)
+        let unreliableVolumes = [
+            volume(local: false), volume(internalVolume: false),
+            volume(removable: true), volume(ejectable: true),
+            volume(ubiquitous: true), volume(fileSystem: "osxfuse"),
+            volume(local: nil), volume(internalVolume: nil),
+            volume(removable: nil), volume(ejectable: nil),
+            volume(fileSystem: nil)
+        ]
+        XCTAssertTrue(unreliableVolumes.allSatisfy { !$0.allowsExtendedReconciliation })
+    }
+
+    func testVolumeInspectionRunsOffMainThreadAndRejectsMixedRoots() async {
+        let reliableVolume = MediaLibraryReconciliationVolume(
+            isLocal: true, isInternal: true, isRemovable: false,
+            isEjectable: false, isUbiquitous: false, fileSystemType: "apfs"
+        )
+        let monitor = FSEventsMediaLibraryChangeMonitor { url in
+            XCTAssertFalse(Thread.isMainThread)
+            return url.lastPathComponent == "internal" ? reliableVolume : nil
+        }
+        let internalRoot = URL(fileURLWithPath: "/tmp/internal")
+        let unknownRoot = URL(fileURLWithPath: "/tmp/unknown")
+        let internalCadence = await monitor.reconciliationCadence(for: [internalRoot])
+        let mixedCadence = await monitor.reconciliationCadence(
+            for: [internalRoot, unknownRoot]
+        )
+        XCTAssertEqual(internalCadence, .extended)
+        XCTAssertEqual(mixedCadence, .standard)
+    }
+
     func testCoalescesBurstIntoOneRefreshRequest() async {
         let monitor = AutomaticRefreshMonitorSpy()
         let target = AutomaticRefreshTargetSpy()
@@ -503,7 +740,13 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         monitor: AutomaticRefreshMonitorSpy,
         target: AutomaticRefreshTargetSpy,
         reconciliationNanoseconds: UInt64 =
-            TestPolicy.reconciliationNanoseconds
+            TestPolicy.reconciliationNanoseconds,
+        reconciliationDelayer: @escaping
+            MediaLibraryAutomaticRefreshController.ReconciliationDelayer = { nanoseconds in
+                try await Task.sleep(nanoseconds: nanoseconds)
+            },
+        reconciliationUptime: @escaping
+            MediaLibraryAutomaticRefreshController.ReconciliationUptime = { 0 }
     ) -> MediaLibraryAutomaticRefreshController {
         MediaLibraryAutomaticRefreshController(
             monitor: monitor,
@@ -516,6 +759,8 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
             installationRecoveryNanoseconds:
                 TestPolicy.installationRecoveryNanoseconds,
             reconciliationNanoseconds: reconciliationNanoseconds,
+            reconciliationDelayer: reconciliationDelayer,
+            reconciliationUptime: reconciliationUptime,
             maximumInstallationRetryCount:
                 TestPolicy.maximumInstallationRetryCount
         )
@@ -541,6 +786,10 @@ private final class AutomaticRefreshMonitorSpy:
     private(set) var stopCallCount = 0
     var updateResults: [Bool] = []
     var defaultUpdateResult = true
+    var cadence: MediaLibraryReconciliationCadence = .standard
+    var resolveCadence: (() async -> MediaLibraryReconciliationCadence)?
+    private(set) var cadenceRequestCount = 0
+    private(set) var cadenceCompletionCount = 0
     private var handlers: [@Sendable () -> Void] = []
 
     @discardableResult
@@ -560,10 +809,36 @@ private final class AutomaticRefreshMonitorSpy:
         stopCallCount += 1
     }
 
+    func reconciliationCadence(
+        for folderURLs: [URL]
+    ) async -> MediaLibraryReconciliationCadence {
+        cadenceRequestCount += 1
+        defer { cadenceCompletionCount += 1 }
+        if let resolveCadence { return await resolveCadence() }
+        return cadence
+    }
+
     func sendChange(handlerIndex: Int? = nil) {
         let index = handlerIndex ?? handlers.index(before: handlers.endIndex)
         handlers[index]()
     }
+}
+
+@MainActor
+private final class ReconciliationDelayRecorder {
+    private(set) var intervals: [UInt64] = []
+    private var availableReleases = 0
+
+    func wait(_ nanoseconds: UInt64) async throws {
+        intervals.append(nanoseconds)
+        while availableReleases == 0 {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        try Task.checkCancellation()
+        availableReleases -= 1
+    }
+
+    func release() { availableReleases += 1 }
 }
 
 @MainActor
@@ -590,4 +865,9 @@ private final class AutomaticRefreshTargetSpy:
         }
         return acceptsRefreshRequests
     }
+}
+
+@MainActor
+private final class ReconciliationTestUptime {
+    var value: UInt64 = 0
 }

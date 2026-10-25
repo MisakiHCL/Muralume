@@ -5,6 +5,8 @@ import Foundation
 final class ExternalSubtitleController: ObservableObject {
     private struct Request {
         enum Work {
+            case removeAssociation
+            case remembered
             case discover(preferredLanguages: [String])
             case parse(
                 URL, origin: ExternalSubtitleOrigin,
@@ -20,6 +22,8 @@ final class ExternalSubtitleController: ObservableObject {
     }
 
     private enum WorkResult: Sendable {
+        case associationRemoved
+        case remembered(URL?)
         case discovered(URL?)
         case parsed(SubtitleTimeline, SecurityScopedResourceLease)
         case failed(any Error)
@@ -42,6 +46,10 @@ final class ExternalSubtitleController: ObservableObject {
     private var worker: Task<Void, Never>?
     private var activeWork: Task<WorkResult, Never>?
     private var pendingRequest: Request?
+    // Mutations precede later selections. Coalesce repeated clears and bound
+    // outstanding intent independently of non-cooperative bookmark I/O.
+    private var pendingAssociationRemovals: [URL] = []
+    private var activeAssociationRemovalURL: URL?
     private var loadGeneration: UInt64 = 0
     private var activeSecurityScope: SecurityScopedResourceLease?
     private var currentMediaURL: URL?
@@ -74,20 +82,15 @@ final class ExternalSubtitleController: ObservableObject {
             return
         }
 
-        let rememberedURL = associationStore?.subtitleURL(for: mediaURL)
-        if let rememberedURL {
-            startLoad(
-                rememberedURL,
-                origin: .remembered,
-                for: mediaURL,
-                reportsFailure: false,
-                persistsAssociation: false,
-                discoversFallbackOnFailure: true,
-                activate: activate
-            )
-        } else {
+        guard associationStore != nil else {
             startDiscovery(for: mediaURL, activate: activate)
+            return
         }
+        loadGeneration &+= 1
+        enqueue(Request(
+            generation: loadGeneration, mediaURL: mediaURL,
+            work: .remembered, activate: activate
+        ))
     }
 
     func loadUserSelected(
@@ -113,7 +116,7 @@ final class ExternalSubtitleController: ObservableObject {
     func clear(removeRememberedAssociation: Bool) {
         loadGeneration &+= 1
         pendingRequest = nil
-        activeWork?.cancel()
+        if activeAssociationRemovalURL == nil { activeWork?.cancel() }
         engine.setExternalSubtitleTimeHandler(nil)
         cursor = nil
         track = nil
@@ -122,7 +125,7 @@ final class ExternalSubtitleController: ObservableObject {
         failure = nil
         activeSecurityScope = nil
         if removeRememberedAssociation, let currentMediaURL {
-            associationStore?.removeSubtitleURL(for: currentMediaURL)
+            enqueueAssociationRemoval(for: currentMediaURL)
         }
     }
 
@@ -175,17 +178,35 @@ final class ExternalSubtitleController: ObservableObject {
     }
 
     private func enqueue(_ request: Request) {
-        activeWork?.cancel()
+        if activeAssociationRemovalURL == nil { activeWork?.cancel() }
         pendingRequest = request
         isLoading = true
         failure = nil
+        startWorkerIfNeeded()
+    }
+
+    private func enqueueAssociationRemoval(for mediaURL: URL) {
+        guard associationStore != nil else { return }
+        let normalized = mediaURL.standardizedFileURL
+        guard activeAssociationRemovalURL != normalized,
+              !pendingAssociationRemovals.contains(normalized) else { return }
+        guard pendingAssociationRemovals.count
+                < ExternalSubtitlePolicy.maximumPendingAssociationRemovals else {
+            failure = .cannotRead
+            return
+        }
+        pendingAssociationRemovals.append(normalized)
+        startWorkerIfNeeded()
+    }
+
+    private func startWorkerIfNeeded() {
         guard worker == nil else { return }
         worker = Task { [weak self] in
             while !Task.isCancelled,
                   let request = self?.takePendingRequest(),
                   let task = self?.beginWork(for: request) {
                 let result = await task.value
-                self?.finishWork(
+                await self?.finishWork(
                     result, for: request, wasCancelled: task.isCancelled
                 )
             }
@@ -194,6 +215,13 @@ final class ExternalSubtitleController: ObservableObject {
     }
 
     private func takePendingRequest() -> Request? {
+        if !pendingAssociationRemovals.isEmpty {
+            return Request(
+                generation: loadGeneration,
+                mediaURL: pendingAssociationRemovals.removeFirst(),
+                work: .removeAssociation, activate: {}
+            )
+        }
         defer { pendingRequest = nil }
         return pendingRequest
     }
@@ -201,6 +229,22 @@ final class ExternalSubtitleController: ObservableObject {
     private func beginWork(for request: Request) -> Task<WorkResult, Never> {
         let task: Task<WorkResult, Never>
         switch request.work {
+        case .removeAssociation:
+            let associationStore = associationStore
+            let mediaURL = request.mediaURL
+            activeAssociationRemovalURL = mediaURL
+            task = Task.detached(priority: .utility) {
+                await associationStore?.removeSubtitleURL(for: mediaURL)
+                return .associationRemoved
+            }
+        case .remembered:
+            let associationStore = associationStore
+            let mediaURL = request.mediaURL
+            task = Task.detached(priority: .utility) {
+                guard !Task.isCancelled else { return .remembered(nil) }
+                let url = await associationStore?.subtitleURL(for: mediaURL)
+                return .remembered(url)
+            }
         case let .discover(preferredLanguages):
             let discovery = discovery
             let mediaURL = request.mediaURL
@@ -239,14 +283,28 @@ final class ExternalSubtitleController: ObservableObject {
 
     private func finishWork(
         _ result: WorkResult, for request: Request, wasCancelled: Bool
-    ) {
+    ) async {
         activeWork = nil
+        if case .removeAssociation = request.work {
+            activeAssociationRemovalURL = nil
+            return
+        }
         guard !wasCancelled,
               request.generation == loadGeneration,
               currentMediaURL?.standardizedFileURL
                 == request.mediaURL.standardizedFileURL else { return }
         isLoading = false
         switch (request.work, result) {
+        case let (.remembered, .remembered(subtitleURL)):
+            if let subtitleURL {
+                startLoad(
+                    subtitleURL, origin: .remembered, for: request.mediaURL,
+                    reportsFailure: false, persistsAssociation: false,
+                    discoversFallbackOnFailure: true, activate: request.activate
+                )
+            } else {
+                startDiscovery(for: request.mediaURL, activate: request.activate)
+            }
         case let (.discover, .discovered(subtitleURL)):
             if let subtitleURL {
                 startLoad(
@@ -268,20 +326,22 @@ final class ExternalSubtitleController: ObservableObject {
             )
             cueText = nil
             failure = nil
-            if persistsAssociation {
-                associationStore?.save(
-                    subtitleURL: subtitleURL, for: request.mediaURL
-                )
-            }
             request.activate()
             installTimeHandler()
+            if persistsAssociation {
+                await associationStore?.save(
+                    subtitleURL: subtitleURL, for: request.mediaURL
+                )
+                guard request.generation == loadGeneration else { return }
+            }
         case let (
             .parse(_, origin, reportsFailure, _, discoversFallbackOnFailure),
             .failed(error)
         ):
             guard !(error is CancellationError) else { return }
             if origin == .remembered {
-                associationStore?.removeSubtitleURL(for: request.mediaURL)
+                await associationStore?.removeSubtitleURL(for: request.mediaURL)
+                guard request.generation == loadGeneration else { return }
             }
             if reportsFailure { failure = mapFailure(error) }
             if discoversFallbackOnFailure {
