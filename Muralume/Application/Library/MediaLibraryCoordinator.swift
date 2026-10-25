@@ -1690,30 +1690,33 @@ final class MediaLibraryCoordinator: ObservableObject {
                 previousSnapshot: itemsSnapshot, previousItemsByID: visibleItemsByID,
                 previousCanonicalIndex: canonicalItemLookupIndex
             )
+            let applyPlan: @MainActor @Sendable (
+                MediaLibraryRemovalPlan
+            ) -> AppliedRootRemoval? = { [weak self] plan in
+                guard let self, !self.isShutDown,
+                      stamp.itemsRevision == self.itemsRevision,
+                      stamp.queueStateRevision == self.queueStateRevision,
+                      stamp.queueMetadataRevision == self.queueMetadataRevision,
+                      stamp.unavailableRevision == self.unavailableItemsRevision,
+                      stamp.temporaryGeneration == self.temporaryPlaybackGeneration,
+                      stamp.loadedItemID == self.loadedItemID,
+                      stamp.membership == self.playbackQueueMembership,
+                      sourceRevision == self.sourceAccessOperationGeneration,
+                      requestedSort == self.sort,
+                      pendingRoots == self.rootIDsPendingRemoval else { return nil }
+                return self.applyRootRemoval(plan, root: root)
+            }
             let pool = removalWorkPool
             let preparer = removalPreparer
             let task = Task<AppliedRootRemoval?, Error>.detached(priority: .userInitiated) {
-                [weak self, storage = storage!] in
+                [storage = storage!] in
                 try await pool.run {
                     defer { withExtendedLifetime(storage) {} }
                     let access = MediaLibraryRemovalScopeLease()
                     defer { withExtendedLifetime(access) {} }
                     try access.acquire(for: storage.request)
                     let plan = try await preparer.prepare(storage.request)
-                    return await MainActor.run { [weak self] () -> AppliedRootRemoval? in
-                        guard let self, !self.isShutDown,
-                              stamp.itemsRevision == self.itemsRevision,
-                              stamp.queueStateRevision == self.queueStateRevision,
-                              stamp.queueMetadataRevision == self.queueMetadataRevision,
-                              stamp.unavailableRevision == self.unavailableItemsRevision,
-                              stamp.temporaryGeneration == self.temporaryPlaybackGeneration,
-                              stamp.loadedItemID == self.loadedItemID,
-                              stamp.membership == self.playbackQueueMembership,
-                              sourceRevision == self.sourceAccessOperationGeneration,
-                              requestedSort == self.sort,
-                              pendingRoots == self.rootIDsPendingRemoval else { return nil }
-                        return self.applyRootRemoval(plan, root: root)
-                    }
+                    return await applyPlan(plan)
                 }
             }
             storage = nil
@@ -2607,37 +2610,40 @@ final class MediaLibraryCoordinator: ObservableObject {
                 previousItemsByID: visibleItemsByID,
                 previousCanonicalIndex: canonicalItemLookupIndex
             )
+            let applyPlan: @MainActor @Sendable (
+                MediaLibraryPublicationPlan, PreparedMediaLibrarySnapshot
+            ) throws -> PublicationResult = { [weak self] plan, prepared in
+                try Task.checkCancellation()
+                guard let self, generation == self.scanGeneration,
+                      !self.isShutDown else { throw CancellationError() }
+                guard self.sort == requestedSort,
+                      stamp.itemsRevision == self.itemsRevision,
+                      stamp.queueStateRevision == self.queueStateRevision,
+                      stamp.queueMetadataRevision == self.queueMetadataRevision,
+                      stamp.unavailableRevision == self.unavailableItemsRevision,
+                      stamp.temporaryGeneration == self.temporaryPlaybackGeneration,
+                      stamp.loadedItemID == self.loadedItemID,
+                      stamp.membership == self.playbackQueueMembership else {
+                    return .retry(prepared)
+                }
+                self.applyPublication(
+                    plan, prepared: prepared,
+                    requestedSourcePaths: requestedSourcePaths,
+                    requestedSort: requestedSort
+                )
+                return .applied(PublicationPruning(
+                    itemIDs: plan.keepingItemIDs, rootPaths: plan.completeRootPaths
+                ))
+            }
             let pool = publicationWorkPool
             let preparer = snapshotPreparer
             let task = Task<PublicationResult, Error>.detached(priority: .userInitiated) {
-                [weak self, storage = storage!] in
+                [storage = storage!] in
                 try await pool.run {
                     defer { withExtendedLifetime(storage) {} }
                     let plan = try await storage.request.prepare(using: preparer)
                     try Task.checkCancellation()
-                    return try await MainActor.run { [weak self] in
-                        try Task.checkCancellation()
-                        guard let self, generation == self.scanGeneration,
-                              !self.isShutDown else { throw CancellationError() }
-                        guard self.sort == requestedSort,
-                              stamp.itemsRevision == self.itemsRevision,
-                              stamp.queueStateRevision == self.queueStateRevision,
-                              stamp.queueMetadataRevision == self.queueMetadataRevision,
-                              stamp.unavailableRevision == self.unavailableItemsRevision,
-                              stamp.temporaryGeneration == self.temporaryPlaybackGeneration,
-                              stamp.loadedItemID == self.loadedItemID,
-                              stamp.membership == self.playbackQueueMembership else {
-                            return .retry(storage.request.prepared)
-                        }
-                        self.applyPublication(
-                            plan, prepared: storage.request.prepared,
-                            requestedSourcePaths: requestedSourcePaths,
-                            requestedSort: requestedSort
-                        )
-                        return .applied(PublicationPruning(
-                            itemIDs: plan.keepingItemIDs, rootPaths: plan.completeRootPaths
-                        ))
-                    }
+                    return try await applyPlan(plan, storage.request.prepared)
                 }
             }
             storage = nil
