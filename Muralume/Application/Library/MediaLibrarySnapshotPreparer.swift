@@ -6,22 +6,43 @@ enum MediaLibraryPerformancePolicy {
     static let backgroundSortMinimumItemCount = 512
 }
 
+/// This value belongs to one immutable prepared library, not a global cache.
+/// Reuse requires both the same ordering policy and the same locale snapshot.
+struct PreparedMediaLibraryOrdering: Sendable {
+    let sort: MediaLibrarySort
+    let locale: Locale
+#if DEBUG
+    let storageIdentityForTesting = UUID()
+#endif
+
+    func matches(sort: MediaLibrarySort, locale: Locale) -> Bool {
+        self.sort == sort && self.locale == locale
+    }
+}
+
 struct PreparedMediaLibraryItems: Sendable {
     let items: [LibraryMediaItem]
     let itemsByID: [LibraryMediaItem.ID: LibraryMediaItem]
     let resolutionIndex: MediaReferenceResolutionIndex
     let rootURLsByPath: [String: URL]
     let temporaryPlaybackSnapshot: TemporaryPlaybackLibrarySnapshot
+    let orderingContext: PreparedMediaLibraryOrdering?
+    let preparedQueueItems: PreparedPlaybackQueueItems<LibraryMediaItem.ID>
 
     init(
         items: [LibraryMediaItem],
         itemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
         resolutionIndex: MediaReferenceResolutionIndex? = nil,
         rootURLsByPath: [String: URL]? = nil,
-        temporaryPlaybackSnapshot: TemporaryPlaybackLibrarySnapshot? = nil
+        temporaryPlaybackSnapshot: TemporaryPlaybackLibrarySnapshot? = nil,
+        orderingContext: PreparedMediaLibraryOrdering? = nil,
+        preparedQueueItems: PreparedPlaybackQueueItems<LibraryMediaItem.ID>? = nil
     ) {
         self.items = items
         self.itemsByID = itemsByID
+        self.orderingContext = orderingContext
+        self.preparedQueueItems = preparedQueueItems
+            ?? PreparedPlaybackQueueItems(items: items.map(\.id))
         self.resolutionIndex = resolutionIndex
             ?? MediaReferenceResolutionIndex(itemsByID: itemsByID)
         if let rootURLsByPath {
@@ -61,6 +82,14 @@ protocol MediaLibrarySnapshotPreparing: Sendable {
         sort: MediaLibrarySort
     ) async throws -> PreparedMediaLibrarySnapshot
 
+    func prepare(
+        _ snapshot: MediaLibrarySnapshot,
+        requestedSourcePaths: Set<String>,
+        sort: MediaLibrarySort,
+        previousLibrary: PreparedMediaLibraryItems?,
+        previousSort: MediaLibrarySort?
+    ) async throws -> PreparedMediaLibrarySnapshot
+
     func merge(
         _ candidates: [LibraryMediaItem],
         into items: [LibraryMediaItem],
@@ -92,6 +121,18 @@ protocol MediaLibrarySnapshotPreparing: Sendable {
 }
 
 extension MediaLibrarySnapshotPreparing {
+    func prepare(
+        _ snapshot: MediaLibrarySnapshot,
+        requestedSourcePaths: Set<String>,
+        sort: MediaLibrarySort,
+        previousLibrary: PreparedMediaLibraryItems?,
+        previousSort: MediaLibrarySort?
+    ) async throws -> PreparedMediaLibrarySnapshot {
+        try await prepare(
+            snapshot, requestedSourcePaths: requestedSourcePaths, sort: sort
+        )
+    }
+
     func reconcileQueue(
         snapshot: PlaybackQueueSnapshot<LibraryMediaItem.ID>,
         queueItemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
@@ -119,7 +160,8 @@ struct DefaultMediaLibrarySnapshotPreparer:
         using sort: MediaLibrarySort
     ) async throws -> PreparedMediaLibraryItems {
         try Task.checkCancellation()
-        let sortedItems = sort.sorted(library.items)
+        let context = PreparedMediaLibraryOrdering(sort: sort, locale: .current)
+        let sortedItems = try sort.sortedCancellable(library.items)
         try Task.checkCancellation()
         return PreparedMediaLibraryItems(
             items: sortedItems,
@@ -127,7 +169,9 @@ struct DefaultMediaLibrarySnapshotPreparer:
             resolutionIndex: library.resolutionIndex,
             rootURLsByPath: library.rootURLsByPath,
             temporaryPlaybackSnapshot: library.temporaryPlaybackSnapshot
-                .reordered(items: sortedItems)
+                .reordered(items: sortedItems),
+            orderingContext: context.matches(sort: sort, locale: .current)
+                ? context : nil
         )
     }
 
@@ -136,19 +180,32 @@ struct DefaultMediaLibrarySnapshotPreparer:
         requestedSourcePaths: Set<String>,
         sort: MediaLibrarySort
     ) async throws -> PreparedMediaLibrarySnapshot {
+        try await prepare(
+            snapshot, requestedSourcePaths: requestedSourcePaths, sort: sort,
+            previousLibrary: nil, previousSort: nil
+        )
+    }
+
+    func prepare(
+        _ snapshot: MediaLibrarySnapshot,
+        requestedSourcePaths: Set<String>,
+        sort: MediaLibrarySort,
+        previousLibrary: PreparedMediaLibraryItems?,
+        previousSort: MediaLibrarySort?
+    ) async throws -> PreparedMediaLibrarySnapshot {
         try Task.checkCancellation()
 
         let roots = snapshot.roots.filter {
             requestedSourcePaths.contains($0.id.standardizedPath)
         }
-        var itemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
-        itemsByID.reserveCapacity(snapshot.items.count)
-        for item in snapshot.items where requestedSourcePaths.contains(
-            item.id.rootPath
-        ) {
-            itemsByID[item.id] = item
-        }
-        let library = try prepareItemsByID(itemsByID, sort: sort)
+        let library = try prepareItems(
+            snapshot.items.lazy.filter {
+                requestedSourcePaths.contains($0.id.rootPath)
+            },
+            sort: sort,
+            previousLibrary: previousSort == sort ? previousLibrary : nil,
+            minimumCapacity: snapshot.items.count
+        )
 
         return PreparedMediaLibrarySnapshot(
             roots: roots,
@@ -165,15 +222,10 @@ struct DefaultMediaLibrarySnapshotPreparer:
     ) async throws -> PreparedMediaLibraryItems {
         try Task.checkCancellation()
 
-        var itemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
-        itemsByID.reserveCapacity(items.count + candidates.count)
-        for item in items {
-            itemsByID[item.id] = item
-        }
-        for candidate in candidates {
-            itemsByID[candidate.id] = candidate
-        }
-        return try prepareItemsByID(itemsByID, sort: sort)
+        return try prepareItems(
+            [items, candidates].joined(), sort: sort,
+            minimumCapacity: items.count + candidates.count
+        )
     }
 
     func sort(
@@ -207,6 +259,15 @@ struct DefaultMediaLibrarySnapshotPreparer:
         resolutionIndex: MediaReferenceResolutionIndex
     ) async throws -> PreparedMediaLibraryQueueReconciliation {
         try Task.checkCancellation()
+        if let exactItems = try exactQueueItems(
+            snapshot: snapshot, queuedItems: queueItemsByID,
+            availableItems: availableItemsByID
+        ) {
+            return PreparedMediaLibraryQueueReconciliation(
+                queueItemsByID: exactItems, requiresQueueReplacement: false,
+                replacementQueue: nil, currentItemID: snapshot.currentItem
+            )
+        }
         let resolution = resolutionIndex.resolveQueuedItems(queueItemsByID)
 
         let remappedSnapshot = remappedQueueSnapshot(
@@ -231,30 +292,141 @@ struct DefaultMediaLibrarySnapshotPreparer:
         )
     }
 
-    private func prepareItems(
-        _ items: [LibraryMediaItem],
-        sort: MediaLibrarySort
-    ) throws -> PreparedMediaLibraryItems {
+    private func prepareItems<Items: Sequence>(
+        _ items: Items,
+        sort: MediaLibrarySort,
+        previousLibrary: PreparedMediaLibraryItems? = nil,
+        minimumCapacity: Int = 0
+    ) throws -> PreparedMediaLibraryItems where Items.Element == LibraryMediaItem {
+        try Task.checkCancellation()
         var itemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
-        itemsByID.reserveCapacity(items.count)
-        for item in items {
-            itemsByID[item.id] = item
+        var orderedIDs: [LibraryMediaItem.ID] = []
+        let capacity = max(minimumCapacity, items.underestimatedCount)
+        itemsByID.reserveCapacity(capacity)
+        orderedIDs.reserveCapacity(capacity)
+        for (index, item) in items.enumerated() {
+            if index.isMultiple(of: 256) { try Task.checkCancellation() }
+            if itemsByID.updateValue(item, forKey: item.id) == nil {
+                orderedIDs.append(item.id)
+            }
         }
-        return try prepareItemsByID(itemsByID, sort: sort)
+        try Task.checkCancellation()
+        if let previousLibrary,
+           let reused = try reusingOrder(
+               from: previousLibrary, itemsByID: itemsByID, sort: sort
+           ) {
+            return reused
+        }
+        // Dictionary iteration discarded the scanner's existing ordered runs.
+        // Keep first-seen positions while resolving duplicate IDs to the last
+        // value, then let the unchanged comparator sort those runs adaptively.
+        var orderedItems: [LibraryMediaItem] = []
+        orderedItems.reserveCapacity(orderedIDs.count)
+        for (index, id) in orderedIDs.enumerated() {
+            if index.isMultiple(of: 256) { try Task.checkCancellation() }
+            if let item = itemsByID[id] { orderedItems.append(item) }
+        }
+        return try prepareItemsByID(itemsByID, orderedItems: orderedItems, sort: sort)
+    }
+
+    private func reusingOrder(
+        from library: PreparedMediaLibraryItems,
+        itemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
+        sort: MediaLibrarySort
+    ) throws -> PreparedMediaLibraryItems? {
+        guard let context = library.orderingContext,
+              context.matches(sort: sort, locale: .current),
+              library.items.count == itemsByID.count else { return nil }
+        var updatedItems: [LibraryMediaItem] = []
+        updatedItems.reserveCapacity(library.items.count)
+        var unchanged = true
+        for (index, previous) in library.items.enumerated() {
+            if index.isMultiple(of: 256) { try Task.checkCancellation() }
+            guard let updated = itemsByID[previous.id],
+                  sort.hasSameOrderingValues(previous, updated) else { return nil }
+            unchanged = unchanged && previous == updated
+            updatedItems.append(updated)
+        }
+        try Task.checkCancellation()
+        // A locale transition during the validation must not publish the old
+        // locale's order with a context that would authorize future reuse.
+        guard context.matches(sort: sort, locale: .current) else { return nil }
+        if unchanged, try dictionaryKeyRepresentationsMatch(
+            library.itemsByID, itemsByID
+        ) { return library }
+        return PreparedMediaLibraryItems(
+            items: updatedItems, itemsByID: itemsByID,
+            orderingContext: context,
+            preparedQueueItems: library.preparedQueueItems
+        )
+    }
+
+    private func dictionaryKeyRepresentationsMatch(
+        _ lhs: [LibraryMediaItem.ID: LibraryMediaItem],
+        _ rhs: [LibraryMediaItem.ID: LibraryMediaItem]
+    ) throws -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        for (index, key) in lhs.keys.enumerated() {
+            if index.isMultiple(of: 256) { try Task.checkCancellation() }
+            guard let rhsIndex = rhs.index(forKey: key) else { return false }
+            let rhsKey = rhs[rhsIndex].key
+            guard key.rootPath == rhsKey.rootPath,
+                  key.relativePath == rhsKey.relativePath else { return false }
+        }
+        return true
     }
 
     private func prepareItemsByID(
         _ itemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
+        orderedItems: [LibraryMediaItem],
         sort: MediaLibrarySort
     ) throws -> PreparedMediaLibraryItems {
         try Task.checkCancellation()
-        var sortedItems = Array(itemsByID.values)
-        sort.sortInPlace(&sortedItems)
+        let context = PreparedMediaLibraryOrdering(sort: sort, locale: .current)
+        var sortedItems = orderedItems
+        try sort.sortInPlaceCancellable(&sortedItems)
         try Task.checkCancellation()
         return PreparedMediaLibraryItems(
             items: sortedItems,
-            itemsByID: itemsByID
+            itemsByID: itemsByID,
+            orderingContext: context.matches(sort: sort, locale: .current)
+                ? context : nil
         )
+    }
+
+    private func exactQueueItems(
+        snapshot: PlaybackQueueSnapshot<LibraryMediaItem.ID>,
+        queuedItems: [LibraryMediaItem.ID: LibraryMediaItem],
+        availableItems: [LibraryMediaItem.ID: LibraryMediaItem]
+    ) throws -> [LibraryMediaItem.ID: LibraryMediaItem]? {
+        var refreshed: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
+        refreshed.reserveCapacity(queuedItems.count)
+        for (index, entry) in queuedItems.enumerated() {
+            if index.isMultiple(of: 256) { try Task.checkCancellation() }
+            guard let item = availableItems[entry.key],
+                  item.id.rootPath == entry.key.rootPath,
+                  item.id.relativePath == entry.key.relativePath else { return nil }
+            refreshed[item.id] = item
+        }
+        var checkedCount = 0
+        func representationMatches(_ id: LibraryMediaItem.ID) throws -> Bool {
+            if checkedCount.isMultiple(of: 256) { try Task.checkCancellation() }
+            checkedCount &+= 1
+            guard let item = refreshed[id] else { return true }
+            return id.rootPath == item.id.rootPath
+                && id.relativePath == item.id.relativePath
+        }
+        guard try representationMatches(snapshot.currentItem) else { return nil }
+        for ids in [snapshot.items, snapshot.remainingItems] {
+            for id in ids where try !representationMatches(id) { return nil }
+        }
+        for locations in [snapshot.history, snapshot.forwardHistory] {
+            for location in locations where try !representationMatches(location.item) {
+                return nil
+            }
+        }
+        try Task.checkCancellation()
+        return refreshed
     }
 
     private func remappedQueueSnapshot(

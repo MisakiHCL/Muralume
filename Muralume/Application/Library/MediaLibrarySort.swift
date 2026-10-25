@@ -28,6 +28,43 @@ struct MediaLibrarySort: Equatable, Sendable {
         items.sort(by: precedes)
     }
 
+    func sortedCancellable(_ items: [LibraryMediaItem]) throws -> [LibraryMediaItem] {
+        var sortedItems = items
+        try sortInPlaceCancellable(&sortedItems)
+        return sortedItems
+    }
+
+    func sortInPlaceCancellable(_ items: inout [LibraryMediaItem]) throws {
+        try Task.checkCancellation()
+        var comparisons = 0
+        try items.sort { lhs, rhs in
+            if comparisons.isMultiple(of: 256) { try Task.checkCancellation() }
+            comparisons &+= 1
+            return precedes(lhs, rhs)
+        }
+        try Task.checkCancellation()
+    }
+
+    /// Metadata outside these values cannot change any comparator result.
+    /// Check the ID representation as well as its normalized hash identity,
+    /// because root and relative-path spelling are the final tie breakers.
+    func hasSameOrderingValues(
+        _ lhs: LibraryMediaItem,
+        _ rhs: LibraryMediaItem
+    ) -> Bool {
+        guard lhs.displayName == rhs.displayName,
+              lhs.id.rootPath == rhs.id.rootPath,
+              lhs.id.relativePath == rhs.id.relativePath else { return false }
+        switch field {
+        case .name:
+            return true
+        case .creationDate:
+            return lhs.creationDate == rhs.creationDate
+        case .fileSize:
+            return lhs.fileSize == rhs.fileSize
+        }
+    }
+
     private func precedes(
         _ lhs: LibraryMediaItem,
         _ rhs: LibraryMediaItem
@@ -66,9 +103,8 @@ struct MediaLibrarySort: Equatable, Sendable {
                 : primaryComparison == .orderedDescending
         }
 
-        let nameComparison = lhs.displayName.localizedStandardCompare(
-            rhs.displayName
-        )
+        let nameComparison = field == .name ? primaryComparison
+            : lhs.displayName.localizedStandardCompare(rhs.displayName)
         if nameComparison != .orderedSame {
             return nameComparison == .orderedAscending
         }

@@ -693,7 +693,7 @@ final class MediaLibraryCoordinatorConcurrencyTests: XCTestCase {
             baselineReconciliations + 2
         )
         let finalPreparations = await preparer.callCount(for: .prepare)
-        XCTAssertEqual(finalPreparations, baselinePreparations + 1)
+        XCTAssertEqual(finalPreparations, baselinePreparations)
         XCTAssertEqual(
             fixture.coordinator.makeQueueSnapshot(),
             navigatedQueueSnapshot

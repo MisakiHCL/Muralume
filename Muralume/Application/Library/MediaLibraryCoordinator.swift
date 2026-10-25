@@ -194,10 +194,23 @@ final class MediaLibraryCoordinator: ObservableObject {
     private struct ItemsSnapshot: Sendable {
         let revision: UInt64
         let contentRevision: UInt64
-        let items: [LibraryMediaItem]
-        let resolutionIndex: MediaReferenceResolutionIndex
-        let rootURLsByPath: [String: URL]
-        let temporaryPlaybackSnapshot: TemporaryPlaybackLibrarySnapshot
+        let library: PreparedMediaLibraryItems
+
+        var items: [LibraryMediaItem] { library.items }
+        var resolutionIndex: MediaReferenceResolutionIndex { library.resolutionIndex }
+        var rootURLsByPath: [String: URL] { library.rootURLsByPath }
+        var temporaryPlaybackSnapshot: TemporaryPlaybackLibrarySnapshot {
+            library.temporaryPlaybackSnapshot
+        }
+    }
+
+    /// A session-local proof that manual selection already synchronized the
+    /// whole visible library. Cursor movement preserves this proof; metadata,
+    /// membership or structure updates invalidate it through their revisions.
+    private struct LibraryQueueSynchronizationStamp: Equatable {
+        let itemsRevision: UInt64
+        let structureRevision: UInt64
+        let metadataRevision: UInt64
     }
 
     private enum PublicationResult: Sendable {
@@ -234,10 +247,11 @@ final class MediaLibraryCoordinator: ObservableObject {
     @Published private var itemsSnapshot = ItemsSnapshot(
         revision: 0,
         contentRevision: 0,
-        items: [],
-        resolutionIndex: MediaReferenceResolutionIndex(items: []),
-        rootURLsByPath: [:],
-        temporaryPlaybackSnapshot: .empty
+        library: PreparedMediaLibraryItems(
+            items: [], itemsByID: [:],
+            resolutionIndex: MediaReferenceResolutionIndex(items: []),
+            rootURLsByPath: [:], temporaryPlaybackSnapshot: .empty
+        )
     )
     @Published private(set) var playbackOrder: PlaybackOrder
     @Published private(set) var playbackRepeatBehavior:
@@ -469,6 +483,7 @@ final class MediaLibraryCoordinator: ObservableObject {
     // detour from dynamic desktop can use the full library while saves pause.
     private var playbackQueueMembership: PlaybackQueueMembership =
         .mediaLibrary
+    private var libraryQueueSynchronizationStamp: LibraryQueueSynchronizationStamp?
     private var queueMetadataRevision: UInt64 = 0
     private var queueItemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:] {
         didSet { queueMetadataRevision &+= 1 }
@@ -1751,19 +1766,34 @@ final class MediaLibraryCoordinator: ObservableObject {
             return
         }
 
+        let selectionItemsRevision = itemsRevision
         if var activeQueue = queue {
-            let synchronizedIDs: [LibraryMediaItem.ID]
-            if queueMembership == .external {
-                synchronizedIDs = activeQueue.items + [item.id]
-                queueItemsByID[item.id] = item
-            } else {
-                synchronizedIDs = collectionItems.map(\.id)
-                queueItemsByID = Self.mediaItemsByID(collectionItems)
-            }
             let currentItemBeforeSynchronization = activeQueue.currentItem
-            let structureChanged = activeQueue.synchronizeItems(
-                synchronizedIDs
-            )
+            let structureChanged: Bool
+            if queueMembership == .mediaLibrary {
+                let stamp = LibraryQueueSynchronizationStamp(
+                    itemsRevision: itemsRevision,
+                    structureRevision: queueStructureRevision,
+                    metadataRevision: queueMetadataRevision
+                )
+                if playbackQueueMembership == .mediaLibrary,
+                   libraryQueueSynchronizationStamp == stamp {
+                    structureChanged = false
+                } else {
+                    queueItemsByID = visibleItemsByID
+                    structureChanged = activeQueue.synchronizeItems(
+                        itemsSnapshot.library.preparedQueueItems
+                    )
+                }
+            } else if queueMembership == .external {
+                queueItemsByID[item.id] = item
+                structureChanged = activeQueue.synchronizeItems(
+                    activeQueue.items + [item.id]
+                )
+            } else {
+                queueItemsByID = Self.mediaItemsByID(collectionItems)
+                structureChanged = activeQueue.synchronizeItems(collectionItems.map(\.id))
+            }
             let shouldRecordCurrentInHistory =
                 currentItemBeforeSynchronization.map {
                     $0 == activeQueue.currentItem
@@ -1782,13 +1812,19 @@ final class MediaLibraryCoordinator: ObservableObject {
             let cursorChanged =
                 currentItemBeforeSynchronization != activeQueue.currentItem
 
+            var installedQueueState = queueStateRevision
             if structureChanged || cursorChanged {
                 queue = activeQueue
+                installedQueueState = queueStateRevision
                 currentItemID = activeQueue.currentItem
                 publishQueueChange(
                     structureChanged ? .structure : .cursor
                 )
             }
+            rememberLibraryQueueSynchronization(
+                itemsRevision: selectionItemsRevision,
+                installedQueueState: installedQueueState
+            )
             markItemAvailable(item.id)
             if cursorChanged || loadedItemID != item.id {
                 loadCurrentItem(attemptsRemaining: activeQueue.count)
@@ -1803,17 +1839,43 @@ final class MediaLibraryCoordinator: ObservableObject {
             return
         }
         playbackQueueMembership = queueMembership
-        queueItemsByID = Self.mediaItemsByID(playbackItems)
-        let itemIDs = playbackItems.map(\.id)
-        queue = PlaybackQueue(
-            items: itemIDs,
-            startingAt: item.id,
-            order: playbackOrder
-        )
+        if queueMembership == .mediaLibrary {
+            queueItemsByID = visibleItemsByID
+            queue = PlaybackQueue(
+                preparedItems: itemsSnapshot.library.preparedQueueItems,
+                startingAt: item.id, order: playbackOrder
+            )
+        } else {
+            queueItemsByID = Self.mediaItemsByID(playbackItems)
+            queue = PlaybackQueue(
+                items: playbackItems.map(\.id), startingAt: item.id, order: playbackOrder
+            )
+        }
+        let installedQueueState = queueStateRevision
         currentItemID = queue?.currentItem
         publishQueueChange()
+        rememberLibraryQueueSynchronization(
+            itemsRevision: selectionItemsRevision,
+            installedQueueState: installedQueueState
+        )
         markItemAvailable(item.id)
-        loadCurrentItem(attemptsRemaining: itemIDs.count)
+        loadCurrentItem(attemptsRemaining: playbackItems.count)
+    }
+
+    private func rememberLibraryQueueSynchronization(
+        itemsRevision: UInt64,
+        installedQueueState: UInt64
+    ) {
+        guard playbackQueueMembership == .mediaLibrary,
+              self.itemsRevision == itemsRevision,
+              queueStateRevision == installedQueueState else {
+            libraryQueueSynchronizationStamp = nil
+            return
+        }
+        libraryQueueSynchronizationStamp = LibraryQueueSynchronizationStamp(
+            itemsRevision: itemsRevision, structureRevision: queueStructureRevision,
+            metadataRevision: queueMetadataRevision
+        )
     }
 
     @discardableResult
@@ -1981,12 +2043,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         }
 
         let baseItemsRevision = itemsRevision
-        let baseLibrary = PreparedMediaLibraryItems(
-            items: items, itemsByID: visibleItemsByID,
-            resolutionIndex: itemsSnapshot.resolutionIndex,
-            rootURLsByPath: itemsSnapshot.rootURLsByPath,
-            temporaryPlaybackSnapshot: itemsSnapshot.temporaryPlaybackSnapshot
-        )
+        let baseLibrary = itemsSnapshot.library
         let requestedSort = sort
         let taskID = UUID()
         let task = Task { [weak self, snapshotPreparer] in
@@ -2219,9 +2276,14 @@ final class MediaLibraryCoordinator: ObservableObject {
         // lookup dictionaries once no further resolution can be requested.
         itemsSnapshot = ItemsSnapshot(
             revision: itemsRevision, contentRevision: itemsContentRevision,
-            items: items, resolutionIndex: MediaReferenceResolutionIndex(items: []),
-            rootURLsByPath: [:], temporaryPlaybackSnapshot: .empty
+            library: PreparedMediaLibraryItems(
+                items: items, itemsByID: [:],
+                resolutionIndex: MediaReferenceResolutionIndex(items: []),
+                rootURLsByPath: [:], temporaryPlaybackSnapshot: .empty,
+                preparedQueueItems: PreparedPlaybackQueueItems(items: [])
+            )
         )
+        libraryQueueSynchronizationStamp = nil
         lastPublishedScanSourcePaths = []
         lastPublishedScanSort = nil
         lastPublishedScanMembership = nil
@@ -2369,15 +2431,20 @@ final class MediaLibraryCoordinator: ObservableObject {
         scanGeneration generation: UInt64
     ) async throws {
         let requestedSourcePaths = sourcePathSet(requestedSources)
+        var pendingPrepared: PreparedMediaLibrarySnapshot?
+        var pendingSort: MediaLibrarySort?
         if lastPublishedScanSourcePaths == requestedSourcePaths,
            lastPublishedScanSort == sort,
-           lastPublishedScanMembership == playbackQueueMembership,
            lastPublishedScanItemsRevision == itemsRevision,
-           lastPublishedScanQueueStructureRevision == queueStructureRevision {
+           itemsSnapshot.library.orderingContext?.matches(
+               sort: sort, locale: Locale.current
+           ) == true {
             let capturedItemsRevision = itemsRevision
             let capturedStructureRevision = queueStructureRevision
             let capturedSort = sort
             let capturedMembership = playbackQueueMembership
+            let capturedRoots = roots
+            let capturedIncompleteRoots = incompleteRootPaths
             let unchanged = try await Self.snapshotMatchesVisibleLibrary(
                 snapshot,
                 requestedSourcePaths: requestedSourcePaths,
@@ -2390,18 +2457,31 @@ final class MediaLibraryCoordinator: ObservableObject {
                 throw CancellationError()
             }
             if unchanged, capturedItemsRevision == itemsRevision,
-               capturedStructureRevision == queueStructureRevision,
                capturedSort == sort,
-               capturedMembership == playbackQueueMembership {
-                if requestedSourcePaths == sourcePathSet(latestPreparedSources) {
-                    preparedSourcesNeedRefresh = false
+               itemsSnapshot.library.orderingContext?.matches(
+                   sort: capturedSort, locale: Locale.current
+               ) == true,
+               capturedRoots == roots,
+               capturedIncompleteRoots == incompleteRootPaths {
+                if capturedStructureRevision == queueStructureRevision,
+                   capturedMembership == playbackQueueMembership,
+                   lastPublishedScanMembership == capturedMembership,
+                   lastPublishedScanQueueStructureRevision == capturedStructureRevision {
+                    if requestedSourcePaths == sourcePathSet(latestPreparedSources) {
+                        preparedSourcesNeedRefresh = false
+                    }
+                    scanState = .ready
+                    return
                 }
-                scanState = .ready
-                return
+                // A new queue still needs reconciliation, but cannot change
+                // the already verified library order, indexes or values.
+                pendingPrepared = PreparedMediaLibrarySnapshot(
+                    roots: roots, library: itemsSnapshot.library,
+                    incompleteRootPaths: incompleteRootPaths
+                )
+                pendingSort = capturedSort
             }
         }
-        var pendingPrepared: PreparedMediaLibrarySnapshot?
-        var pendingSort: MediaLibrarySort?
         while true {
             try Task.checkCancellation()
             guard generation == scanGeneration, !isShutDown else {
@@ -2416,7 +2496,9 @@ final class MediaLibraryCoordinator: ObservableObject {
                 prepared = try await snapshotPreparer.prepare(
                     snapshot,
                     requestedSourcePaths: requestedSourcePaths,
-                    sort: requestedSort
+                    sort: requestedSort,
+                    previousLibrary: itemsSnapshot.library,
+                    previousSort: itemsSnapshot.library.orderingContext?.sort
                 )
             }
             pendingPrepared = nil
@@ -2633,6 +2715,9 @@ final class MediaLibraryCoordinator: ObservableObject {
                 resolutionIndex: preservingContent ? itemsSnapshot.resolutionIndex : nil,
                 temporaryPlaybackSnapshot: preservingContent
                     ? itemsSnapshot.temporaryPlaybackSnapshot.reordered(items: items)
+                    : nil,
+                orderingContext: preservingContent
+                    ? PreparedMediaLibraryOrdering(sort: sort, locale: Locale.current)
                     : nil
             ),
             preservingContent: preservingContent
@@ -2652,17 +2737,24 @@ final class MediaLibraryCoordinator: ObservableObject {
             visibleItemsByID = prepared.itemsByID
             canonicalItemLookupIndex = nil
         }
+        let library: PreparedMediaLibraryItems
+        if preservingContent {
+            library = PreparedMediaLibraryItems(
+                items: prepared.items, itemsByID: visibleItemsByID,
+                resolutionIndex: itemsSnapshot.resolutionIndex,
+                rootURLsByPath: itemsSnapshot.rootURLsByPath,
+                temporaryPlaybackSnapshot: itemsSnapshot.temporaryPlaybackSnapshot
+                    .reordered(items: prepared.items),
+                orderingContext: prepared.orderingContext,
+                preparedQueueItems: prepared.preparedQueueItems
+            )
+        } else {
+            library = prepared
+        }
         itemsSnapshot = ItemsSnapshot(
             revision: itemsSnapshot.revision &+ 1,
             contentRevision: itemsSnapshot.contentRevision &+ (preservingContent ? 0 : 1),
-            items: prepared.items,
-            resolutionIndex: preservingContent
-                ? itemsSnapshot.resolutionIndex : prepared.resolutionIndex,
-            rootURLsByPath: preservingContent
-                ? itemsSnapshot.rootURLsByPath : prepared.rootURLsByPath,
-            temporaryPlaybackSnapshot: preservingContent
-                ? itemsSnapshot.temporaryPlaybackSnapshot.reordered(items: prepared.items)
-                : prepared.temporaryPlaybackSnapshot
+            library: library
         )
         return true
     }

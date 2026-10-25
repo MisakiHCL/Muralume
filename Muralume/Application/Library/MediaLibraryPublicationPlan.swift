@@ -55,7 +55,11 @@ struct MediaLibraryPublicationRequest: Sendable {
                 queueChanged = true
             }
         }
-        queueItemsByID.merge(library.itemsByID) { _, visibleItem in visibleItem }
+        if queueItemsByID.isEmpty {
+            queueItemsByID = library.itemsByID
+        } else {
+            queueItemsByID.merge(library.itemsByID) { _, visibleItem in visibleItem }
+        }
         let completeRootPaths = Set(
             prepared.roots.lazy.map(\.id.standardizedPath).filter {
                 !prepared.incompleteRootPaths.contains($0)

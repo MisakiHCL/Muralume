@@ -7,6 +7,18 @@ struct MediaFileIdentity: Codable, Hashable, Sendable {
     let volumeIdentifier: Data
     let fileIdentifier: Data
 
+    func hash(into hasher: inout Hasher) {
+        // Archived resource identifiers often share their outer bytes. Some
+        // Foundation Data representations sample those bytes when hashing,
+        // collapsing otherwise distinct archives into one dictionary bucket.
+        // Include each complete component and its boundary without changing
+        // either the stored archive or Data's byte-for-byte equality.
+        hasher.combine(volumeIdentifier.count)
+        volumeIdentifier.withUnsafeBytes { hasher.combine(bytes: $0) }
+        hasher.combine(fileIdentifier.count)
+        fileIdentifier.withUnsafeBytes { hasher.combine(bytes: $0) }
+    }
+
     var isValid: Bool {
         !volumeIdentifier.isEmpty && !fileIdentifier.isEmpty
     }
