@@ -317,7 +317,7 @@ private final class EmbeddedSubtitleReadCancellation: @unchecked Sendable {
     func cancel() {
         let reader = lock.withLock {
             isCancelled = true
-            return reader
+            return self.reader
         }
         asset.cancelLoading()
         reader?.cancelReading()
