@@ -58,6 +58,20 @@ final class CustomPlaylistController: ObservableObject {
         let collection: CustomPlaylistCollection
     }
 
+    private struct ResolvedPlaylistEntry {
+        let media: MediaReference
+        let item: LibraryMediaItem?
+    }
+
+    private struct ResolvedPlaylistCache {
+        let playlistID: CustomPlaylist.ID
+        var itemsRevision: UInt64
+        var entries: [CustomPlaylistEntry]
+        let entriesByID: [CustomPlaylistEntry.ID: ResolvedPlaylistEntry]
+        var items: [LibraryMediaItem]
+        let isOrderIndependent: Bool
+    }
+
     @Published private var collectionSnapshot = CollectionSnapshot(
         revision: 0,
         collection: .empty
@@ -100,6 +114,15 @@ final class CustomPlaylistController: ObservableObject {
     private var runningReconciliationKey: ReconciliationKey?
     private var reconciledLibraryGeneration: UInt64?
     private var reconciledCollectionRevision: UInt64?
+    // A single playlist is retained, bounded by the persisted entry limit.
+    // Library content changes, deletion/emptying and shutdown release it. A
+    // revisionless lookup is never cached because its availability is unknown.
+    private var resolvedPlaylistCache: ResolvedPlaylistCache?
+    private(set) var resolvedItemsRecomputationCount = 0
+
+    var hasCachedResolvedItems: Bool {
+        resolvedPlaylistCache != nil
+    }
 
     var resolutionIndexRecomputationCount: Int {
         resolutionIndexCache.recomputationCount
@@ -242,6 +265,12 @@ final class CustomPlaylistController: ObservableObject {
             libraryGeneration &+= 1
             detailProjectionCache.invalidate()
             resolutionIndexCache.invalidate()
+            resolvedPlaylistCache = nil
+        } else if resolvedPlaylistCache?.itemsRevision
+                    == latestLibrarySnapshot?.itemsRevision,
+                  let itemsRevision {
+            // Sorting the library aliases the same immutable content.
+            resolvedPlaylistCache?.itemsRevision = itemsRevision
         }
         // The production library supplies an index prepared off-main. A pure
         // reorder only changes its revision alias, preserving immutable storage.
@@ -277,11 +306,59 @@ final class CustomPlaylistController: ObservableObject {
     ) -> [LibraryMediaItem] {
         let collection = requestedCollection ?? self.collection
         guard let playlist = collection.playlist(id: playlistID),
-              !playlist.entries.isEmpty else { return [] }
+              !playlist.entries.isEmpty else {
+            if resolvedPlaylistCache?.playlistID == playlistID {
+                resolvedPlaylistCache = nil
+            }
+            return []
+        }
+        if let itemsRevision, var cached = resolvedPlaylistCache,
+           cached.playlistID == playlistID,
+           cached.itemsRevision == itemsRevision {
+            if cached.entries == playlist.entries { return cached.items }
+            // Reordering is safe only when no reference competes for another
+            // entry's identity fallback. Such conflicts must resolve afresh in
+            // the new order to preserve exact-first, one-to-one selection.
+            if cached.isOrderIndependent,
+               cached.entries.count == playlist.entries.count,
+               playlist.entries.allSatisfy({
+                   cached.entriesByID[$0.id]?.media == $0.media
+               }) {
+                cached.entries = playlist.entries
+                cached.items = playlist.entries.compactMap {
+                    cached.entriesByID[$0.id]?.item
+                }
+                resolvedPlaylistCache = cached
+                return cached.items
+            }
+        }
         let index = cachedResolutionIndex(itemsRevision: itemsRevision)
             ?? resolutionIndexCache.index(items: items, revision: itemsRevision)
-        return index
-            .resolveReferences(playlist.entries.map(\.media)).compactMap { $0 }
+        let resolved = index.resolveReferences(playlist.entries.map(\.media))
+        let orderedItems = resolved.compactMap { $0 }
+        resolvedItemsRecomputationCount &+= 1
+        resolvedPlaylistCache = itemsRevision.map { revision in
+            var entriesByID: [CustomPlaylistEntry.ID: ResolvedPlaylistEntry] = [:]
+            entriesByID.reserveCapacity(playlist.entries.count)
+            var isOrderIndependent = true
+            for (entry, item) in zip(playlist.entries, resolved) {
+                entriesByID[entry.id] = ResolvedPlaylistEntry(
+                    media: entry.media, item: item
+                )
+                if item == nil, index.resolve(entry.media) != nil {
+                    isOrderIndependent = false
+                }
+            }
+            return ResolvedPlaylistCache(
+                playlistID: playlistID,
+                itemsRevision: revision,
+                entries: playlist.entries,
+                entriesByID: entriesByID,
+                items: orderedItems,
+                isOrderIndependent: isOrderIndependent
+            )
+        }
+        return orderedItems
     }
 
     func resolvedItemsByEntryID(
@@ -346,6 +423,7 @@ final class CustomPlaylistController: ObservableObject {
         await reconciliationTask?.value
         reconciliationTask = nil
         latestLibrarySnapshot = nil
+        resolvedPlaylistCache = nil
         detailProjectionCache.invalidate()
         resolutionIndexCache.invalidate()
         loadTask?.cancel()
@@ -374,6 +452,10 @@ final class CustomPlaylistController: ObservableObject {
         schedulesReconciliation: Bool = true
     ) {
         detailProjectionCache.invalidate()
+        if let cached = resolvedPlaylistCache,
+           collection.playlist(id: cached.playlistID)?.entries.isEmpty != false {
+            resolvedPlaylistCache = nil
+        }
         if !collection.playlists.contains(where: { !$0.entries.isEmpty }) {
             resolutionIndexCache.invalidate()
         } else if let library = latestLibrarySnapshot,

@@ -216,6 +216,12 @@
 		CD646178AA7048A383E781A7 /* TemporaryPlaybackInputDeduplicatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57737C236A98449FA4338B87 /* TemporaryPlaybackInputDeduplicatorTests.swift */; };
 		C6D5CCB4195A4CF7969A57D9 /* MediaLibraryCanonicalLookupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EAF7155E5F8499D94485524 /* MediaLibraryCanonicalLookupTests.swift */; };
 		8070CC9B3F82450D870D8C9F /* MediaLibraryQueueRestorationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDAF22F71B65452080A97D9B /* MediaLibraryQueueRestorationTests.swift */; };
+		D4C2D6D0650143D4A2A9F7F9 /* MediaLibraryPublicationPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B1F0F30B61943FBB8FBF9CD /* MediaLibraryPublicationPlan.swift */; };
+		58AB633C23184DA3BD29D2A0 /* TemporaryPlaybackLibrarySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4601DBC804743ED8E1FBD90 /* TemporaryPlaybackLibrarySnapshot.swift */; };
+		464E47B88EBD4E90A0FB9795 /* VideoInformationLoadingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76CC7A742DA74CD2B76522DB /* VideoInformationLoadingTests.swift */; };
+		296E3B3084954539B4E3A9F2 /* CustomPlaylistSynchronizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C55B8247B71438F8C81A282 /* CustomPlaylistSynchronizationTests.swift */; };
+		87878EAE0DAE43D1A37B8619 /* MediaLibraryPublicationPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6653B81C0BFA469B941934C7 /* MediaLibraryPublicationPlanTests.swift */; };
+		4B8DC524EE894148908109E3 /* TemporaryPlaybackLibrarySnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A20D7CD1664DD5920F3C8C /* TemporaryPlaybackLibrarySnapshotTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -453,6 +459,12 @@
 		57737C236A98449FA4338B87 /* TemporaryPlaybackInputDeduplicatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporaryPlaybackInputDeduplicatorTests.swift; sourceTree = "<group>"; };
 		8EAF7155E5F8499D94485524 /* MediaLibraryCanonicalLookupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryCanonicalLookupTests.swift; sourceTree = "<group>"; };
 		BDAF22F71B65452080A97D9B /* MediaLibraryQueueRestorationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryQueueRestorationTests.swift; sourceTree = "<group>"; };
+		8B1F0F30B61943FBB8FBF9CD /* MediaLibraryPublicationPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryPublicationPlan.swift; sourceTree = "<group>"; };
+		F4601DBC804743ED8E1FBD90 /* TemporaryPlaybackLibrarySnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporaryPlaybackLibrarySnapshot.swift; sourceTree = "<group>"; };
+		76CC7A742DA74CD2B76522DB /* VideoInformationLoadingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoInformationLoadingTests.swift; sourceTree = "<group>"; };
+		9C55B8247B71438F8C81A282 /* CustomPlaylistSynchronizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomPlaylistSynchronizationTests.swift; sourceTree = "<group>"; };
+		6653B81C0BFA469B941934C7 /* MediaLibraryPublicationPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryPublicationPlanTests.swift; sourceTree = "<group>"; };
+		11A20D7CD1664DD5920F3C8C /* TemporaryPlaybackLibrarySnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporaryPlaybackLibrarySnapshotTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -648,6 +660,9 @@
 			isa = PBXGroup;
 			children = (
 				C10000000000000000000001 /* AppCoordinatorTests.swift */,
+				11A20D7CD1664DD5920F3C8C /* TemporaryPlaybackLibrarySnapshotTests.swift */,
+				6653B81C0BFA469B941934C7 /* MediaLibraryPublicationPlanTests.swift */,
+				9C55B8247B71438F8C81A282 /* CustomPlaylistSynchronizationTests.swift */,
 				BDAF22F71B65452080A97D9B /* MediaLibraryQueueRestorationTests.swift */,
 				8EAF7155E5F8499D94485524 /* MediaLibraryCanonicalLookupTests.swift */,
 				57737C236A98449FA4338B87 /* TemporaryPlaybackInputDeduplicatorTests.swift */,
@@ -871,6 +886,8 @@
 				FB0000000000000000000001 /* TemporaryPlaybackSession.swift */,
 				C2F84888D54F7A676BDBEA77 /* MediaReference.swift */,
 				4C04FA1EFB53F38295077A37 /* CustomPlaylist.swift */,
+				F4601DBC804743ED8E1FBD90 /* TemporaryPlaybackLibrarySnapshot.swift */,
+				8B1F0F30B61943FBB8FBF9CD /* MediaLibraryPublicationPlan.swift */,
 				B31F3C0055CC4FF780754678 /* TemporaryPlaybackInputDeduplicator.swift */,
 				86A4B39A081F4F03B447C8EC /* MediaLibraryQueueRestorationPreparer.swift */,
 				B88DFB09E1C0444E88BD9029 /* MediaLibraryCanonicalLookup.swift */,
@@ -1017,6 +1034,7 @@
 			isa = PBXGroup;
 			children = (
 				25EA2A620F0248ECAA3D369A /* AVFoundationPlaybackEngineTests.swift */,
+				76CC7A742DA74CD2B76522DB /* VideoInformationLoadingTests.swift */,
 				8ED1E3C1D1CB4EB199AB3A1A /* AVFoundationPlaybackLoadingTests.swift */,
 				060965ED2E4F42E997A0D10C /* EmbeddedSubtitlePlaybackTests.swift */,
 				F22000000000000000000002 /* MediaPlaybackCompatibilityTests.swift */,
@@ -1394,6 +1412,8 @@
 				2CC637A1BABB9D96CD6D1A53 /* DesktopMediaSelectionControl.swift in Sources */,
 				2907B982357F9ABEEF327508 /* MediaReference.swift in Sources */,
 				DF3210AADD83404E21A8C874 /* CustomPlaylist.swift in Sources */,
+				58AB633C23184DA3BD29D2A0 /* TemporaryPlaybackLibrarySnapshot.swift in Sources */,
+				D4C2D6D0650143D4A2A9F7F9 /* MediaLibraryPublicationPlan.swift in Sources */,
 				9F5BF9566874430FA74675EC /* TemporaryPlaybackInputDeduplicator.swift in Sources */,
 				C1B74067AD074F888CC80D7C /* MediaLibraryQueueRestorationPreparer.swift in Sources */,
 				87CF3E4300514603AC9A392D /* MediaLibraryCanonicalLookup.swift in Sources */,
@@ -1426,6 +1446,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				C10000000000000000000011 /* AppCoordinatorTests.swift in Sources */,
+				4B8DC524EE894148908109E3 /* TemporaryPlaybackLibrarySnapshotTests.swift in Sources */,
+				87878EAE0DAE43D1A37B8619 /* MediaLibraryPublicationPlanTests.swift in Sources */,
+				296E3B3084954539B4E3A9F2 /* CustomPlaylistSynchronizationTests.swift in Sources */,
 				8070CC9B3F82450D870D8C9F /* MediaLibraryQueueRestorationTests.swift in Sources */,
 				C6D5CCB4195A4CF7969A57D9 /* MediaLibraryCanonicalLookupTests.swift in Sources */,
 				CD646178AA7048A383E781A7 /* TemporaryPlaybackInputDeduplicatorTests.swift in Sources */,
@@ -1456,6 +1479,7 @@
 				D92000000000000000000011 /* FileSystemMediaAvailabilityTests.swift in Sources */,
 				AB0000000000000000000002 /* UserSelectedMediaSessionTests.swift in Sources */,
 				004C99C5AE9B45B3AE32AB2A /* AVFoundationPlaybackEngineTests.swift in Sources */,
+				464E47B88EBD4E90A0FB9795 /* VideoInformationLoadingTests.swift in Sources */,
 				57D9A01BAFCE4B97ADDFCDE1 /* AVFoundationPlaybackLoadingTests.swift in Sources */,
 				16B4377C9ECC4D8A8FE7C182 /* EmbeddedSubtitlePlaybackTests.swift in Sources */,
 				F22000000000000000000012 /* MediaPlaybackCompatibilityTests.swift in Sources */,

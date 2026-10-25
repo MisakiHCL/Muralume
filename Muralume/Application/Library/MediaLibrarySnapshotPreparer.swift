@@ -11,12 +11,14 @@ struct PreparedMediaLibraryItems: Sendable {
     let itemsByID: [LibraryMediaItem.ID: LibraryMediaItem]
     let resolutionIndex: MediaReferenceResolutionIndex
     let rootURLsByPath: [String: URL]
+    let temporaryPlaybackSnapshot: TemporaryPlaybackLibrarySnapshot
 
     init(
         items: [LibraryMediaItem],
         itemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
         resolutionIndex: MediaReferenceResolutionIndex? = nil,
-        rootURLsByPath: [String: URL]? = nil
+        rootURLsByPath: [String: URL]? = nil,
+        temporaryPlaybackSnapshot: TemporaryPlaybackLibrarySnapshot? = nil
     ) {
         self.items = items
         self.itemsByID = itemsByID
@@ -31,6 +33,11 @@ struct PreparedMediaLibraryItems: Sendable {
             }
             self.rootURLsByPath = roots
         }
+        self.temporaryPlaybackSnapshot = temporaryPlaybackSnapshot
+            ?? TemporaryPlaybackLibrarySnapshot(
+                items: items, itemsByID: itemsByID,
+                rootURLsByPath: self.rootURLsByPath
+            )
     }
 }
 
@@ -75,9 +82,28 @@ protocol MediaLibrarySnapshotPreparing: Sendable {
         queueItemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
         availableItemsByID: [LibraryMediaItem.ID: LibraryMediaItem]
     ) async throws -> PreparedMediaLibraryQueueReconciliation
+
+    func reconcileQueue(
+        snapshot: PlaybackQueueSnapshot<LibraryMediaItem.ID>,
+        queueItemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
+        availableItemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
+        resolutionIndex: MediaReferenceResolutionIndex
+    ) async throws -> PreparedMediaLibraryQueueReconciliation
 }
 
 extension MediaLibrarySnapshotPreparing {
+    func reconcileQueue(
+        snapshot: PlaybackQueueSnapshot<LibraryMediaItem.ID>,
+        queueItemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
+        availableItemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
+        resolutionIndex: MediaReferenceResolutionIndex
+    ) async throws -> PreparedMediaLibraryQueueReconciliation {
+        try await reconcileQueue(
+            snapshot: snapshot, queueItemsByID: queueItemsByID,
+            availableItemsByID: availableItemsByID
+        )
+    }
+
     func sort(
         _ library: PreparedMediaLibraryItems,
         using sort: MediaLibrarySort
@@ -99,7 +125,9 @@ struct DefaultMediaLibrarySnapshotPreparer:
             items: sortedItems,
             itemsByID: library.itemsByID,
             resolutionIndex: library.resolutionIndex,
-            rootURLsByPath: library.rootURLsByPath
+            rootURLsByPath: library.rootURLsByPath,
+            temporaryPlaybackSnapshot: library.temporaryPlaybackSnapshot
+                .reordered(items: sortedItems)
         )
     }
 
@@ -165,6 +193,20 @@ struct DefaultMediaLibrarySnapshotPreparer:
         let resolutionIndex = MediaReferenceResolutionIndex(
             items: Array(availableItemsByID.values)
         )
+        return try await reconcileQueue(
+            snapshot: snapshot, queueItemsByID: queueItemsByID,
+            availableItemsByID: availableItemsByID,
+            resolutionIndex: resolutionIndex
+        )
+    }
+
+    func reconcileQueue(
+        snapshot: PlaybackQueueSnapshot<LibraryMediaItem.ID>,
+        queueItemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
+        availableItemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
+        resolutionIndex: MediaReferenceResolutionIndex
+    ) async throws -> PreparedMediaLibraryQueueReconciliation {
+        try Task.checkCancellation()
         let resolution = resolutionIndex.resolveQueuedItems(queueItemsByID)
 
         let remappedSnapshot = remappedQueueSnapshot(

@@ -17,15 +17,15 @@ final class TemporaryPlaybackSessionConcurrencyTests: XCTestCase {
         let discardedURL = mediaURL("Discarded")
         let latestURL = mediaURL("Latest")
         let first = Task {
-            try await session.resolve([firstURL], libraryItems: [])
+            try await session.resolve([firstURL], librarySnapshot: .empty)
         }
         await waitUntil { scanner.callCount == 1 }
         let discarded = Task {
-            try await session.resolve([discardedURL], libraryItems: [])
+            try await session.resolve([discardedURL], librarySnapshot: .empty)
         }
         await assertCancelled(first)
         let latest = Task {
-            try await session.resolve([latestURL], libraryItems: [])
+            try await session.resolve([latestURL], librarySnapshot: .empty)
         }
         await assertCancelled(discarded)
         XCTAssertEqual(scanner.callCount, 1)
@@ -55,7 +55,7 @@ final class TemporaryPlaybackSessionConcurrencyTests: XCTestCase {
         defer { scanner.releaseFirstScan(); session.end() }
         let url = mediaURL("Ending")
         let resolution = Task {
-            try await session.resolve([url], libraryItems: [])
+            try await session.resolve([url], librarySnapshot: .empty)
         }
         await waitUntil { scanner.callCount == 1 }
         session.end()
@@ -87,7 +87,11 @@ final class TemporaryPlaybackSessionConcurrencyTests: XCTestCase {
         defer { canonicalizer.release(); session.end() }
         let resolution = Task {
             try await session.resolve(
-                [requestedURL], libraryItems: [item], librarySourceURLs: [rootURL]
+                [requestedURL],
+                librarySnapshot: TemporaryPlaybackLibrarySnapshot(
+                    items: [item], itemsByID: [item.id: item],
+                    rootURLsByPath: [rootURL.path: rootURL]
+                ), librarySourceURLs: [rootURL]
             )
         }
         await waitUntil { canonicalizer.didBeginBlockedResolution }
@@ -119,7 +123,7 @@ final class TemporaryPlaybackSessionConcurrencyTests: XCTestCase {
             + Array(acceptedURLs.dropFirst())
             + [overflow, overflow, URL(string: "https://example.invalid/a.mp4")!,
                URL(fileURLWithPath: "/tmp/Unsupported.txt")]
-        let result = try await session.resolve(urls, libraryItems: [])
+        let result = try await session.resolve(urls, librarySnapshot: .empty)
         XCTAssertEqual(result.items.map(\.url), acceptedURLs)
         XCTAssertEqual(result.skippedItemCount, 3)
         XCTAssertEqual(scanner.requestedURLs, [acceptedURLs])
@@ -145,7 +149,7 @@ final class TemporaryPlaybackSessionConcurrencyTests: XCTestCase {
         let nonFile = URL(string: "https://example.invalid/a.mp4")!
         let urls = unique + Array(repeating: unique, count: 4).flatMap { $0 }
             + aliases + [unsupported, unsupported, nonFile, nonFile]
-        let result = try await session.resolve(urls, libraryItems: [])
+        let result = try await session.resolve(urls, librarySnapshot: .empty)
         let limit = MediaImportPolicy.maximumTopLevelSourceCount
         XCTAssertEqual(result.items.map(\.url), Array(unique.prefix(limit)))
         XCTAssertEqual(result.skippedItemCount, unique.count - limit + 4)
@@ -188,7 +192,7 @@ final class TemporaryPlaybackSessionConcurrencyTests: XCTestCase {
             inputPreparationTemporaryDirectoryURL: directory
         )
         defer { session.end() }
-        let result = try await session.resolve(input, libraryItems: [])
+        let result = try await session.resolve(input, librarySnapshot: .empty)
         // The same URL first resolves to A, then B; both must retain their
         // original input positions, even though the lexical URL is identical.
         XCTAssertEqual(Array(legacyAcceptedURLs.prefix(2)), [repeatedURL, repeatedURL])
@@ -219,7 +223,7 @@ final class TemporaryPlaybackSessionConcurrencyTests: XCTestCase {
         let input = urls + [blockedURL]
         let resolution = Task {
             try await session.resolve(
-                input, libraryItems: [], librarySourceURLs: [rootURL]
+                input, librarySnapshot: .empty, librarySourceURLs: [rootURL]
             )
         }
         await waitUntil { canonicalizer.didBeginBlockedResolution }
@@ -229,7 +233,7 @@ final class TemporaryPlaybackSessionConcurrencyTests: XCTestCase {
         XCTAssertEqual(scopes.startedURLs, [rootURL])
         XCTAssertTrue(scopes.stoppedURLs.isEmpty)
         let latestURL = mediaURL("Latest")
-        let latest = Task { try await session.resolve([latestURL], libraryItems: []) }
+        let latest = Task { try await session.resolve([latestURL], librarySnapshot: .empty) }
         for _ in 0..<50 { await Task.yield() }
         XCTAssertEqual(scanner.callCount, 0)
         canonicalizer.release()

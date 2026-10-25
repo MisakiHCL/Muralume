@@ -645,6 +645,7 @@ final class MediaLibraryCoordinatorConcurrencyTests: XCTestCase {
         await waitForLoads(fixture.engine, count: 1)
         await waitForReady(fixture.playback)
 
+        let baselinePreparations = await preparer.callCount(for: .prepare)
         let baselineReconciliations = await preparer.callCount(
             for: .reconcileQueue
         )
@@ -691,6 +692,8 @@ final class MediaLibraryCoordinatorConcurrencyTests: XCTestCase {
             finalReconciliationCalls,
             baselineReconciliations + 2
         )
+        let finalPreparations = await preparer.callCount(for: .prepare)
+        XCTAssertEqual(finalPreparations, baselinePreparations + 1)
         XCTAssertEqual(
             fixture.coordinator.makeQueueSnapshot(),
             navigatedQueueSnapshot
@@ -704,6 +707,46 @@ final class MediaLibraryCoordinatorConcurrencyTests: XCTestCase {
             fixture.coordinator.queueStateRevision,
             navigatedQueueStateRevision
         )
+        await fixture.coordinator.shutdown()
+    }
+
+    func testPauseDuringBackgroundPublicationPreservesLatestPlaybackIntent() async {
+        let rootURL = URL(fileURLWithPath: "/tmp/Publication Playback Intent")
+        let root = makeRoot(rootURL)
+        let first = makeItem(rootURL: rootURL, name: "Alpha", path: "Alpha.mov")
+        let second = makeItem(rootURL: rootURL, name: "Bravo", path: "Bravo.mov")
+        let preparer = ControlledMediaLibrarySnapshotPreparer()
+        let fixture = makeFixture(
+            selectedURLs: [rootURL],
+            snapshot: MediaLibrarySnapshot(roots: [root], items: [first, second]),
+            snapshotPreparer: preparer
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.play(first)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+        let baseline = await preparer.callCount(for: .reconcileQueue)
+        await preparer.blockNext(.reconcileQueue)
+        fixture.scanner.enqueueSnapshot(
+            MediaLibrarySnapshot(roots: [root], items: [second])
+        )
+        fixture.coordinator.refresh()
+        guard await waitForCall(
+            preparer, stage: .reconcileQueue, count: baseline + 1
+        ) else {
+            await preparer.releaseAll()
+            await fixture.coordinator.shutdown()
+            return
+        }
+        fixture.playback.setPlaybackIntent(.paused)
+        _ = await preparer.release(.reconcileQueue, call: baseline + 1)
+        await waitForScan(fixture.coordinator)
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+        XCTAssertEqual(fixture.coordinator.currentItemID, second.id)
+        XCTAssertEqual(fixture.coordinator.makeQueueSnapshot()?.items, [second.id])
+        XCTAssertFalse(fixture.playback.isPlaybackRequested)
         await fixture.coordinator.shutdown()
     }
 

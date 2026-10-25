@@ -7,13 +7,196 @@ private enum VideoInformationLoadingPolicy {
     static let maximumFormatDescriptionsPerTrack = 8
 }
 
+/// A cancelled caller returns promptly while its real metadata worker keeps
+/// owning the asset and compatibility URL until AVFoundation has unwound.
+/// Reentrant calls share one worker and retain only the latest pending request.
 actor AVAssetVideoInformationLoader: VideoInformationLoading {
+    typealias AssetFactory = @Sendable (URL) -> AVURLAsset
+    typealias MetadataLoader = @Sendable (
+        AVURLAsset, ResolvedMediaSource
+    ) async throws -> VideoInformation
+
+    private final class Cancellation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var isCancelled = false
+        private var asset: AVURLAsset?
+
+        func install(_ asset: AVURLAsset) throws {
+            let cancelled = lock.withLock {
+                self.asset = asset
+                return isCancelled
+            }
+            if cancelled {
+                asset.cancelLoading()
+                throw CancellationError()
+            }
+        }
+
+        func cancel() {
+            let asset = lock.withLock {
+                isCancelled = true
+                return self.asset
+            }
+            asset?.cancelLoading()
+        }
+
+        func releaseAsset() {
+            lock.withLock { asset = nil }
+        }
+
+        var wasCancelled: Bool { lock.withLock { isCancelled } }
+    }
+
+    private final class Request {
+        let id: UUID
+        let source: ResolvedMediaSource
+        let cancellation: Cancellation
+        var continuation: CheckedContinuation<VideoInformation, Error>?
+
+        init(
+            id: UUID,
+            source: ResolvedMediaSource,
+            cancellation: Cancellation,
+            continuation: CheckedContinuation<VideoInformation, Error>
+        ) {
+            self.id = id
+            self.source = source
+            self.cancellation = cancellation
+            self.continuation = continuation
+        }
+
+        func finish(_ result: Result<VideoInformation, Error>) {
+            continuation?.resume(with: result)
+            continuation = nil
+        }
+    }
+
+    private let assetFactory: AssetFactory
+    private let metadataLoader: MetadataLoader
+    private var running: Request?
+    private var pending: Request?
+    private var worker: Task<Void, Never>?
+
+    init(
+        assetFactory: @escaping AssetFactory = { AVURLAsset(url: $0) },
+        metadataLoader: @escaping MetadataLoader = loadInformation
+    ) {
+        self.assetFactory = assetFactory
+        self.metadataLoader = metadataLoader
+    }
+
     func information(
         for source: ResolvedMediaSource
     ) async throws -> VideoInformation {
-        let sourceLease = try MediaPlaybackURLLease(sourceURL: source.url)
-        defer { sourceLease.invalidate() }
-        let asset = AVURLAsset(url: sourceLease.url)
+        let id = UUID()
+        let cancellation = Cancellation()
+        return try await withTaskCancellationHandler {
+            // A task cancelled before entering the actor must not supersede
+            // another caller's current or pending information request.
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                let request = Request(
+                    id: id,
+                    source: source,
+                    cancellation: cancellation,
+                    continuation: continuation
+                )
+                guard !cancellation.wasCancelled else {
+                    request.finish(.failure(CancellationError()))
+                    return
+                }
+                supersedeRequests()
+                pending = request
+                startPendingIfPossible()
+            }
+        } onCancel: {
+            // Do this synchronously: the actor may still be awaiting a blocked
+            // AVFoundation operation. The callback only affects this asset.
+            cancellation.cancel()
+            Task { [weak self] in await self?.cancel(id: id) }
+        }
+    }
+
+    /// Wait for actual workers, including cancelled operations which have not
+    /// finished unwinding. Caller completion alone does not release the slot.
+    func drainPendingWork() async {
+        while let worker {
+            await worker.value
+        }
+    }
+
+    private func supersedeRequests() {
+        if let pending {
+            self.pending = nil
+            pending.cancellation.cancel()
+            pending.finish(.failure(CancellationError()))
+        }
+        if let running {
+            running.cancellation.cancel()
+            worker?.cancel()
+            running.finish(.failure(CancellationError()))
+        }
+    }
+
+    private func cancel(id: UUID) {
+        if let pending, pending.id == id {
+            self.pending = nil
+            pending.finish(.failure(CancellationError()))
+        }
+        if let running, running.id == id {
+            worker?.cancel()
+            running.finish(.failure(CancellationError()))
+        }
+    }
+
+    private func startPendingIfPossible() {
+        guard worker == nil, let request = pending else { return }
+        pending = nil
+        running = request
+        worker = Task { await perform(request) }
+    }
+
+    private func perform(_ request: Request) async {
+        let result: Result<VideoInformation, Error>
+        do {
+            try Task.checkCancellation()
+            let access = request.source.url.startAccessingSecurityScopedResource()
+            defer {
+                if access { request.source.url.stopAccessingSecurityScopedResource() }
+            }
+            let lease = try MediaPlaybackURLLease(
+                sourceURL: request.source.url
+            )
+            defer { lease.invalidate() }
+            let asset = assetFactory(lease.url)
+            let cancellation = request.cancellation
+            try cancellation.install(asset)
+            let information = try await withTaskCancellationHandler {
+                try Task.checkCancellation()
+                return try await metadataLoader(asset, request.source)
+            } onCancel: {
+                cancellation.cancel()
+            }
+            try Task.checkCancellation()
+            if cancellation.wasCancelled { throw CancellationError() }
+            result = .success(information)
+        } catch {
+            // AVFoundation may produce its cancellation NSError before
+            // the actor callback arrives; callers still see cancellation.
+            result = .failure(request.cancellation.wasCancelled
+                ? CancellationError() : error)
+        }
+        request.cancellation.releaseAsset()
+        request.finish(result)
+        running = nil
+        worker = nil
+        startPendingIfPossible()
+    }
+
+    private static func loadInformation(
+        asset: AVURLAsset,
+        source: ResolvedMediaSource
+    ) async throws -> VideoInformation {
         let duration = try await asset.load(.duration)
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         try Task.checkCancellation()
@@ -98,7 +281,7 @@ actor AVAssetVideoInformationLoader: VideoInformationLoading {
         )
     }
 
-    private func codecNames(
+    private static func codecNames(
         for tracks: [AVAssetTrack],
         name: (String) -> String
     ) async throws -> [String] {
@@ -124,7 +307,7 @@ actor AVAssetVideoInformationLoader: VideoInformationLoading {
         return names
     }
 
-    private func subtitleTrackCount(in asset: AVAsset) async throws -> Int {
+    private static func subtitleTrackCount(in asset: AVAsset) async throws -> Int {
         let subtitleTracks = try await asset.loadTracks(
             withMediaType: .subtitle
         )

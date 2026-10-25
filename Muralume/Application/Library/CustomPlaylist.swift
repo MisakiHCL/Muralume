@@ -108,24 +108,24 @@ struct CustomPlaylist: Codable, Equatable, Identifiable, Sendable {
         guard destinationID != entryID else {
             return
         }
-        if let destinationID,
-           !entries.contains(where: { $0.id == destinationID }) {
-            return
-        }
         guard let sourceIndex = entries.firstIndex(
             where: { $0.id == entryID }
         ) else {
             return
         }
-        let originalEntryIDs = entries.map(\.id)
-        let entry = entries.remove(at: sourceIndex)
-        let destinationIndex = destinationID.flatMap { destinationID in
-            entries.firstIndex { $0.id == destinationID }
-        } ?? entries.endIndex
-        entries.insert(entry, at: destinationIndex)
-        if entries.map(\.id) != originalEntryIDs {
-            updatedAt = now
+        let destinationIndex: Int
+        if let destinationID {
+            guard let index = entries.firstIndex(
+                where: { $0.id == destinationID }
+            ) else { return }
+            destinationIndex = index > sourceIndex ? index - 1 : index
+        } else {
+            destinationIndex = entries.count - 1
         }
+        guard destinationIndex != sourceIndex else { return }
+        let entry = entries.remove(at: sourceIndex)
+        entries.insert(entry, at: destinationIndex)
+        updatedAt = now
     }
 
     fileprivate mutating func reconcile(

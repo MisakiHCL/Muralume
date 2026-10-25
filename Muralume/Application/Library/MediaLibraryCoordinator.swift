@@ -76,7 +76,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         case structure
     }
 
-    private enum PlaybackQueueMembership: Equatable {
+    private enum PlaybackQueueMembership: Equatable, Sendable {
         case mediaLibrary
         case customPlaylist(CustomPlaylist.ID)
         case fixed
@@ -191,12 +191,42 @@ final class MediaLibraryCoordinator: ObservableObject {
     /// Search projections use the revision as the identity of `items`.
     /// Publishing both fields together prevents a will-set observer from
     /// pairing a new revision with the previous collection.
-    private struct ItemsSnapshot {
+    private struct ItemsSnapshot: Sendable {
         let revision: UInt64
         let contentRevision: UInt64
         let items: [LibraryMediaItem]
         let resolutionIndex: MediaReferenceResolutionIndex
         let rootURLsByPath: [String: URL]
+        let temporaryPlaybackSnapshot: TemporaryPlaybackLibrarySnapshot
+    }
+
+    private enum PublicationResult: Sendable {
+        case applied(PublicationPruning)
+        case retry(PreparedMediaLibrarySnapshot)
+    }
+
+    private struct PublicationPruning: Sendable {
+        let itemIDs: Set<LibraryMediaItem.ID>
+        let rootPaths: Set<String>
+    }
+
+    private struct PublicationStamp: Sendable {
+        let itemsRevision: UInt64
+        let queueStateRevision: UInt64
+        let queueMetadataRevision: UInt64
+        let unavailableRevision: UInt64
+        let temporaryGeneration: UInt64
+        let loadedItemID: LibraryMediaItem.ID?
+        let membership: PlaybackQueueMembership
+    }
+
+    /// Keep superseded collections alive through the commit, so their final
+    /// release runs on the bounded worker rather than the UI executor.
+    private struct PublicationStorage: Sendable {
+        let request: MediaLibraryPublicationRequest
+        let previousSnapshot: ItemsSnapshot
+        let previousItemsByID: [LibraryMediaItem.ID: LibraryMediaItem]
+        let previousCanonicalIndex: MediaLibraryCanonicalLookupIndex?
     }
 
     @Published private(set) var scanState: MediaLibraryScanState = .idle
@@ -206,7 +236,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         contentRevision: 0,
         items: [],
         resolutionIndex: MediaReferenceResolutionIndex(items: []),
-        rootURLsByPath: [:]
+        rootURLsByPath: [:],
+        temporaryPlaybackSnapshot: .empty
     )
     @Published private(set) var playbackOrder: PlaybackOrder
     @Published private(set) var playbackRepeatBehavior:
@@ -438,7 +469,13 @@ final class MediaLibraryCoordinator: ObservableObject {
     // detour from dynamic desktop can use the full library while saves pause.
     private var playbackQueueMembership: PlaybackQueueMembership =
         .mediaLibrary
-    private var queueItemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
+    private var queueMetadataRevision: UInt64 = 0
+    private var queueItemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:] {
+        didSet { queueMetadataRevision &+= 1 }
+    }
+    private let publicationWorkPool = BoundedMediaWorkPool(
+        maximumConcurrentWorkCount: 1, maximumQueuedWorkCount: 1
+    )
     private var scanTasks: [UUID: Task<Void, Never>] = [:]
     private let scanWorkPool = BoundedMediaWorkPool(
         maximumConcurrentWorkCount: 1,
@@ -1253,7 +1290,18 @@ final class MediaLibraryCoordinator: ObservableObject {
         let shouldAutoplay = playback.isPlaybackRequested
 
         let availableItemsByID = Self.mediaItemsByID(playlistItems)
-        reconcileActiveQueue(using: availableItemsByID)
+        // Exact IDs cannot compete for an identity match. Reorders can refresh
+        // their values directly without rebuilding an index or queue history.
+        let hasExactRepresentations = queueItemsByID.allSatisfy { id, _ in
+            guard let canonical = availableItemsByID[id] else { return false }
+            return id.rootPath == canonical.id.rootPath
+                && id.relativePath == canonical.id.relativePath
+        }
+        if hasExactRepresentations {
+            queueItemsByID = availableItemsByID
+        } else {
+            reconcileActiveQueue(using: availableItemsByID)
+        }
         guard let reconciledQueue = queue else {
             return
         }
@@ -1265,9 +1313,11 @@ final class MediaLibraryCoordinator: ObservableObject {
             pendingOrderPolicy: .authoritative
         )
         guard structureChanged else {
-            let activeItemIDs = Set(activeQueue.items)
-            queueItemsByID = queueItemsByID.filter {
-                activeItemIDs.contains($0.key)
+            if !hasExactRepresentations {
+                let activeItemIDs = Set(activeQueue.items)
+                queueItemsByID = queueItemsByID.filter {
+                    activeItemIDs.contains($0.key)
+                }
             }
             return
         }
@@ -1277,10 +1327,12 @@ final class MediaLibraryCoordinator: ObservableObject {
             return
         }
 
-        queueItemsByID.merge(availableItemsByID) { _, item in item }
-        let activeItemIDs = Set(activeQueue.items)
-        queueItemsByID = queueItemsByID.filter {
-            activeItemIDs.contains($0.key)
+        if !hasExactRepresentations {
+            queueItemsByID.merge(availableItemsByID) { _, item in item }
+            let activeItemIDs = Set(activeQueue.items)
+            queueItemsByID = queueItemsByID.filter {
+                activeItemIDs.contains($0.key)
+            }
         }
         queue = activeQueue
         currentItemID = activeQueue.currentItem
@@ -1334,7 +1386,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         do {
             resolution = try await temporaryPlaybackSession.resolve(
                 urls,
-                libraryItems: items,
+                librarySnapshot: itemsSnapshot.temporaryPlaybackSnapshot,
                 librarySourceURLs: activeSources.map(\.url)
             )
         } catch is CancellationError {
@@ -1932,7 +1984,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         let baseLibrary = PreparedMediaLibraryItems(
             items: items, itemsByID: visibleItemsByID,
             resolutionIndex: itemsSnapshot.resolutionIndex,
-            rootURLsByPath: itemsSnapshot.rootURLsByPath
+            rootURLsByPath: itemsSnapshot.rootURLsByPath,
+            temporaryPlaybackSnapshot: itemsSnapshot.temporaryPlaybackSnapshot
         )
         let requestedSort = sort
         let taskID = UUID()
@@ -2167,7 +2220,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         itemsSnapshot = ItemsSnapshot(
             revision: itemsRevision, contentRevision: itemsContentRevision,
             items: items, resolutionIndex: MediaReferenceResolutionIndex(items: []),
-            rootURLsByPath: [:]
+            rootURLsByPath: [:], temporaryPlaybackSnapshot: .empty
         )
         lastPublishedScanSourcePaths = []
         lastPublishedScanSort = nil
@@ -2347,6 +2400,8 @@ final class MediaLibraryCoordinator: ObservableObject {
                 return
             }
         }
+        var pendingPrepared: PreparedMediaLibrarySnapshot?
+        var pendingSort: MediaLibrarySort?
         while true {
             try Task.checkCancellation()
             guard generation == scanGeneration, !isShutDown else {
@@ -2354,11 +2409,17 @@ final class MediaLibraryCoordinator: ObservableObject {
             }
 
             let requestedSort = sort
-            let prepared = try await snapshotPreparer.prepare(
-                snapshot,
-                requestedSourcePaths: requestedSourcePaths,
-                sort: requestedSort
-            )
+            var prepared: PreparedMediaLibrarySnapshot?
+            if pendingSort == requestedSort, pendingPrepared != nil {
+                prepared = pendingPrepared
+            } else {
+                prepared = try await snapshotPreparer.prepare(
+                    snapshot,
+                    requestedSourcePaths: requestedSourcePaths,
+                    sort: requestedSort
+                )
+            }
+            pendingPrepared = nil
             try Task.checkCancellation()
             guard generation == scanGeneration, !isShutDown else {
                 throw CancellationError()
@@ -2367,170 +2428,124 @@ final class MediaLibraryCoordinator: ObservableObject {
                 continue
             }
 
-            var preparedQueue:
-                PreparedMediaLibraryQueueReconciliation?
-            while let queueSnapshot = makeQueueSnapshot() {
-                let capturedQueueStateRevision = queueStateRevision
-                let reconciliation = try await snapshotPreparer
-                    .reconcileQueue(
-                        snapshot: queueSnapshot,
-                        queueItemsByID: queueItemsByID,
-                        availableItemsByID: prepared.library.itemsByID
-                    )
-                try Task.checkCancellation()
-                guard generation == scanGeneration, !isShutDown else {
-                    throw CancellationError()
-                }
-                guard sort == requestedSort else {
-                    break
-                }
-                guard capturedQueueStateRevision == queueStateRevision else {
-                    continue
-                }
-                preparedQueue = reconciliation
-                break
-            }
-            guard sort == requestedSort else {
-                continue
-            }
-
-            mediaThumbnailProvider.allowThumbnails(
-                forRootIDs: Set(prepared.roots.map(\.id))
+            let stamp = PublicationStamp(
+                itemsRevision: itemsRevision,
+                queueStateRevision: queueStateRevision,
+                queueMetadataRevision: queueMetadataRevision,
+                unavailableRevision: unavailableItemsRevision,
+                temporaryGeneration: temporaryPlaybackGeneration,
+                loadedItemID: loadedItemID,
+                membership: playbackQueueMembership
             )
-            if roots != prepared.roots {
-                roots = prepared.roots
-            }
-            replaceItems(with: prepared.library)
-            incompleteRootPaths = prepared.incompleteRootPaths
-            let wasTemporaryPlayback = !temporaryItemIDs.isEmpty
-            let previousCurrentItemID = currentItemID
-            let shouldAutoplayAfterReconciliation =
-                playback.isPlaybackRequested
-                    || currentLoadTaskRecord?.autoplay == true
-
-            var visibleUnavailableItemIDs = Set(
-                unavailableItemIDs.compactMap {
-                    prepared.library.itemsByID[$0]?.id
-                }
+            var storage: PublicationStorage? = PublicationStorage(
+                request: MediaLibraryPublicationRequest(
+                    prepared: prepared!, oldItems: items, queue: queue,
+                    cachedQueueSnapshot: cachedQueueSnapshot,
+                    queueItemsByID: queueItemsByID,
+                    unavailableItemIDs: unavailableItemIDs,
+                    temporaryItemIDs: temporaryItemIDs,
+                    currentItemID: currentItemID, loadedItemID: loadedItemID,
+                    synchronizeLibraryQueue: playbackQueueMembership == .mediaLibrary
+                ),
+                previousSnapshot: itemsSnapshot,
+                previousItemsByID: visibleItemsByID,
+                previousCanonicalIndex: canonicalItemLookupIndex
             )
-            var queueChanged = false
-            if let preparedQueue {
-                queueItemsByID = preparedQueue.queueItemsByID
-                if preparedQueue.requiresQueueReplacement,
-                   let replacementQueue = preparedQueue.replacementQueue {
-                    queue = replacementQueue
-                    currentItemID = preparedQueue.currentItemID
-                    loadedItemID = loadedItemID.map {
-                        prepared.library.itemsByID[$0]?.id ?? $0
-                    }
-                    visibleUnavailableItemIDs = Set(
-                        visibleUnavailableItemIDs.map {
-                            prepared.library.itemsByID[$0]?.id ?? $0
+            let pool = publicationWorkPool
+            let preparer = snapshotPreparer
+            let task = Task<PublicationResult, Error>.detached(priority: .userInitiated) {
+                [weak self, storage = storage!] in
+                try await pool.run {
+                    defer { withExtendedLifetime(storage) {} }
+                    let plan = try await storage.request.prepare(using: preparer)
+                    try Task.checkCancellation()
+                    return try await MainActor.run {
+                        try Task.checkCancellation()
+                        guard let self, generation == self.scanGeneration,
+                              !self.isShutDown else { throw CancellationError() }
+                        guard self.sort == requestedSort,
+                              stamp.itemsRevision == self.itemsRevision,
+                              stamp.queueStateRevision == self.queueStateRevision,
+                              stamp.queueMetadataRevision == self.queueMetadataRevision,
+                              stamp.unavailableRevision == self.unavailableItemsRevision,
+                              stamp.temporaryGeneration == self.temporaryPlaybackGeneration,
+                              stamp.loadedItemID == self.loadedItemID,
+                              stamp.membership == self.playbackQueueMembership else {
+                            return .retry(storage.request.prepared)
                         }
-                    )
-                    queueChanged = true
+                        self.applyPublication(
+                            plan, prepared: storage.request.prepared,
+                            requestedSourcePaths: requestedSourcePaths,
+                            requestedSort: requestedSort
+                        )
+                        return .applied(PublicationPruning(
+                            itemIDs: plan.keepingItemIDs, rootPaths: plan.completeRootPaths
+                        ))
+                    }
                 }
             }
-            queueItemsByID.merge(prepared.library.itemsByID) {
-                _, visibleItem in visibleItem
-            }
-            if playbackQueueMembership == .mediaLibrary,
-               var activeQueue = queue {
-                let synchronizedItemIDs = synchronizedQueueItemIDs(
-                    activeQueue,
-                    availableItems: prepared.library.items,
-                    availableItemsByID: prepared.library.itemsByID,
-                    roots: prepared.roots,
-                    incompleteRootPaths: prepared.incompleteRootPaths
+            storage = nil
+            prepared = nil
+            let applied = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: { task.cancel() }
+            switch applied {
+            case let .retry(prepared):
+                pendingPrepared = prepared
+                pendingSort = requestedSort
+            case let .applied(pruning):
+                try? await playbackProgressStore?.pruneProgress(
+                    keeping: pruning.itemIDs, withinRootPaths: pruning.rootPaths
                 )
-                if activeQueue.synchronizeItems(synchronizedItemIDs) {
-                    if activeQueue.isEmpty {
-                        queue = nil
-                        currentItemID = nil
-                    } else {
-                        queue = activeQueue
-                        currentItemID = activeQueue.currentItem
-                    }
-                    queueChanged = true
-                }
+                return
             }
-            if let activeQueue = queue {
-                let activeItemIDs = Set(activeQueue.items)
-                queueItemsByID = queueItemsByID.filter {
-                    activeItemIDs.contains($0.key)
-                }
-            } else if queueChanged {
-                queueItemsByID.removeAll()
-            }
-            temporaryItemIDs.subtract(prepared.library.itemsByID.keys)
-            if wasTemporaryPlayback, temporaryItemIDs.isEmpty {
-                temporaryPlaybackSession.end()
-            }
-            if queueChanged {
-                publishQueueChange()
-            }
-            replaceUnavailableItemIDs(with: visibleUnavailableItemIDs)
-            if previousCurrentItemID != currentItemID {
-                invalidateLoad()
-                playback.stop()
-                loadedItemID = nil
-                if queue != nil {
-                    loadCurrentItem(
-                        attemptsRemaining: queue?.count ?? 0,
-                        autoplay: shouldAutoplayAfterReconciliation
-                    )
-                }
-            }
-            if requestedSourcePaths == sourcePathSet(latestPreparedSources) {
-                preparedSourcesNeedRefresh = false
-            }
-            scanState = .ready
-            lastPublishedScanSourcePaths = requestedSourcePaths
-            lastPublishedScanSort = requestedSort
-            lastPublishedScanMembership = playbackQueueMembership
-            lastPublishedScanItemsRevision = itemsRevision
-            lastPublishedScanQueueStructureRevision = queueStructureRevision
-            let completeRootPaths = Set(
-                prepared.roots.lazy
-                    .map(\.id.standardizedPath)
-                    .filter {
-                        !prepared.incompleteRootPaths.contains($0)
-                    }
-            )
-            try? await playbackProgressStore?.pruneProgress(
-                keeping: Set(prepared.library.itemsByID.keys),
-                withinRootPaths: completeRootPaths
-            )
-            return
         }
     }
 
-    private func synchronizedQueueItemIDs(
-        _ queue: PlaybackQueue<LibraryMediaItem.ID>,
-        availableItems: [LibraryMediaItem],
-        availableItemsByID: [LibraryMediaItem.ID: LibraryMediaItem],
-        roots: [MediaLibraryRoot],
-        incompleteRootPaths: Set<String>
-    ) -> [LibraryMediaItem.ID] {
-        let completeRootPaths = roots.lazy
-            .map(\.id.standardizedPath)
-            .filter { !incompleteRootPaths.contains($0) }
-        let completeRootCoverage = LexicalPathCoverageIndex(
-            sourcePaths: completeRootPaths
-        )
-        let retainedMissingItemIDs = queue.items.filter { itemID in
-            guard availableItemsByID[itemID] == nil,
-                  let queuedItem = queueItemsByID[itemID] else {
-                return false
-            }
-            let mediaPathComponents = LexicalPathCoverageIndex.pathComponents(
-                for: queuedItem.id.standardizedMediaPath
-            )
-            return !completeRootCoverage.covers(
-                mediaPathComponents: mediaPathComponents
-            )
+    private func applyPublication(
+        _ plan: MediaLibraryPublicationPlan,
+        prepared: PreparedMediaLibrarySnapshot,
+        requestedSourcePaths: Set<String>,
+        requestedSort: MediaLibrarySort
+    ) {
+        let wasTemporaryPlayback = !temporaryItemIDs.isEmpty
+        let previousCurrentItemID = currentItemID
+        let shouldAutoplay = playback.isPlaybackRequested
+            || currentLoadTaskRecord?.autoplay == true
+        mediaThumbnailProvider.allowThumbnails(forRootIDs: Set(prepared.roots.map(\.id)))
+        if roots != prepared.roots { roots = prepared.roots }
+        replaceItems(with: prepared.library, knownChanged: plan.libraryChanged)
+        incompleteRootPaths = prepared.incompleteRootPaths
+        queueItemsByID = plan.queueItemsByID
+        if plan.queueChanged {
+            queue = plan.queue
+            currentItemID = plan.currentItemID
+            loadedItemID = plan.loadedItemID
         }
-        return availableItems.map(\.id) + retainedMissingItemIDs
+        temporaryItemIDs = plan.temporaryItemIDs
+        if wasTemporaryPlayback, temporaryItemIDs.isEmpty { temporaryPlaybackSession.end() }
+        if plan.queueChanged { publishQueueChange() }
+        if plan.unavailableChanged {
+            unavailableItemIDs = plan.unavailableItemIDs
+            unavailableItemsRevision &+= 1
+        }
+        if previousCurrentItemID != currentItemID {
+            invalidateLoad()
+            playback.stop()
+            loadedItemID = nil
+            if let queue {
+                loadCurrentItem(attemptsRemaining: queue.count, autoplay: shouldAutoplay)
+            }
+        }
+        if requestedSourcePaths == sourcePathSet(latestPreparedSources) {
+            preparedSourcesNeedRefresh = false
+        }
+        scanState = .ready
+        lastPublishedScanSourcePaths = requestedSourcePaths
+        lastPublishedScanSort = requestedSort
+        lastPublishedScanMembership = playbackQueueMembership
+        lastPublishedScanItemsRevision = itemsRevision
+        lastPublishedScanQueueStructureRevision = queueStructureRevision
     }
 
     private nonisolated static func boundedScan(
@@ -2615,7 +2630,10 @@ final class MediaLibraryCoordinator: ObservableObject {
             with: PreparedMediaLibraryItems(
                 items: items,
                 itemsByID: itemsByID,
-                resolutionIndex: preservingContent ? itemsSnapshot.resolutionIndex : nil
+                resolutionIndex: preservingContent ? itemsSnapshot.resolutionIndex : nil,
+                temporaryPlaybackSnapshot: preservingContent
+                    ? itemsSnapshot.temporaryPlaybackSnapshot.reordered(items: items)
+                    : nil
             ),
             preservingContent: preservingContent
         )
@@ -2624,9 +2642,10 @@ final class MediaLibraryCoordinator: ObservableObject {
     @discardableResult
     private func replaceItems(
         with prepared: PreparedMediaLibraryItems,
-        preservingContent: Bool = false
+        preservingContent: Bool = false,
+        knownChanged: Bool? = nil
     ) -> Bool {
-        guard items != prepared.items else {
+        guard knownChanged ?? (items != prepared.items) else {
             return false
         }
         if !preservingContent {
@@ -2640,7 +2659,10 @@ final class MediaLibraryCoordinator: ObservableObject {
             resolutionIndex: preservingContent
                 ? itemsSnapshot.resolutionIndex : prepared.resolutionIndex,
             rootURLsByPath: preservingContent
-                ? itemsSnapshot.rootURLsByPath : prepared.rootURLsByPath
+                ? itemsSnapshot.rootURLsByPath : prepared.rootURLsByPath,
+            temporaryPlaybackSnapshot: preservingContent
+                ? itemsSnapshot.temporaryPlaybackSnapshot.reordered(items: prepared.items)
+                : prepared.temporaryPlaybackSnapshot
         )
         return true
     }

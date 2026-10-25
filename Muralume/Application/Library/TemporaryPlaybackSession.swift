@@ -20,6 +20,11 @@ private struct TemporaryPlaybackMatchPlan: Sendable {
     let retainsScopeByRequestedFileIndex: [Bool]
 }
 
+private enum TemporaryPlaybackLibrary: Sendable {
+    case items([LibraryMediaItem])
+    case snapshot(TemporaryPlaybackLibrarySnapshot)
+}
+
 private struct TemporaryPlaybackMatcher: Sendable {
     typealias CanonicalPathResolver = @Sendable (URL) -> String
 
@@ -28,10 +33,20 @@ private struct TemporaryPlaybackMatcher: Sendable {
     func match(
         requestedFiles: [URL],
         requestedCanonicalPaths: [String],
-        libraryItems: [LibraryMediaItem],
+        library: TemporaryPlaybackLibrary,
         scannedItems: [LibraryMediaItem]
     ) throws -> TemporaryPlaybackMatchPlan {
-        let libraryItemsByPath = try itemsByCanonicalPath(libraryItems)
+        let libraryMatches: [LibraryMediaItem?]
+        switch library {
+        case .items(let items):
+            let itemsByPath = try itemsByCanonicalPath(items)
+            libraryMatches = requestedCanonicalPaths.map { itemsByPath[$0] }
+        case .snapshot(let snapshot):
+            libraryMatches = try snapshot.matches(
+                canonicalPaths: requestedCanonicalPaths,
+                canonicalPath: canonicalPath
+            ).items
+        }
         let scannedItemsByPath = try itemsByCanonicalPath(scannedItems)
         var resolvedItems: [LibraryMediaItem] = []
         var temporaryItemIDs: Set<LibraryMediaItem.ID> = []
@@ -44,7 +59,7 @@ private struct TemporaryPlaybackMatcher: Sendable {
         for index in requestedFiles.indices {
             try Task.checkCancellation()
             let path = requestedCanonicalPaths[index]
-            if let libraryItem = libraryItemsByPath[path] {
+            if let libraryItem = libraryMatches[index] {
                 resolvedItems.append(libraryItem)
                 continue
             }
@@ -169,6 +184,28 @@ final class TemporaryPlaybackSession {
         libraryItems: [LibraryMediaItem],
         librarySourceURLs: [URL] = []
     ) async throws -> TemporaryPlaybackResolution {
+        try await resolve(
+            requestedURLs, library: .items(libraryItems),
+            librarySourceURLs: librarySourceURLs
+        )
+    }
+
+    func resolve(
+        _ requestedURLs: [URL],
+        librarySnapshot: TemporaryPlaybackLibrarySnapshot,
+        librarySourceURLs: [URL] = []
+    ) async throws -> TemporaryPlaybackResolution {
+        try await resolve(
+            requestedURLs, library: .snapshot(librarySnapshot),
+            librarySourceURLs: librarySourceURLs
+        )
+    }
+
+    private func resolve(
+        _ requestedURLs: [URL],
+        library: TemporaryPlaybackLibrary,
+        librarySourceURLs: [URL]
+    ) async throws -> TemporaryPlaybackResolution {
         resolutionGeneration &+= 1
         let generation = resolutionGeneration
         activeResolutionTask?.cancel()
@@ -184,7 +221,7 @@ final class TemporaryPlaybackSession {
             try await pool.run {
                 try await Self.prepareResolution(
                     requestedURLs: requestedURLs,
-                    libraryItems: libraryItems,
+                    library: library,
                     librarySourceURLs: librarySourceURLs,
                     scanner: scanner,
                     matcher: matcher,
@@ -223,7 +260,7 @@ final class TemporaryPlaybackSession {
 
     private nonisolated static func prepareResolution(
         requestedURLs: [URL],
-        libraryItems: [LibraryMediaItem],
+        library: TemporaryPlaybackLibrary,
         librarySourceURLs: [URL],
         scanner: any MediaLibraryScanning,
         matcher: TemporaryPlaybackMatcher,
@@ -261,7 +298,7 @@ final class TemporaryPlaybackSession {
         let plan = try matcher.match(
             requestedFiles: batch.urls,
             requestedCanonicalPaths: batch.canonicalPaths,
-            libraryItems: libraryItems,
+            library: library,
             scannedItems: snapshot.items
         )
         return PreparedResolution(

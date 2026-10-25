@@ -5,6 +5,12 @@ import Foundation
 /// an active playlist queue follows edits and media-library rescans.
 @MainActor
 final class CustomPlaylistPlaybackBridge {
+    private struct QueueSynchronizationKey: Equatable {
+        let playlistID: CustomPlaylist.ID
+        let entries: [CustomPlaylistEntry]
+        let libraryContentRevision: UInt64
+    }
+
     private let playlists: CustomPlaylistController
     private weak var library: MediaLibraryCoordinator?
     private var cancellables: Set<AnyCancellable> = []
@@ -13,6 +19,12 @@ final class CustomPlaylistPlaybackBridge {
     private var latestLibraryContentRevision: UInt64
     private var latestResolutionIndex: MediaReferenceResolutionIndex?
     private var latestScanState: MediaLibraryScanState
+    private var latestCollection: CustomPlaylistCollection
+    // Retain at most one active playlist. Names and timestamps are deliberately
+    // excluded: only its media sequence and library availability affect playback.
+    private var synchronizedQueueKey: QueueSynchronizationKey?
+    private var synchronizedQueueStructureRevision: UInt64?
+    private(set) var activeQueueSynchronizationCount = 0
 
     init(
         playlists: CustomPlaylistController,
@@ -25,6 +37,7 @@ final class CustomPlaylistPlaybackBridge {
         latestLibraryContentRevision = library.itemsContentRevision
         latestResolutionIndex = library.mediaReferenceResolutionIndex
         latestScanState = library.scanState
+        latestCollection = playlists.collection
 
         library.customPlaylistItemsProvider = {
             [weak playlists, weak library] playlistID in
@@ -86,6 +99,11 @@ final class CustomPlaylistPlaybackBridge {
     func shutdown() async {
         cancellables.removeAll()
         library?.customPlaylistItemsProvider = nil
+        synchronizedQueueKey = nil
+        synchronizedQueueStructureRevision = nil
+        latestCollection = .empty
+        latestLibraryItems.removeAll()
+        latestResolutionIndex = nil
         await playlists.shutdown()
     }
 
@@ -123,7 +141,18 @@ final class CustomPlaylistPlaybackBridge {
     private func playlistCollectionDidChange(
         _ collection: CustomPlaylistCollection
     ) {
+        let previousCollection = latestCollection
+        latestCollection = collection
         guard playlists.isReady, let library else {
+            return
+        }
+        // @Published delivers the incoming snapshot before the controller's
+        // current value changes. Compare those snapshots, including the first
+        // edit after playback starts, rather than reading controller.collection.
+        if case let .customPlaylist(playlistID) = library.activePlaybackCollection,
+           let previous = previousCollection.playlist(id: playlistID),
+           let incoming = collection.playlist(id: playlistID),
+           previous.entries == incoming.entries {
             return
         }
         synchronizeActiveQueue(
@@ -146,12 +175,25 @@ final class CustomPlaylistPlaybackBridge {
 
         guard case let .customPlaylist(playlistID) =
             library.activePlaybackCollection else {
+            synchronizedQueueKey = nil
             return
         }
-        guard collection.playlist(id: playlistID) != nil else {
+        guard let playlist = collection.playlist(id: playlistID) else {
+            synchronizedQueueKey = nil
             library.detachCustomPlaylistQueue(playlistID: playlistID)
             return
         }
+        let key = QueueSynchronizationKey(
+            playlistID: playlistID,
+            entries: playlist.entries,
+            libraryContentRevision: latestLibraryContentRevision
+        )
+        guard synchronizedQueueKey != key
+            || synchronizedQueueStructureRevision != library.queueStructureRevision else {
+            return
+        }
+        synchronizedQueueKey = key
+        activeQueueSynchronizationCount &+= 1
         library.synchronizeCustomPlaylistQueue(
             playlistID: playlistID,
             playlistItems: playlists.resolvedItems(
@@ -161,5 +203,6 @@ final class CustomPlaylistPlaybackBridge {
                 itemsRevision: latestLibraryItemsRevision
             )
         )
+        synchronizedQueueStructureRevision = library.queueStructureRevision
     }
 }
