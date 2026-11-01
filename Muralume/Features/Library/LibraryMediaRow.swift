@@ -124,7 +124,7 @@ struct LibraryMediaRow: View {
                 isCurrent: isCurrent,
                 isSelected: isSelected,
                 cornerRadius: MuralumeTheme.Radius.small,
-                overArtwork: true
+                layout: .grid
             )
         }
         .overlay(alignment: .topTrailing) {

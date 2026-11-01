@@ -409,22 +409,28 @@ struct MuralumeMediaItemButtonStyle: ButtonStyle {
 
 /// Keep playback more prominent than selection in every media presentation.
 struct MuralumeMediaItemOutline: View {
+    private enum StrokeWidth {
+        static let fine: CGFloat = 1
+        static let currentGrid: CGFloat = 2
+    }
+
     @Environment(\.colorSchemeContrast) private var contrast
 
     let isCurrent: Bool
     let isSelected: Bool
     let cornerRadius: CGFloat
-    var overArtwork = false
+    var layout: MediaBrowserLayout = .list
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         let visible = isCurrent || isSelected
-        let width: CGFloat = isCurrent ? 2 : 1
+        let width = layout == .grid && isCurrent
+            ? StrokeWidth.currentGrid : StrokeWidth.fine
 
         shape
             .strokeBorder(
-                overArtwork && visible ? Color.black.opacity(0.32) : .clear,
-                lineWidth: width + 1
+                layout == .grid && visible ? Color.black.opacity(0.32) : .clear,
+                lineWidth: width + StrokeWidth.fine
             )
             .overlay {
                 shape.strokeBorder(borderColor, lineWidth: width)
