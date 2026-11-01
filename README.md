@@ -20,7 +20,7 @@
   ·
   <a href="https://github.com/MisakiHCL/Muralume/releases/latest"><strong>GitHub Release</strong></a>
   <br>
-  Free · Apple silicon · macOS 14+
+  Free · Native Mac app · Apple silicon · macOS 14+
 </p>
 
 <p align="center">
@@ -31,10 +31,11 @@
   >
 </p>
 
-Set the videos you love loose across every display. Muralume is a featherlight,
-native macOS app that plays behind files and widgets, gives each screen its own
-personality, and keeps every frame on your Mac. No accounts. No uploads. No ads.
-No tracking. Just a desktop that finally feels alive.
+Set the videos you love loose across every display. Muralume pairs native macOS
+video playback with a refined interface: translucent controls, a searchable
+library, and a desktop that keeps moving behind your files and widgets. Keep
+every screen in sync or give each its own loop. Small on disk, free to use, and
+entirely local. No accounts. No uploads. No ads. No tracking.
 
 ## See it in motion
 
@@ -45,6 +46,17 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 
 ## Features
 
+- **Small download, small app:** The [v1.5.0 GitHub release](https://github.com/MisakiHCL/Muralume/releases/tag/v1.5.0)
+  comes as a DMG of about 2.7 MB; the app itself is about 5.4 MB, excluding your videos.
+- **Native video playback:** Built on macOS's AVFoundation media engine for local
+  playback and seamless independent loops on each display.
+- **A refined Mac interface:** Translucent playback controls, a searchable media
+  library, and a consistent layout keep your videos in focus.
+- **One Mac. Every display:** Place video behind desktop files and widgets, use one
+  synchronized collection across displays, or assign an independent, seamless
+  loop to each display.
+- **Pause when the desktop is out of sight:** Optional Smart Pause reacts to desktop
+  visibility and selected power or system conditions while preserving manual intent.
 - **Your videos. No catalog:** Add individual videos, folders, or both. Muralume keeps
   source files in place and accesses only the items you choose.
 - **More familiar formats, still read-only:** In addition to the standard macOS video
@@ -66,14 +78,8 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
   from the Actions menu or with `⇧⌘S`. Screenshots preserve the video's orientation
   and aspect ratio without player controls or letterboxing. A video information panel
   keeps format, codec, resolution, frame rate, color, audio, and subtitle details close.
-- **One Mac. Every display:** Place video behind desktop files and widgets, use one
-  synchronized queue across displays, or assign an independent loop to each
-  display. Independent loops use AVFoundation's gapless queue looper rather than
-  seeking back to zero at each boundary.
 - **Private means private:** Local processing, read-only media access, no account,
   no uploads, no product telemetry, and no automatic crash reporting.
-- **Pause when the desktop is out of sight:** Optional Smart Pause reacts to desktop
-  visibility and selected power or system conditions while preserving manual intent.
 - **Pick up where you left off:** Every video remembers its own position until it is
   nearly finished. Reopen Muralume to restore the current session; enable Launch at
   Login to restore the Dynamic Desktop after signing in.
