@@ -45,8 +45,7 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 
 ## 功能
 
-- **轻巧的体积：** [GitHub v1.5.0 版本](https://github.com/MisakiHCL/Muralume/releases/tag/v1.5.0)
-  的 DMG 下载约 2.7 MB，应用本体约 5.4 MB，不含用户视频。
+- **轻巧的体积：** 应用本体小巧，可以直接使用你已有的视频和文件夹。
 - **原生视频播放：** 采用 macOS 原生视频框架 AVFoundation，播放本地视频，
   并支持在不同显示器上独立、无缝循环。
 - **精致的 Mac 界面：** 半透明播放控制栏与可搜索的媒体库，搭配统一的圆角、图标和间距，

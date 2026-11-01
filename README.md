@@ -46,8 +46,8 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 
 ## Features
 
-- **Small download, small app:** The [v1.5.0 GitHub release](https://github.com/MisakiHCL/Muralume/releases/tag/v1.5.0)
-  comes as a DMG of about 2.7 MB; the app itself is about 5.4 MB, excluding your videos.
+- **Compact on disk:** A small, native Mac app that works directly with your own
+  video files and folders.
 - **Native video playback:** Built on macOS's AVFoundation media engine for local
   playback and seamless independent loops on each display.
 - **A refined Mac interface:** Translucent playback controls, a searchable media
