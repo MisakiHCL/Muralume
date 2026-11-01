@@ -54,6 +54,7 @@ struct AppPreferences: Equatable, Sendable {
         playbackRepeatBehavior: .queue,
         queueTransitionStyle: .crossfade,
         librarySort: MediaLibrarySort(),
+        libraryBrowserLayout: .list,
         language: .system,
         subtitleAppearance: .defaultValue,
         smartPause: .defaultValue
@@ -65,6 +66,7 @@ struct AppPreferences: Equatable, Sendable {
     let playbackRepeatBehavior: PlaybackRepeatBehavior
     let queueTransitionStyle: QueueTransitionStyle
     let librarySort: MediaLibrarySort
+    let libraryBrowserLayout: MediaBrowserLayout
     let language: AppLanguage
     let subtitleAppearance: SubtitleAppearancePreferences
     let smartPause: SmartPausePreferences
@@ -76,6 +78,7 @@ struct AppPreferences: Equatable, Sendable {
         playbackRepeatBehavior: PlaybackRepeatBehavior,
         queueTransitionStyle: QueueTransitionStyle = .crossfade,
         librarySort: MediaLibrarySort,
+        libraryBrowserLayout: MediaBrowserLayout = .list,
         language: AppLanguage,
         subtitleAppearance: SubtitleAppearancePreferences = .defaultValue,
         smartPause: SmartPausePreferences = .defaultValue
@@ -86,6 +89,7 @@ struct AppPreferences: Equatable, Sendable {
         self.playbackRepeatBehavior = playbackRepeatBehavior
         self.queueTransitionStyle = queueTransitionStyle
         self.librarySort = librarySort
+        self.libraryBrowserLayout = libraryBrowserLayout
         self.language = language
         self.subtitleAppearance = subtitleAppearance
         self.smartPause = smartPause
@@ -101,6 +105,7 @@ protocol AppPreferencesStoring: AnyObject {
     func savePlaybackRepeatBehavior(_ behavior: PlaybackRepeatBehavior)
     func saveQueueTransitionStyle(_ style: QueueTransitionStyle)
     func saveLibrarySort(_ sort: MediaLibrarySort)
+    func saveLibraryBrowserLayout(_ layout: MediaBrowserLayout)
     func saveLanguage(_ language: AppLanguage)
     func saveSubtitleAppearance(_ preferences: SubtitleAppearancePreferences)
     func saveSmartPause(_ preferences: SmartPausePreferences)

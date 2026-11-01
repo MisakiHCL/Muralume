@@ -22,6 +22,8 @@ enum MuralumeTheme {
         static let textTertiary = Color.white.opacity(0.42)
         static let border = Color.white.opacity(0.11)
         static let borderStrong = Color.white.opacity(0.18)
+        static let mediaCurrentBorder = Color.white.opacity(0.64)
+        static let mediaSelectedBorder = Color.white.opacity(0.36)
         static let controlFill = Color.white.opacity(0.07)
         static let controlHover = Color.white.opacity(0.12)
         static let modalScrim = Color.black.opacity(0.28)
@@ -43,6 +45,7 @@ enum MuralumeTheme {
         static let xLarge: CGFloat = 24
         static let xxLarge: CGFloat = 32
         static let hero: CGFloat = 48
+        static let libraryBrowserControls: CGFloat = 0
     }
 
     enum Radius {
@@ -89,6 +92,11 @@ enum MuralumeTheme {
         static let playlistRowHeight: CGFloat = 72
         static let playlistArtworkWidth: CGFloat = 84
         static let playlistArtworkHeight: CGFloat = 48
+        static let libraryGridMinimumWidth: CGFloat = 88
+        static let libraryGridScrollerAllowance: CGFloat = 16
+        static let libraryBrowserControlSize: CGFloat = 28
+        static let libraryBrowserControlHighlightSize: CGFloat = 20
+        static let libraryBrowserControlIconSize: CGFloat = 12
         static let desktopLayoutMaximumWidth: CGFloat = 720
         static let desktopLayoutMaximumHeight: CGFloat = 560
         static let desktopDisplayCanvasHeight: CGFloat = 176
@@ -188,6 +196,7 @@ enum MuralumeAccessibilityIdentifier {
         "muralume.library-section.playlists"
     static let playlistOverview = "muralume.playlists-overview"
     static let newPlaylistButton = "muralume.playlist-new"
+    static let playlistCreateFromSelectionButton = "muralume.playlist-create-from-selection"
     static let playlistNameField = "muralume.playlist-name"
     static let playlistDetail = "muralume.playlist-detail"
     static let playlistActionsButton = "muralume.playlist-actions"
@@ -241,7 +250,24 @@ enum MuralumeAccessibilityIdentifier {
     static let desktopSmartPauseStatus =
         "muralume.desktop-smart-pause-status"
     static let librarySortButton = "muralume.library-sort"
+    static let libraryLayoutPicker = "muralume.library-layout"
+    static let libraryListButton = "muralume.library-layout.list"
+    static let libraryGridButton = "muralume.library-layout.grid"
+    static let librarySelectionButton = "muralume.library-selection"
+    static let librarySelectAllButton = "muralume.library-select-all"
+    static let libraryClearSelectionButton = "muralume.library-clear-selection"
+    static let libraryAddSelectedMenu = "muralume.library-add-selected"
+    static let librarySelectedCount = "muralume.library-selected-count"
+    static let librarySelectionActionsMenu = "muralume.library-selection-actions"
+    static let libraryItemPrefix = "muralume.library-item."
+    static let playlistSelectionButton = "muralume.playlist-selection"
+    static let playlistSelectAllButton = "muralume.playlist-select-all"
+    static let playlistClearSelectionButton = "muralume.playlist-clear-selection"
+    static let playlistRemoveSelectedButton = "muralume.playlist-remove-selected"
+    static let playlistSelectedCount = "muralume.playlist-selected-count"
+    static let playlistEntryPrefix = "muralume.playlist-entry."
     static let openSettingsButton = "muralume.open-settings"
+    static let videoInformationFilePath = "muralume.video-info.file-path"
     static let closeWindowButton = "muralume.window-close"
     static let minimizeWindowButton = "muralume.window-minimize"
     static let fullScreenWindowButton = "muralume.window-fullscreen"
@@ -371,6 +397,52 @@ struct MuralumeBrandMark: View {
             .interpolation(.high)
             .frame(width: size, height: size)
             .accessibilityHidden(true)
+    }
+}
+
+/// Pending search disables stale actions without dimming the retained artwork.
+struct MuralumeMediaItemButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+    }
+}
+
+/// Keep playback more prominent than selection in every media presentation.
+struct MuralumeMediaItemOutline: View {
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    let isCurrent: Bool
+    let isSelected: Bool
+    let cornerRadius: CGFloat
+    var overArtwork = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let visible = isCurrent || isSelected
+        let width: CGFloat = isCurrent ? 2 : 1
+
+        shape
+            .strokeBorder(
+                overArtwork && visible ? Color.black.opacity(0.32) : .clear,
+                lineWidth: width + 1
+            )
+            .overlay {
+                shape.strokeBorder(borderColor, lineWidth: width)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    private var borderColor: Color {
+        if isCurrent {
+            return contrast == .increased
+                ? MuralumeTheme.Colors.textPrimary : MuralumeTheme.Colors.mediaCurrentBorder
+        }
+        if isSelected {
+            return contrast == .increased
+                ? MuralumeTheme.Colors.textSecondary : MuralumeTheme.Colors.mediaSelectedBorder
+        }
+        return .clear
     }
 }
 

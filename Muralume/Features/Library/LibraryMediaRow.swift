@@ -37,6 +37,14 @@ struct LibraryMediaRow: View {
     let reauthorizeSource: (() -> Void)?
     let customPlaylists: [CustomPlaylist]
     let addToPlaylist: (CustomPlaylist.ID) -> Void
+    let createPlaylist: () -> Void
+    var layout: MediaBrowserLayout = .list
+    var artworkSize = CGSize(
+        width: MuralumeTheme.Size.playlistArtworkWidth,
+        height: MuralumeTheme.Size.playlistArtworkHeight
+    )
+    var isSelecting = false
+    var isSelected = false
 
     var body: some View {
         let displayedLocation = locationText
@@ -49,7 +57,35 @@ struct LibraryMediaRow: View {
         )
 
         Button(action: play) {
-            HStack(spacing: MuralumeTheme.Spacing.small) {
+            if layout == .grid {
+                gridLabel
+            } else {
+                listLabel(
+                    location: displayedLocation,
+                    fileSize: formattedFileSize,
+                    creationDate: formattedCreationDate
+                )
+            }
+        }
+        .buttonStyle(MuralumeMediaItemButtonStyle())
+        .contentShape(Rectangle())
+        .contextMenu { contextMenuContent }
+        .help(Text(verbatim: item.url.path))
+        .accessibilityLabel(Text(verbatim: rowAccessibilityLabel))
+        .accessibilityValue(Text(verbatim: accessibilityValue))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier(
+            MuralumeAccessibilityIdentifier.libraryItemPrefix
+                + item.id.standardizedMediaPath
+        )
+    }
+
+    private func listLabel(
+        location: String,
+        fileSize: String,
+        creationDate: String
+    ) -> some View {
+        HStack(spacing: MuralumeTheme.Spacing.small) {
                 LibraryMediaThumbnail(
                     item: item,
                     isCurrent: isCurrent,
@@ -57,14 +93,14 @@ struct LibraryMediaRow: View {
                 )
 
                 metadata(
-                    location: displayedLocation,
-                    fileSize: formattedFileSize,
-                    creationDate: formattedCreationDate
+                    location: location,
+                    fileSize: fileSize,
+                    creationDate: creationDate
                 )
 
                 Spacer(minLength: MuralumeTheme.Spacing.xSmall)
 
-                playbackIndicator
+                statusIndicator
                     .frame(
                         width: MuralumeTheme.Size.iconLarge,
                         height: MuralumeTheme.Size.iconLarge
@@ -74,15 +110,86 @@ struct LibraryMediaRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: rowHeight)
             .background { rowBackground }
-        }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
-        .contextMenu { contextMenuContent }
-        .help(Text(verbatim: item.relativePath))
-        .accessibilityLabel(Text(verbatim: rowAccessibilityLabel))
-        .accessibilityValue(
-            Text(LocalizedStringKey(playbackState.accessibilityKey))
+    }
+
+    private var gridLabel: some View {
+        LibraryMediaThumbnail(
+            item: item,
+            isCurrent: isCurrent,
+            provider: mediaThumbnailProvider,
+            size: artworkSize
         )
+        .overlay {
+            MuralumeMediaItemOutline(
+                isCurrent: isCurrent,
+                isSelected: isSelected,
+                cornerRadius: MuralumeTheme.Radius.small,
+                overArtwork: true
+            )
+        }
+        .overlay(alignment: .topTrailing) {
+            if isSelecting || playbackState == .playing
+                || playbackState == .loading || playbackState == .unavailable {
+                HStack(spacing: MuralumeTheme.Spacing.xSmall) {
+                    if playbackState == .playing
+                        || playbackState == .loading || playbackState == .unavailable {
+                        gridBadge { playbackIndicator }
+                    }
+                    if isSelecting {
+                        gridBadge {
+                            Image(systemName: isSelected
+                                ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(MuralumeTheme.Colors.controlAccent)
+                        }
+                    }
+                }
+                .padding(MuralumeTheme.Spacing.xSmall)
+            }
+        }
+    }
+
+    private func gridBadge<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .font(.system(size: MuralumeTheme.Size.icon))
+            .frame(
+                width: MuralumeTheme.Size.iconLarge,
+                height: MuralumeTheme.Size.iconLarge
+            )
+            .shadow(color: .black.opacity(0.6), radius: 2, x: 0, y: 1)
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var statusIndicator: some View {
+        if isSelecting {
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(MuralumeTheme.Colors.controlAccent)
+                .overlay(alignment: .bottomTrailing) {
+                    if playbackState == .unavailable {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.system(size: MuralumeTheme.Size.menuIndicator))
+                            .foregroundStyle(MuralumeTheme.Colors.warning)
+                            .background(MuralumeTheme.Colors.panel, in: Circle())
+                            .offset(x: MuralumeTheme.Spacing.xSmall, y: MuralumeTheme.Spacing.xSmall)
+                    }
+                }
+                .accessibilityHidden(true)
+        } else {
+            playbackIndicator
+        }
+    }
+
+    private var accessibilityValue: String {
+        guard isSelecting else {
+            return localization.localized(playbackState.accessibilityKey)
+        }
+        let selected = localization.localized(
+            isSelected ? "library.selection.selected" : "library.selection.notSelected"
+        )
+        guard playbackState != .available else { return selected }
+        return "\(selected), \(localization.localized(playbackState.accessibilityKey))"
     }
 
     private func metadata(
@@ -132,6 +239,7 @@ struct LibraryMediaRow: View {
                 .tint(MuralumeTheme.Colors.controlAccent)
         case .playing:
             Image(systemName: "waveform")
+                .font(.body)
                 .foregroundStyle(MuralumeTheme.Colors.controlAccent)
         case .paused:
             Image(systemName: "play.fill")
@@ -147,18 +255,15 @@ struct LibraryMediaRow: View {
             style: .continuous
         )
         .fill(
-            isCurrent
-                ? MuralumeTheme.Colors.controlHover
+            isCurrent ? MuralumeTheme.Colors.controlHover
+                : isSelected ? MuralumeTheme.Colors.controlFill
                 : MuralumeTheme.Colors.controlFill.opacity(0.36)
         )
         .overlay {
-            RoundedRectangle(
-                cornerRadius: MuralumeTheme.Radius.medium,
-                style: .continuous
-            )
-            .stroke(
-                isCurrent ? MuralumeTheme.Colors.borderStrong : Color.clear,
-                lineWidth: 1
+            MuralumeMediaItemOutline(
+                isCurrent: isCurrent,
+                isSelected: isSelected,
+                cornerRadius: MuralumeTheme.Radius.medium
             )
         }
     }
@@ -184,32 +289,35 @@ struct LibraryMediaRow: View {
             Label("library.item.revealInFinder", systemImage: "folder")
         }
 
-        if !customPlaylists.isEmpty {
-            Menu("playlists.addTo") {
-                ForEach(customPlaylists) { playlist in
-                    let isAdded = playlist.contains(mediaItem: item)
-                    Button {
-                        addToPlaylist(playlist.id)
-                    } label: {
-                        HStack {
-                            Text(verbatim: playlist.name)
-                            if isAdded {
-                                Image(systemName: "checkmark")
-                                    .accessibilityHidden(true)
-                            }
+        Menu("playlists.addTo") {
+            ForEach(customPlaylists) { playlist in
+                let isAdded = playlist.contains(mediaItem: item)
+                Button {
+                    addToPlaylist(playlist.id)
+                } label: {
+                    HStack {
+                        Text(verbatim: playlist.name)
+                        if isAdded {
+                            Image(systemName: "checkmark")
+                                .accessibilityHidden(true)
                         }
                     }
-                    .disabled(isAdded)
-                    .accessibilityLabel(
-                        Text(
-                            verbatim: playlistMenuAccessibilityLabel(
-                                playlist,
-                                isAdded: isAdded
-                            )
+                }
+                .disabled(isAdded)
+                .accessibilityLabel(
+                    Text(
+                        verbatim: playlistMenuAccessibilityLabel(
+                            playlist,
+                            isAdded: isAdded
                         )
                     )
-                }
+                )
             }
+            if !customPlaylists.isEmpty { Divider() }
+            Button("playlists.new", action: createPlaylist)
+                .accessibilityIdentifier(
+                    MuralumeAccessibilityIdentifier.playlistCreateFromSelectionButton
+                )
         }
     }
 

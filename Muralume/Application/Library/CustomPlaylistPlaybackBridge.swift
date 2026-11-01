@@ -8,7 +8,7 @@ final class CustomPlaylistPlaybackBridge {
     private struct QueueSynchronizationKey: Equatable {
         let playlistID: CustomPlaylist.ID
         let entries: [CustomPlaylistEntry]
-        let libraryContentRevision: UInt64
+        let mediaResolutionRevision: UInt64
     }
 
     private let playlists: CustomPlaylistController
@@ -20,6 +20,9 @@ final class CustomPlaylistPlaybackBridge {
     private var latestResolutionIndex: MediaReferenceResolutionIndex?
     private var latestScanState: MediaLibraryScanState
     private var latestCollection: CustomPlaylistCollection
+    private var latestResolutionItems: [LibraryMediaItem]
+    private var latestResolutionRevision: UInt64
+    private var latestResolutionEntryItems: [CustomPlaylistEntry.ID: LibraryMediaItem] = [:]
     // Retain at most one active playlist. Names and timestamps are deliberately
     // excluded: only its media sequence and library availability affect playback.
     private var synchronizedQueueKey: QueueSynchronizationKey?
@@ -38,25 +41,46 @@ final class CustomPlaylistPlaybackBridge {
         latestResolutionIndex = library.mediaReferenceResolutionIndex
         latestScanState = library.scanState
         latestCollection = playlists.collection
+        latestResolutionItems = playlists.resolutionItems
+        latestResolutionRevision = playlists.resolutionRevision
 
         library.customPlaylistItemsProvider = {
-            [weak playlists, weak library] playlistID in
+            [weak playlists] playlistID in
             guard let playlists,
                   playlists.isReady,
-                  let library,
                   playlists.collection.playlist(id: playlistID) != nil else {
                 return nil
             }
-            return playlists.resolvedItems(
-                in: playlistID,
-                using: library.items,
-                itemsRevision: library.itemsRevision
-            )
+            return playlists.resolvedItems(in: playlistID)
+        }
+        library.customPlaylistHasUnresolvedItemsProvider = { [weak playlists] playlistID in
+            guard let playlists, let playlist = playlists.collection.playlist(id: playlistID) else {
+                return false
+            }
+            return playlists.resolvedItems(in: playlistID).count < playlist.entries.count
+        }
+        library.prepareForPlaylistSourceRemoval = { [weak playlists] root in
+            guard let playlists else { return true }
+            return await playlists.prepareForSourceRemoval(root)
+        }
+        library.retainedPlaylistItemsProvider = { [weak playlists] in
+            playlists?.resolutionItems.filter { $0.accessLease != nil } ?? []
         }
 
         playlists.collectionPublisher
             .sink { [weak self] collection in
                 self?.playlistCollectionDidChange(collection)
+            }
+            .store(in: &cancellables)
+
+        playlists.resolutionPublisher
+            .sink { [weak self] snapshot in
+                guard let self else { return }
+                latestResolutionItems = snapshot.items
+                latestResolutionRevision = snapshot.revision
+                latestResolutionEntryItems = snapshot.itemsByEntryID
+                self.library?.updatePlaylistThumbnailAccess(using: snapshot.items)
+                synchronizeActiveQueueIfReady()
             }
             .store(in: &cancellables)
 
@@ -78,6 +102,12 @@ final class CustomPlaylistPlaybackBridge {
                 synchronizeActiveQueueIfReady()
             }
             .store(in: &cancellables)
+
+        library.$sourceAccessState
+            .sink { [weak playlists] _ in
+                playlists?.refreshAccessGrantsFromSources()
+            }
+            .store(in: &cancellables)
     }
 
     func startAndWait() async {
@@ -93,17 +123,25 @@ final class CustomPlaylistPlaybackBridge {
             resolutionIndex: latestResolutionIndex
         )
         await playlists.waitForLibraryReconciliation()
+        await playlists.waitForMediaResolution()
+        latestResolutionItems = playlists.resolutionItems
+        latestResolutionRevision = playlists.resolutionRevision
         synchronizeActiveQueueIfReady()
     }
 
     func shutdown() async {
         cancellables.removeAll()
         library?.customPlaylistItemsProvider = nil
+        library?.customPlaylistHasUnresolvedItemsProvider = nil
+        library?.prepareForPlaylistSourceRemoval = nil
+        library?.retainedPlaylistItemsProvider = nil
         synchronizedQueueKey = nil
         synchronizedQueueStructureRevision = nil
         latestCollection = .empty
         latestLibraryItems.removeAll()
         latestResolutionIndex = nil
+        latestResolutionItems.removeAll()
+        latestResolutionEntryItems.removeAll()
         await playlists.shutdown()
     }
 
@@ -132,7 +170,7 @@ final class CustomPlaylistPlaybackBridge {
         guard playlists.isReady, let library else { return }
         synchronizeActiveQueue(
             collection: playlists.collection,
-            items: latestLibraryItems,
+            items: latestResolutionItems,
             scanState: latestScanState,
             library: library
         )
@@ -157,9 +195,10 @@ final class CustomPlaylistPlaybackBridge {
         }
         synchronizeActiveQueue(
             collection: collection,
-            items: latestLibraryItems,
+            items: latestResolutionItems,
             scanState: latestScanState,
-            library: library
+            library: library,
+            previousCollection: previousCollection
         )
     }
 
@@ -167,12 +206,10 @@ final class CustomPlaylistPlaybackBridge {
         collection: CustomPlaylistCollection,
         items: [LibraryMediaItem],
         scanState: MediaLibraryScanState,
-        library: MediaLibraryCoordinator
+        library: MediaLibraryCoordinator,
+        previousCollection: CustomPlaylistCollection? = nil
     ) {
-        guard scanState == .ready else {
-            return
-        }
-
+        guard playlists.usesIndependentMediaAccess || scanState == .ready else { return }
         guard case let .customPlaylist(playlistID) =
             library.activePlaybackCollection else {
             synchronizedQueueKey = nil
@@ -186,22 +223,46 @@ final class CustomPlaylistPlaybackBridge {
         let key = QueueSynchronizationKey(
             playlistID: playlistID,
             entries: playlist.entries,
-            libraryContentRevision: latestLibraryContentRevision
+            mediaResolutionRevision: latestResolutionRevision
         )
         guard synchronizedQueueKey != key
             || synchronizedQueueStructureRevision != library.queueStructureRevision else {
             return
         }
+        let playlistItems: [LibraryMediaItem]
+        let queueContext = library.capturePlaybackContext()
+        if playlists.usesIndependentMediaAccess {
+            let previousEntries = (previousCollection ?? collection)
+                .playlist(id: playlistID)?.entries ?? []
+            let previousMediaByEntryID = Dictionary(uniqueKeysWithValues:
+                previousEntries.map { ($0.id, $0.media.mediaItemID) }
+            )
+            // A temporary resolution failure must not revoke an active owned
+            // queue item. Match retained representations by the previous entry
+            // identity so newly added, unresolved entries cannot inherit one.
+            playlistItems = playlist.entries.compactMap { entry in
+                if let resolved = latestResolutionEntryItems[entry.id] { return resolved }
+                guard let previousID = previousMediaByEntryID[entry.id],
+                      let retained = queueContext?.queueItemsByID[previousID],
+                      retained.accessLease != nil else { return nil }
+                return retained
+            }
+        } else {
+            playlistItems = playlists.resolvedItems(
+                in: playlistID, collection: collection, using: items,
+                itemsRevision: latestResolutionRevision
+            )
+        }
+        // Unchanged owned items need no synchronization while unavailable.
+        // Actual removals and reorders still install their authoritative order.
+        if playlists.usesIndependentMediaAccess,
+           playlist.entries.allSatisfy({ latestResolutionEntryItems[$0.id] == nil }),
+           playlistItems.map(\.id) == queueContext?.queueSnapshot.items { return }
         synchronizedQueueKey = key
         activeQueueSynchronizationCount &+= 1
         library.synchronizeCustomPlaylistQueue(
             playlistID: playlistID,
-            playlistItems: playlists.resolvedItems(
-                in: playlistID,
-                collection: collection,
-                using: items,
-                itemsRevision: latestLibraryItemsRevision
-            )
+            playlistItems: playlistItems
         )
         synchronizedQueueStructureRevision = library.queueStructureRevision
     }

@@ -27,7 +27,7 @@ final class MuralumeRealMediaTests: XCTestCase {
     func testImportsLocalMediaAndRunsDynamicDesktop() throws {
         let environment = ProcessInfo.processInfo.environment
         let mediaURL = try localMediaFile(in: environment)
-        let application = launchEmptyLibrary()
+        let application = try launchEmptyLibrary()
         defer {
             if application.state != .notRunning {
                 application.terminate()
@@ -66,8 +66,8 @@ final class MuralumeRealMediaTests: XCTestCase {
     }
 
     @MainActor
-    private func launchEmptyLibrary() -> XCUIApplication {
-        let application = XCUIApplication()
+    private func launchEmptyLibrary() throws -> XCUIApplication {
+        let application = try MuralumeUITestSession.makeApplication(for: type(of: self))
         application.launchArguments += [
             "-AppleLanguages",
             "(en)",
@@ -92,7 +92,7 @@ final class MuralumeRealMediaTests: XCTestCase {
             "-media-library.root-bookmarks",
             ""
         ]
-        application.launch()
+        try MuralumeUITestSession.launch(application, for: type(of: self))
         return application
     }
 

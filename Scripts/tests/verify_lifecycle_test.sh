@@ -76,13 +76,17 @@ mkdir -p \
     "${fake_bin}" \
     "${controlled_tmp}"
 cp "${project_root}/Scripts/verify.sh" "${verify_script}"
+cp "${project_root}/Scripts/check_toolchain.sh" \
+    "${fixture_root}/Scripts/check_toolchain.sh"
 cp "${project_root}/Scripts/lib/signing_privacy.sh" \
     "${fixture_root}/Scripts/lib/signing_privacy.sh"
+cp "${project_root}/Scripts/lib/prepare_private_xctestrun.py" \
+    "${fixture_root}/Scripts/lib/prepare_private_xctestrun.py"
 cp "${project_root}/Scripts/lib/workflow_lifecycle.sh" \
     "${fixture_root}/Scripts/lib/workflow_lifecycle.sh"
 cp "${project_root}/Scripts/lib/build_cache.sh" \
     "${fixture_root}/Scripts/lib/build_cache.sh"
-chmod 755 "${verify_script}"
+chmod 755 "${verify_script}" "${fixture_root}/Scripts/check_toolchain.sh"
 
 printf '%s\n' \
     '#!/usr/bin/env bash' \
@@ -103,6 +107,9 @@ printf '%s\n' \
     'mkdir -p "${derived_data_path}"' \
     ': >"${derived_data_path}/cache-marker"' \
     'printf "%s\n" "${derived_data_path}" >>"${FAKE_XCODEBUILD_LOG}"' \
+    'if [[ -n "${FAKE_XCODEBUILD_ACTION_LOG:-}" ]]; then' \
+    '    printf "%s\n" "$*" >>"${FAKE_XCODEBUILD_ACTION_LOG}"' \
+    'fi' \
     'if [[ -n "${FAKE_XCODEBUILD_ENTERED_PATH:-}" ]]; then' \
     '    : >"${FAKE_XCODEBUILD_ENTERED_PATH}"' \
     'fi' \
@@ -117,12 +124,17 @@ printf '%s\n' \
     'exit "${FAKE_XCODEBUILD_STATUS:-0}"' \
     >"${fake_bin}/xcodebuild"
 
-for command_name in rg plutil xcrun; do
+for command_name in rg plutil; do
     printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
         >"${fake_bin}/${command_name}"
     chmod 755 "${fake_bin}/${command_name}"
 done
 chmod 755 "${fake_bin}/xcodebuild"
+printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'printf "%s\n" "Apple Swift version 99.1 (fixture)"' \
+    >"${fake_bin}/xcrun"
+chmod 755 "${fake_bin}/xcrun"
 
 # Help and invalid input must not create either the persistent cache or a
 # disposable artifact workspace, even when an artifact override is present.
@@ -328,4 +340,133 @@ TMPDIR="${controlled_tmp}" \
     && ! -e "${formal_gate_artifacts}/.verify.lock" ]] \
     || fail_test 'formal parent gate environment isolation or lock cleanup failed'
 
-printf '%s\n' 'PASS: verify workspace, cache, lock, and discovery lifecycle tests'
+# Compatibility compiles both test targets and Release without executing tests.
+compatibility_actions="${test_root}/compatibility-actions"
+PATH="${fake_bin}:/usr/bin:/bin:/usr/sbin:/sbin" \
+FAKE_XCODEBUILD_LOG="${xcodebuild_log}" \
+FAKE_XCODEBUILD_ACTION_LOG="${compatibility_actions}" \
+    "${verify_script}" compatibility >/dev/null
+[[ "$(wc -l <"${compatibility_actions}" | tr -d '[:space:]')" -eq 2 ]] \
+    || fail_test 'compatibility did not perform exactly two builds'
+sed -n '1p' "${compatibility_actions}" | grep -F 'build-for-testing' >/dev/null \
+    || fail_test 'compatibility did not build Debug test targets'
+sed -n '1p' "${compatibility_actions}" \
+    | grep -F 'MURALUME_APP_BUNDLE_IDENTIFIER=com.muralume.Muralume.uitesting' >/dev/null \
+    || fail_test 'verification builds can still target the normal Debug container'
+sed -n '2p' "${compatibility_actions}" \
+    | grep -F -- '-configuration Release' | grep -F 'CODE_SIGNING_ALLOWED=NO' >/dev/null \
+    || fail_test 'compatibility did not build unsigned Release'
+
+# A stale test-without-building product must fail before xcodebuild can launch
+# the developer's normal app. Exercise real plist parsing rather than the mock.
+isolation_derived_data="${test_root}/isolation-derived-data"
+isolation_info="${isolation_derived_data}/Build/Products/Debug/Muralume.app/Contents/Info.plist"
+mkdir -p "$(dirname "${isolation_info}")"
+cat >"${isolation_info}" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.muralume.Muralume.uitesting</string>
+</dict></plist>
+EOF
+PATH="/usr/bin:/bin:/usr/sbin:/sbin" bash -c '
+    set -euo pipefail
+    source "$1"
+    derived_data_path="$2"
+    assert_verification_app_isolation
+' isolation-test "${verify_script}" "${isolation_derived_data}" \
+    || fail_test 'isolated verification identity was rejected'
+
+for rejected_identifier in com.muralume.Muralume.debug com.muralume.Muralume; do
+    /usr/libexec/PlistBuddy \
+        -c "Set :CFBundleIdentifier ${rejected_identifier}" "${isolation_info}"
+    launch_sentinel="${test_root}/unsafe-launch"
+    if PATH="/usr/bin:/bin:/usr/sbin:/sbin" bash -c '
+        set -euo pipefail
+        source "$1"
+        derived_data_path="$2"
+        export launch_sentinel="$3"
+        xcodebuild() { : >"${launch_sentinel}"; return 0; }
+        run_xcode_test_invocation isolation-probe test-without-building
+    ' isolation-test "${verify_script}" "${isolation_derived_data}" \
+        "${launch_sentinel}" >"${test_root}/isolation-error" 2>&1; then
+        fail_test 'a non-isolated test product was accepted'
+    fi
+    [[ ! -e "${launch_sentinel}" ]] \
+        || fail_test 'xcodebuild ran before rejecting a non-isolated test product'
+    grep -F 'Refusing to launch tests against a non-isolated app' \
+        "${test_root}/isolation-error" >/dev/null \
+        || fail_test 'the isolation guard did not explain how to rebuild'
+done
+
+rm "${isolation_info}"
+if PATH="/usr/bin:/bin:/usr/sbin:/sbin" bash -c '
+    set -euo pipefail
+    source "$1"
+    derived_data_path="$2"
+    assert_verification_app_isolation
+' isolation-test "${verify_script}" "${isolation_derived_data}" \
+    >"${test_root}/isolation-error" 2>&1; then
+    fail_test 'a missing test product was accepted'
+fi
+
+# Unregister only built app directories, including UI runners. A symbolic link
+# must never make cleanup touch an installed app outside DerivedData.
+cleanup_derived_data="${test_root}/cleanup-derived-data"
+cleanup_products="${cleanup_derived_data}/Build/Products"
+unregister_log="${test_root}/unregister-log"
+mkdir -p \
+    "${cleanup_products}/Debug/Muralume.app" \
+    "${cleanup_products}/Debug/MuralumeUITests-Runner.app" \
+    "${cleanup_products}/Release/Muralume.app" \
+    "${test_root}/Installed.app"
+ln -s "${test_root}/Installed.app" "${cleanup_products}/Linked.app"
+FAKE_UNREGISTER_LOG="${unregister_log}" \
+    bash -c '
+        set -euo pipefail
+        source "$1"
+        derived_data_path="$2"
+        unregister_verify_app() { printf "%s\n" "$1" >>"${FAKE_UNREGISTER_LOG}"; }
+        install_verify_lifecycle_traps
+        exit 65
+    ' cleanup-test "${verify_script}" "${cleanup_derived_data}" \
+    && fail_test 'cleanup did not preserve the failed workflow status' \
+    || cleanup_status=$?
+[[ "${cleanup_status}" -eq 65 ]] || fail_test 'cleanup changed the workflow status'
+[[ "$(wc -l <"${unregister_log}" | tr -d '[:space:]')" -eq 3 ]] \
+    || fail_test 'cleanup did not unregister every built application'
+if grep -F 'Installed.app' "${unregister_log}" >/dev/null; then
+    fail_test 'cleanup followed an application symbolic link'
+fi
+
+# Both generated XCTest formats must discard system screen attachments.
+python3 - "${project_root}/Scripts/lib/prepare_private_xctestrun.py" "${test_root}" <<'PY'
+from pathlib import Path
+import plistlib
+import subprocess
+import sys
+
+helper, directory = Path(sys.argv[1]), Path(sys.argv[2])
+target = {"TestBundlePath": "__TESTROOT__/UITests.xctest",
+          "SystemAttachmentLifetime": "deleteOnSuccess",
+          "UserAttachmentLifetime": "deleteOnSuccess"}
+for version, specification in enumerate([
+    {"UITests": dict(target), "UnitTests": dict(target)},
+    {"TestConfigurations": [{"TestTargets": [dict(target), dict(target)]}]}
+], 1):
+    path = directory / f"privacy-{version}.xctestrun"
+    path.write_bytes(plistlib.dumps(specification))
+    subprocess.run([sys.executable, str(helper), str(path)], check=True)
+    restored = plistlib.loads(path.read_bytes())
+    targets = (restored["TestConfigurations"][0]["TestTargets"]
+               if version == 2 else list(restored.values()))
+    assert len(targets) == 2
+    assert all(t["SystemAttachmentLifetime"] == "keepNever" for t in targets)
+    assert all(t["UserAttachmentLifetime"] == "deleteOnSuccess" for t in targets)
+path = directory / "missing-target.xctestrun"
+path.write_bytes(plistlib.dumps({"__xctestrun_metadata__": {"FormatVersion": 1}}))
+assert subprocess.run([sys.executable, str(helper), str(path)],
+                      capture_output=True).returncode != 0
+PY
+
+printf '%s\n' 'PASS: verify workspace, cache, lock, discovery, and attachment privacy tests'

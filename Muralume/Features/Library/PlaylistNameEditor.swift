@@ -1,13 +1,22 @@
 import SwiftUI
 
+struct PlaylistCreationRequest {
+    let id = UUID()
+    let input: CustomPlaylistCreationInput
+    let complete: () -> Void
+}
+
 enum PlaylistNameEditorRequest: Identifiable {
     case create
+    case createWithItems(PlaylistCreationRequest)
     case rename(CustomPlaylist)
 
     var id: String {
         switch self {
         case .create:
             "create"
+        case let .createWithItems(creation):
+            "create-\(creation.id.uuidString)"
         case let .rename(playlist):
             "rename-\(playlist.id.rawValue.uuidString)"
         }
@@ -15,7 +24,7 @@ enum PlaylistNameEditorRequest: Identifiable {
 
     var initialName: String {
         switch self {
-        case .create:
+        case .create, .createWithItems:
             ""
         case let .rename(playlist):
             playlist.name
@@ -130,7 +139,7 @@ struct PlaylistNameEditor: View {
 
     private var titleKey: LocalizedStringKey {
         switch request {
-        case .create:
+        case .create, .createWithItems:
             "playlists.new"
         case .rename:
             "playlists.rename"
@@ -139,7 +148,7 @@ struct PlaylistNameEditor: View {
 
     private var saveKey: LocalizedStringKey {
         switch request {
-        case .create:
+        case .create, .createWithItems:
             "playlists.create"
         case .rename:
             "playlists.saveName"
@@ -150,6 +159,8 @@ struct PlaylistNameEditor: View {
         do {
             try save(name)
             complete()
+        } catch is CustomPlaylistCreationInputError {
+            validationKey = "playlists.selection.changed"
         } catch let error as CustomPlaylistMutationError {
             validationKey = switch error {
             case .invalidName:
@@ -158,6 +169,8 @@ struct PlaylistNameEditor: View {
                 "playlists.name.duplicate"
             case .playlistLimitReached:
                 "playlists.limit"
+            case .authorizationUnavailable:
+                "playlists.authorization.failed"
             case .entryLimitReached, .playlistNotFound:
                 "playlists.error"
             }

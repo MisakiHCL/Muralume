@@ -757,6 +757,118 @@ final class CustomPlaylistTests: XCTestCase {
     }
 }
 
+#if DEBUG
+@MainActor
+final class DebugUITestSessionTests: XCTestCase {
+    func testOnlyDedicatedUITestBundleUsesTheSessionEnvironment() throws {
+        let root = URL(fileURLWithPath: "/SyntheticUITestTemporaryDirectory")
+        let token = UUID().uuidString
+        for bundleID in [nil, "com.muralume.Muralume.debug", "com.muralume.Muralume",
+                         "com.muralume.Muralume.local", DebugUITestSession.appBundleIdentifier + ".other"] {
+            for environment in [[:], [DebugUITestSession.environmentKey: token],
+                                [DebugUITestSession.environmentKey: "../invalid"]] {
+                XCTAssertNil(try DebugUITestSession.playlistStoreFileURL(
+                    bundleIdentifier: bundleID, environment: environment, temporaryDirectory: root
+                ))
+            }
+        }
+        let fileURL = try XCTUnwrap(DebugUITestSession.playlistStoreFileURL(
+            bundleIdentifier: DebugUITestSession.appBundleIdentifier,
+            environment: [DebugUITestSession.environmentKey: token.lowercased()],
+            temporaryDirectory: root
+        ))
+        XCTAssertEqual(fileURL, root.appendingPathComponent(
+            "MuralumeUITests/\(token)/custom-playlists.json"
+        ))
+    }
+
+    func testDedicatedUITestBundleRejectsMissingAndMalformedSessionTokens() {
+        XCTAssertThrowsError(try DebugUITestSession.playlistStoreFileURL(
+            bundleIdentifier: DebugUITestSession.appBundleIdentifier, environment: [:]
+        )) {
+            XCTAssertEqual($0 as? DebugUITestSession.ConfigurationError, .missingSessionIdentifier)
+        }
+        let token = UUID().uuidString
+        for value in ["", "../outside", token + "/child", token + "\n",
+                      token.replacingOccurrences(of: "-", with: "")] {
+            XCTAssertThrowsError(try DebugUITestSession.playlistStoreFileURL(
+                bundleIdentifier: DebugUITestSession.appBundleIdentifier,
+                environment: [DebugUITestSession.environmentKey: value]
+            )) {
+                XCTAssertEqual($0 as? DebugUITestSession.ConfigurationError, .invalidSessionIdentifier)
+            }
+        }
+    }
+
+    func testSessionsRestartIndependentlyWithoutReadingOrOverwritingTheDefaultStore()
+        async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let supportURL = root.appendingPathComponent("ApplicationSupport")
+        let defaultStore = FileCustomPlaylistStore(fileManager: PlaylistSessionFileManager(
+            applicationSupportDirectory: supportURL
+        ))
+        var original = CustomPlaylistCollection.empty
+        try original.createPlaylist(named: "Existing default playlist")
+        try await defaultStore.save(original)
+        let defaultFile = supportURL
+            .appendingPathComponent("Muralume/custom-playlists.json")
+        let originalBytes = try Data(contentsOf: defaultFile)
+        let token = UUID().uuidString
+        func sessionURL(_ token: String) throws -> URL {
+            try XCTUnwrap(DebugUITestSession.playlistStoreFileURL(
+                bundleIdentifier: DebugUITestSession.appBundleIdentifier,
+                environment: [DebugUITestSession.environmentKey: token],
+                temporaryDirectory: root.appendingPathComponent("Temporary")
+            ))
+        }
+        let firstURL = try sessionURL(token)
+        let secondURL = try sessionURL(UUID().uuidString)
+        XCTAssertNotEqual(firstURL, secondURL)
+        let first = FileCustomPlaylistStore(fileURL: firstURL)
+        let initial = try await first.load()
+        XCTAssertEqual(initial, .empty)
+        var created = CustomPlaylistCollection.empty
+        try created.createPlaylist(named: "Isolated test playlist")
+        try await first.save(created)
+        let restartedURL = try sessionURL(token.lowercased())
+        XCTAssertEqual(restartedURL, firstURL)
+        let restarted = FileCustomPlaylistStore(fileURL: restartedURL)
+        let restored = try await restarted.load()
+        XCTAssertEqual(restored, created)
+        let second = FileCustomPlaylistStore(fileURL: secondURL)
+        let otherSession = try await second.load()
+        XCTAssertEqual(otherSession, .empty)
+        let normalURL = try DebugUITestSession.playlistStoreFileURL(
+            bundleIdentifier: "com.muralume.Muralume.debug",
+            environment: [DebugUITestSession.environmentKey: token]
+        )
+        let normal = FileCustomPlaylistStore(
+            fileURL: normalURL,
+            fileManager: PlaylistSessionFileManager(applicationSupportDirectory: supportURL)
+        )
+        let normalCollection = try await normal.load()
+        XCTAssertEqual(normalCollection, original)
+        XCTAssertEqual(try Data(contentsOf: defaultFile), originalBytes)
+    }
+}
+
+private final class PlaylistSessionFileManager: FileManager, @unchecked Sendable {
+    let applicationSupportDirectory: URL
+
+    init(applicationSupportDirectory: URL) {
+        self.applicationSupportDirectory = applicationSupportDirectory
+        super.init()
+    }
+
+    override func urls(for directory: SearchPathDirectory, in domainMask: SearchPathDomainMask) -> [URL] {
+        directory == .applicationSupportDirectory
+            ? [applicationSupportDirectory] : super.urls(for: directory, in: domainMask)
+    }
+}
+#endif
+
 private actor CustomPlaylistStoreSpy: CustomPlaylistStoring {
     private var loadValue = CustomPlaylistCollection.empty
     private(set) var savedCollections: [CustomPlaylistCollection] = []

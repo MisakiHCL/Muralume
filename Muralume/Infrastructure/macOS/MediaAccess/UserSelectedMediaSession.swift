@@ -203,6 +203,27 @@ final class UserSelectedMediaSession: MediaAccessSession {
         importExecutor != nil && restoreExecutor != nil
     }
 
+    func persistentAccessGrant(for sourceID: MediaSource.ID) -> CustomPlaylistMediaGrant? {
+        let key = sourceID.standardizedPath
+        let record: PersistedSourceRecord?
+        if activeSourcesByKey[key] != nil, let activeRecord = activeRecordsByKey[key] {
+            record = activeRecord
+        } else {
+            // An offline source can still own a valid persisted grant. Export
+            // its existing bytes without resolving its URL or opening a scope.
+            record = unavailableStoredRecordValues.lazy
+                .compactMap(PersistedSourceRecord.init(storedValue:))
+                .first { $0.lastKnownPath == key }
+        }
+        guard let record,
+              !record.bookmark.isEmpty,
+              Self.bookmarkIsWithinPersistenceLimit(record.bookmark) else { return nil }
+        return CustomPlaylistMediaGrant(
+            id: record.identifier.flatMap(UUID.init(uuidString:)) ?? UUID(),
+            sourcePath: key, kind: record.kind, bookmark: record.bookmark
+        )
+    }
+
     var unavailablePersistedSources: [UnavailableMediaSource] {
         unavailableStoredRecordValues
             .compactMap(PersistedSourceRecord.init(storedValue:))

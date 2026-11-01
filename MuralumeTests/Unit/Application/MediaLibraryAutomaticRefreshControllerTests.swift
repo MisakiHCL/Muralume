@@ -36,7 +36,7 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         )
     }
 
-    func testStartUpdateAndStopAreIdempotent() {
+    func testStartUpdateAndStopAreIdempotent() async {
         let monitor = AutomaticRefreshMonitorSpy()
         let target = AutomaticRefreshTargetSpy()
         let controller = makeController(monitor: monitor, target: target)
@@ -46,6 +46,7 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         controller.start(folderURLs: [root.standardizedFileURL])
         controller.update(folderURLs: [root])
 
+        await waitUntil { monitor.updateCalls.count == 1 }
         XCTAssertEqual(monitor.updateCalls, [[root.standardizedFileURL]])
 
         controller.stop()
@@ -54,6 +55,111 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
 
         XCTAssertEqual(monitor.stopCallCount, 1)
         XCTAssertEqual(monitor.updateCalls.count, 1)
+    }
+
+    func testFolderNormalizationPreservesTheOriginalAuthorizationURL() {
+        let original = URL(fileURLWithPath: "/tmp/media/nested/..", isDirectory: true)
+
+        let normalized = MediaLibraryFolderRootNormalizer.normalized([original])
+
+        XCTAssertEqual(normalized.first?.absoluteString, original.absoluteString)
+        XCTAssertEqual(normalized.first?.standardizedFileURL.path, "/tmp/media")
+    }
+
+    func testPendingInstallationKeepsFallbackAvailableAndStopIgnoresLateSuccess() async {
+        let monitor = AutomaticRefreshMonitorSpy()
+        var installation: CheckedContinuation<Bool, Never>?
+        monitor.resolveUpdate = { _ in
+            await withCheckedContinuation { installation = $0 }
+        }
+        let target = AutomaticRefreshTargetSpy()
+        target.startsScanningWhenRefreshIsAccepted = true
+        let delay = ReconciliationDelayRecorder()
+        let controller = makeController(
+            monitor: monitor, target: target, reconciliationDelayer: delay.wait
+        )
+        let root = URL(fileURLWithPath: "/tmp/pending-installation")
+
+        controller.start(folderURLs: [root])
+        controller.update(folderURLs: [root])
+        await waitUntil { installation != nil && !delay.intervals.isEmpty }
+        XCTAssertEqual(monitor.updateCalls, [[root]])
+        XCTAssertEqual(delay.intervals, [TestPolicy.reconciliationNanoseconds])
+
+        // This remains executable on MainActor while native installation waits.
+        delay.release()
+        await waitUntil { target.refreshRequestCount == 1 }
+        XCTAssertTrue(target.isScanning)
+        controller.stop()
+        installation?.resume(returning: true)
+        await waitUntil { monitor.updateCompletionCount == 1 }
+        try? await Task.sleep(nanoseconds: TestPolicy.installationRetryNanoseconds * 3)
+
+        XCTAssertEqual(monitor.stopCallCount, 1)
+        XCTAssertEqual(monitor.updateCalls.count, 1)
+        XCTAssertEqual(target.refreshRequestCount, 1)
+    }
+
+    func testInstallationGapSchedulesOneFollowUpAfterStartupScan() async {
+        let monitor = AutomaticRefreshMonitorSpy()
+        var installation: CheckedContinuation<Bool, Never>?
+        monitor.resolveUpdate = { _ in
+            await withCheckedContinuation { installation = $0 }
+        }
+        let target = AutomaticRefreshTargetSpy()
+        target.isScanning = true
+        target.startsScanningWhenRefreshIsAccepted = true
+        let controller = makeController(monitor: monitor, target: target)
+        controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/startup-installation-gap")])
+        await waitUntil { installation != nil }
+        installation?.resume(returning: true)
+        await waitUntil { monitor.updateCompletionCount == 1 }
+        try? await Task.sleep(nanoseconds: TestPolicy.debounceNanoseconds * 2)
+        XCTAssertEqual(target.refreshRequestCount, 0)
+
+        target.isScanning = false
+        controller.scanStateDidChange()
+        await waitUntil { target.refreshRequestCount == 1 }
+        target.isScanning = false
+        controller.scanStateDidChange()
+        try? await Task.sleep(nanoseconds: TestPolicy.debounceNanoseconds * 3)
+
+        XCTAssertEqual(target.refreshRequestCount, 1)
+        controller.stop()
+    }
+
+    func testLateOldInstallationCannotRetryOrReplaceCurrentRoots() async {
+        let first = URL(fileURLWithPath: "/tmp/old-pending-installation")
+        let second = URL(fileURLWithPath: "/tmp/current-installation")
+        let monitor = AutomaticRefreshMonitorSpy()
+        var oldInstallation: CheckedContinuation<Bool, Never>?
+        monitor.resolveUpdate = { roots in
+            if roots == [first] {
+                return await withCheckedContinuation { oldInstallation = $0 }
+            }
+            return true
+        }
+        let target = AutomaticRefreshTargetSpy()
+        target.startsScanningWhenRefreshIsAccepted = true
+        let controller = makeController(monitor: monitor, target: target)
+        controller.start(folderURLs: [first])
+        await waitUntil { oldInstallation != nil }
+
+        controller.update(folderURLs: [second])
+        await waitUntil { target.refreshRequestCount == 1 }
+        target.isScanning = false
+        controller.scanStateDidChange()
+        oldInstallation?.resume(returning: false)
+        await waitUntil { monitor.updateCompletionCount == 2 }
+        await monitor.sendChange(handlerIndex: 0)
+        try? await Task.sleep(nanoseconds: TestPolicy.installationRetryNanoseconds * 3)
+
+        XCTAssertEqual(monitor.updateCalls, [[first], [second]])
+        XCTAssertEqual(monitor.stopCallCount, 1)
+        XCTAssertEqual(target.refreshRequestCount, 1)
+        await monitor.sendChange(handlerIndex: 1)
+        await waitUntil { target.refreshRequestCount == 2 }
+        controller.stop()
     }
 
     func testLowFrequencyReconciliationRefreshesWhenMonitorIsSilent() async {
@@ -118,13 +224,17 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         )
         controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/internal-media")])
 
+        await waitUntil { target.refreshRequestCount == 1 }
+        target.isScanning = false
+        controller.scanStateDidChange()
+
         let extendedInterval = TestPolicy.reconciliationNanoseconds
             * MediaLibraryAutomaticRefreshPolicy.extendedReconciliationIntervalMultiplier
         await waitUntil { delay.intervals.last == extendedInterval }
-        XCTAssertEqual(target.refreshRequestCount, 0)
+        XCTAssertEqual(target.refreshRequestCount, 1)
 
         delay.release()
-        await waitUntil { target.refreshRequestCount == 1 }
+        await waitUntil { target.refreshRequestCount == 2 }
         XCTAssertTrue(target.isScanning)
         controller.stop()
     }
@@ -139,13 +249,16 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
             monitor: monitor, target: target, reconciliationDelayer: delay.wait
         )
         controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/event-media")])
+        await waitUntil { target.refreshRequestCount == 1 }
+        target.isScanning = false
+        controller.scanStateDidChange()
         await waitUntil {
             delay.intervals.last == TestPolicy.reconciliationNanoseconds
                 * MediaLibraryAutomaticRefreshPolicy.extendedReconciliationIntervalMultiplier
         }
 
-        monitor.sendChange()
-        await waitUntil { target.refreshRequestCount == 1 }
+        await monitor.sendChange()
+        await waitUntil { target.refreshRequestCount == 2 }
         XCTAssertTrue(target.isScanning)
         controller.stop()
     }
@@ -349,9 +462,9 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         let controller = makeController(monitor: monitor, target: target)
         controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/media")])
 
-        monitor.sendChange()
-        monitor.sendChange()
-        monitor.sendChange()
+        await monitor.sendChange()
+        await monitor.sendChange()
+        await monitor.sendChange()
 
         await waitUntil { target.refreshRequestCount == 1 }
         XCTAssertEqual(target.refreshRequestCount, 1)
@@ -365,7 +478,7 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/media")])
 
         for _ in 0..<20 {
-            monitor.sendChange()
+            await monitor.sendChange()
             try? await Task.sleep(
                 nanoseconds: TestPolicy.pollNanoseconds
             )
@@ -386,12 +499,12 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         let controller = makeController(monitor: monitor, target: target)
         controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/media")])
 
-        monitor.sendChange()
+        await monitor.sendChange()
         await waitUntil { target.refreshRequestCount == 1 }
         controller.scanStateDidChange()
 
-        monitor.sendChange()
-        monitor.sendChange()
+        await monitor.sendChange()
+        await monitor.sendChange()
         await Task.yield()
         target.isScanning = false
         controller.scanStateDidChange()
@@ -408,7 +521,7 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         let controller = makeController(monitor: monitor, target: target)
         controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/media")])
 
-        monitor.sendChange()
+        await monitor.sendChange()
         await Task.yield()
         target.isScanning = false
         controller.scanStateDidChange()
@@ -424,7 +537,7 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         let controller = makeController(monitor: monitor, target: target)
         controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/media")])
 
-        monitor.sendChange()
+        await monitor.sendChange()
         await waitUntil { target.refreshRequestCount == 1 }
         controller.scanStateDidChange()
         target.isScanning = false
@@ -443,7 +556,7 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         let controller = makeController(monitor: monitor, target: target)
         controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/media")])
 
-        monitor.sendChange()
+        await monitor.sendChange()
         await waitUntil { target.refreshRequestCount == 1 }
         controller.scanStateDidChange()
 
@@ -475,7 +588,7 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         let controller = makeController(monitor: monitor, target: target)
         controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/media")])
 
-        monitor.sendChange()
+        await monitor.sendChange()
         await waitUntil { target.refreshRequestCount == 1 }
         target.lastScanSucceeded = false
         target.isScanning = false
@@ -497,7 +610,7 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         let secondRoot = URL(fileURLWithPath: "/tmp/replacement-root")
 
         controller.start(folderURLs: [firstRoot])
-        monitor.sendChange()
+        await monitor.sendChange()
         await waitUntil { target.refreshRequestCount == 1 }
 
         target.lastScanSucceeded = false
@@ -505,14 +618,21 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         controller.scanStateDidChange()
         controller.update(folderURLs: [secondRoot])
 
+        // New roots need their own installation-gap reconciliation; the old
+        // failed scan must not add another retry on top of it.
+        await waitUntil { target.refreshRequestCount == 2 }
+
         try? await Task.sleep(
             nanoseconds: TestPolicy.scanFailureRetryNanoseconds * 2
         )
-        XCTAssertEqual(target.refreshRequestCount, 1)
-
-        monitor.sendChange(handlerIndex: 1)
-        await waitUntil { target.refreshRequestCount == 2 }
         XCTAssertEqual(target.refreshRequestCount, 2)
+
+        target.isScanning = false
+        controller.scanStateDidChange()
+
+        await monitor.sendChange(handlerIndex: 1)
+        await waitUntil { target.refreshRequestCount == 3 }
+        XCTAssertEqual(target.refreshRequestCount, 3)
     }
 
     func testOldGenerationEventIsIgnoredAfterFolderUpdate() async {
@@ -521,17 +641,23 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         target.startsScanningWhenRefreshIsAccepted = true
         let controller = makeController(monitor: monitor, target: target)
         controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/first")])
+        await waitUntil { target.refreshRequestCount == 1 }
+        target.isScanning = false
+        controller.scanStateDidChange()
         controller.update(folderURLs: [URL(fileURLWithPath: "/tmp/second")])
+        await waitUntil { target.refreshRequestCount == 2 }
+        target.isScanning = false
+        controller.scanStateDidChange()
 
-        monitor.sendChange(handlerIndex: 0)
+        await monitor.sendChange(handlerIndex: 0)
         try? await Task.sleep(
             nanoseconds: TestPolicy.debounceNanoseconds * 3
         )
-        XCTAssertEqual(target.refreshRequestCount, 0)
+        XCTAssertEqual(target.refreshRequestCount, 2)
 
-        monitor.sendChange(handlerIndex: 1)
-        await waitUntil { target.refreshRequestCount == 1 }
-        XCTAssertEqual(target.refreshRequestCount, 1)
+        await monitor.sendChange(handlerIndex: 1)
+        await waitUntil { target.refreshRequestCount == 3 }
+        XCTAssertEqual(target.refreshRequestCount, 3)
     }
 
     func testStopInvalidatesQueuedAndFutureEvents() async {
@@ -540,9 +666,9 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         let controller = makeController(monitor: monitor, target: target)
         controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/media")])
 
-        monitor.sendChange()
+        await monitor.sendChange()
         controller.stop()
-        monitor.sendChange()
+        await monitor.sendChange()
 
         try? await Task.sleep(
             nanoseconds: TestPolicy.debounceNanoseconds * 3
@@ -656,7 +782,11 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         let secondRoot = URL(fileURLWithPath: "/tmp/second-retry-root")
 
         controller.start(folderURLs: [firstRoot])
+        await waitUntil { monitor.updateCalls.count == 1 }
         controller.update(folderURLs: [secondRoot])
+        await waitUntil { target.refreshRequestCount == 1 }
+        target.isScanning = false
+        controller.scanStateDidChange()
 
         try? await Task.sleep(
             nanoseconds: TestPolicy.installationRetryNanoseconds * 3
@@ -666,15 +796,15 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
             [[firstRoot.standardizedFileURL], [secondRoot.standardizedFileURL]]
         )
 
-        monitor.sendChange(handlerIndex: 0)
+        await monitor.sendChange(handlerIndex: 0)
         try? await Task.sleep(
             nanoseconds: TestPolicy.debounceNanoseconds * 3
         )
-        XCTAssertEqual(target.refreshRequestCount, 0)
-
-        monitor.sendChange(handlerIndex: 1)
-        await waitUntil { target.refreshRequestCount == 1 }
         XCTAssertEqual(target.refreshRequestCount, 1)
+
+        await monitor.sendChange(handlerIndex: 1)
+        await waitUntil { target.refreshRequestCount == 2 }
+        XCTAssertEqual(target.refreshRequestCount, 2)
     }
 
     func testStopCancelsMonitorInstallationRetry() async {
@@ -687,6 +817,7 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         controller.start(
             folderURLs: [URL(fileURLWithPath: "/tmp/stopped-retry-root")]
         )
+        await waitUntil { monitor.updateCalls.count == 1 }
         controller.stop()
 
         try? await Task.sleep(
@@ -704,7 +835,7 @@ final class MediaLibraryAutomaticRefreshControllerTests: XCTestCase {
         let controller = makeController(monitor: monitor, target: target)
         controller.start(folderURLs: [URL(fileURLWithPath: "/tmp/media")])
 
-        monitor.sendChange()
+        await monitor.sendChange()
         await waitUntil { target.refreshRequestCount == 1 }
         try? await Task.sleep(
             nanoseconds: TestPolicy.debounceNanoseconds * 3
@@ -788,6 +919,8 @@ private final class AutomaticRefreshMonitorSpy:
     var defaultUpdateResult = true
     var cadence: MediaLibraryReconciliationCadence = .standard
     var resolveCadence: (() async -> MediaLibraryReconciliationCadence)?
+    var resolveUpdate: (([URL]) async -> Bool)?
+    private(set) var updateCompletionCount = 0
     private(set) var cadenceRequestCount = 0
     private(set) var cadenceCompletionCount = 0
     private var handlers: [@Sendable () -> Void] = []
@@ -796,9 +929,11 @@ private final class AutomaticRefreshMonitorSpy:
     func update(
         folderURLs: [URL],
         onChange: @escaping @Sendable () -> Void
-    ) -> Bool {
+    ) async -> Bool {
         updateCalls.append(folderURLs)
         handlers.append(onChange)
+        defer { updateCompletionCount += 1 }
+        if let resolveUpdate { return await resolveUpdate(folderURLs) }
         guard !updateResults.isEmpty else {
             return defaultUpdateResult
         }
@@ -818,9 +953,16 @@ private final class AutomaticRefreshMonitorSpy:
         return cadence
     }
 
-    func sendChange(handlerIndex: Int? = nil) {
-        let index = handlerIndex ?? handlers.index(before: handlers.endIndex)
-        handlers[index]()
+    func sendChange(handlerIndex: Int? = nil) async {
+        for _ in 0..<100 {
+            let index = handlerIndex ?? (handlers.count - 1)
+            if handlers.indices.contains(index) {
+                handlers[index]()
+                return
+            }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTFail("The requested monitor generation was never installed")
     }
 }
 

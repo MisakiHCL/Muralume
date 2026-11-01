@@ -188,7 +188,7 @@
 "library.source.unavailable.status" = "Unavailable";
 "library.source.unavailable.remove" = "Remove Source";
 "library.source.unavailable.remove.title" = "Remove this unavailable source?";
-"library.source.unavailable.remove.message" = "“%@” will be removed from Muralume. Original files will not be deleted.";
+"library.source.unavailable.remove.message" = "“%@” will be removed from the media library. Playlists and original files will be kept.";
 "library.source.unavailable.remove.confirm" = "Remove Source";
 "library.item.reauthorizeSource" = "Choose This Source Again…";
 "library.scanning" = "Scanning media…";
@@ -223,6 +223,7 @@
 "videoInfo.loading" = "Loading video information…";
 "videoInfo.error" = "Muralume could not read this video's information.";
 "videoInfo.fileName" = "File name";
+"videoInfo.filePath" = "File path";
 "videoInfo.container" = "Container";
 "videoInfo.duration" = "Duration";
 "videoInfo.videoCodec" = "Video codec";
@@ -256,12 +257,12 @@
 "library.done" = "Done";
 "library.folder.remove" = "Remove";
 "library.folder.remove.title" = "Remove this folder?";
-"library.folder.remove.message" = "Videos in “%@” will be removed from Muralume. Original files will not be deleted.";
+"library.folder.remove.message" = "Videos in “%@” will be removed from the media library. Playlists and original files will be kept.";
 "library.folder.remove.confirm" = "Remove Folder";
 "library.source.remove.title" = "Remove this media source?";
 "library.video.remove" = "Remove Video";
 "library.video.remove.title" = "Remove this video?";
-"library.video.remove.message" = "“%@” will be removed from Muralume. The original file will not be deleted.";
+"library.video.remove.message" = "“%@” will be removed from the media library. Playlists and the original file will be kept.";
 "library.video.remove.confirm" = "Remove Video";
 "library.drop.title" = "Drop to add videos";
 "library.import.partial" = "Some items could not be added.";
@@ -382,3 +383,34 @@
 "screenshot.error.message" = "Muralume couldn’t capture or write the current video frame.";
 
 "library.search.searching" = "Searching…";
+
+// Media browsing and batch selection
+"library.layout" = "Browse View";
+"library.layout.list" = "List View";
+"library.layout.grid" = "Grid View";
+"library.selection.begin" = "Select";
+"library.selection.done" = "Done";
+"library.selection.count" = "%d selected";
+"library.selection.all" = "Select All";
+"library.selection.clear" = "Clear Selection";
+"library.selection.selected" = "Selected";
+"library.selection.notSelected" = "Not Selected";
+"library.selection.actions" = "Selection Actions";
+"playlists.removeSelected" = "Remove Selected";
+"playlists.removeSelected.failed" = "Could not remove the selected videos. Try again.";
+"playlists.addSelected.failed" = "Could not add the selected videos. The playlist may be full.";
+"playlists.selection.changed" = "Some selected videos changed or are no longer available. Close this dialog and select them again.";
+"playlists.media.issue.authorizationRequired" = "This playlist needs permission to access this video. Choose its original source folder or video to restore access.";
+"playlists.media.issue.permissionDenied" = "Permission to read this video was denied. Grant access to its original source folder or video and try again.";
+"playlists.media.issue.fileMissing" = "This video could not be found at its saved location.";
+"playlists.media.issue.unsupportedFormat" = "This video's format or codec is not supported.";
+"playlists.media.issue.cannotOpen" = "This video could not be opened. Try again.";
+"playlists.media.issue.temporarilyUnavailable" = "This video is unavailable right now. Try again.";
+"playlists.media.issue.resolving" = "Checking access to this video…";
+"playlists.media.retry" = "Retry";
+"playlists.media.retry.hint" = "Check access to this video again.";
+"playlists.media.reauthorize" = "Grant Access…";
+"playlists.media.reauthorize.hint" = "Choose the original source folder or video to restore access.";
+"playlists.authorization.failed" = "Could not save access to the selected videos. Select them again and try again.";
+"playlists.access.preserveFailed" = "Couldn’t Remove Media Source";
+"playlists.access.preserveFailed.message" = "Could not preserve access to this source's playlist videos. The source has been kept; try again.";

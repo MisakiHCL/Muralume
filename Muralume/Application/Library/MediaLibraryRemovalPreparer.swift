@@ -10,6 +10,7 @@ struct MediaLibraryRemovalRequest: Sendable {
     let queueItemsByID: [LibraryMediaItem.ID: LibraryMediaItem]
     let unavailableItemIDs: Set<LibraryMediaItem.ID>
     let supersededThumbnailRootPaths: Set<String>
+    var retainedPlaylistItemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
 }
 
 struct MediaLibraryRemovalPlan: Sendable {
@@ -22,6 +23,7 @@ struct MediaLibraryRemovalPlan: Sendable {
     let removedItemIDs: Set<LibraryMediaItem.ID>
     let thumbnailRootIDs: Set<MediaLibraryRoot.ID>
     let supersededThumbnailRootPaths: Set<String>
+    var retainedPlaylistItemIDs: Set<LibraryMediaItem.ID> = []
 }
 
 protocol MediaLibraryRemovalPreparing: Sendable {
@@ -151,13 +153,15 @@ struct DefaultMediaLibraryRemovalPreparer: MediaLibraryRemovalPreparing {
             items: retainedItems, itemsByID: retainedByID,
             orderingContext: request.library.orderingContext
         ) : request.library
-        var queueItems = request.queueItemsByID
-        for id in removedIDs { queueItems[id] = nil }
+        let retainedPlaylistIDs = Set(request.retainedPlaylistItemsByID.keys)
+        let removedQueueIDs = removedIDs.subtracting(retainedPlaylistIDs)
+        var queueItems = request.queueItemsByID.merging(request.retainedPlaylistItemsByID) { _, retained in retained }
+        for id in removedQueueIDs { queueItems[id] = nil }
         var queue = request.queue
-        let queueChanged = !removedIDs.isEmpty && queue != nil
-        let removedCurrent = request.currentItemID.map(removedIDs.contains) == true
+        let queueChanged = !removedQueueIDs.isEmpty && queue != nil
+        let removedCurrent = request.currentItemID.map(removedQueueIDs.contains) == true
         if queueChanged, var updated = queue {
-            var next = updated.remove(removedIDs)
+            var next = updated.remove(removedQueueIDs)
             if removedCurrent, let candidate = next,
                request.unavailableItemIDs.contains(candidate) {
                 next = nil
@@ -178,7 +182,8 @@ struct DefaultMediaLibraryRemovalPreparer: MediaLibraryRemovalPreparing {
             library: library, libraryChanged: libraryChanged,
             queue: queue, queueChanged: queueChanged, queueItemsByID: queueItems,
             removedCurrentItem: removedCurrent, removedItemIDs: removedIDs,
-            thumbnailRootIDs: thumbnailRoots, supersededThumbnailRootPaths: supersededPaths
+            thumbnailRootIDs: thumbnailRoots, supersededThumbnailRootPaths: supersededPaths,
+            retainedPlaylistItemIDs: retainedPlaylistIDs
         )
     }
 }

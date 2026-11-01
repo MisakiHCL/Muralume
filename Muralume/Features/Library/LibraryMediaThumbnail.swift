@@ -4,23 +4,39 @@ import SwiftUI
 struct LibraryMediaThumbnail: View {
     private struct RequestID: Hashable {
         let itemID: LibraryMediaItem.ID
+        let fileIdentity: MediaFileIdentity?
         let fileSize: Int64
         let modificationDate: Date?
         let displayScale: CGFloat
+        let width: CGFloat
+        let height: CGFloat
+        let providerID: ObjectIdentifier
+    }
+
+    private struct LoadedThumbnail {
+        let requestID: RequestID
+        let image: CGImage
     }
 
     @Environment(\.displayScale) private var displayScale
-    @State private var thumbnail: CGImage?
+    @State private var thumbnail: LoadedThumbnail?
 
     let item: LibraryMediaItem
     let isCurrent: Bool
     let provider: any MediaThumbnailProviding
+    var size = CGSize(
+        width: MuralumeTheme.Size.playlistArtworkWidth,
+        height: MuralumeTheme.Size.playlistArtworkHeight
+    )
 
     var body: some View {
+        let requestID = requestID
+        let image = thumbnail.flatMap { $0.requestID == requestID ? $0.image : nil }
+            ?? provider.cachedThumbnail(for: item, size: size, scale: displayScale)
         Group {
-            if let thumbnail {
+            if let image {
                 Image(
-                    decorative: thumbnail,
+                    decorative: image,
                     scale: displayScale,
                     orientation: .up
                 )
@@ -32,8 +48,8 @@ struct LibraryMediaThumbnail: View {
             }
         }
         .frame(
-            width: MuralumeTheme.Size.playlistArtworkWidth,
-            height: MuralumeTheme.Size.playlistArtworkHeight
+            width: size.width,
+            height: size.height
         )
         .clipShape(
             RoundedRectangle(
@@ -42,19 +58,20 @@ struct LibraryMediaThumbnail: View {
             )
         )
         .task(id: requestID) {
-            thumbnail = nil
+            if thumbnail?.requestID != requestID { thumbnail = nil }
+            if let image = provider.cachedThumbnail(for: item, size: size, scale: displayScale) {
+                thumbnail = LoadedThumbnail(requestID: requestID, image: image)
+                return
+            }
             let image = await provider.thumbnail(
                 for: item,
-                size: CGSize(
-                    width: MuralumeTheme.Size.playlistArtworkWidth,
-                    height: MuralumeTheme.Size.playlistArtworkHeight
-                ),
+                size: size,
                 scale: displayScale
             )
             guard !Task.isCancelled else {
                 return
             }
-            thumbnail = image
+            thumbnail = image.map { LoadedThumbnail(requestID: requestID, image: $0) }
         }
         .onDisappear {
             thumbnail = nil
@@ -86,9 +103,13 @@ struct LibraryMediaThumbnail: View {
     private var requestID: RequestID {
         RequestID(
             itemID: item.id,
+            fileIdentity: item.fileIdentity,
             fileSize: item.fileSize,
             modificationDate: item.modificationDate,
-            displayScale: displayScale
+            displayScale: displayScale,
+            width: size.width,
+            height: size.height,
+            providerID: ObjectIdentifier(provider)
         )
     }
 }

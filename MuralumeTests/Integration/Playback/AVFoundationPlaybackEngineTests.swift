@@ -393,6 +393,10 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
             generator: generator,
             cacheMissDelay: .zero
         )
+        XCTAssertNil(provider.cachedThumbnail(
+            for: item, size: ThumbnailExpectation.pointSize, scale: ThumbnailExpectation.scale
+        ))
+        XCTAssertEqual(generator.generationCount, 0)
 
         let firstImage = await provider.thumbnail(
             for: item,
@@ -407,9 +411,18 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
 
         XCTAssertTrue(firstImage === thumbnail)
         XCTAssertTrue(cachedImage === thumbnail)
+        for _ in 0..<50 {
+            XCTAssertTrue(provider.cachedThumbnail(
+                for: item, size: ThumbnailExpectation.pointSize, scale: ThumbnailExpectation.scale
+            ) === thumbnail)
+        }
         XCTAssertEqual(generator.generationCount, 1)
 
         provider.purgeMemoryCache()
+        XCTAssertNil(provider.cachedThumbnail(
+            for: item, size: ThumbnailExpectation.pointSize, scale: ThumbnailExpectation.scale
+        ))
+        XCTAssertEqual(generator.generationCount, 1)
 
         let regeneratedImage = await provider.thumbnail(
             for: item,
@@ -425,6 +438,10 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
         XCTAssertTrue(regeneratedImage === thumbnail)
         XCTAssertEqual(generator.generationCount, 2)
         await provider.shutdown()
+        XCTAssertNil(provider.cachedThumbnail(
+            for: item, size: ThumbnailExpectation.pointSize, scale: ThumbnailExpectation.scale
+        ))
+        XCTAssertEqual(generator.generationCount, 2)
     }
 
     func testQuickLookProviderDoesNotCacheWithoutModificationDate()
@@ -463,6 +480,9 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
         )
 
         XCTAssertEqual(generator.generationCount, 2)
+        XCTAssertNil(provider.cachedThumbnail(
+            for: item, size: ThumbnailExpectation.pointSize, scale: ThumbnailExpectation.scale
+        ))
         await provider.shutdown()
     }
 
@@ -496,6 +516,31 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
                 scale: ThumbnailExpectation.scale
             )
         }
+        for changedItem in [changedDateItem, changedSizeItem] {
+            XCTAssertNil(provider.cachedThumbnail(
+                for: changedItem, size: ThumbnailExpectation.pointSize, scale: ThumbnailExpectation.scale
+            ))
+        }
+        XCTAssertNil(provider.cachedThumbnail(
+            for: item, size: ThumbnailExpectation.pointSize, scale: ThumbnailExpectation.scale + 1
+        ))
+        XCTAssertNil(provider.cachedThumbnail(
+            for: item,
+            size: CGSize(width: ThumbnailExpectation.pointSize.width + 1, height: ThumbnailExpectation.pointSize.height),
+            scale: ThumbnailExpectation.scale
+        ))
+        let replacedFile = LibraryMediaItem(
+            rootURL: item.rootURL, rootName: item.rootName, url: item.url,
+            displayName: item.displayName, relativePath: item.relativePath,
+            relativeDirectory: item.relativeDirectory, creationDate: item.creationDate,
+            modificationDate: item.modificationDate, fileSize: item.fileSize,
+            fileIdentity: MediaFileIdentity(volumeIdentifier: Data([1]), fileIdentifier: Data([2]))
+        )
+        XCTAssertEqual(replacedFile.id, item.id)
+        XCTAssertNil(provider.cachedThumbnail(
+            for: replacedFile, size: ThumbnailExpectation.pointSize, scale: ThumbnailExpectation.scale
+        ))
+        XCTAssertEqual(generator.generationCount, 1)
         _ = await provider.thumbnail(
             for: changedDateItem,
             size: ThumbnailExpectation.pointSize,
@@ -513,6 +558,35 @@ final class AVFoundationPlaybackEngineTests: XCTestCase {
         )
 
         XCTAssertEqual(generator.generationCount, 4)
+        await provider.invalidateThumbnails(
+            forRootID: MediaLibraryRoot.ID(standardizedPath: item.id.rootPath)
+        )
+        XCTAssertNil(provider.cachedThumbnail(
+            for: item, size: ThumbnailExpectation.pointSize, scale: ThumbnailExpectation.scale
+        ))
+        XCTAssertEqual(generator.generationCount, 4)
+        await provider.shutdown()
+    }
+
+    func testSynchronousThumbnailLookupRejectsInvalidDimensionsWithoutStartingWork()
+        async throws {
+        let item = try makeLibraryItem(for: TestMediaFixture.h264URL(for: Self.self))
+        let generator = CountingQuickLookThumbnailGenerator(image: try makeTestThumbnail())
+        let provider = QuickLookMediaThumbnailProvider(generator: generator, cacheMissDelay: .zero)
+        let invalidRequests: [(CGSize, CGFloat)] = [
+            (.zero, 1), (CGSize(width: -1, height: 48), 1),
+            (CGSize(width: CGFloat.infinity, height: 48), 1),
+            (CGSize(width: 84, height: CGFloat.nan), 1),
+            (CGSize(width: CGFloat(Int.max), height: 48), 2),
+            (ThumbnailExpectation.pointSize, .nan),
+            (ThumbnailExpectation.pointSize, .infinity)
+        ]
+        for (size, scale) in invalidRequests {
+            XCTAssertNil(provider.cachedThumbnail(for: item, size: size, scale: scale))
+            let generated = await provider.thumbnail(for: item, size: size, scale: scale)
+            XCTAssertNil(generated)
+        }
+        XCTAssertEqual(generator.generationCount, 0)
         await provider.shutdown()
     }
 

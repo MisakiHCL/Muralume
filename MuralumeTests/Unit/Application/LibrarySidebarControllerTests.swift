@@ -11,6 +11,30 @@ final class LibrarySidebarControllerTests: XCTestCase {
         XCTAssertEqual(controller.query, "")
         XCTAssertEqual(controller.searchFocusRequest, 0)
         XCTAssertEqual(controller.playbackQueueFocusRequest, 0)
+        XCTAssertEqual(controller.mediaBrowserLayout, .list)
+    }
+
+    func testLayoutRestoresWithoutWritingAndOnlyPersistsActualChanges() {
+        let store = TestAppPreferencesStore()
+        let controller = LibrarySidebarController(
+            mediaBrowserLayout: .grid,
+            preferencesStore: store
+        )
+        XCTAssertEqual(controller.mediaBrowserLayout, .grid)
+        XCTAssertTrue(store.savedLibraryBrowserLayouts.isEmpty)
+
+        controller.mediaBrowserLayout = .grid
+        XCTAssertTrue(store.savedLibraryBrowserLayouts.isEmpty)
+        controller.mediaBrowserLayout = .list
+        controller.mediaBrowserLayout = .list
+        controller.selectDestination(.playQueue)
+        controller.selectDestination(.mediaLibrary)
+        controller.updateQuery("sky")
+        XCTAssertEqual(controller.mediaBrowserLayout, .list)
+        XCTAssertEqual(store.savedLibraryBrowserLayouts, [.list])
+
+        controller.mediaBrowserLayout = .grid
+        XCTAssertEqual(store.savedLibraryBrowserLayouts, [.list, .grid])
     }
 
     func testTopLevelNavigationUsesCanonicalOrderAndGrouping() {

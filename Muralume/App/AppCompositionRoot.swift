@@ -1,3 +1,5 @@
+import Foundation
+
 @MainActor
 enum AppCompositionRoot {
     static func makeAppCoordinator(
@@ -5,6 +7,14 @@ enum AppCompositionRoot {
         initialPreferences: AppPreferences,
         preferencesStore: any AppPreferencesStoring
     ) -> AppCoordinator {
+        let playlistStoreFileURL: URL?
+        do {
+            playlistStoreFileURL = try DebugUITestSession.playlistStoreFileURL()
+        } catch {
+            preconditionFailure(
+                "The UI-test app requires a valid MURALUME_UI_TEST_SESSION_ID UUID."
+            )
+        }
         let playback = PlaybackCoordinator(
             engine: AVFoundationPlaybackEngine(),
             initialPreferences: initialPreferences,
@@ -50,15 +60,16 @@ enum AppCompositionRoot {
             [weak desktopSession] preferences in
             desktopSession?.updateSmartPausePreferences(preferences)
         }
+        let mediaSession = UserSelectedMediaSession(
+            restoreExecutor: .live,
+            importExecutor: .live
+        )
         let library = MediaLibraryCoordinator(
             playback: playback,
             sourceSelector: MacMediaSourcePicker(
                 localization: localization
             ),
-            mediaSession: UserSelectedMediaSession(
-                restoreExecutor: .live,
-                importExecutor: .live
-            ),
+            mediaSession: mediaSession,
             scanner: FileSystemMediaLibraryScanner(),
             mediaThumbnailProvider: mediaThumbnailProvider,
             playbackOrder: initialPreferences.playbackOrder,
@@ -69,7 +80,16 @@ enum AppCompositionRoot {
             playbackProgressStore: playbackProgressStore
         )
         let playlists = CustomPlaylistController(
-            store: FileCustomPlaylistStore()
+            store: FileCustomPlaylistStore(fileURL: playlistStoreFileURL),
+            grantCapture: { [weak mediaSession] item in
+                mediaSession?.persistentAccessGrant(
+                    for: MediaSource.ID(standardizedPath: item.id.rootPath)
+                )
+            },
+            sourceGrantCapture: { [weak mediaSession] sourceID in
+                mediaSession?.persistentAccessGrant(for: sourceID)
+            },
+            resolver: SecurityScopedCustomPlaylistMediaAccess()
         )
         let launchAtLogin = LaunchAtLoginController(
             service: MacLaunchAtLoginService()
@@ -99,7 +119,8 @@ enum AppCompositionRoot {
             }
             return ResolvedMediaSource(
                 url: item.url,
-                displayName: item.displayName
+                displayName: item.displayName,
+                accessLease: item.accessLease
             )
         }
         library.mediaItemsWillBeRemovedHandler = {
@@ -125,6 +146,12 @@ enum AppCompositionRoot {
             playbackSession: playbackSession,
             desktopScene: desktopScene,
             smartPause: smartPause,
+            playerChrome: PlayerChromeController(
+                librarySidebarController: LibrarySidebarController(
+                    mediaBrowserLayout: initialPreferences.libraryBrowserLayout,
+                    preferencesStore: preferencesStore
+                )
+            ),
             externalSubtitlePicker: MacExternalSubtitlePicker(
                 localization: localization
             ),
@@ -132,5 +159,42 @@ enum AppCompositionRoot {
                 localization: localization
             )
         )
+    }
+}
+
+/// Only the separately identified Debug test app can redirect playlist storage.
+/// Resolve its temporary directory in the app process, never in the UI runner.
+enum DebugUITestSession {
+    enum ConfigurationError: Error, Equatable {
+        case missingSessionIdentifier
+        case invalidSessionIdentifier
+    }
+
+    static let appBundleIdentifier = "com.muralume.Muralume.uitesting"
+    static let environmentKey = "MURALUME_UI_TEST_SESSION_ID"
+    static let directoryName = "MuralumeUITests"
+    static let playlistFileName = "custom-playlists.json"
+
+    static func playlistStoreFileURL(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) throws -> URL? {
+#if DEBUG
+        guard bundleIdentifier == appBundleIdentifier else { return nil }
+        guard let value = environment[environmentKey] else {
+            throw ConfigurationError.missingSessionIdentifier
+        }
+        guard let sessionID = UUID(uuidString: value),
+              sessionID.uuidString.caseInsensitiveCompare(value) == .orderedSame else {
+            throw ConfigurationError.invalidSessionIdentifier
+        }
+        return temporaryDirectory
+            .appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent(sessionID.uuidString, isDirectory: true)
+            .appendingPathComponent(playlistFileName, isDirectory: false)
+#else
+        return nil
+#endif
     }
 }

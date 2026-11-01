@@ -44,7 +44,7 @@ struct PlaybackStateRestorer {
         guard !Task.isCancelled else {
             return .cancelled
         }
-        guard scanState == .ready else {
+        guard scanState == .ready || library.canRestoreIndependentPlaylist(state.playbackCollection) else {
             if case .noRestorableRoots(
                 hasTemporarilyUnavailableRoots: false
             ) = libraryStart {

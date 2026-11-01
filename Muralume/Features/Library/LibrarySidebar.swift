@@ -25,6 +25,7 @@ struct LibrarySidebar: View {
     let showVideoInformation: (LibraryMediaItem) -> Void
     let dismiss: () -> Void
     @Binding var playlistNameEditor: PlaylistNameEditorRequest?
+    var reauthorizePlaylistEntry: ((CustomPlaylist.ID, CustomPlaylistEntry.ID) -> Void)? = nil
 
     var body: some View {
         switch navigation.destination {
@@ -35,6 +36,7 @@ struct LibrarySidebar: View {
                 mediaThumbnailProvider: mediaThumbnailProvider,
                 sidebarSection: legacySection,
                 searchQuery: searchQuery,
+                browserLayout: $navigation.mediaBrowserLayout,
                 playbackQueueFocusRequest:
                     navigation.playbackQueueFocusRequest,
                 searchFocusRequest: navigation.searchFocusRequest,
@@ -61,6 +63,15 @@ struct LibrarySidebar: View {
                 },
                 addLibraryItemToPlaylist:
                     addLibraryItemToPlaylist,
+                addLibraryItemsToPlaylist: { items, playlistID in
+                    _ = try playlists.add(items: items, to: playlistID)
+                },
+                createPlaylistWithItems: { items, complete in
+                    playlistNameEditor = .createWithItems(PlaylistCreationRequest(
+                        input: CustomPlaylistCreationInput(items: items),
+                        complete: complete
+                    ))
+                },
                 revealMediaInFinder: revealMediaInFinder,
                 showVideoInformation: showVideoInformation,
                 dismiss: dismiss
@@ -75,7 +86,8 @@ struct LibrarySidebar: View {
                 revealMediaInFinder: revealMediaInFinder,
                 showVideoInformation: showVideoInformation,
                 dismiss: dismiss,
-                nameEditor: $playlistNameEditor
+                nameEditor: $playlistNameEditor,
+                reauthorizePlaylistEntry: reauthorizePlaylistEntry
             )
         }
     }

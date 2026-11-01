@@ -2268,7 +2268,7 @@ private final class AppCoordinatorMediaLibraryChangeMonitorSpy:
     func update(
         folderURLs: [URL],
         onChange: @escaping @Sendable () -> Void
-    ) -> Bool {
+    ) async -> Bool {
         updateCalls.append(folderURLs)
         return true
     }

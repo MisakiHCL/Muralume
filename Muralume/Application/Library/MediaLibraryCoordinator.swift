@@ -70,6 +70,9 @@ final class MediaLibraryCoordinator: ObservableObject {
     /// persistence while still allowing queue recovery to retain membership.
     var customPlaylistItemsProvider:
         ((CustomPlaylist.ID) -> [LibraryMediaItem]?)?
+    var customPlaylistHasUnresolvedItemsProvider: ((CustomPlaylist.ID) -> Bool)?
+    var prepareForPlaylistSourceRemoval: ((MediaLibraryRoot) async -> Bool)?
+    var retainedPlaylistItemsProvider: (() -> [LibraryMediaItem])?
 
     private enum QueueChangeKind {
         case cursor
@@ -279,6 +282,9 @@ final class MediaLibraryCoordinator: ObservableObject {
     @Published private(set) var currentItemID: LibraryMediaItem.ID?
     @Published private(set) var unavailableItemIDs:
         Set<LibraryMediaItem.ID> = []
+    @Published private(set) var unavailableItemFailures:
+        [LibraryMediaItem.ID: PlaybackFailure] = [:]
+    @Published var sourceRemovalPreservationFailed = false
     private(set) var unavailableItemsRevision: UInt64 = 0
     @Published private(set) var queueRevision: UInt64 = 0
     @Published private(set) var queueStructureRevision: UInt64 = 0
@@ -357,7 +363,9 @@ final class MediaLibraryCoordinator: ObservableObject {
     func mediaItem(
         forPersistedID id: LibraryMediaItem.ID
     ) -> LibraryMediaItem? {
-        visibleItemsByID[id]
+        if let queued = queueItemsByID[id], queued.accessLease != nil { return queued }
+        if let retained = retainedPlaylistItemsProvider?().first(where: { $0.id == id }) { return retained }
+        return visibleItemsByID[id]
     }
 
     var currentPosition: Int? {
@@ -528,6 +536,11 @@ final class MediaLibraryCoordinator: ObservableObject {
     private var loadTasks: [UUID: LoadTaskRecord] = [:]
     private var currentLoadTaskID: UUID?
     private var loadedItemID: LibraryMediaItem.ID?
+    // An already-loaded library item predates the playlist lease. Keep one
+    // handover owner until AVFoundation's old work has actually drained.
+    private var retainedPlaybackAccessItem: LibraryMediaItem?
+    private var retainedAccessReleaseTask: Task<Void, Never>?
+    private var playlistThumbnailRootIDs: Set<MediaLibraryRoot.ID> = []
     private var rootIDsPendingRemoval: Set<MediaLibraryRoot.ID> = []
     private var rootRemovalTasks: [MediaLibraryRoot.ID: Task<Void, Never>] = [:]
     private var rootRemovalPreparationTasks:
@@ -594,8 +607,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         playback.itemEndedHandler = { [weak self] in
             self?.handleItemEnded() ?? .unhandled
         }
-        playback.itemFailureHandler = { [weak self] _ in
-            self?.handleItemFailure() ?? false
+        playback.itemFailureHandler = { [weak self] failure in
+            self?.handleItemFailure(failure) ?? false
         }
     }
 
@@ -727,6 +740,10 @@ final class MediaLibraryCoordinator: ObservableObject {
         updateSourceAccessState(using: latestPreparedSources)
         commitImport(preparation, autoplayExplicitFiles: false)
         return scanState == .scanning ? .scanStarted : .alreadyStarted
+    }
+
+    func selectPlaylistAccessSource(_ source: UnavailableMediaSource) -> URL? {
+        sourceSelector.selectSources(for: .reauthorizingSource(source)).first
     }
 
     func removeUnavailableSource(_ source: UnavailableMediaSource) {
@@ -1306,8 +1323,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         playlistID: CustomPlaylist.ID,
         playlistItems: [LibraryMediaItem]
     ) {
-        guard visibleItemsByID[item.id] != nil,
-              playlistItems.contains(where: { $0.id == item.id }) else {
+        guard playlistItems.contains(where: { $0.id == item.id }),
+              visibleItemsByID[item.id] != nil || item.accessLease != nil else {
             return
         }
         playbackSelectionIntentRevision &+= 1
@@ -1575,6 +1592,12 @@ final class MediaLibraryCoordinator: ObservableObject {
 
     private func performRootRemoval(_ root: MediaLibraryRoot) async {
         guard !isShutDown else { return }
+        if let prepareForPlaylistSourceRemoval,
+           !(await prepareForPlaylistSourceRemoval(root)) {
+            sourceRemovalPreservationFailed = true
+            return
+        }
+        guard !isShutDown else { return }
         invalidateSourceAccessOperation()
         invalidatePendingImport()
         let removedSource = MediaSource(url: root.url, kind: root.kind)
@@ -1609,11 +1632,20 @@ final class MediaLibraryCoordinator: ObservableObject {
             await task.value
         }
         await playback.drainPendingWork()
-        await mediaItemsWillBeRemovedHandler?(removedItemIDs)
+        let retainedPlaylistItems = retainedPlaylistItemsProvider?() ?? []
+        let retainedPlaylistIDs = Set(retainedPlaylistItems.filter { $0.accessLease != nil }.map(\.id))
+        let revokedItemIDs = removedItemIDs.subtracting(retainedPlaylistIDs)
+        await mediaItemsWillBeRemovedHandler?(revokedItemIDs)
         try? await playbackProgressStore?.removeProgress(
-            for: removedItemIDs
+            for: revokedItemIDs
         )
         await thumbnailDrainTask.value
+        // These roots have an independent playlist owner, not the removed
+        // library grant. Re-enable only after the old thumbnail work drained.
+        mediaThumbnailProvider.allowThumbnails(forRootIDs: Set(
+            (retainedPlaylistItemsProvider?() ?? []).filter { $0.accessLease != nil }
+                .map { MediaLibraryRoot.ID(standardizedPath: $0.id.rootPath) }
+        ))
         supersededThumbnailRootPaths.subtract(
             supersededRootPathsBeingRemoved
         )
@@ -1685,7 +1717,8 @@ final class MediaLibraryCoordinator: ObservableObject {
                     sourceAccessURLs: sessionSources.map(\.url),
                     library: itemsSnapshot.library, queue: queue, currentItemID: currentItemID,
                     queueItemsByID: queueItemsByID, unavailableItemIDs: unavailableItemIDs,
-                    supersededThumbnailRootPaths: supersededThumbnailRootPaths
+                    supersededThumbnailRootPaths: supersededThumbnailRootPaths,
+                    retainedPlaylistItemsByID: retainedPlaylistQueueItems()
                 ),
                 previousSnapshot: itemsSnapshot, previousItemsByID: visibleItemsByID,
                 previousCanonicalIndex: canonicalItemLookupIndex
@@ -1736,10 +1769,51 @@ final class MediaLibraryCoordinator: ObservableObject {
         return nil
     }
 
+    func updatePlaylistThumbnailAccess(using items: [LibraryMediaItem]) {
+        guard !isShutDown else { return }
+        let incoming = Set(items.filter { $0.accessLease != nil }.map {
+            MediaLibraryRoot.ID(standardizedPath: $0.id.rootPath)
+        })
+        let libraryRoots = Set(roots.map(\.id)).union(activeSources.map {
+            MediaLibraryRoot.ID(standardizedPath: $0.id.standardizedPath)
+        })
+        let released = playlistThumbnailRootIDs.subtracting(incoming).subtracting(libraryRoots)
+        playlistThumbnailRootIDs = incoming
+        mediaThumbnailProvider.allowThumbnails(forRootIDs: incoming)
+        guard !released.isEmpty else { return }
+        Task { @MainActor [weak self, mediaThumbnailProvider] in
+            for rootID in released {
+                await mediaThumbnailProvider.invalidateThumbnails(forRootID: rootID)
+                guard let self, !isShutDown else { continue }
+                if playlistThumbnailRootIDs.contains(rootID) || roots.contains(where: { $0.id == rootID }) {
+                    mediaThumbnailProvider.allowThumbnails(forRootIDs: [rootID])
+                }
+            }
+        }
+    }
+
+    private func retainedPlaylistQueueItems() -> [LibraryMediaItem.ID: LibraryMediaItem] {
+        switch playbackQueueMembership {
+        case .mediaLibrary, .external:
+            return [:]
+        case .customPlaylist, .fixed:
+            var retained = queueItemsByID.filter { $0.value.accessLease != nil }
+            for item in retainedPlaylistItemsProvider?() ?? [] {
+                if item.accessLease != nil, queueItemsByID[item.id] != nil {
+                    retained[item.id] = item
+                }
+            }
+            return retained
+        }
+    }
+
     private func applyRootRemoval(
         _ plan: MediaLibraryRemovalPlan, root: MediaLibraryRoot
     ) -> AppliedRootRemoval {
-        let removedIDs = plan.removedItemIDs
+        let removedIDs = plan.removedItemIDs.subtracting(plan.retainedPlaylistItemIDs)
+        if let currentItemID, plan.retainedPlaylistItemIDs.contains(currentItemID) {
+            retainedPlaybackAccessItem = plan.queueItemsByID[currentItemID]
+        }
         let touchesPlayback = loadedItemID.map(removedIDs.contains) == true
             || loadTasks.values.contains { removedIDs.contains($0.itemID) }
             || (currentItemID.map(removedIDs.contains) == true && playback.readiness != .empty)
@@ -1829,14 +1903,17 @@ final class MediaLibraryCoordinator: ObservableObject {
         queueMembership: PlaybackQueueMembership,
         collectionItems: [LibraryMediaItem]
     ) {
+        let hasIndependentPlaylistAccess = item.accessLease != nil
+            && queueMembership != .mediaLibrary
+            && collectionItems.contains(where: { $0.id == item.id })
         guard !isShutDown,
-              !rootIDsPendingRemoval.contains(
+              hasIndependentPlaylistAccess || !rootIDsPendingRemoval.contains(
                 MediaLibraryRoot.ID(
                     standardizedPath: item.rootURL.standardizedFileURL.path
                 )
               ),
               visibleItemsByID[item.id] != nil
-                || queueItemsByID[item.id] != nil else {
+                || queueItemsByID[item.id] != nil || hasIndependentPlaylistAccess else {
             return
         }
 
@@ -2197,7 +2274,9 @@ final class MediaLibraryCoordinator: ObservableObject {
         guard !Task.isCancelled, !isShutDown, rootIDsPendingRemoval.isEmpty else {
             return .cancelled
         }
-        guard scanState == .ready else { return .temporarilyUnavailable }
+        guard scanState == .ready || canRestoreIndependentPlaylist(playbackCollection) else {
+            return .temporarilyUnavailable
+        }
         queueRestorationGeneration &+= 1
         let restorationGeneration = queueRestorationGeneration
         queueRestorationTask?.cancel()
@@ -2215,12 +2294,19 @@ final class MediaLibraryCoordinator: ObservableObject {
                   selectionRevision == playbackSelectionIntentRevision,
                   capturedQueueState == queueStateRevision,
                   capturedLoadGeneration == loadGeneration else { return .cancelled }
-            guard scanState == .ready else { return .temporarilyUnavailable }
+            guard scanState == .ready || canRestoreIndependentPlaylist(playbackCollection) else {
+                return .temporarilyUnavailable
+            }
             let resolvedCollectionItems: [LibraryMediaItem]? = switch playbackCollection {
             case .mediaLibrary, .fixed: nil
             case let .customPlaylist(id): collectionItems ?? customPlaylistItemsProvider?(id)
             }
             let restoredCollection: PlaybackCollection
+            if case let .customPlaylist(id) = playbackCollection,
+               resolvedCollectionItems?.isEmpty == true,
+               customPlaylistHasUnresolvedItemsProvider?(id) == true {
+                return .temporarilyUnavailable
+            }
             if case .customPlaylist = playbackCollection, resolvedCollectionItems == nil {
                 restoredCollection = .fixed
             } else { restoredCollection = playbackCollection }
@@ -2293,6 +2379,11 @@ final class MediaLibraryCoordinator: ObservableObject {
         }
     }
 
+    func canRestoreIndependentPlaylist(_ collection: PlaybackCollection) -> Bool {
+        guard case let .customPlaylist(id) = collection else { return false }
+        return customPlaylistItemsProvider?(id) != nil
+    }
+
     func discardRestoredQueue() {
         stopPlaybackAndClearQueue()
     }
@@ -2328,6 +2419,9 @@ final class MediaLibraryCoordinator: ObservableObject {
             await task.value
         }
         await playback.drainPendingWork()
+        await retainedAccessReleaseTask?.value
+        retainedAccessReleaseTask = nil
+        retainedPlaybackAccessItem = nil
         for task in pendingSortTasks {
             await task.value
         }
@@ -2846,20 +2940,24 @@ final class MediaLibraryCoordinator: ObservableObject {
             return
         }
         unavailableItemIDs = itemIDs
+        unavailableItemFailures = unavailableItemFailures.filter { itemIDs.contains($0.key) }
         unavailableItemsRevision &+= 1
     }
 
     private func markItemAvailable(_ itemID: LibraryMediaItem.ID) {
-        guard unavailableItemIDs.remove(itemID) != nil else {
-            return
-        }
+        let removed = unavailableItemIDs.remove(itemID) != nil
+        let removedFailure = unavailableItemFailures.removeValue(forKey: itemID) != nil
+        guard removed || removedFailure else { return }
         unavailableItemsRevision &+= 1
     }
 
-    private func markItemUnavailable(_ itemID: LibraryMediaItem.ID) {
-        guard unavailableItemIDs.insert(itemID).inserted else {
-            return
-        }
+    private func markItemUnavailable(
+        _ itemID: LibraryMediaItem.ID,
+        failure: PlaybackFailure = .cannotOpen
+    ) {
+        let inserted = unavailableItemIDs.insert(itemID).inserted
+        guard inserted || unavailableItemFailures[itemID] != failure else { return }
+        unavailableItemFailures[itemID] = failure
         unavailableItemsRevision &+= 1
     }
 
@@ -3337,6 +3435,15 @@ final class MediaLibraryCoordinator: ObservableObject {
     private func clearActiveQueue(
         preservingUnavailableItems: Bool = false
     ) {
+        if let retained = retainedPlaybackAccessItem {
+            retainedPlaybackAccessItem = nil
+            let predecessor = retainedAccessReleaseTask
+            retainedAccessReleaseTask = Task { @MainActor [playback] in
+                await predecessor?.value
+                await playback.drainPendingWork()
+                withExtendedLifetime(retained) {}
+            }
+        }
         invalidateLoad()
         queue = nil
         playbackQueueMembership = .mediaLibrary
@@ -3376,9 +3483,11 @@ final class MediaLibraryCoordinator: ObservableObject {
         activeSources = sources
         monitoredFolderURLs = sources
             .filter { $0.kind == .folder }
-            .map { $0.url.standardizedFileURL }
+            // Preserve the security-scoped URL; a normalized path is only a
+            // comparison key, not a replacement authorization token.
+            .map(\.url)
             .reduce(into: [String: URL]()) { urlsByPath, url in
-                urlsByPath[url.path] = url
+                urlsByPath[url.standardizedFileURL.path] = url
             }
             .values
             .sorted { $0.path < $1.path }
@@ -3473,14 +3582,15 @@ final class MediaLibraryCoordinator: ObservableObject {
         let generation = loadGeneration
         cancelCurrentLoadTask()
         let outgoingProgress = playbackProgressCheckpoint()
-        let transition = loadedItemID == nil
+        let transition = loadedItemID == nil || retainedPlaybackAccessItem != nil
             ? PlaybackItemTransition.immediate
             : playback.queueTransitionStyle.playbackTransition
         loadedItemID = nil
 
         let source = ResolvedMediaSource(
             url: item.url,
-            displayName: item.displayName
+            displayName: item.displayName,
+            accessLease: item.accessLease
         )
         let taskID = UUID()
         let task = Task { [weak self] in
@@ -3513,20 +3623,27 @@ final class MediaLibraryCoordinator: ObservableObject {
             case .loaded:
                 loadedItemID = item.id
                 markItemAvailable(item.id)
+                if retainedPlaybackAccessItem != nil {
+                    await playback.drainPendingWork()
+                    guard generation == loadGeneration, !isShutDown else { return }
+                    retainedPlaybackAccessItem = nil
+                }
                 if resumePosition != nil, playback.currentTime == 0 {
                     try? await playbackProgressStore?.removeProgress(
                         for: [item.id]
                     )
                 }
             case let .mediaFailure(failure):
-                markItemUnavailable(item.id)
+                markItemUnavailable(item.id, failure: failure)
                 let didAdvance = advanceAfterFailedLoad(
                     failedItemID: item.id,
                     attemptsRemaining: attemptsRemaining - 1,
                     autoplay: autoplay
                 )
                 if !didAdvance {
-                    clearActiveQueue(preservingUnavailableItems: true)
+                    if !shouldPreserveUnavailablePlaylistQueue() {
+                        clearActiveQueue(preservingUnavailableItems: true)
+                    }
                     playback.finishQueue(with: failure)
                     loadedItemID = nil
                 }
@@ -3603,7 +3720,8 @@ final class MediaLibraryCoordinator: ObservableObject {
 
             let source = ResolvedMediaSource(
                 url: item.url,
-                displayName: item.displayName
+                displayName: item.displayName,
+                accessLease: item.accessLease
             )
             let result = await playback.load(
                 source,
@@ -3639,7 +3757,7 @@ final class MediaLibraryCoordinator: ObservableObject {
                     return .temporarilyUnavailable
                 }
 
-                markItemUnavailable(item.id)
+                markItemUnavailable(item.id, failure: failure)
                 guard var queue else {
                     stopPlaybackAndClearQueue()
                     return .permanentlyUnavailable
@@ -3725,21 +3843,28 @@ final class MediaLibraryCoordinator: ObservableObject {
         return advanceToNextItem() ? .advanced : .unhandled
     }
 
-    private func handleItemFailure() -> Bool {
+    private func shouldPreserveUnavailablePlaylistQueue() -> Bool {
+        guard case let .customPlaylist(id) = playbackQueueMembership else { return false }
+        return customPlaylistHasUnresolvedItemsProvider?(id) == true
+    }
+
+    private func handleItemFailure(_ failure: PlaybackFailure) -> Bool {
         guard !isShutDown,
               let failedItemID = currentItemID,
               var queue else {
             return false
         }
 
-        markItemUnavailable(failedItemID)
+        markItemUnavailable(failedItemID, failure: failure)
         let queueCount = queue.count
         guard let nextID = nextAvailableItem(
             in: &queue,
             maximumAdvances: queueCount,
             excluding: failedItemID
         ) else {
-            clearActiveQueue(preservingUnavailableItems: true)
+            if !shouldPreserveUnavailablePlaylistQueue() {
+                clearActiveQueue(preservingUnavailableItems: true)
+            }
             return false
         }
 

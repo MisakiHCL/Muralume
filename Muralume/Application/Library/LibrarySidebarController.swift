@@ -25,14 +25,25 @@ final class LibrarySidebarController: ObservableObject {
     @Published private(set) var query: String
     @Published private(set) var searchFocusRequest: UInt64 = 0
     @Published private(set) var playbackQueueFocusRequest: UInt64 = 0
+    @Published var mediaBrowserLayout: MediaBrowserLayout {
+        didSet {
+            guard mediaBrowserLayout != oldValue else { return }
+            preferencesStore?.saveLibraryBrowserLayout(mediaBrowserLayout)
+        }
+    }
+    private let preferencesStore: (any AppPreferencesStoring)?
     private var nextSearchFocusRequest: UInt64 = 0
 
     init(
         destination: LibrarySidebarDestination = .mediaLibrary,
-        query: String = ""
+        query: String = "",
+        mediaBrowserLayout: MediaBrowserLayout = AppPreferences.defaultValue.libraryBrowserLayout,
+        preferencesStore: (any AppPreferencesStoring)? = nil
     ) {
         self.destination = destination
         self.query = destination.supportsSearch ? query : ""
+        self.mediaBrowserLayout = mediaBrowserLayout
+        self.preferencesStore = preferencesStore
     }
 
     func updateQuery(_ query: String) {

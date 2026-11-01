@@ -97,6 +97,17 @@ struct MediaCollectionSearch: Equatable, Sendable {
 struct MediaLibrarySearchProjection: Sendable {
     let search: MediaCollectionSearch
     let items: [LibraryMediaItem]
+
+    static func hasSameContent(_ lhs: Self, _ rhs: Self) throws -> Bool {
+        try Task.checkCancellation()
+        guard lhs.items.count == rhs.items.count else { return false }
+        for (index, pair) in zip(lhs.items, rhs.items).enumerated() {
+            if index.isMultiple(of: 128) { try Task.checkCancellation() }
+            guard pair.0 == pair.1 else { return false }
+        }
+        try Task.checkCancellation()
+        return true
+    }
 }
 
 final class MediaLibrarySearchProjectionCache {
@@ -162,6 +173,19 @@ struct CustomPlaylistDetailProjection: Sendable {
     func entryID(for mediaItemID: LibraryMediaItem.ID?)
         -> CustomPlaylistEntry.ID? {
         mediaItemID.flatMap { entryIDsByMediaItemID[$0] }
+    }
+
+    static func hasSameContent(_ lhs: Self, _ rhs: Self) throws -> Bool {
+        try Task.checkCancellation()
+        guard lhs.entries.count == rhs.entries.count else { return false }
+        for (index, pair) in zip(lhs.entries, rhs.entries).enumerated() {
+            if index.isMultiple(of: 128) { try Task.checkCancellation() }
+            guard pair.0 == pair.1,
+                  lhs.resolvedItemsByEntryID[pair.0.id]
+                    == rhs.resolvedItemsByEntryID[pair.1.id] else { return false }
+        }
+        try Task.checkCancellation()
+        return true
     }
 }
 
@@ -286,6 +310,24 @@ final class CustomPlaylistDetailProjectionCache {
             entryIDsByMediaItemID: entryIDsByMediaItemID
         )
     }
+
+    static func makeProjection(
+        search: MediaCollectionSearch,
+        entries: [CustomPlaylistEntry],
+        resolvedItemsByEntryID: [CustomPlaylistEntry.ID: LibraryMediaItem]
+    ) -> CustomPlaylistDetailProjection {
+        var resolved: [CustomPlaylistEntry.ID: LibraryMediaItem] = [:]
+        var entryIDs: [LibraryMediaItem.ID: CustomPlaylistEntry.ID] = [:]
+        for entry in entries {
+            guard let item = resolvedItemsByEntryID[entry.id] else { continue }
+            resolved[entry.id] = item
+            entryIDs[item.id] = entry.id
+        }
+        return CustomPlaylistDetailProjection(
+            search: search, entries: entries, resolvedItemsByEntryID: resolved,
+            entryIDsByMediaItemID: entryIDs
+        )
+    }
 }
 
 struct MediaLibrarySearchRequestID: Hashable {
@@ -306,17 +348,31 @@ struct CustomPlaylistSearchRequestID: Hashable {
 @MainActor
 final class LatestMediaSearch<Result: Sendable>: ObservableObject {
     typealias Operation = @Sendable () async throws -> Result
+    typealias ContentComparison = @Sendable (Result, Result) throws -> Bool
+
+    private struct Evaluation: Sendable {
+        let result: Result
+        let matchesPrevious: Bool
+    }
 
     private struct Request {
         let key: AnyHashable
         let operation: Operation
     }
 
-    @Published private var completed: (key: AnyHashable, result: Result)?
+    @Published private var completed: (
+        key: AnyHashable, result: Result, contentRevision: UInt64
+    )?
+    private let hasSameContent: ContentComparison?
+    private var nextContentRevision: UInt64 = 0
     private var requestedKey: AnyHashable?
     private var pending: Request?
     private var drainTask: Task<Void, Never>?
-    private var workerTask: Task<Result, Error>?
+    private var workerTask: Task<Evaluation, Error>?
+
+    init(hasSameContent: ContentComparison? = nil) {
+        self.hasSameContent = hasSameContent
+    }
 
     deinit {
         workerTask?.cancel()
@@ -331,33 +387,58 @@ final class LatestMediaSearch<Result: Sendable>: ObservableObject {
     func latestResult<Key: Hashable>(
         compatibleWith key: Key,
         by isCompatible: (Key, Key) -> Bool
-    ) -> (key: Key, result: Result)? {
+    ) -> (key: Key, result: Result, contentRevision: UInt64)? {
         guard let completed,
               let completedKey = completed.key.base as? Key,
               isCompatible(completedKey, key) else { return nil }
-        return (completedKey, completed.result)
+        return (completedKey, completed.result, completed.contentRevision)
     }
 
     func request(key: some Hashable, operation: @escaping Operation) {
         let key = AnyHashable(key)
         guard requestedKey != key else { return }
         requestedKey = key
-        pending = Request(key: key, operation: operation)
         workerTask?.cancel()
+        // Returning to the one retained completed query needs no new worker.
+        guard completed?.key != key else {
+            pending = nil
+            return
+        }
+        pending = Request(key: key, operation: operation)
         guard drainTask == nil else { return }
         drainTask = Task { [weak self] in
             while let request = self?.takePendingRequest() {
                 let operation = request.operation
+                let previousResult = self?.completed?.result
+                let previousRevision = self?.completed?.contentRevision
+                let hasSameContent = self?.hasSameContent
                 let worker = Task.detached(priority: .userInitiated) {
                     try Task.checkCancellation()
-                    return try await operation()
+                    let result = try await operation()
+                    try Task.checkCancellation()
+                    let matchesPrevious: Bool
+                    if let previousResult, let hasSameContent {
+                        matchesPrevious = try hasSameContent(previousResult, result)
+                    } else {
+                        matchesPrevious = false
+                    }
+                    try Task.checkCancellation()
+                    return Evaluation(result: result, matchesPrevious: matchesPrevious)
                 }
                 self?.workerTask = worker
                 let result = try? await worker.value
                 guard let self else { return }
                 workerTask = nil
                 if requestedKey == request.key, !worker.isCancelled, let result {
-                    completed = (request.key, result)
+                    let revision: UInt64
+                    if result.matchesPrevious, let previousRevision,
+                       completed?.contentRevision == previousRevision {
+                        revision = previousRevision
+                    } else {
+                        nextContentRevision &+= 1
+                        revision = nextContentRevision
+                    }
+                    completed = (request.key, result.result, revision)
                 }
             }
             self?.drainTask = nil

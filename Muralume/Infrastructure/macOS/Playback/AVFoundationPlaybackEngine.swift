@@ -117,7 +117,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         publishEmbeddedSubtitleCueText(nil)
 
         do {
-            let loaded = try await assetLoadController.load(source.url)
+            let loaded = try await assetLoadController.load(source.url, accessLease: source.accessLease)
             let asset = loaded.asset
             let sourceLease = loaded.lease
             let metadata = loaded.metadata

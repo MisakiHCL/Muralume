@@ -13,6 +13,8 @@ struct PlayerActions {
     let playLibraryItem: (LibraryMediaItem) -> Void
     let playCustomPlaylistItem:
         (LibraryMediaItem, CustomPlaylist.ID) -> Void
+    let reauthorizePlaylistEntry:
+        (CustomPlaylist.ID, CustomPlaylistEntry.ID) -> Void
     let addLibraryItemToPlaylist:
         (LibraryMediaItem, CustomPlaylist.ID) -> Void
     let revealMediaInFinder: (URL) -> Void

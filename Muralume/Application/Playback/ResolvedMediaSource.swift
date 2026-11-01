@@ -1,8 +1,24 @@
 import Foundation
 
+/// Value models share this owner without duplicating or prematurely closing its grant.
+final class MediaSourceAccessLease: Hashable, @unchecked Sendable {
+    private let owner: any AnyObject & Sendable
+
+    init<Owner: AnyObject & Sendable>(retaining owner: Owner) {
+        self.owner = owner
+    }
+
+    static func == (lhs: MediaSourceAccessLease, rhs: MediaSourceAccessLease) -> Bool {
+        lhs === rhs
+    }
+
+    func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(self)) }
+}
+
 struct ResolvedMediaSource: Equatable, Sendable {
     let url: URL
     let displayName: String
+    var accessLease: MediaSourceAccessLease? = nil
 }
 
 enum MediaPlaybackCompatibilityPolicy {
@@ -35,14 +51,17 @@ enum MediaPlaybackCompatibilityPolicy {
 /// app's temporary directory; media stays at its user-selected location.
 final class MediaPlaybackURLLease: @unchecked Sendable {
     let url: URL
+    private let accessLease: MediaSourceAccessLease?
 
     private let lock = NSLock()
     private var removableURL: URL?
 
     init(
         sourceURL: URL,
+        accessLease: MediaSourceAccessLease? = nil,
         temporaryDirectoryURL: URL = FileManager.default.temporaryDirectory
     ) throws {
+        self.accessLease = accessLease
         guard let canonicalExtension =
             MediaPlaybackCompatibilityPolicy.canonicalExtension(
                 for: sourceURL

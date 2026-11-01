@@ -14,16 +14,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  release-gate:
-    name: Release gate
-    runs-on: macos-26
-    timeout-minutes: 45
+  minimum-toolchain:
+    name: Minimum toolchain build
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Show Xcode version
-        run: xcodebuild -version
+      - name: Verify the minimum Xcode and Swift versions
+        run: ./Scripts/check_toolchain.sh 26.0.1 6.2
+      - name: Ensure ripgrep is available
+        run: command -v rg >/dev/null || brew install ripgrep
+      - name: Build Debug tests and unsigned Release
+        run: ./Scripts/verify.sh compatibility
+
+  release-gate:
+    name: Release gate
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify the current Xcode and Swift versions
+        run: ./Scripts/check_toolchain.sh 26.6 6.3
       - name: Ensure ripgrep is available
         run: command -v rg >/dev/null || brew install ripgrep
       - name: Run deterministic release checks

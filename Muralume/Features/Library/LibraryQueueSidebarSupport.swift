@@ -139,6 +139,71 @@ struct LibraryPlaylistRowContentRevision: Hashable {
     let playlistMenuEntries: [LibraryPlaylistMenuEntryRevision]
 }
 
+struct LibraryBrowserLayoutPicker: View {
+    @Binding var layout: MediaBrowserLayout
+
+    var body: some View {
+        HStack(spacing: MuralumeTheme.Spacing.libraryBrowserControls) {
+            layoutButton(.list, icon: "list.bullet")
+            layoutButton(.grid, icon: "square.grid.2x2")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("library.layout"))
+        .accessibilityIdentifier(MuralumeAccessibilityIdentifier.libraryLayoutPicker)
+    }
+
+    private func layoutButton(_ value: MediaBrowserLayout, icon: String) -> some View {
+        let title = LocalizedStringKey(value == .grid ? "library.layout.grid" : "library.layout.list")
+        return Button { layout = value } label: {
+            Image(systemName: icon)
+        }
+        .buttonStyle(LibraryBrowserControlStyle(isSelected: layout == value))
+        .help(Text(title))
+        .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(layout == value ? .isSelected : [])
+        .accessibilityIdentifier(value == .grid
+            ? MuralumeAccessibilityIdentifier.libraryGridButton
+            : MuralumeAccessibilityIdentifier.libraryListButton)
+    }
+}
+
+/// Keeps the icon, highlight and hit area consistent for buttons and menus.
+struct LibraryBrowserControlStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
+    var isSelected = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: MuralumeTheme.Size.libraryBrowserControlIconSize))
+            .foregroundStyle(isSelected
+                ? MuralumeTheme.Colors.textPrimary : MuralumeTheme.Colors.textSecondary)
+            .frame(
+                width: MuralumeTheme.Size.libraryBrowserControlSize,
+                height: MuralumeTheme.Size.libraryBrowserControlSize
+            )
+            .background {
+                if isSelected || configuration.isPressed {
+                    RoundedRectangle(cornerRadius: MuralumeTheme.Radius.small)
+                        .fill(MuralumeTheme.Colors.controlHover)
+                        .overlay {
+                            if colorSchemeContrast == .increased {
+                                RoundedRectangle(cornerRadius: MuralumeTheme.Radius.small)
+                                    .strokeBorder(MuralumeTheme.Colors.textSecondary, lineWidth: 1)
+                            }
+                        }
+                        .frame(
+                            width: MuralumeTheme.Size.libraryBrowserControlHighlightSize,
+                            height: MuralumeTheme.Size.libraryBrowserControlHighlightSize
+                        )
+                }
+            }
+            .contentShape(Rectangle())
+            .opacity(isEnabled ? 1 : 0.34)
+    }
+}
+
 struct LibraryPlaylistMenuEntryRevision: Hashable {
     let id: CustomPlaylist.ID
     let name: String

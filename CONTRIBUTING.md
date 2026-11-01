@@ -14,8 +14,9 @@ video playback, media organization, and Dynamic Desktop presentation.
 
 ## Local setup
 
-Use an Apple silicon Mac with macOS 14 or later, Xcode with Swift 6 support,
-and `ripgrep` installed.
+Use an Apple silicon Mac, Xcode 26.0.1 or later with Swift 6.2 or later, and
+`ripgrep` installed. The app supports macOS 14 or later; building it also
+requires a macOS version supported by the selected Xcode.
 
 ```bash
 git clone https://github.com/MisakiHCL/Muralume.git
@@ -27,10 +28,21 @@ make test
 tests, the UI suite, fixture validation, and an unsigned Release build. UI
 tests require an active macOS graphical session.
 
+Run `./Scripts/check_toolchain.sh` to check the selected compiler, or
+`./Scripts/verify.sh compatibility` to compile the Debug app and test targets
+plus an unsigned Release app without running tests. CI pins Xcode 26.0.1 on
+macOS 15 for this minimum-toolchain build and Xcode 26.6 on macOS 26 for the
+deterministic release gate. These builds do not verify runtime behavior on
+macOS 14.
+
 Debug builds use a separate bundle identifier and data container. If local
 development requires an Apple development team, copy
 `Config/Local.xcconfig.example` to the Git-ignored
 `Config/Local.xcconfig` and put local signing values only in that copy.
+
+Verification commands build a dedicated test app, and each UI test uses its
+own playlist session. Run UI tests with `./Scripts/verify.sh ui`; their launch
+checks require the isolated test identity configured by that command.
 
 To create an ad-hoc signed package for local installation testing, run:
 

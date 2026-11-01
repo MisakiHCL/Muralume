@@ -389,13 +389,44 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         )
     }
 
+    func reauthorizePlaylistEntry(
+        playlistID: CustomPlaylist.ID,
+        entryID: CustomPlaylistEntry.ID
+    ) {
+        guard canImportMedia, !isShutDown,
+              let source = playlists.reauthorizationSource(for: entryID, in: playlistID),
+              let selectedURL = library.selectPlaylistAccessSource(source) else { return }
+        performMediaImport { [weak self] in
+            guard let self, !isShutDown, !Task.isCancelled else { return }
+            do {
+                try await playlists.reauthorizeEntry(
+                    playlistID: playlistID, entryID: entryID, selectedURL: selectedURL
+                )
+            } catch { return }
+            guard !isShutDown, !Task.isCancelled else { return }
+            resumeDeferredPlaybackSession(after: .alreadyStarted, overridingPresentation: .player)
+        }
+    }
+
     func removeUnavailableMediaSource(_ source: UnavailableMediaSource) {
         guard canImportMedia,
               initialRestoreTask == nil,
               !playbackSession.isRestoring else {
             return
         }
-        library.removeUnavailableSource(source)
+        guard playlists.usesIndependentMediaAccess else {
+            library.removeUnavailableSource(source)
+            return
+        }
+        performMediaImport { [weak self] in
+            guard let self else { return }
+            guard await playlists.prepareForUnavailableSourceRemoval(source) else {
+                library.sourceRemovalPreservationFailed = true
+                return
+            }
+            guard !Task.isCancelled, !isShutDown else { return }
+            library.removeUnavailableSource(source)
+        }
     }
 
     func retryUnavailableSourceAccess() {
@@ -862,8 +893,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         await pendingExternalOpen?.value
         for task in pendingMediaImports { await task.value }
         await mediaThumbnailProvider.shutdown()
-        await customPlaylistPlaybackBridge.shutdown()
         await library.shutdown()
+        await customPlaylistPlaybackBridge.shutdown()
     }
 
     func handleApplicationActivation(hasVisibleWindows: Bool) {

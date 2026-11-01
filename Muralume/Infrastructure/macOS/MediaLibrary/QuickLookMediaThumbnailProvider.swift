@@ -53,6 +53,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
 
     private final class CacheKey: NSObject {
         let itemID: LibraryMediaItem.ID
+        let fileIdentity: MediaFileIdentity?
         let fileSize: Int64
         let modificationDate: Date?
         let pixelWidth: Int
@@ -65,6 +66,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             scale: CGFloat
         ) {
             itemID = item.id
+            fileIdentity = item.fileIdentity
             fileSize = item.fileSize
             modificationDate = item.modificationDate
             pixelWidth = Int((size.width * scale).rounded(.up))
@@ -75,6 +77,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         override var hash: Int {
             var hasher = Hasher()
             hasher.combine(itemID)
+            hasher.combine(fileIdentity)
             hasher.combine(fileSize)
             hasher.combine(modificationDate)
             hasher.combine(pixelWidth)
@@ -88,6 +91,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
                 return false
             }
             return itemID == other.itemID
+                && fileIdentity == other.fileIdentity
                 && fileSize == other.fileSize
                 && modificationDate == other.modificationDate
                 && pixelWidth == other.pixelWidth
@@ -137,6 +141,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
 
         let cacheKey: CacheKey
         let fileURL: URL
+        let accessLease: MediaSourceAccessLease?
         let size: CGSize
         let scale: CGFloat
         let cacheGeneration: UInt64
@@ -152,6 +157,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         init(
             cacheKey: CacheKey,
             fileURL: URL,
+            accessLease: MediaSourceAccessLease?,
             size: CGSize,
             scale: CGFloat,
             cacheGeneration: UInt64,
@@ -159,6 +165,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         ) {
             self.cacheKey = cacheKey
             self.fileURL = fileURL
+            self.accessLease = accessLease
             self.size = size
             self.scale = scale
             self.cacheGeneration = cacheGeneration
@@ -253,22 +260,28 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         cache.totalCostLimit = AppConfiguration.mediaThumbnailCacheByteLimit
     }
 
+    func cachedThumbnail(
+        for item: LibraryMediaItem,
+        size: CGSize,
+        scale: CGFloat
+    ) -> CGImage? {
+        guard item.modificationDate != nil,
+              let cacheKey = makeCacheKey(for: item, size: size, scale: scale) else {
+            return nil
+        }
+        return cache.object(forKey: cacheKey)?.image
+    }
+
     func thumbnail(
         for item: LibraryMediaItem,
         size: CGSize,
         scale: CGFloat
     ) async -> CGImage? {
-        guard !isShutDown,
-              !invalidatedRootPaths.contains(item.id.rootPath) else {
+        guard let cacheKey = makeCacheKey(for: item, size: size, scale: scale) else {
             return nil
         }
 
         let effectiveScale = max(scale, 1)
-        let cacheKey = CacheKey(
-            item: item,
-            size: size,
-            scale: effectiveScale
-        )
         let isCacheable = item.modificationDate != nil
         let requestCacheGeneration = cacheGeneration
         if let cachedImage = cachedImage(
@@ -322,6 +335,20 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             cacheGeneration: requestCacheGeneration,
             isCacheable: isCacheable
         )
+    }
+
+    private func makeCacheKey(
+        for item: LibraryMediaItem, size: CGSize, scale: CGFloat
+    ) -> CacheKey? {
+        guard !isShutDown,
+              !invalidatedRootPaths.contains(item.id.rootPath),
+              scale.isFinite, size.width > 0, size.height > 0 else { return nil }
+        let effectiveScale = max(scale, 1)
+        let pixelWidth = (size.width * effectiveScale).rounded(.up)
+        let pixelHeight = (size.height * effectiveScale).rounded(.up)
+        guard pixelWidth.isFinite, pixelHeight.isFinite,
+              pixelWidth < CGFloat(Int.max), pixelHeight < CGFloat(Int.max) else { return nil }
+        return CacheKey(item: item, size: size, scale: effectiveScale)
     }
 
     private func cachedImage(
@@ -480,6 +507,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
                 let activeRequest = ActiveRequest(
                     cacheKey: cacheKey,
                     fileURL: item.url,
+                    accessLease: item.accessLease,
                     size: size,
                     scale: scale,
                     cacheGeneration: cacheGeneration,
@@ -581,12 +609,14 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
             let fileURL = activeRequest.fileURL
             let size = activeRequest.size
             let scale = activeRequest.scale
+            let accessLease = activeRequest.accessLease
             let needsCompatibilityGenerator =
                 MediaPlaybackCompatibilityPolicy.canonicalExtension(
                     for: fileURL
                 ) != nil
             activeRequest.task = Task {
-                @MainActor [weak self, weak activeRequest] in
+                @MainActor [weak self, weak activeRequest, accessLease] in
+                defer { withExtendedLifetime(accessLease) {} }
                 let image = if needsCompatibilityGenerator {
                     await Self.generateCompatibilityThumbnail(
                         generator: compatibilityGenerator,

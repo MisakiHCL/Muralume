@@ -337,6 +337,7 @@ final class TestAppPreferencesStore: AppPreferencesStoring {
         [PlaybackRepeatBehavior] = []
     private(set) var savedQueueTransitionStyles: [QueueTransitionStyle] = []
     private(set) var savedLibrarySorts: [MediaLibrarySort] = []
+    private(set) var savedLibraryBrowserLayouts: [MediaBrowserLayout] = []
     private(set) var savedLanguages: [AppLanguage] = []
     private(set) var savedSubtitleAppearances:
         [SubtitleAppearancePreferences] = []
@@ -375,6 +376,10 @@ final class TestAppPreferencesStore: AppPreferencesStoring {
 
     func saveLibrarySort(_ sort: MediaLibrarySort) {
         savedLibrarySorts.append(sort)
+    }
+
+    func saveLibraryBrowserLayout(_ layout: MediaBrowserLayout) {
+        savedLibraryBrowserLayouts.append(layout)
     }
 
     func saveLanguage(_ language: AppLanguage) {

@@ -287,6 +287,15 @@ struct PlayerScreen<PlayerSurface: View>: View {
             chromeController.librarySidebarController.selectDestination(
                 .playlist(playlistID)
             )
+        case let .createWithItems(creation):
+            let items = try creation.input.validatedItems(
+                using: library.libraryItemsByID
+            )
+            let playlistID = try playlists.createPlaylist(named: name, items: items)
+            creation.complete()
+            chromeController.librarySidebarController.selectDestination(
+                .playlist(playlistID)
+            )
         case let .rename(playlist):
             try playlists.renamePlaylist(id: playlist.id, to: name)
         }
@@ -426,7 +435,8 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 dismiss: {
                     chromeController.setPlaylistPresented(false)
                 },
-                playlistNameEditor: $playlistNameEditor
+                playlistNameEditor: $playlistNameEditor,
+                reauthorizePlaylistEntry: actions.reauthorizePlaylistEntry
             )
         case .settings:
             SettingsView(

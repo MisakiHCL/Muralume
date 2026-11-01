@@ -11,13 +11,18 @@ struct CustomPlaylistSidebarContent: View {
     let showVideoInformation: (LibraryMediaItem) -> Void
     let dismiss: () -> Void
     @Binding var nameEditor: PlaylistNameEditorRequest?
+    var reauthorizePlaylistEntry: ((CustomPlaylist.ID, CustomPlaylistEntry.ID) -> Void)? = nil
 
     @EnvironmentObject private var localization: AppLocalizationController
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var pendingDeletion: CustomPlaylist?
+    @State private var selection = MediaBrowserSelection<CustomPlaylistEntry.ID>()
+    @State private var batchRemovalFailed = false
     @State private var searchScrollToTopRequest: UInt64 = 0
     @StateObject private var detailSearch =
-        LatestMediaSearch<CustomPlaylistDetailProjection>()
+        LatestMediaSearch<CustomPlaylistDetailProjection>(
+            hasSameContent: CustomPlaylistDetailProjection.hasSameContent
+        )
 
     var body: some View {
         Group {
@@ -66,10 +71,21 @@ struct CustomPlaylistSidebarContent: View {
                 )
             )
         }
+        .alert("playlists.removeSelected.failed", isPresented: $batchRemovalFailed) {
+            Button("action.ok", role: .cancel) {}
+        }
         .onChange(of: normalizedSearchQuery) {
+            selection.clear()
             guard !normalizedSearchQuery.isEmpty else { return }
             searchScrollToTopRequest &+= 1
         }
+        .onChange(of: navigation.destination) {
+            selection.end()
+        }
+        .onChange(of: playlists.collectionRevision) {
+            retainCurrentSelection()
+        }
+        .onDisappear { selection.end() }
     }
 
     private var overview: some View {
@@ -136,18 +152,17 @@ struct CustomPlaylistSidebarContent: View {
         let requestID = CustomPlaylistSearchRequestID(
             playlistID: playlist.id,
             playlistRevision: playlists.collectionRevision,
-            libraryItemsRevision: library.itemsRevision,
+            libraryItemsRevision: playlists.resolutionRevision,
             query: normalizedSearchQuery
         )
-        let requestedItems = library.items
         let displayed: (
             key: CustomPlaylistSearchRequestID,
-            result: CustomPlaylistDetailProjection
+            result: CustomPlaylistDetailProjection,
+            contentRevision: UInt64
         )? = detailSearch.latestResult(compatibleWith: requestID) {
             (previous: CustomPlaylistSearchRequestID,
              current: CustomPlaylistSearchRequestID) in
             previous.playlistID == current.playlistID
-                && previous.query == current.query
         }
         let projection = displayed?.result
         let isSearching = detailSearch.result(for: requestID) == nil
@@ -219,9 +234,11 @@ struct CustomPlaylistSidebarContent: View {
 
             HStack(spacing: MuralumeTheme.Spacing.small) {
                 Text(
-                    verbatim: isSearching && !playlist.entries.isEmpty
-                        ? localization.localized("library.search.searching")
-                        : search.isEmpty
+                    verbatim: selection.isSelecting
+                        ? localization.localizedFormat(
+                            "library.selection.count", selection.ids.count
+                        )
+                        : (projection?.search.isEmpty ?? true)
                             ? playlistCountText(playlist.entries.count)
                             : localization.localizedFormat(
                                 "library.search.results",
@@ -232,10 +249,12 @@ struct CustomPlaylistSidebarContent: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(MuralumeTheme.Colors.textSecondary)
                 .accessibilityIdentifier(
-                    MuralumeAccessibilityIdentifier.searchResultsSummary
+                    selection.isSelecting
+                        ? MuralumeAccessibilityIdentifier.playlistSelectedCount
+                        : MuralumeAccessibilityIdentifier.searchResultsSummary
                 )
                 Spacer()
-                if !search.isEmpty {
+                if !search.isEmpty && !selection.isSelecting {
                     Image(systemName: "arrow.up.arrow.down.circle")
                         .foregroundStyle(MuralumeTheme.Colors.textTertiary)
                         .help(Text("playlists.reorder.searchHint"))
@@ -244,8 +263,32 @@ struct CustomPlaylistSidebarContent: View {
                         )
                 }
                 persistenceFailureButton
+                Button(
+                    LocalizedStringKey(selection.isSelecting
+                        ? "library.selection.done"
+                        : "library.selection.begin")
+                ) {
+                    if selection.isSelecting {
+                        selection.end()
+                    } else {
+                        selection.begin()
+                    }
+                }
+                .buttonStyle(.link)
+                .disabled(playlist.entries.isEmpty && !selection.isSelecting)
+                .accessibilityIdentifier(
+                    MuralumeAccessibilityIdentifier.playlistSelectionButton
+                )
             }
             .frame(minHeight: MuralumeTheme.Size.playlistStatusBarHeight)
+
+            if selection.isSelecting {
+                selectionActions(
+                    playlistID: playlist.id,
+                    visibleEntries: projection?.entries ?? [],
+                    isSearching: isSearching
+                )
+            }
 
             Divider().overlay(MuralumeTheme.Colors.border)
 
@@ -260,9 +303,19 @@ struct CustomPlaylistSidebarContent: View {
                     playlistEntries(
                         projection,
                         in: playlist,
-                        snapshotRequestID: displayed?.key ?? requestID,
-                        allowsReordering: search.isEmpty
+                        contentRevision: displayed?.contentRevision ?? 0,
+                        isSearching: isSearching,
+                        allowsReordering: search.isEmpty && !selection.isSelecting && !isSearching
                     )
+                    .overlay(alignment: .topTrailing) {
+                        if isSearching {
+                            ProgressView()
+                                .controlSize(.small)
+                                .padding(MuralumeTheme.Spacing.small)
+                                .accessibilityLabel(Text("library.search.searching"))
+                                .allowsHitTesting(false)
+                        }
+                    }
                 }
             } else {
                 ProgressView("library.search.searching")
@@ -279,13 +332,16 @@ struct CustomPlaylistSidebarContent: View {
                 key: requestID,
                 operation: playlists.detailSearchOperation(
                     for: playlist,
-                    query: search.query,
-                    using: requestedItems,
-                    itemsRevision: requestID.libraryItemsRevision
+                    query: search.query
                 )
             )
         }
+        .onChange(of: displayed?.key) {
+            guard let projection else { return }
+            selection.retain(Set(projection.entries.map(\.id)))
+        }
         .onDisappear { detailSearch.cancel() }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(
             MuralumeAccessibilityIdentifier.playlistDetail
         )
@@ -294,20 +350,23 @@ struct CustomPlaylistSidebarContent: View {
     private func playlistEntries(
         _ projection: CustomPlaylistDetailProjection,
         in playlist: CustomPlaylist,
-        snapshotRequestID: CustomPlaylistSearchRequestID,
+        contentRevision: UInt64,
+        isSearching: Bool,
         allowsReordering: Bool
     ) -> some View {
         FixedHeightVirtualizedTable(
             items: projection.entries,
             snapshotRevision: CustomPlaylistSnapshotRevision(
-                playlistID: snapshotRequestID.playlistID,
-                playlistRevision: snapshotRequestID.playlistRevision,
-                libraryItemsRevision: snapshotRequestID.libraryItemsRevision,
-                query: snapshotRequestID.query
+                playlistID: playlist.id,
+                contentRevision: contentRevision
             ),
             rowContentRevision: CustomPlaylistRowContentRevision(
                 currentItemID: library.currentItemID,
-                allowsReordering: allowsReordering
+                allowsReordering: allowsReordering,
+                selectionRevision: selection.revision,
+                isSearching: isSearching,
+                availabilityRevision: playlists.availabilityRevision,
+                unavailableItemsRevision: library.unavailableItemsRevision
             ),
             scrollTargetID: projection.search.isEmpty
                 ? projection.entryID(for: library.currentItemID)
@@ -323,7 +382,10 @@ struct CustomPlaylistSidebarContent: View {
             CustomPlaylistMediaRow(
                 entry: entry,
                 item: item,
+                issue: issue(for: entry, item: item),
                 isCurrent: item?.id == library.currentItemID,
+                isSelecting: selection.isSelecting,
+                isSelected: selection.ids.contains(entry.id),
                 mediaThumbnailProvider: mediaThumbnailProvider,
                 play: {
                     guard let item else { return }
@@ -344,8 +406,20 @@ struct CustomPlaylistSidebarContent: View {
                 canMoveUp: allowsReordering
                     && playlist.entries.first?.id != entry.id,
                 canMoveDown: allowsReordering
-                    && playlist.entries.last?.id != entry.id
+                    && playlist.entries.last?.id != entry.id,
+                toggleSelection: { selection.toggle(entry.id) },
+                retry: {
+                    if let item {
+                        playCustomPlaylistItem(item, playlist.id)
+                    } else {
+                        playlists.retryResolution()
+                    }
+                },
+                reauthorize: reauthorizePlaylistEntry.map { action in
+                    { action(playlist.id, entry.id) }
+                }
             )
+            .disabled(isSearching)
             .frame(height: playlistRowHeight)
             .customPlaylistDragTarget(
                 enabled: allowsReordering,
@@ -385,6 +459,71 @@ struct CustomPlaylistSidebarContent: View {
             .environmentObject(localization)
         }
         .scrollIndicators(.visible)
+    }
+
+    private func issue(
+        for entry: CustomPlaylistEntry,
+        item: LibraryMediaItem?
+    ) -> CustomPlaylistMediaIssue? {
+        if let item, let failure = library.unavailableItemFailures[item.id] {
+            return switch failure {
+            case .unsupported: .unsupportedFormat
+            case .cannotOpen: .cannotOpen
+            case .surfaceTimeout: .temporarilyUnavailable
+            }
+        }
+        return playlists.issue(for: entry)
+    }
+
+    private func selectionActions(
+        playlistID: CustomPlaylist.ID,
+        visibleEntries: [CustomPlaylistEntry],
+        isSearching: Bool
+    ) -> some View {
+        HStack(spacing: MuralumeTheme.Spacing.medium) {
+            Button("library.selection.all") {
+                selection.selectAll(visibleEntries.map(\.id))
+            }
+            .disabled(isSearching || visibleEntries.isEmpty)
+            .accessibilityIdentifier(
+                MuralumeAccessibilityIdentifier.playlistSelectAllButton
+            )
+
+            Button("library.selection.clear") { selection.clear() }
+                .disabled(selection.ids.isEmpty)
+                .accessibilityIdentifier(
+                    MuralumeAccessibilityIdentifier.playlistClearSelectionButton
+                )
+
+            Spacer(minLength: 0)
+
+            Button("playlists.removeSelected", role: .destructive) {
+                guard !isSearching else { return }
+                do {
+                    try playlists.removeEntries(selection.ids, from: playlistID)
+                    selection.clear()
+                } catch {
+                    batchRemovalFailed = true
+                }
+            }
+            .disabled(isSearching || selection.ids.isEmpty)
+            .accessibilityIdentifier(
+                MuralumeAccessibilityIdentifier.playlistRemoveSelectedButton
+            )
+        }
+        .buttonStyle(.link)
+        .font(.caption)
+        .padding(.bottom, MuralumeTheme.Spacing.small)
+    }
+
+    private func retainCurrentSelection() {
+        guard !selection.ids.isEmpty else { return }
+        guard case let .playlist(playlistID) = navigation.destination,
+              let playlist = playlists.collection.playlist(id: playlistID) else {
+            selection.end()
+            return
+        }
+        selection.retain(Set(playlist.entries.map(\.id)))
     }
 
     private func playlistOverviewRow(
@@ -644,14 +783,16 @@ struct CustomPlaylistSidebarContent: View {
 
 private struct CustomPlaylistSnapshotRevision: Hashable {
     let playlistID: CustomPlaylist.ID
-    let playlistRevision: UInt64
-    let libraryItemsRevision: UInt64
-    let query: String
+    let contentRevision: UInt64
 }
 
 private struct CustomPlaylistRowContentRevision: Hashable {
     let currentItemID: LibraryMediaItem.ID?
     let allowsReordering: Bool
+    let selectionRevision: UInt64
+    let isSearching: Bool
+    let availabilityRevision: UInt64
+    let unavailableItemsRevision: UInt64
 }
 
 private enum CustomPlaylistDropPlacement {
@@ -689,182 +830,5 @@ private extension View {
         } else {
             self
         }
-    }
-
-    @ViewBuilder
-    func customPlaylistMoveAccessibilityActions(
-        canMoveUp: Bool,
-        canMoveDown: Bool,
-        moveUp: @escaping () -> Void,
-        moveDown: @escaping () -> Void
-    ) -> some View {
-        if canMoveUp && canMoveDown {
-            accessibilityAction(
-                named: Text("playlists.moveUp"),
-                moveUp
-            )
-            .accessibilityAction(
-                named: Text("playlists.moveDown"),
-                moveDown
-            )
-        } else if canMoveUp {
-            accessibilityAction(
-                named: Text("playlists.moveUp"),
-                moveUp
-            )
-        } else if canMoveDown {
-            accessibilityAction(
-                named: Text("playlists.moveDown"),
-                moveDown
-            )
-        } else {
-            self
-        }
-    }
-
-    @ViewBuilder
-    func customPlaylistAvailabilityAccessibility(
-        isAvailable: Bool
-    ) -> some View {
-        if isAvailable {
-            self
-        } else {
-            accessibilityValue(Text("library.item.unavailable"))
-                .accessibilityHint(Text("library.item.unavailable"))
-        }
-    }
-}
-
-private struct CustomPlaylistMediaRow: View {
-    let entry: CustomPlaylistEntry
-    let item: LibraryMediaItem?
-    let isCurrent: Bool
-    let mediaThumbnailProvider: any MediaThumbnailProviding
-    let play: () -> Void
-    let revealInFinder: () -> Void
-    let showInformation: () -> Void
-    let remove: () -> Void
-    let moveUp: () -> Void
-    let moveDown: () -> Void
-    let canMoveUp: Bool
-    let canMoveDown: Bool
-
-    var body: some View {
-        rowControl
-        .contextMenu {
-            if item != nil {
-                Button("videoInfo.menu", action: showInformation)
-                Button("library.item.revealInFinder", action: revealInFinder)
-            }
-            if canMoveUp {
-                Button("playlists.moveUp", action: moveUp)
-            }
-            if canMoveDown {
-                Button("playlists.moveDown", action: moveDown)
-            }
-            Divider()
-            Button("playlists.removeVideo", role: .destructive, action: remove)
-        }
-        .accessibilityLabel(
-            Text(verbatim: item?.displayName ?? entry.media.lastKnownDisplayName)
-        )
-        .customPlaylistAvailabilityAccessibility(isAvailable: item != nil)
-        .customPlaylistMoveAccessibilityActions(
-            canMoveUp: canMoveUp,
-            canMoveDown: canMoveDown,
-            moveUp: moveUp,
-            moveDown: moveDown
-        )
-    }
-
-    @ViewBuilder
-    private var rowControl: some View {
-        if item == nil {
-            rowLabel
-        } else {
-            Button(action: play) {
-                rowLabel
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private var rowLabel: some View {
-        HStack(spacing: MuralumeTheme.Spacing.small) {
-            if let item {
-                LibraryMediaThumbnail(
-                    item: item,
-                    isCurrent: isCurrent,
-                    provider: mediaThumbnailProvider
-                )
-            } else {
-                unavailableThumbnail
-            }
-
-            VStack(
-                alignment: .leading,
-                spacing: MuralumeTheme.Spacing.xSmall
-            ) {
-                Text(
-                    verbatim: item?.displayName
-                        ?? entry.media.lastKnownDisplayName
-                )
-                .font(.body.weight(isCurrent ? .semibold : .regular))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                Text(
-                    verbatim: item?.relativePath
-                        ?? entry.media.mediaItemID.relativePath
-                )
-                .font(.caption)
-                .foregroundStyle(MuralumeTheme.Colors.textTertiary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            }
-
-            Spacer(minLength: MuralumeTheme.Spacing.small)
-            if item == nil {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .foregroundStyle(MuralumeTheme.Colors.warning)
-                    .accessibilityHidden(true)
-            } else if isCurrent {
-                Image(systemName: "waveform")
-                    .foregroundStyle(MuralumeTheme.Colors.controlAccent)
-                    .accessibilityHidden(true)
-            }
-        }
-        .padding(MuralumeTheme.Spacing.small)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(minHeight: MuralumeTheme.Size.control * 2)
-        .background {
-            RoundedRectangle(
-                cornerRadius: MuralumeTheme.Radius.medium,
-                style: .continuous
-            )
-            .fill(
-                isCurrent
-                    ? MuralumeTheme.Colors.controlHover
-                    : MuralumeTheme.Colors.controlFill.opacity(0.36)
-            )
-        }
-    }
-
-    private var unavailableThumbnail: some View {
-        ZStack {
-            MuralumeTheme.Colors.panelRaised
-            Image(systemName: "film")
-                .foregroundStyle(MuralumeTheme.Colors.textTertiary)
-        }
-        .frame(
-            width: MuralumeTheme.Size.playlistArtworkWidth,
-            height: MuralumeTheme.Size.playlistArtworkHeight
-        )
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: MuralumeTheme.Radius.small,
-                style: .continuous
-            )
-        )
-        .accessibilityHidden(true)
     }
 }

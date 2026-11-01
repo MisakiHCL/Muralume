@@ -31,10 +31,12 @@ actor FileCustomPlaylistStore: CustomPlaylistStoring {
             return .empty
         }
         let data = try readBoundedData()
-        let collection = try decoder.decode(
-            CustomPlaylistCollection.self,
-            from: data
-        )
+        let collection: CustomPlaylistCollection
+        do {
+            collection = try decoder.decode(CustomPlaylistCollection.self, from: data)
+        } catch is DecodingError {
+            throw CustomPlaylistStoreError.invalidCollection
+        }
         guard collection.isValid else {
             throw CustomPlaylistStoreError.invalidCollection
         }

@@ -57,17 +57,20 @@ final class AVFoundationAssetLoadController {
     private final class Request {
         let id: UUID
         let sourceURL: URL
+        let accessLease: MediaSourceAccessLease?
         let cancellation: Cancellation
         var continuation: CheckedContinuation<AVFoundationLoadedAsset, Error>?
 
         init(
             id: UUID,
             sourceURL: URL,
+            accessLease: MediaSourceAccessLease?,
             cancellation: Cancellation,
             continuation: CheckedContinuation<AVFoundationLoadedAsset, Error>
         ) {
             self.id = id
             self.sourceURL = sourceURL
+            self.accessLease = accessLease
             self.cancellation = cancellation
             self.continuation = continuation
         }
@@ -92,7 +95,7 @@ final class AVFoundationAssetLoadController {
         self.metadataLoader = metadataLoader
     }
 
-    func load(_ sourceURL: URL) async throws -> AVFoundationLoadedAsset {
+    func load(_ sourceURL: URL, accessLease: MediaSourceAccessLease? = nil) async throws -> AVFoundationLoadedAsset {
         let id = UUID()
         let cancellation = Cancellation()
         return try await withTaskCancellationHandler {
@@ -102,6 +105,7 @@ final class AVFoundationAssetLoadController {
                 let request = Request(
                     id: id,
                     sourceURL: sourceURL,
+                    accessLease: accessLease,
                     cancellation: cancellation,
                     continuation: continuation
                 )
@@ -160,7 +164,7 @@ final class AVFoundationAssetLoadController {
             let result: Result<AVFoundationLoadedAsset, Error>
             do {
                 try Task.checkCancellation()
-                let lease = try MediaPlaybackURLLease(sourceURL: request.sourceURL)
+                let lease = try MediaPlaybackURLLease(sourceURL: request.sourceURL, accessLease: request.accessLease)
                 defer { withExtendedLifetime(lease) {} }
                 let asset = assetFactory(lease.url)
                 let cancellation = request.cancellation

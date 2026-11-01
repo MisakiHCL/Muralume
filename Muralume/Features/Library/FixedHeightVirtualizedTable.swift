@@ -8,6 +8,11 @@ private struct VirtualizedTableRowContentRevision: Hashable {
     let dynamicTypeSize: DynamicTypeSize
     let layoutDirection: LayoutDirection
     let localeIdentifier: String
+    let reduceMotion: Bool
+    let reduceTransparency: Bool
+    let increasedContrast: Bool
+    let differentiateWithoutColor: Bool
+    let isEnabled: Bool
     let rowHeight: CGFloat
 }
 
@@ -85,6 +90,12 @@ struct FixedHeightVirtualizedTable<
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.locale) private var locale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.accessibilityDifferentiateWithoutColor)
+    private var differentiateWithoutColor
+    @Environment(\.isEnabled) private var isEnabled
 
     let items: [Item]
     let snapshotRevision: AnyHashable
@@ -193,6 +204,7 @@ struct FixedHeightVirtualizedTable<
         let dynamicTypeSize = self.dynamicTypeSize
         let layoutDirection = self.layoutDirection
         let locale = self.locale
+        let environment = context.environment
         let effectiveRowContentRevision = AnyHashable(
             VirtualizedTableRowContentRevision(
                 model: rowContentRevision,
@@ -201,6 +213,11 @@ struct FixedHeightVirtualizedTable<
                 dynamicTypeSize: dynamicTypeSize,
                 layoutDirection: layoutDirection,
                 localeIdentifier: locale.identifier,
+                reduceMotion: reduceMotion,
+                reduceTransparency: reduceTransparency,
+                increasedContrast: colorSchemeContrast == .increased,
+                differentiateWithoutColor: differentiateWithoutColor,
+                isEnabled: isEnabled,
                 rowHeight: rowHeight
             )
         )
@@ -217,11 +234,7 @@ struct FixedHeightVirtualizedTable<
             AnyView(
                 rowContent(item)
                     .id(item.id)
-                    .environment(\.colorScheme, colorScheme)
-                    .environment(\.displayScale, displayScale)
-                    .environment(\.dynamicTypeSize, dynamicTypeSize)
-                    .environment(\.layoutDirection, layoutDirection)
-                    .environment(\.locale, locale)
+                    .environment(\.self, environment)
             )
         }
     }

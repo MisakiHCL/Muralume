@@ -70,6 +70,9 @@ protocol MediaAccessSession: AnyObject {
     var unavailablePersistedSources: [UnavailableMediaSource] { get }
     var supportsAsynchronousImportPreparation: Bool { get }
 
+    /// Copies an already persisted grant; it performs no bookmark or filesystem work.
+    func persistentAccessGrant(for sourceID: MediaSource.ID) -> CustomPlaylistMediaGrant?
+
     /// Legacy folder-only restore API.
     func restoreFolders() -> [URL]
     /// Restores persisted file and folder grants and keeps their scopes active.
@@ -123,6 +126,8 @@ protocol MediaSourceAccessRecoveryMonitoring: AnyObject {
 }
 
 extension MediaAccessSession {
+    func persistentAccessGrant(for sourceID: MediaSource.ID) -> CustomPlaylistMediaGrant? { nil }
+
     var supportsAsynchronousImportPreparation: Bool { false }
 
     func addSourcesAsync(

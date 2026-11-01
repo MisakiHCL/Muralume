@@ -29,11 +29,7 @@ extension AppCoordinator {
         guard playlists.collection.playlist(id: playlistID) != nil else {
             return
         }
-        let playlistItems = playlists.resolvedItems(
-            in: playlistID,
-            using: library.items,
-            itemsRevision: library.itemsRevision
-        )
+        let playlistItems = playlists.resolvedItems(in: playlistID)
         guard playlistItems.contains(where: { $0.id == item.id }) else {
             return
         }

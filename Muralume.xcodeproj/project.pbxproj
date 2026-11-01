@@ -232,6 +232,23 @@
 		D6F27FD298964CCC8C849179 /* MediaLibraryRemovalPreparationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77AF1A7818404E6BB45B2ECE /* MediaLibraryRemovalPreparationTests.swift */; };
 		5B2D4947A77840B6B40A977F /* PlaybackQueueSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C6D302AFC204A4595A10CB5 /* PlaybackQueueSchedule.swift */; };
 		54F9E1C4E969459DAB9E9583 /* PlaybackQueuePerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F59B9FAD6B974DD38D02DD2A /* PlaybackQueuePerformanceTests.swift */; };
+		B3324585870D4516A217DC18 /* MediaBrowserSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58E0A6F7314146038DD81332 /* MediaBrowserSelection.swift */; };
+		C9ECE6B5A440438E9EBB4009 /* LibraryMediaBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFF7B3C935DF4C599A16699E /* LibraryMediaBrowser.swift */; };
+		13B40794C0A842D9AD0FC62B /* FixedSizeVirtualizedGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55125233F66F4371B55DB361 /* FixedSizeVirtualizedGrid.swift */; };
+		B9E7C302A9D344AD87ADE799 /* CustomPlaylistMediaRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19253F6D4A3499BA15541F4 /* CustomPlaylistMediaRow.swift */; };
+		E200BAD6DE7146B1BD360BC0 /* MediaBrowserSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80328FC1773A41E89B27C5AC /* MediaBrowserSelectionTests.swift */; };
+		92E463221520415A973B72F5 /* FixedSizeVirtualizedGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94E457D544024045AA297699 /* FixedSizeVirtualizedGridTests.swift */; };
+		A8C0E5802E7E4F63868F22AA /* MediaBrowserUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 798F5627A4DC45809A48DF2F /* MediaBrowserUITests.swift */; };
+		237F9BBCA094469189BCEC39 /* FSEventsStreamWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF6914CBCD6245539FFDBEFD /* FSEventsStreamWorker.swift */; };
+		6AA574CD517A4389BB59C44F /* FSEventsNativeStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = 247C3B36E97E4E8896CFC753 /* FSEventsNativeStream.swift */; };
+		406F78EB92F346439FE21760 /* FSEventsStreamWorkerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C7FF051BB334217BF31A061 /* FSEventsStreamWorkerTests.swift */; };
+		1594862395E74B9A9034AE09 /* MuralumeUITestSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90DEC13DB6E4D24AB74FFBE /* MuralumeUITestSession.swift */; };
+		753ED08B6245A0F760810EE2 /* CustomPlaylistMediaAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD3FA9C9A66DB350335F1F2 /* CustomPlaylistMediaAccess.swift */; };
+		D8180F8EC11869BB65164254 /* CustomPlaylistMediaCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1FD0BF8BFC5DAF8C67C6DCF /* CustomPlaylistMediaCatalog.swift */; };
+		7C519A0B4000A589FDFBF7CD /* SecurityScopedCustomPlaylistMediaAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8068EB4C25C212763367D447 /* SecurityScopedCustomPlaylistMediaAccess.swift */; };
+		5C91F53DBE82A89F2FCD4A9C /* SecurityScopedCustomPlaylistMediaAccessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C7F729044D6FB4646EB9C35 /* SecurityScopedCustomPlaylistMediaAccessTests.swift */; };
+		465781DE83347006C5D02D9F /* CustomPlaylistMediaOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C919DB16B1660BF1541111 /* CustomPlaylistMediaOwnershipTests.swift */; };
+		AC6686D712DE5D2DF2A04ADE /* CustomPlaylistGrantBackfill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F3D5BC997046CD45ED3178B /* CustomPlaylistGrantBackfill.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -485,6 +502,24 @@
 		77AF1A7818404E6BB45B2ECE /* MediaLibraryRemovalPreparationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryRemovalPreparationTests.swift; sourceTree = "<group>"; };
 		6C6D302AFC204A4595A10CB5 /* PlaybackQueueSchedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackQueueSchedule.swift; sourceTree = "<group>"; };
 		F59B9FAD6B974DD38D02DD2A /* PlaybackQueuePerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackQueuePerformanceTests.swift; sourceTree = "<group>"; };
+		58E0A6F7314146038DD81332 /* MediaBrowserSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaBrowserSelection.swift; sourceTree = "<group>"; };
+		EFF7B3C935DF4C599A16699E /* LibraryMediaBrowser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryMediaBrowser.swift; sourceTree = "<group>"; };
+		55125233F66F4371B55DB361 /* FixedSizeVirtualizedGrid.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FixedSizeVirtualizedGrid.swift; sourceTree = "<group>"; };
+		B19253F6D4A3499BA15541F4 /* CustomPlaylistMediaRow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CustomPlaylistMediaRow.swift; sourceTree = "<group>"; };
+		80328FC1773A41E89B27C5AC /* MediaBrowserSelectionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaBrowserSelectionTests.swift; sourceTree = "<group>"; };
+		94E457D544024045AA297699 /* FixedSizeVirtualizedGridTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FixedSizeVirtualizedGridTests.swift; sourceTree = "<group>"; };
+		798F5627A4DC45809A48DF2F /* MediaBrowserUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaBrowserUITests.swift; sourceTree = "<group>"; };
+		AF6914CBCD6245539FFDBEFD /* FSEventsStreamWorker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FSEventsStreamWorker.swift; sourceTree = "<group>"; };
+		247C3B36E97E4E8896CFC753 /* FSEventsNativeStream.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FSEventsNativeStream.swift; sourceTree = "<group>"; };
+		2C7FF051BB334217BF31A061 /* FSEventsStreamWorkerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FSEventsStreamWorkerTests.swift; sourceTree = "<group>"; };
+		B90DEC13DB6E4D24AB74FFBE /* MuralumeUITestSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MuralumeUITestSession.swift; sourceTree = "<group>"; };
+		303095606F9F499498927471 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		9AD3FA9C9A66DB350335F1F2 /* CustomPlaylistMediaAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomPlaylistMediaAccess.swift; sourceTree = "<group>"; };
+		F1FD0BF8BFC5DAF8C67C6DCF /* CustomPlaylistMediaCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomPlaylistMediaCatalog.swift; sourceTree = "<group>"; };
+		8068EB4C25C212763367D447 /* SecurityScopedCustomPlaylistMediaAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityScopedCustomPlaylistMediaAccess.swift; sourceTree = "<group>"; };
+		4C7F729044D6FB4646EB9C35 /* SecurityScopedCustomPlaylistMediaAccessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityScopedCustomPlaylistMediaAccessTests.swift; sourceTree = "<group>"; };
+		02C919DB16B1660BF1541111 /* CustomPlaylistMediaOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomPlaylistMediaOwnershipTests.swift; sourceTree = "<group>"; };
+		7F3D5BC997046CD45ED3178B /* CustomPlaylistGrantBackfill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomPlaylistGrantBackfill.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -582,8 +617,10 @@
 		2A6407B36FBF9BFBBAF2C531 /* MuralumeUITests */ = {
 			isa = PBXGroup;
 			children = (
+				303095606F9F499498927471 /* Info.plist */,
 				3BB8533CBCE74BEC8401B359 /* Launch */,
 				DD0000000000000000000003 /* Media */,
+				1911BB89607E4E64AFF2396C /* Support */,
 			);
 			name = MuralumeUITests;
 			path = MuralumeUITests;
@@ -624,6 +661,7 @@
 			isa = PBXGroup;
 			children = (
 				6E822D51DC4B3787E4B76B0B /* MuralumeLaunchTests.swift */,
+				798F5627A4DC45809A48DF2F /* MediaBrowserUITests.swift */,
 			);
 			name = Launch;
 			path = Launch;
@@ -679,6 +717,8 @@
 		4B4D86D4AE6646658D66440C /* Application */ = {
 			isa = PBXGroup;
 			children = (
+				02C919DB16B1660BF1541111 /* CustomPlaylistMediaOwnershipTests.swift */,
+				4C7F729044D6FB4646EB9C35 /* SecurityScopedCustomPlaylistMediaAccessTests.swift */,
 				C10000000000000000000001 /* AppCoordinatorTests.swift */,
 				56BB3F21808B4013B801FDE6 /* MediaFileIdentityHashingTests.swift */,
 				051D9F0B57584DEAB400A4EF /* MediaLibraryPreparationReuseTests.swift */,
@@ -720,6 +760,9 @@
 				FADF30091B030B71A452996B /* MediaCollectionSearchTests.swift */,
 				2EA6BD0ADE8EE9CF087CD418 /* LibrarySidebarControllerTests.swift */,
 				C406B5B4C8FAC8CDAFD55D33 /* FixedHeightVirtualizedTableTests.swift */,
+				94E457D544024045AA297699 /* FixedSizeVirtualizedGridTests.swift */,
+				2C7FF051BB334217BF31A061 /* FSEventsStreamWorkerTests.swift */,
+				80328FC1773A41E89B27C5AC /* MediaBrowserSelectionTests.swift */,
 				F13000000000000000000006 /* MediaLibraryAutomaticRefreshControllerTests.swift */,
 				F14000000000000000000002 /* CustomPlaylistPlaybackTests.swift */,
 			);
@@ -748,6 +791,7 @@
 		56E67EE286BA4901AB03DC24 /* MediaAccess */ = {
 			isa = PBXGroup;
 			children = (
+				8068EB4C25C212763367D447 /* SecurityScopedCustomPlaylistMediaAccess.swift */,
 				C73D7A7472A543B7BDA43C33 /* MacMediaSourcePicker.swift */,
 				D63FEEA320FA41EFBA44DC15 /* UserSelectedMediaImportExecutor.swift */,
 				D7A2E5C01A2B3C4D5E6F7002 /* UserSelectedMediaRestoreExecutor.swift */,
@@ -903,6 +947,9 @@
 		AA000000000000000000000C /* Library */ = {
 			isa = PBXGroup;
 			children = (
+				7F3D5BC997046CD45ED3178B /* CustomPlaylistGrantBackfill.swift */,
+				F1FD0BF8BFC5DAF8C67C6DCF /* CustomPlaylistMediaCatalog.swift */,
+				9AD3FA9C9A66DB350335F1F2 /* CustomPlaylistMediaAccess.swift */,
 				AA0000000000000000000005 /* MediaLibraryCoordinator.swift */,
 				AA0000000000000000000002 /* MediaLibraryModels.swift */,
 				C40000000000000000000002 /* MediaLibrarySnapshotPreparer.swift */,
@@ -922,6 +969,7 @@
 				9D7BC8F805672D4BE8D8DE0F /* MediaCollectionSearch.swift */,
 				B5B3A77164612191AD6646DE /* PlaybackCollection.swift */,
 				D1D752CF13E366A19BE9D2DE /* LibrarySidebarController.swift */,
+				58E0A6F7314146038DD81332 /* MediaBrowserSelection.swift */,
 				471C98C4F220B62102E8728B /* CustomPlaylistPlaybackBridge.swift */,
 				F13000000000000000000002 /* MediaLibraryChangeMonitoring.swift */,
 			);
@@ -947,6 +995,9 @@
 			children = (
 				C40000000000000000000001 /* FixedHeightVirtualizedTable.swift */,
 				AF1000000000000000000003 /* LibraryMediaThumbnail.swift */,
+				B19253F6D4A3499BA15541F4 /* CustomPlaylistMediaRow.swift */,
+				55125233F66F4371B55DB361 /* FixedSizeVirtualizedGrid.swift */,
+				EFF7B3C935DF4C599A16699E /* LibraryMediaBrowser.swift */,
 				AA0000000000000000000007 /* LibraryQueueSidebar.swift */,
 				F11000000000000000000001 /* LibraryRootEditor.swift */,
 				F11000000000000000000002 /* LibraryMediaRow.swift */,
@@ -972,6 +1023,8 @@
 				AF1000000000000000000002 /* QuickLookMediaThumbnailProvider.swift */,
 				654368F2F8F46611FE1F0288 /* FileCustomPlaylistStore.swift */,
 				F13000000000000000000004 /* FSEventsMediaLibraryChangeMonitor.swift */,
+				247C3B36E97E4E8896CFC753 /* FSEventsNativeStream.swift */,
+				AF6914CBCD6245539FFDBEFD /* FSEventsStreamWorker.swift */,
 			);
 			name = MediaLibrary;
 			path = MediaLibrary;
@@ -1191,6 +1244,14 @@
 			path = Player;
 			sourceTree = "<group>";
 		};
+		1911BB89607E4E64AFF2396C /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				B90DEC13DB6E4D24AB74FFBE /* MuralumeUITestSession.swift */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -1316,6 +1377,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AC6686D712DE5D2DF2A04ADE /* CustomPlaylistGrantBackfill.swift in Sources */,
+				7C519A0B4000A589FDFBF7CD /* SecurityScopedCustomPlaylistMediaAccess.swift in Sources */,
+				D8180F8EC11869BB65164254 /* CustomPlaylistMediaCatalog.swift in Sources */,
+				753ED08B6245A0F760810EE2 /* CustomPlaylistMediaAccess.swift in Sources */,
 				50E148045D234891BF594BBE /* AppCompositionRoot.swift in Sources */,
 				F53454E4DD4EAD1FBA7DDD3D /* AppCoordinator.swift in Sources */,
 				1C30BD5F8F7F1CABEF883DCB /* AppDelegate.swift in Sources */,
@@ -1367,6 +1432,9 @@
 				F52129EF7CDA0DFCABB9582F /* DesktopStatusMenuController.swift in Sources */,
 				C40000000000000000000011 /* FixedHeightVirtualizedTable.swift in Sources */,
 				AF1000000000000000000013 /* LibraryMediaThumbnail.swift in Sources */,
+				B9E7C302A9D344AD87ADE799 /* CustomPlaylistMediaRow.swift in Sources */,
+				13B40794C0A842D9AD0FC62B /* FixedSizeVirtualizedGrid.swift in Sources */,
+				C9ECE6B5A440438E9EBB4009 /* LibraryMediaBrowser.swift in Sources */,
 				AA0000000000000000000017 /* LibraryQueueSidebar.swift in Sources */,
 				F11000000000000000000011 /* LibraryRootEditor.swift in Sources */,
 				F11000000000000000000012 /* LibraryMediaRow.swift in Sources */,
@@ -1456,6 +1524,7 @@
 				4DE64487F4EA2FB66E4FD059 /* MediaCollectionSearch.swift in Sources */,
 				CA4C766DA34F785B90EBF579 /* PlaybackCollection.swift in Sources */,
 				0309CEB7308329DFF0BF5386 /* LibrarySidebarController.swift in Sources */,
+				B3324585870D4516A217DC18 /* MediaBrowserSelection.swift in Sources */,
 				9B888A4D2CB5C8F8E2A50769 /* CustomPlaylistPlaybackBridge.swift in Sources */,
 				A186D3FFF7A9C71D332000F2 /* AppCoordinator+CustomPlaylists.swift in Sources */,
 				75B6D542089E6373AEE34D01 /* MediaSearchField.swift in Sources */,
@@ -1463,6 +1532,8 @@
 				1D07A8BE0F29882B4D46D259 /* CustomPlaylistSidebarContent.swift in Sources */,
 				F15000000000000000000001 /* PlaylistNameEditor.swift in Sources */,
 				F13000000000000000000003 /* FSEventsMediaLibraryChangeMonitor.swift in Sources */,
+				6AA574CD517A4389BB59C44F /* FSEventsNativeStream.swift in Sources */,
+				237F9BBCA094469189BCEC39 /* FSEventsStreamWorker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1471,7 +1542,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				59A747D39B0D485767C9F57B /* MuralumeLaunchTests.swift in Sources */,
+				A8C0E5802E7E4F63868F22AA /* MediaBrowserUITests.swift in Sources */,
 				DD0000000000000000000001 /* MuralumeRealMediaTests.swift in Sources */,
+				1594862395E74B9A9034AE09 /* MuralumeUITestSession.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1479,6 +1552,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				465781DE83347006C5D02D9F /* CustomPlaylistMediaOwnershipTests.swift in Sources */,
+				5C91F53DBE82A89F2FCD4A9C /* SecurityScopedCustomPlaylistMediaAccessTests.swift in Sources */,
 				C10000000000000000000011 /* AppCoordinatorTests.swift in Sources */,
 				F4C26E7163AA4B259B4D7C24 /* MediaFileIdentityHashingTests.swift in Sources */,
 				F0ED1888D4F14FFEA11B6BE3 /* MediaLibraryPreparationReuseTests.swift in Sources */,
@@ -1541,6 +1616,9 @@
 				9B729B69CB90D5A9E719DB39 /* MediaCollectionSearchTests.swift in Sources */,
 				1829E15D98F984897DB260E8 /* LibrarySidebarControllerTests.swift in Sources */,
 				84DFFD8BE06BBE0F9BBB32E3 /* FixedHeightVirtualizedTableTests.swift in Sources */,
+				92E463221520415A973B72F5 /* FixedSizeVirtualizedGridTests.swift in Sources */,
+				406F78EB92F346439FE21760 /* FSEventsStreamWorkerTests.swift in Sources */,
+				E200BAD6DE7146B1BD360BC0 /* MediaBrowserSelectionTests.swift in Sources */,
 				F13000000000000000000005 /* MediaLibraryAutomaticRefreshControllerTests.swift in Sources */,
 				F13000000000000000000007 /* AutomaticFolderMonitoringIntegrationTests.swift in Sources */,
 				F14000000000000000000001 /* CustomPlaylistPlaybackTests.swift in Sources */,
@@ -1845,6 +1923,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.muralume.MuralumeUITests;
+				INFOPLIST_FILE = MuralumeUITests/Info.plist;
 				SDKROOT = macosx;
 				TEST_TARGET_NAME = Muralume;
 			};
@@ -1858,6 +1937,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.muralume.MuralumeUITests;
+				INFOPLIST_FILE = MuralumeUITests/Info.plist;
 				SDKROOT = macosx;
 				TEST_TARGET_NAME = Muralume;
 			};
@@ -1871,6 +1951,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.muralume.MuralumeUITests;
+				INFOPLIST_FILE = MuralumeUITests/Info.plist;
 				SDKROOT = macosx;
 				TEST_TARGET_NAME = Muralume;
 			};

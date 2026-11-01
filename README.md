@@ -63,10 +63,12 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
   containers, Muralume recognizes common F4V, VOB, MOD, TOD, M2P, MP2V, MPV,
   MPEG4, MPG4, DivX, and Xvid filename variants without renaming or converting
   the source file.
-- **A library that keeps up:** Browse thumbnails, sort your collection, search by name or
+- **A library that keeps up:** Browse a list or thumbnail grid, sort your collection, search by name or
   location, and automatically discover folder changes while the app is open.
-- **Playlists, your way:** Create custom groups, add and reorder videos, search
-  within a playlist, and continue from the same playlist after relaunch.
+- **Playlists, your way:** Create custom groups, select multiple videos to add together,
+  remove playlist entries in batches, reorder videos, search within a playlist,
+  and continue from the same playlist after relaunch. Playlists retain access to their
+  original local files when a source is removed from the Media Library.
 - **See exactly what plays next:** Use ordered playback, shuffle, Repeat Current Video,
   seeking, volume, speed, fullscreen, and a separate Play Queue. An optional short
   crossfade smooths queue changes after the incoming first frame is ready.
@@ -135,7 +137,7 @@ compatibility still depends on the codecs available through macOS.
 
 ## Build from source
 
-Install Xcode with Swift 6 support and
+Install Xcode 26.0.1 or later with Swift 6.2 or later and
 [ripgrep](https://github.com/BurntSushi/ripgrep), then run:
 
 ```bash

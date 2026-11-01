@@ -2,6 +2,13 @@ import CoreGraphics
 
 @MainActor
 protocol MediaThumbnailProviding: AnyObject {
+    /// Reads an already generated in-memory image without starting media work.
+    func cachedThumbnail(
+        for item: LibraryMediaItem,
+        size: CGSize,
+        scale: CGFloat
+    ) -> CGImage?
+
     func thumbnail(
         for item: LibraryMediaItem,
         size: CGSize,
@@ -21,4 +28,12 @@ protocol MediaThumbnailProviding: AnyObject {
     func invalidateThumbnails(forRootID rootID: MediaLibraryRoot.ID) async
 
     func shutdown() async
+}
+
+extension MediaThumbnailProviding {
+    func cachedThumbnail(
+        for item: LibraryMediaItem,
+        size: CGSize,
+        scale: CGFloat
+    ) -> CGImage? { nil }
 }

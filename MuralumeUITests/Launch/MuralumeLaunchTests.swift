@@ -67,8 +67,8 @@ final class MuralumeLaunchTests: XCTestCase {
     }
 
     @MainActor
-    func testMediaPickerShowsConcisePrompt() {
-        let application = launchEmptyLibrary()
+    func testMediaPickerShowsConcisePrompt() throws {
+        let application = try launchEmptyLibrary()
         let addMediaButton = application
             .descendants(matching: .any)
             .matching(identifier: "muralume.add-media")
@@ -86,8 +86,8 @@ final class MuralumeLaunchTests: XCTestCase {
     }
 
     @MainActor
-    func testEmptyLibrarySummaryUsesCompactSingleLine() {
-        let application = launchEmptyLibrary()
+    func testEmptyLibrarySummaryUsesCompactSingleLine() throws {
+        let application = try launchEmptyLibrary()
         let addMediaButton = application
             .descendants(matching: .any)
             .matching(identifier: "muralume.add-media")
@@ -123,8 +123,8 @@ final class MuralumeLaunchTests: XCTestCase {
     }
 
     @MainActor
-    func testSearchOnlyFocusesAfterExplicitFindCommand() {
-        let application = launchEmptyLibrary()
+    func testSearchOnlyFocusesAfterExplicitFindCommand() throws {
+        let application = try launchEmptyLibrary()
         let searchField = application.textFields[
             SidebarAccessibilityIdentifier.librarySearchField
         ]
@@ -182,8 +182,8 @@ final class MuralumeLaunchTests: XCTestCase {
     }
 
     @MainActor
-    func testPlaylistNameEditorCancelsWhenClickingOutside() {
-        let application = launchEmptyLibrary()
+    func testPlaylistNameEditorCancelsWhenClickingOutside() throws {
+        let application = try launchEmptyLibrary()
         let titleMenu = application
             .descendants(matching: .any)
             .matching(identifier: SidebarAccessibilityIdentifier.titleMenu)
@@ -230,8 +230,8 @@ final class MuralumeLaunchTests: XCTestCase {
     }
 
     @MainActor
-    func testSidebarTitleMenuUsesStablePopupSpacing() {
-        let application = launchEmptyLibrary()
+    func testSidebarTitleMenuUsesStablePopupSpacing() throws {
+        let application = try launchEmptyLibrary()
         let titleMenu = application
             .descendants(matching: .any)
             .matching(identifier: SidebarAccessibilityIdentifier.titleMenu)
@@ -348,8 +348,8 @@ final class MuralumeLaunchTests: XCTestCase {
     }
 
     @MainActor
-    func testApplicationLaunchesWithAWindow() {
-        let application = launchEmptyLibrary()
+    func testApplicationLaunchesWithAWindow() throws {
+        let application = try launchEmptyLibrary()
 
         XCTAssertTrue(application.windows.firstMatch.waitForExistence(timeout: 5))
         let sidebar = application
@@ -637,8 +637,8 @@ final class MuralumeLaunchTests: XCTestCase {
     }
 
     @MainActor
-    func testFullScreenReusesPlayerTopBar() {
-        let application = launchEmptyLibrary()
+    func testFullScreenReusesPlayerTopBar() throws {
+        let application = try launchEmptyLibrary()
         let window = application.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 5))
 
@@ -743,8 +743,8 @@ final class MuralumeLaunchTests: XCTestCase {
     }
 
     @MainActor
-    func testDoubleClickingPlayerTopBarZoomsAndRestoresWindow() {
-        let application = launchEmptyLibrary()
+    func testDoubleClickingPlayerTopBarZoomsAndRestoresWindow() throws {
+        let application = try launchEmptyLibrary()
         let window = application.windows.firstMatch
         let playerTopBar = application
             .descendants(matching: .any)
@@ -805,8 +805,8 @@ final class MuralumeLaunchTests: XCTestCase {
     }
 
     @MainActor
-    func testSoftClosePreservesStateAndRestoresSingleMainWindow() {
-        let application = launchEmptyLibrary()
+    func testSoftClosePreservesStateAndRestoresSingleMainWindow() throws {
+        let application = try launchEmptyLibrary()
         let mainWindow = application.windows.firstMatch
         let didLaunchMainWindow = mainWindow.waitForExistence(
             timeout: LifecycleExpectation.windowTransitionTimeout
@@ -979,8 +979,8 @@ final class MuralumeLaunchTests: XCTestCase {
     }
 
     @MainActor
-    func testSettingsUsesOneMainWindowAndBlocksPlayerCommands() {
-        let application = launchEmptyLibrary()
+    func testSettingsUsesOneMainWindowAndBlocksPlayerCommands() throws {
+        let application = try launchEmptyLibrary()
         let mainWindow = application.windows.firstMatch
         XCTAssertTrue(
             mainWindow.waitForExistence(
@@ -1228,8 +1228,8 @@ final class MuralumeLaunchTests: XCTestCase {
     }
 
     @MainActor
-    private func launchEmptyLibrary() -> XCUIApplication {
-        let application = XCUIApplication()
+    private func launchEmptyLibrary() throws -> XCUIApplication {
+        let application = try MuralumeUITestSession.makeApplication(for: type(of: self))
         application.launchArguments += [
             "-AppleLanguages",
             "(en)",
@@ -1254,7 +1254,7 @@ final class MuralumeLaunchTests: XCTestCase {
             "-media-library.root-bookmarks",
             ""
         ]
-        application.launch()
+        try MuralumeUITestSession.launch(application, for: type(of: self))
         application.activate()
         XCTAssertTrue(application.wait(for: .runningForeground, timeout: 5))
         return application

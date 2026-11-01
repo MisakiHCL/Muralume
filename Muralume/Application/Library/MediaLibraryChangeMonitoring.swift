@@ -29,12 +29,11 @@ enum MediaLibraryFolderRootNormalizer {
     static func normalized(_ folderURLs: [URL]) -> [URL] {
         var uniqueURLsByPath: [String: URL] = [:]
         for folderURL in folderURLs where folderURL.isFileURL {
-            let normalizedURL = folderURL.standardizedFileURL
-            uniqueURLsByPath[normalizedURL.path] = normalizedURL
+            // The resolved URL carries its security-scoped authorization.
+            // Normalize only the key; replacing the URL can discard that token.
+            uniqueURLsByPath[folderURL.standardizedFileURL.path] = folderURL
         }
-        return uniqueURLsByPath.values.sorted {
-            $0.path.compare($1.path) == .orderedAscending
-        }
+        return uniqueURLsByPath.keys.sorted().compactMap { uniqueURLsByPath[$0] }
     }
 }
 
@@ -45,13 +44,14 @@ enum MediaLibraryReconciliationCadence: Equatable, Sendable {
 
 @MainActor
 protocol MediaLibraryChangeMonitoring: AnyObject {
-    /// Returns whether monitoring is active for the requested roots. An empty
-    /// roots list counts as successfully installed because no stream is needed.
+    /// Installs without blocking MainActor and returns whether the requested
+    /// roots are monitored. Cancellation ends the wait without releasing work
+    /// still owned by a native worker. Empty roots need no stream.
     @discardableResult
     func update(
         folderURLs: [URL],
         onChange: @escaping @Sendable () -> Void
-    ) -> Bool
+    ) async -> Bool
     /// Defaults to the conservative cadence. Implementations may inspect volume
     /// characteristics off actor; callers cancel this work when roots change.
     func reconciliationCadence(
@@ -74,7 +74,7 @@ final class DisabledMediaLibraryChangeMonitor: MediaLibraryChangeMonitoring {
     func update(
         folderURLs: [URL],
         onChange: @escaping @Sendable () -> Void
-    ) -> Bool {
+    ) async -> Bool {
         true
     }
 
@@ -129,6 +129,7 @@ final class MediaLibraryAutomaticRefreshController {
     private var coveredRevision: UInt64 = 0
     private var scanMarker: ScanMarker?
     private var refreshTask: Task<Void, Never>?
+    private var installationTask: Task<Void, Never>?
     private var installationRetryTask: Task<Void, Never>?
     private var reconciliationTask: Task<Void, Never>?
     private var reconciliationAnchorNanoseconds: UInt64?
@@ -279,6 +280,8 @@ final class MediaLibraryAutomaticRefreshController {
 
         isStarted = false
         advanceGeneration()
+        installationTask?.cancel()
+        installationTask = nil
         refreshTask?.cancel()
         refreshTask = nil
         installationRetryTask?.cancel()
@@ -308,7 +311,11 @@ final class MediaLibraryAutomaticRefreshController {
             return
         }
 
+        let replacesMonitoring = !self.folderURLs.isEmpty
         advanceGeneration()
+        installationTask?.cancel()
+        installationTask = nil
+        if replacesMonitoring { monitor.stop() }
         refreshTask?.cancel()
         refreshTask = nil
         installationRetryTask?.cancel()
@@ -325,9 +332,11 @@ final class MediaLibraryAutomaticRefreshController {
         coveredRevision = 0
         scanMarker = nil
         hasPendingRefreshRequest = false
-        monitoringGapNeedsReconciliation = false
+        // Installation now overlaps startup scanning. Reconcile the interval
+        // before the native stream starts, including an otherwise successful start.
+        monitoringGapNeedsReconciliation = !normalizedURLs.isEmpty
 
-        _ = attemptMonitorInstallation(
+        attemptMonitorInstallation(
             generation: generation,
             retryNumber: 0
         )
@@ -335,29 +344,60 @@ final class MediaLibraryAutomaticRefreshController {
         scheduleReconciliationIfNeeded()
     }
 
-    @discardableResult
     private func attemptMonitorInstallation(
         generation installationGeneration: UInt64,
         retryNumber: Int
-    ) -> Bool {
+    ) {
         guard isStarted,
-              installationGeneration == generation else {
-            return false
+              installationGeneration == generation,
+              installationTask == nil else {
+            return
         }
 
-        let installed = monitor.update(folderURLs: folderURLs) { [weak self] in
+        let requestedFolders = folderURLs
+        let onChange: @Sendable () -> Void = { [weak self] in
             Task { @MainActor [weak self] in
                 self?.recordChange(generation: installationGeneration)
             }
         }
+        installationTask = Task { @MainActor [weak self, monitor] in
+            guard !Task.isCancelled else { return }
+            let installed = await monitor.update(
+                folderURLs: requestedFolders, onChange: onChange
+            )
+            guard !Task.isCancelled,
+                  let self,
+                  self.isStarted,
+                  installationGeneration == self.generation else { return }
+            self.installationTask = nil
+            self.monitorInstallationDidFinish(
+                installed: installed,
+                generation: installationGeneration,
+                retryNumber: retryNumber
+            )
+        }
+    }
+
+    private func monitorInstallationDidFinish(
+        installed: Bool,
+        generation installationGeneration: UInt64,
+        retryNumber: Int
+    ) {
         isMonitorInstalled = installed
         guard !installed else {
             installationRetryTask = nil
+            // Classification may have completed while installation was pending.
+            // Reapply its effective interval without restarting volume inspection.
+            if reconciliationCadence == .extended {
+                reconciliationTask?.cancel()
+                reconciliationTask = nil
+                scheduleReconciliationIfNeeded()
+            }
             if monitoringGapNeedsReconciliation {
                 monitoringGapNeedsReconciliation = false
                 recordChange(generation: installationGeneration)
             }
-            return true
+            return
         }
         monitoringGapNeedsReconciliation = true
 
@@ -365,7 +405,6 @@ final class MediaLibraryAutomaticRefreshController {
             generation: installationGeneration,
             retryNumber: retryNumber + 1
         )
-        return false
     }
 
     private func resolveReconciliationCadence() {
@@ -429,7 +468,7 @@ final class MediaLibraryAutomaticRefreshController {
                 return
             }
             self.installationRetryTask = nil
-            _ = self.attemptMonitorInstallation(
+            self.attemptMonitorInstallation(
                 generation: retryGeneration,
                 retryNumber: nextRetryNumber
             )

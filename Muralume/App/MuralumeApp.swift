@@ -222,6 +222,9 @@ private struct MuralumePlayerRootView: View {
                         playlistID: playlistID
                     )
                 },
+                reauthorizePlaylistEntry: { playlistID, entryID in
+                    coordinator.reauthorizePlaylistEntry(playlistID: playlistID, entryID: entryID)
+                },
                 addLibraryItemToPlaylist: { item, playlistID in
                     coordinator.addLibraryItem(item, to: playlistID)
                 },

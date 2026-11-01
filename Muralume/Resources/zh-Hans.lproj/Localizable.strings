@@ -188,7 +188,7 @@
 "library.source.unavailable.status" = "暂时不可用";
 "library.source.unavailable.remove" = "移除来源";
 "library.source.unavailable.remove.title" = "移除这个不可用来源？";
-"library.source.unavailable.remove.message" = "“%@”将从 Muralume 移除，但不会删除原文件。";
+"library.source.unavailable.remove.message" = "“%@”将从媒体库移除。播放列表和原文件会保留。";
 "library.source.unavailable.remove.confirm" = "移除来源";
 "library.item.reauthorizeSource" = "重新选择这个来源…";
 "library.scanning" = "正在扫描媒体…";
@@ -223,6 +223,7 @@
 "videoInfo.loading" = "正在读取视频信息…";
 "videoInfo.error" = "Muralume 无法读取这个视频的信息。";
 "videoInfo.fileName" = "文件名";
+"videoInfo.filePath" = "文件路径";
 "videoInfo.container" = "容器";
 "videoInfo.duration" = "时长";
 "videoInfo.videoCodec" = "视频编码";
@@ -256,12 +257,12 @@
 "library.done" = "完成";
 "library.folder.remove" = "移除";
 "library.folder.remove.title" = "移除这个文件夹？";
-"library.folder.remove.message" = "“%@”中的视频将从 Muralume 移除，但不会删除原文件。";
+"library.folder.remove.message" = "“%@”中的视频将从媒体库移除。播放列表和原文件会保留。";
 "library.folder.remove.confirm" = "移除文件夹";
 "library.source.remove.title" = "移除这个媒体来源？";
 "library.video.remove" = "移除视频";
 "library.video.remove.title" = "移除这个视频？";
-"library.video.remove.message" = "“%@”将从 Muralume 移除，但不会删除原文件。";
+"library.video.remove.message" = "“%@”将从媒体库移除。播放列表和原文件会保留。";
 "library.video.remove.confirm" = "移除视频";
 "library.drop.title" = "松开以添加视频";
 "library.import.partial" = "部分项目无法添加。";
@@ -382,3 +383,34 @@
 "screenshot.error.message" = "Muralume 无法截取或写入当前视频画面。";
 
 "library.search.searching" = "正在搜索…";
+
+// Media browsing and batch selection
+"library.layout" = "浏览方式";
+"library.layout.list" = "列表视图";
+"library.layout.grid" = "网格视图";
+"library.selection.begin" = "选择";
+"library.selection.done" = "完成";
+"library.selection.count" = "已选择 %d 项";
+"library.selection.all" = "全选";
+"library.selection.clear" = "清空选择";
+"library.selection.selected" = "已选择";
+"library.selection.notSelected" = "未选择";
+"library.selection.actions" = "选择操作";
+"playlists.removeSelected" = "移除所选项";
+"playlists.removeSelected.failed" = "无法移除所选视频，请重试。";
+"playlists.addSelected.failed" = "无法加入所选视频，播放列表可能已满。";
+"playlists.selection.changed" = "部分所选视频已更改或不可用。请关闭此对话框，重新选择后再试。";
+"playlists.media.issue.authorizationRequired" = "此播放列表需要获得该视频的访问权限，请选择原来源文件夹或视频以恢复访问。";
+"playlists.media.issue.permissionDenied" = "该视频的读取权限被拒绝，请为原来源文件夹或视频授予访问权限后重试。";
+"playlists.media.issue.fileMissing" = "在已保存的位置找不到该视频。";
+"playlists.media.issue.unsupportedFormat" = "不支持该视频的格式或编解码器。";
+"playlists.media.issue.cannotOpen" = "无法打开该视频，请重试。";
+"playlists.media.issue.temporarilyUnavailable" = "该视频当前不可用，请重试。";
+"playlists.media.issue.resolving" = "正在检查该视频的访问权限…";
+"playlists.media.retry" = "重试";
+"playlists.media.retry.hint" = "重新检查该视频的访问权限。";
+"playlists.media.reauthorize" = "授予访问权限…";
+"playlists.media.reauthorize.hint" = "选择原来源文件夹或视频以恢复访问。";
+"playlists.authorization.failed" = "无法保存所选视频的访问权限，请重新选择后再试。";
+"playlists.access.preserveFailed" = "无法移除媒体来源";
+"playlists.access.preserveFailed.message" = "未能为播放列表保留视频访问权限，因此未移除此媒体来源。请重试。";

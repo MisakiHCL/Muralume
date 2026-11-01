@@ -11,6 +11,7 @@ enum AppPreferencesStorageKey {
     static let queueTransitionStyle = "settings.playback.queue-transition"
     static let librarySortField = "settings.library.sort-field"
     static let librarySortDirection = "settings.library.sort-direction"
+    static let libraryBrowserLayout = "settings.library.browser-layout"
     // Keep the existing key so current installations retain their language.
     static let language = "settings.app-language"
     static let subtitleFontFamily = "settings.subtitles.font-family"
@@ -38,6 +39,7 @@ private struct UserDefaultsAppPreferencesDTO {
     let queueTransitionStyle: String?
     let librarySortField: String?
     let librarySortDirection: String?
+    let libraryBrowserLayout: String?
     let language: String?
     let subtitleFontFamily: String?
     let subtitleFontSize: Int?
@@ -80,6 +82,9 @@ private struct UserDefaultsAppPreferencesDTO {
         )
         librarySortDirection = userDefaults.string(
             forKey: AppPreferencesStorageKey.librarySortDirection
+        )
+        libraryBrowserLayout = userDefaults.string(
+            forKey: AppPreferencesStorageKey.libraryBrowserLayout
         )
         language = userDefaults.string(
             forKey: AppPreferencesStorageKey.language
@@ -214,6 +219,10 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
                     MediaLibrarySortDirection.self
                 ) ?? defaults.librarySort.direction
             ),
+            libraryBrowserLayout: loadRawRepresentable(
+                stored.libraryBrowserLayout,
+                MediaBrowserLayout.self
+            ) ?? defaults.libraryBrowserLayout,
             language: loadRawRepresentable(
                 stored.language,
                 AppLanguage.self
@@ -301,6 +310,13 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
         userDefaults.set(
             sort.direction.rawValue,
             forKey: AppPreferencesStorageKey.librarySortDirection
+        )
+    }
+
+    func saveLibraryBrowserLayout(_ layout: MediaBrowserLayout) {
+        userDefaults.set(
+            layout.rawValue,
+            forKey: AppPreferencesStorageKey.libraryBrowserLayout
         )
     }
 

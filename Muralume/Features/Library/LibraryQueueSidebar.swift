@@ -5,16 +5,19 @@ struct LibraryQueueSidebar: View {
     @ObservedObject var library: MediaLibraryCoordinator
     let playback: PlaybackCoordinator
     @EnvironmentObject private var localization: AppLocalizationController
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var pendingRootRemoval: MediaLibraryRoot?
     @State private var pendingUnavailableSourceRemoval:
         UnavailableMediaSource?
     @State private var playbackStatus: LibraryPlaybackStatus
     @State private var searchScrollToTopRequest: UInt64 = 0
+    @State private var mediaSelection = MediaBrowserSelection<MediaBrowserItemIdentity>()
     @StateObject private var searchProjectionCache =
-        LatestMediaSearch<MediaLibrarySearchProjection>()
+        LatestMediaSearch<MediaLibrarySearchProjection>(
+            hasSameContent: MediaLibrarySearchProjection.hasSameContent
+        )
     @Binding private var sidebarSection: LibrarySidebarSection
     @Binding private var searchQuery: String
+    @Binding private var browserLayout: MediaBrowserLayout
     let playbackQueueFocusRequest: UInt64
     let searchFocusRequest: UInt64
     let consumeSearchFocusRequest: (UInt64) -> Void
@@ -35,6 +38,10 @@ struct LibraryQueueSidebar: View {
     let showPlaylists: () -> Void
     let addLibraryItemToPlaylist:
         (LibraryMediaItem, CustomPlaylist.ID) -> Void
+    let addLibraryItemsToPlaylist:
+        ([LibraryMediaItem], CustomPlaylist.ID) throws -> Void
+    let createPlaylistWithItems:
+        ([LibraryMediaItem], @escaping () -> Void) -> Void
     let revealMediaInFinder: (URL) -> Void
     let showVideoInformation: (LibraryMediaItem) -> Void
     let dismiss: () -> Void
@@ -45,6 +52,7 @@ struct LibraryQueueSidebar: View {
         mediaThumbnailProvider: any MediaThumbnailProviding,
         sidebarSection: Binding<LibrarySidebarSection>,
         searchQuery: Binding<String>,
+        browserLayout: Binding<MediaBrowserLayout>,
         playbackQueueFocusRequest: UInt64,
         searchFocusRequest: UInt64,
         consumeSearchFocusRequest: @escaping (UInt64) -> Void,
@@ -68,6 +76,12 @@ struct LibraryQueueSidebar: View {
             LibraryMediaItem,
             CustomPlaylist.ID
         ) -> Void,
+        addLibraryItemsToPlaylist: @escaping (
+            [LibraryMediaItem], CustomPlaylist.ID
+        ) throws -> Void,
+        createPlaylistWithItems: @escaping (
+            [LibraryMediaItem], @escaping () -> Void
+        ) -> Void,
         revealMediaInFinder: @escaping (URL) -> Void,
         showVideoInformation: @escaping (LibraryMediaItem) -> Void,
         dismiss: @escaping () -> Void
@@ -77,6 +91,7 @@ struct LibraryQueueSidebar: View {
         self.mediaThumbnailProvider = mediaThumbnailProvider
         _sidebarSection = sidebarSection
         _searchQuery = searchQuery
+        _browserLayout = browserLayout
         self.playbackQueueFocusRequest = playbackQueueFocusRequest
         self.searchFocusRequest = searchFocusRequest
         self.consumeSearchFocusRequest = consumeSearchFocusRequest
@@ -95,6 +110,8 @@ struct LibraryQueueSidebar: View {
         self.customPlaylistsRevision = customPlaylistsRevision
         self.showPlaylists = showPlaylists
         self.addLibraryItemToPlaylist = addLibraryItemToPlaylist
+        self.addLibraryItemsToPlaylist = addLibraryItemsToPlaylist
+        self.createPlaylistWithItems = createPlaylistWithItems
         self.revealMediaInFinder = revealMediaInFinder
         self.showVideoInformation = showVideoInformation
         self.dismiss = dismiss
@@ -198,6 +215,11 @@ struct LibraryQueueSidebar: View {
                 )
             )
         }
+        .alert("playlists.access.preserveFailed", isPresented: $library.sourceRemovalPreservationFailed) {
+            Button("action.ok", role: .cancel) {}
+        } message: {
+            Text("playlists.access.preserveFailed.message")
+        }
         .onReceive(playbackStatusPublisher) { status in
             playbackStatus = status
         }
@@ -214,7 +236,15 @@ struct LibraryQueueSidebar: View {
                 )
             }
         }
-        .onDisappear { searchProjectionCache.cancel() }
+        .onDisappear {
+            searchProjectionCache.cancel()
+            mediaSelection.end()
+        }
+        .onChange(of: sidebarSection) { mediaSelection.end() }
+        .onChange(of: isEditing) { mediaSelection.end() }
+        .onChange(of: library.itemsRevision) {
+            if library.items.isEmpty { mediaSelection.end() }
+        }
         .onChange(of: normalizedSearchQuery) {
             if normalizedSearchQuery.isEmpty {
                 // Clearing search restores the existing current-item
@@ -457,8 +487,29 @@ struct LibraryQueueSidebar: View {
             librarySummary(showsInlineRetry: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            sortMenu
+            HStack(spacing: MuralumeTheme.Spacing.libraryBrowserControls) {
+                LibraryBrowserLayoutPicker(layout: $browserLayout)
+                mediaSelectionButton
+                sortMenu
+            }
+            .fixedSize()
         }
+    }
+
+    private var mediaSelectionButton: some View {
+        let title = LocalizedStringKey(mediaSelection.isSelecting
+            ? "library.selection.done" : "library.selection.begin")
+        return Button {
+            if mediaSelection.isSelecting { mediaSelection.end() } else { mediaSelection.begin() }
+        } label: {
+            Image(systemName: "checkmark.circle")
+        }
+        .buttonStyle(LibraryBrowserControlStyle(isSelected: mediaSelection.isSelecting))
+        .disabled(library.items.isEmpty)
+        .help(Text(title))
+        .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(mediaSelection.isSelecting ? .isSelected : [])
+        .accessibilityIdentifier(MuralumeAccessibilityIdentifier.librarySelectionButton)
     }
 
     @ViewBuilder
@@ -668,20 +719,10 @@ struct LibraryQueueSidebar: View {
             }
         } label: {
             Image(systemName: "arrow.up.arrow.down")
-                .font(
-                    .system(
-                        size: MuralumeTheme.Size.icon,
-                        weight: .semibold
-                    )
-                )
-                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-                .frame(
-                    width: MuralumeTheme.Size.compactControl,
-                    height: MuralumeTheme.Size.compactControl
-                )
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
         .menuIndicator(.hidden)
+        .buttonStyle(LibraryBrowserControlStyle())
         .fixedSize()
         .help(Text("library.sort"))
         .accessibilityLabel(Text("library.sort"))
@@ -724,15 +765,11 @@ struct LibraryQueueSidebar: View {
                 retrySourceAccess: retryUnavailableSourceAccess,
                 reauthorizeMediaSources: reauthorizeMediaSources
             )
-        } else if isSearching && displayedSearchResult == nil {
-            ProgressView("library.search.searching")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if filteredLibraryItems.isEmpty {
-            LibrarySearchEmptyState {
-                searchQuery = ""
-            }
         } else {
-            FixedHeightVirtualizedTable(
+            LibraryMediaBrowser(
+                library: library,
+                layout: $browserLayout,
+                selection: $mediaSelection,
                 items: filteredLibraryItems,
                 snapshotRevision: LibraryPlaylistSnapshotRevision(
                     itemsRevision: normalizedSearchQuery.isEmpty
@@ -740,88 +777,27 @@ struct LibraryQueueSidebar: View {
                         : displayedSearchResult?.key.itemsRevision ?? library.itemsRevision,
                     query: normalizedSearchQuery
                 ),
-                rowContentRevision: LibraryPlaylistRowContentRevision(
-                    currentItemID: library.currentItemID,
-                    unavailableItemsRevision:
-                        library.unavailableItemsRevision,
-                    playbackState: playbackStatus.rowState,
-                    playlistCollectionRevision:
-                        customPlaylistsRevision,
-                    playlistMenuEntries: customPlaylists.map {
-                        LibraryPlaylistMenuEntryRevision(
-                            id: $0.id,
-                            name: $0.name
-                        )
-                    }
-                ),
-                scrollTargetID: normalizedSearchQuery.isEmpty
-                    ? library.currentItemID
-                    : nil,
+                contentSnapshotRevision: displayedContentSnapshotRevision,
                 scrollToTopRequest: normalizedSearchQuery.isEmpty
-                    ? nil
-                    : searchScrollToTopRequest,
-                rowHeight: playlistRowHeight,
-                rowSpacing: MuralumeTheme.Spacing.xSmall,
-                verticalContentInset:
-                    MuralumeTheme.Size.playlistContentInset
-            ) { item in
-                LibraryMediaRow(
-                    item: item,
-                    isCurrent: library.currentItemID == item.id,
-                    playbackState: playbackState(for: item),
-                    rowHeight: playlistRowHeight,
-                    mediaThumbnailProvider: mediaThumbnailProvider,
-                    play: {
-                        playLibraryItem(item)
-                        dismiss()
-                    },
-                    revealInFinder: {
-                        revealMediaInFinder(item.url)
-                    },
-                    showInformation: {
-                        showVideoInformation(item)
-                    },
-                    reauthorizeSource: reauthorizeSourceAction(for: item),
-                    customPlaylists: customPlaylists,
-                    addToPlaylist: { playlistID in
-                        addLibraryItemToPlaylist(item, playlistID)
-                    }
-                )
-                // NSHostingView is a separate SwiftUI root.
-                .environmentObject(localization)
-            }
-            .scrollIndicators(.visible)
-            .accessibilityLabel(Text("library.playlist"))
+                    ? nil : searchScrollToTopRequest,
+                isSearching: isSearching,
+                clearSearch: { searchQuery = "" },
+                playbackState: playbackStatus.rowState,
+                mediaThumbnailProvider: mediaThumbnailProvider,
+                customPlaylists: customPlaylists,
+                customPlaylistsRevision: customPlaylistsRevision,
+                play: { item in
+                    playLibraryItem(item)
+                    dismiss()
+                },
+                addToPlaylist: addLibraryItemToPlaylist,
+                addItemsToPlaylist: addLibraryItemsToPlaylist,
+                createPlaylistWithItems: createPlaylistWithItems,
+                revealInFinder: revealMediaInFinder,
+                showInformation: showVideoInformation,
+                reauthorizeSource: reauthorizeMediaSource
+            )
         }
-    }
-
-    private func playbackState(
-        for item: LibraryMediaItem
-    ) -> LibraryMediaRowPlaybackState {
-        if library.unavailableItemIDs.contains(item.id) {
-            return .unavailable
-        }
-        guard library.currentItemID == item.id else {
-            return .available
-        }
-
-        return playbackStatus.rowState
-    }
-
-    private func reauthorizeSourceAction(
-        for item: LibraryMediaItem
-    ) -> (() -> Void)? {
-        guard library.unavailableItemIDs.contains(item.id),
-              let source = library.unavailableSource(for: item) else {
-            return nil
-        }
-        return {
-            reauthorizeMediaSource(source)
-        }
-    }
-
-    private var playlistRowHeight: CGFloat {
-        MuralumeTheme.Size.playlistRowHeight(for: dynamicTypeSize)
     }
 
     private var playbackStatusPublisher:
@@ -843,13 +819,10 @@ struct LibraryQueueSidebar: View {
     }
 
     private var videoCountText: String {
-        if isSearching {
-            return localization.localized("library.search.searching")
-        }
-        if !normalizedSearchQuery.isEmpty {
+        if !normalizedSearchQuery.isEmpty, let displayed = displayedSearchResult {
             return localization.localizedFormat(
                 "library.search.results",
-                filteredLibraryItems.count,
+                displayed.result.items.count,
                 library.items.count
             )
         }
@@ -879,16 +852,28 @@ struct LibraryQueueSidebar: View {
 
     private var displayedSearchResult: (
         key: MediaLibrarySearchRequestID,
-        result: MediaLibrarySearchProjection
+        result: MediaLibrarySearchProjection,
+        contentRevision: UInt64
     )? {
-        searchProjectionCache.latestResult(compatibleWith: searchRequestID) {
-            $0.query == $1.query
-        }
+        searchProjectionCache.latestResult(compatibleWith: searchRequestID) { _, _ in true }
     }
 
     private var filteredLibraryItems: [LibraryMediaItem] {
         if normalizedSearchQuery.isEmpty { return library.items }
-        return displayedSearchResult?.result.items ?? []
+        return displayedSearchResult?.result.items ?? library.items
+    }
+
+    private var displayedContentSnapshotRevision: AnyHashable {
+        guard !normalizedSearchQuery.isEmpty, let displayed = displayedSearchResult else {
+            return AnyHashable(LibraryBrowserContentSnapshot.library(library.itemsRevision))
+        }
+        // Stable filtering that keeps every input item is exactly the source
+        // snapshot; transitioning to/from an all-matching query need not reload.
+        if displayed.key.itemsRevision == library.itemsRevision,
+           displayed.result.items.count == library.items.count {
+            return AnyHashable(LibraryBrowserContentSnapshot.library(library.itemsRevision))
+        }
+        return AnyHashable(LibraryBrowserContentSnapshot.search(displayed.contentRevision))
     }
 
     private var rootRemovalTitleKey: String {
@@ -950,4 +935,9 @@ struct LibraryQueueSidebar: View {
         )
         return "\(field), \(direction)"
     }
+}
+
+private enum LibraryBrowserContentSnapshot: Hashable {
+    case library(UInt64)
+    case search(UInt64)
 }

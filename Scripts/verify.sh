@@ -7,6 +7,7 @@ readonly project_root="$(cd "${script_directory}/.." && pwd)"
 readonly project_path="${project_root}/Muralume.xcodeproj"
 readonly scheme_name="Muralume"
 readonly debug_destination="platform=macOS,arch=arm64"
+readonly verification_app_bundle_identifier="com.muralume.Muralume.uitesting"
 readonly selected_suite="${1:-all}"
 
 # shellcheck source=lib/signing_privacy.sh
@@ -35,6 +36,7 @@ readonly nested_test_environment_names=(
     MURALUME_TEST_ARTIFACTS_DIR
     MURALUME_TEST_DERIVED_DATA_DIR
     MURALUME_REAL_MEDIA_DIRECTORY
+    MURALUME_UI_TEST_SESSION_ID
     MURALUME_RELEASE_LOCK_HELD
     MURALUME_RELEASE_LOCK_REEXEC_TOKEN
     MURALUME_RELEASE_STANDALONE_LOCK_PATH
@@ -68,6 +70,7 @@ print_usage() {
 Usage: ./Scripts/verify.sh [suite]
 
 Suites:
+  compatibility Compile Debug tests and unsigned Release with the selected Xcode.
   architecture  Check layer boundaries and perform a clean test build.
   unit          Run deterministic domain and application tests.
   integration   Run AVFoundation and real rendering-surface tests.
@@ -88,7 +91,7 @@ EOF
 
 is_known_suite() {
     case "$1" in
-        architecture|unit|integration|ui|real-media|release|release-gate|all)
+        compatibility|architecture|unit|integration|ui|real-media|release|release-gate|all)
             return 0
             ;;
         *)
@@ -228,13 +231,50 @@ initialize_verify_lifecycle() {
         -configuration Debug
         -destination "${debug_destination}"
         -derivedDataPath "${derived_data_path}"
+        "MURALUME_APP_BUNDLE_IDENTIFIER=${verification_app_bundle_identifier}"
     )
+}
+
+assert_verification_app_isolation() {
+    local info_plist="${derived_data_path}/Build/Products/Debug/Muralume.app/Contents/Info.plist"
+    local identifier
+    identifier="$(plutil -extract CFBundleIdentifier raw -o - "${info_plist}" 2>/dev/null)" || {
+        echo 'Cannot verify the test app identity. Rebuild the verification targets first.' >&2
+        return 1
+    }
+    if [[ "${identifier}" != "${verification_app_bundle_identifier}" ]]; then
+        echo 'Refusing to launch tests against a non-isolated app. Rebuild with Scripts/verify.sh.' >&2
+        return 1
+    fi
+}
+
+unregister_verify_app() {
+    local app_bundle="$1"
+    local register_path="/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
+
+    if [[ -x "${register_path}" ]] \
+        && ! "${register_path}" -u "${app_bundle}" >/dev/null 2>&1; then
+        echo 'Warning: unable to unregister a temporary verification app.' >&2
+        return 1
+    fi
+}
+
+unregister_verify_applications() {
+    local products_path="${derived_data_path}/Build/Products"
+    local app_bundle
+
+    [[ -n "${derived_data_path}" && -d "${products_path}" \
+        && ! -L "${products_path}" ]] || return 0
+    while IFS= read -r -d '' app_bundle; do
+        unregister_verify_app "${app_bundle}" || true
+    done < <(find "${products_path}" -type d -name '*.app' -prune -print0)
 }
 
 cleanup_verify_lifecycle() {
     local status="$?"
 
     trap - EXIT HUP INT TERM
+    unregister_verify_applications
     if [[ "${verify_workspace_owned}" -eq 1 \
         && -n "${verify_workspace}" ]]; then
         workflow_safe_remove_workspace "${verify_workspace}" || true
@@ -510,31 +550,31 @@ new_test_result_bundle_path() {
 run_xcode_test_invocation() {
     local invocation_name="$1"
     shift
-    local result_bundle_path
-    local xcodebuild_status=0
-    local result_validation_status=0
+    local test_specification_path
+    local needs_build=0
+    local argument
+    local -a test_arguments=()
 
-    result_bundle_path="$(new_test_result_bundle_path "${invocation_name}")"
-    echo "Writing XCTest results to ${result_bundle_path}"
-    if xcodebuild \
-        "${common_debug_arguments[@]}" \
-        -resultBundlePath "${result_bundle_path}" \
-        "$@"; then
-        :
-    else
-        xcodebuild_status=$?
+    for argument in "$@"; do
+        if [[ "${argument}" == "test" ]]; then
+            needs_build=1
+            test_arguments+=(test-without-building)
+        else
+            test_arguments+=("${argument}")
+        fi
+    done
+    if [[ "${needs_build}" -eq 1 ]]; then
+        build_for_testing || return
     fi
-
-    assert_xcresult_passed "${result_bundle_path}" || result_validation_status=$?
-    if [[ "${xcodebuild_status}" -ne 0 ]]; then
-        echo \
-            "xcodebuild test invocation failed with status ${xcodebuild_status}: ${invocation_name}" \
-            >&2
-        return "${xcodebuild_status}"
-    fi
-    if [[ "${result_validation_status}" -ne 0 ]]; then
-        return "${result_validation_status}"
-    fi
+    assert_verification_app_isolation || return
+    test_specification_path="$(find "${derived_data_path}/Build/Products" \
+        -maxdepth 1 -type f -name '*.xctestrun' -print -quit)"
+    [[ -n "${test_specification_path}" ]] || {
+        echo 'Could not find the generated XCTest run specification.' >&2
+        return 1
+    }
+    run_xcode_test_specification "${invocation_name}" \
+        "${test_specification_path}" "${test_arguments[@]}"
 }
 
 run_xcode_test_specification() {
@@ -544,6 +584,10 @@ run_xcode_test_specification() {
     local result_bundle_path
     local xcodebuild_status=0
     local result_validation_status=0
+
+    assert_verification_app_isolation || return
+    python3 "${script_directory}/lib/prepare_private_xctestrun.py" \
+        "${test_specification_path}" || return
 
     result_bundle_path="$(new_test_result_bundle_path "${invocation_name}")"
     echo "Writing XCTest results to ${result_bundle_path}"
@@ -932,6 +976,7 @@ main() {
     require_command plutil
     require_command xcodebuild
     require_command xcrun
+    "${script_directory}/check_toolchain.sh"
     install_verify_lifecycle_traps
     initialize_verify_lifecycle
     mkdir -p "${artifacts_root}"
@@ -940,6 +985,10 @@ main() {
     fi
 
     case "${selected_suite}" in
+        compatibility)
+            build_for_testing
+            build_release
+            ;;
         architecture)
             verify_architecture
             ;;

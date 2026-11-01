@@ -17,16 +17,79 @@ mkdir -p "${fake_bin}" "${artifacts_path}"
 
 cat > "${fake_bin}/xcodebuild" <<'EOF'
 #!/usr/bin/env bash
-set -u
+set -euo pipefail
+
+derived_data_path=""
+test_specification_path=""
+result_bundle_path=""
+bundle_identifier=""
+needs_build=0
 
 while [[ "$#" -gt 0 ]]; do
-    if [[ "$1" == "-resultBundlePath" ]]; then
-        shift
-        mkdir -p "$1"
-        printf '%s\n' "$1" >> "${FAKE_XCODEBUILD_PATH_LOG}"
-    fi
+    case "$1" in
+        -derivedDataPath)
+            shift
+            derived_data_path="$1"
+            ;;
+        -xctestrun)
+            shift
+            test_specification_path="$1"
+            ;;
+        -resultBundlePath)
+            shift
+            result_bundle_path="$1"
+            ;;
+        MURALUME_APP_BUNDLE_IDENTIFIER=*)
+            bundle_identifier="${1#*=}"
+            ;;
+        build-for-testing)
+            needs_build=1
+            ;;
+    esac
     shift
 done
+
+if [[ "${needs_build}" -eq 1 ]]; then
+    # Model generated products rather than bypassing the real identity and
+    # attachment-privacy gates in the verification runner.
+    python3 - "${derived_data_path}" "${bundle_identifier}" <<'PY'
+from pathlib import Path
+import plistlib
+import sys
+
+products = Path(sys.argv[1]) / "Build/Products"
+info = products / "Debug/Muralume.app/Contents/Info.plist"
+info.parent.mkdir(parents=True, exist_ok=True)
+info.write_bytes(plistlib.dumps({"CFBundleIdentifier": sys.argv[2]}))
+targets = {
+    name: {
+        "TestBundlePath": f"__TESTROOT__/Debug/{name}.xctest",
+        "SystemAttachmentLifetime": "keepAlways",
+    }
+    for name in ("MuralumeTests", "MuralumeUITests")
+}
+(products / "Muralume-fixture.xctestrun").write_bytes(plistlib.dumps(targets))
+PY
+    exit 0
+fi
+
+# The fake execution must receive the generated specification after the
+# production privacy pass, just like test-without-building does in Xcode.
+python3 - "${test_specification_path}" <<'PY'
+from pathlib import Path
+import plistlib
+import sys
+
+specification = plistlib.loads(Path(sys.argv[1]).read_bytes())
+targets = [target for target in specification.values()
+           if isinstance(target, dict) and "TestBundlePath" in target]
+if len(targets) != 2 or any(target.get("SystemAttachmentLifetime") != "keepNever"
+                            for target in targets):
+    raise SystemExit("The test runner did not disable automatic screen attachments")
+PY
+[[ -n "${result_bundle_path}" ]]
+mkdir -p "${result_bundle_path}"
+printf '%s\n' "${result_bundle_path}" >> "${FAKE_XCODEBUILD_PATH_LOG}"
 exit "${FAKE_XCODEBUILD_STATUS:-0}"
 EOF
 
@@ -56,6 +119,7 @@ run_fake_invocation() {
 
     PATH="${fake_bin}:${PATH}" \
     MURALUME_TEST_ARTIFACTS_DIR="${artifacts_path}" \
+    MURALUME_TEST_DERIVED_DATA_DIR="${artifacts_path}/DerivedData" \
     FAKE_XCODEBUILD_PATH_LOG="${test_root}/result-paths.log" \
     FAKE_XCODEBUILD_STATUS="${xcodebuild_status}" \
     FAKE_XCRESULTTOOL_STATUS="${xcresulttool_status}" \
@@ -85,6 +149,7 @@ run_membership_check() {
 
     PATH="${fake_bin}:${PATH}" \
     MURALUME_TEST_ARTIFACTS_DIR="${artifacts_path}" \
+    MURALUME_TEST_DERIVED_DATA_DIR="${artifacts_path}/DerivedData" \
         bash -c '
             set -euo pipefail
             source "$1"

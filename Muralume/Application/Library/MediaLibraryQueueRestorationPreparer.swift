@@ -36,7 +36,16 @@ struct DefaultMediaLibraryQueueRestorationPreparer:
     func prepare(_ request: MediaLibraryQueueRestoreRequest) async throws
         -> MediaLibraryQueueRestorePreparation {
         try Task.checkCancellation()
-        let resolved = request.resolutionIndex.resolvePersistedQueueItems(
+        var availableItemsByID = request.itemsByID
+        if let playlistItems = request.collectionItems {
+            for (offset, item) in playlistItems.enumerated() {
+                if offset.isMultiple(of: 128) { try Task.checkCancellation() }
+                availableItemsByID[item.id] = item
+            }
+        }
+        let resolutionIndex = request.collectionItems == nil ? request.resolutionIndex
+            : MediaReferenceResolutionIndex(itemsByID: availableItemsByID)
+        let resolved = resolutionIndex.resolvePersistedQueueItems(
             queuedItemIDs: request.snapshot.items, references: request.references
         )
         try Task.checkCancellation()
@@ -48,7 +57,7 @@ struct DefaultMediaLibraryQueueRestorationPreparer:
         var missingIDs: Set<LibraryMediaItem.ID> = []
         for (offset, id) in canonical.items.enumerated() {
             if offset.isMultiple(of: 128) { try Task.checkCancellation() }
-            if request.itemsByID[id] == nil { missingIDs.insert(id) }
+            if availableItemsByID[id] == nil { missingIDs.insert(id) }
         }
         if !missingIDs.isEmpty {
             let requested = components(request.requestedRootPaths)
@@ -80,7 +89,7 @@ struct DefaultMediaLibraryQueueRestorationPreparer:
             queue.reshufflePendingItems()
         }
         let activeIDs = Set(queue.items)
-        let itemsByID = request.itemsByID.filter { activeIDs.contains($0.key) }
+        let itemsByID = availableItemsByID.filter { activeIDs.contains($0.key) }
         try Task.checkCancellation()
         return .ready(.init(queue: queue, itemsByID: itemsByID))
     }

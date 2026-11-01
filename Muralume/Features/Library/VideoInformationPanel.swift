@@ -94,8 +94,34 @@ struct VideoInformationPanel: View {
         }
     }
 
-    @ViewBuilder
     private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.xLarge) {
+                Grid(
+                    alignment: .leading,
+                    horizontalSpacing: MuralumeTheme.Spacing.xLarge,
+                    verticalSpacing: MuralumeTheme.Spacing.medium
+                ) {
+                    informationRow("videoInfo.fileName", value: item.url.lastPathComponent)
+                    informationRow("videoInfo.filePath", value: item.url.path)
+                        .accessibilityIdentifier(
+                            MuralumeAccessibilityIdentifier.videoInformationFilePath
+                        )
+                    informationRow("videoInfo.fileSize", value: fileSizeText(knownFileSize))
+                }
+
+                Divider().overlay(MuralumeTheme.Colors.border)
+
+                metadataContent
+            }
+            .padding(MuralumeTheme.Spacing.xLarge)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollIndicators(.automatic)
+    }
+
+    @ViewBuilder
+    private var metadataContent: some View {
         switch loadingState {
         case .loading:
             VStack(spacing: MuralumeTheme.Spacing.medium) {
@@ -105,6 +131,7 @@ struct VideoInformationPanel: View {
                     .font(.callout)
                     .foregroundStyle(MuralumeTheme.Colors.textSecondary)
             }
+            .frame(maxWidth: .infinity, minHeight: MuralumeTheme.Size.emptyMessageMinimumHeight)
         case let .loaded(information):
             informationContent(information)
         case .failed:
@@ -122,82 +149,68 @@ struct VideoInformationPanel: View {
                 }
                 .buttonStyle(.borderedProminent)
             }
-            .padding(MuralumeTheme.Spacing.xLarge)
+            .padding(.vertical, MuralumeTheme.Spacing.xLarge)
+            .frame(maxWidth: .infinity)
         }
     }
 
     private func informationContent(
         _ information: VideoInformation
     ) -> some View {
-        ScrollView {
-            Grid(
-                alignment: .leading,
-                horizontalSpacing: MuralumeTheme.Spacing.xLarge,
-                verticalSpacing: MuralumeTheme.Spacing.medium
-            ) {
-                informationRow(
-                    "videoInfo.fileName",
-                    value: item.displayName
-                )
-                informationRow(
-                    "videoInfo.container",
-                    value: information.container ?? unknownValue
-                )
-                informationRow(
-                    "videoInfo.duration",
-                    value: durationText(information.duration)
-                )
-                informationRow(
-                    "videoInfo.videoCodec",
-                    value: codecText(information.videoCodecs)
-                )
-                informationRow(
-                    "videoInfo.resolution",
-                    value: resolutionText(information.resolution)
-                )
-                informationRow(
-                    "videoInfo.aspectRatio",
-                    value: aspectRatioText(information.resolution)
-                )
-                informationRow(
-                    "videoInfo.frameRate",
-                    value: frameRateText(information.frameRate)
-                )
-                informationRow(
-                    "videoInfo.videoBitRate",
-                    value: bitRateText(information.videoBitRate)
-                )
-                informationRow(
-                    "videoInfo.dynamicRange",
-                    value: dynamicRangeText(information.dynamicRange)
-                )
-                informationRow(
-                    "videoInfo.colorSpace",
-                    value: information.colorSpace ?? unknownValue
-                )
-                informationRow(
-                    "videoInfo.audioCodec",
-                    value: audioCodecText(information)
-                )
-                informationRow(
-                    "videoInfo.audioTrackCount",
-                    value: countText(information.audioTrackCount)
-                )
-                informationRow(
-                    "videoInfo.subtitleTrackCount",
-                    value: countText(information.subtitleTrackCount)
-                )
-                informationRow(
-                    "videoInfo.fileSize",
-                    value: fileSizeText(
-                        information.fileSize ?? item.fileSize
-                    )
-                )
-            }
-            .padding(MuralumeTheme.Spacing.xLarge)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        Grid(
+            alignment: .leading,
+            horizontalSpacing: MuralumeTheme.Spacing.xLarge,
+            verticalSpacing: MuralumeTheme.Spacing.medium
+        ) {
+            informationRow(
+                "videoInfo.container",
+                value: information.container ?? unknownValue
+            )
+            informationRow(
+                "videoInfo.duration",
+                value: durationText(information.duration)
+            )
+            informationRow(
+                "videoInfo.videoCodec",
+                value: codecText(information.videoCodecs)
+            )
+            informationRow(
+                "videoInfo.resolution",
+                value: resolutionText(information.resolution)
+            )
+            informationRow(
+                "videoInfo.aspectRatio",
+                value: aspectRatioText(information.resolution)
+            )
+            informationRow(
+                "videoInfo.frameRate",
+                value: frameRateText(information.frameRate)
+            )
+            informationRow(
+                "videoInfo.videoBitRate",
+                value: bitRateText(information.videoBitRate)
+            )
+            informationRow(
+                "videoInfo.dynamicRange",
+                value: dynamicRangeText(information.dynamicRange)
+            )
+            informationRow(
+                "videoInfo.colorSpace",
+                value: information.colorSpace ?? unknownValue
+            )
+            informationRow(
+                "videoInfo.audioCodec",
+                value: audioCodecText(information)
+            )
+            informationRow(
+                "videoInfo.audioTrackCount",
+                value: countText(information.audioTrackCount)
+            )
+            informationRow(
+                "videoInfo.subtitleTrackCount",
+                value: countText(information.subtitleTrackCount)
+            )
         }
-        .scrollIndicators(.automatic)
     }
 
     private func informationRow(
@@ -217,6 +230,7 @@ struct VideoInformationPanel: View {
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(MuralumeTheme.Colors.textPrimary)
                 .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityElement(children: .combine)
@@ -229,7 +243,8 @@ struct VideoInformationPanel: View {
             let information = try await loader.information(
                 for: ResolvedMediaSource(
                     url: item.url,
-                    displayName: item.displayName
+                    displayName: item.displayName,
+                    accessLease: item.accessLease
                 )
             )
             try Task.checkCancellation()
@@ -242,6 +257,13 @@ struct VideoInformationPanel: View {
             }
             loadingState = .failed
         }
+    }
+
+    private var knownFileSize: Int64 {
+        if case let .loaded(information) = loadingState {
+            return information.fileSize ?? item.fileSize
+        }
+        return item.fileSize
     }
 
     private var unknownValue: String {

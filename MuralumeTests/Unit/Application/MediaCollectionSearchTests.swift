@@ -439,10 +439,150 @@ final class MediaCollectionSearchTests: XCTestCase {
         XCTAssertNil(search.latestResult(compatibleWith: nextKey) { $0 == $1 })
     }
 
+    @MainActor
+    func testChangingQueryRetainsAppliedProjectionUntilTheNewResultIsReady() async throws {
+        let search = LatestMediaSearch<MediaLibrarySearchProjection>(
+            hasSameContent: MediaLibrarySearchProjection.hasSameContent
+        )
+        let items = [
+            makeItem(name: "Sky-01", relativePath: "Sky-01.mov"),
+            makeItem(name: "Ocean", relativePath: "Ocean.mov")
+        ]
+        let previousKey = MediaLibrarySearchRequestID(itemsRevision: 1, query: "sky")
+        search.request(key: previousKey) {
+            MediaLibrarySearchProjection(search: MediaCollectionSearch(query: "sky"), items: [items[0]])
+        }
+        await search.waitForPendingSearch()
+        let previous = try XCTUnwrap(search.latestResult(compatibleWith: previousKey) { _, _ in true })
+        let nextKey = MediaLibrarySearchRequestID(itemsRevision: 1, query: "ocean")
+        let gate = MediaSearchTestGate()
+        search.request(key: nextKey) {
+            await gate.suspend()
+            return MediaLibrarySearchProjection(
+                search: MediaCollectionSearch(query: "ocean"), items: [items[1]]
+            )
+        }
+        await gate.waitUntilSuspended()
+
+        let pending = try XCTUnwrap(search.latestResult(compatibleWith: nextKey) { _, _ in true })
+        XCTAssertNil(search.result(for: nextKey), "Retained rows must not be presented as a completed query")
+        XCTAssertEqual(pending.key, previousKey)
+        XCTAssertEqual(pending.result.items, [items[0]])
+        XCTAssertEqual(pending.contentRevision, previous.contentRevision)
+        var table = VirtualizedTableUpdateTracker()
+        XCTAssertTrue(table.consumeSnapshotToken(AnyHashable(previous.contentRevision)))
+        XCTAssertFalse(table.consumeSnapshotToken(AnyHashable(pending.contentRevision)))
+
+        await gate.release()
+        await search.waitForPendingSearch()
+        XCTAssertEqual(search.result(for: nextKey)?.items, [items[1]])
+    }
+
+    @MainActor
+    func testEquivalentResultsReuseContentRevisionButMetadataChangesReplaceIt() async throws {
+        let search = LatestMediaSearch<MediaLibrarySearchProjection>(
+            hasSameContent: MediaLibrarySearchProjection.hasSameContent
+        )
+        let item = makeItem(name: "Sky-01", relativePath: "Sky-01.mov")
+        let firstKey = MediaLibrarySearchRequestID(itemsRevision: 1, query: "sky")
+        search.request(key: firstKey) {
+            MediaLibrarySearchProjection(search: MediaCollectionSearch(query: "sky"), items: [item])
+        }
+        await search.waitForPendingSearch()
+        let first = try XCTUnwrap(search.latestResult(compatibleWith: firstKey) { _, _ in true })
+        let nextKey = MediaLibrarySearchRequestID(itemsRevision: 2, query: "sky-")
+        search.request(key: nextKey) {
+            MediaLibrarySearchProjection(search: MediaCollectionSearch(query: "sky-"), items: [item])
+        }
+        await search.waitForPendingSearch()
+        let equivalent = try XCTUnwrap(search.latestResult(compatibleWith: nextKey) { _, _ in true })
+        XCTAssertEqual(equivalent.key, nextKey)
+        XCTAssertEqual(equivalent.contentRevision, first.contentRevision)
+        var grid = VirtualizedGridSnapshot<LibraryMediaItem>()
+        XCTAssertTrue(grid.apply(first.result.items, revision: AnyHashable(first.contentRevision)))
+        XCTAssertFalse(grid.apply(equivalent.result.items, revision: AnyHashable(equivalent.contentRevision)))
+
+        let changed = makeItem(name: "Sky-01", relativePath: "Sky-01.mov", fileSize: 2)
+        XCTAssertEqual(changed.id, item.id)
+        let changedKey = MediaLibrarySearchRequestID(itemsRevision: 3, query: "sky-")
+        search.request(key: changedKey) {
+            MediaLibrarySearchProjection(search: MediaCollectionSearch(query: "sky-"), items: [changed])
+        }
+        await search.waitForPendingSearch()
+        let replacement = try XCTUnwrap(search.latestResult(compatibleWith: changedKey) { _, _ in true })
+        XCTAssertNotEqual(replacement.contentRevision, first.contentRevision)
+        XCTAssertTrue(grid.apply(replacement.result.items, revision: AnyHashable(replacement.contentRevision)))
+        XCTAssertEqual(grid.items, [changed])
+    }
+
+    @MainActor
+    func testReturningToCachedQueryCancelsPendingWorkWithoutRecomputing() async {
+        let search = LatestMediaSearch<Int>()
+        search.request(key: "cached") { 7 }
+        await search.waitForPendingSearch()
+        let gate = MediaSearchTestGate()
+        search.request(key: "other") {
+            await gate.suspend()
+            return 9
+        }
+        await gate.waitUntilSuspended()
+
+        search.request(key: "cached") {
+            await gate.record(99)
+            return 99
+        }
+        XCTAssertEqual(search.result(for: "cached"), 7)
+        await gate.release()
+        await search.waitForPendingSearch()
+
+        let recomputations = await gate.recordedValues
+        XCTAssertTrue(recomputations.isEmpty)
+        XCTAssertEqual(search.result(for: "cached"), 7)
+        XCTAssertNil(search.result(for: "other"))
+    }
+
+    func testPlaylistContentComparisonIncludesResolvedMetadataAndIgnoresOnlyQuery() throws {
+        let item = makeItem(name: "Sky-01", relativePath: "Sky-01.mov")
+        let entries = [CustomPlaylistEntry(media: MediaReference(item: item))]
+        let first = CustomPlaylistDetailProjectionCache.makeProjection(
+            search: MediaCollectionSearch(query: "sky"), entries: entries,
+            resolutionIndex: MediaReferenceResolutionIndex(items: [item])
+        )
+        let equivalent = CustomPlaylistDetailProjectionCache.makeProjection(
+            search: MediaCollectionSearch(query: "sky-"), entries: entries,
+            resolutionIndex: MediaReferenceResolutionIndex(items: [item])
+        )
+        XCTAssertTrue(try CustomPlaylistDetailProjection.hasSameContent(first, equivalent))
+        let changed = makeItem(name: "Sky-01", relativePath: "Sky-01.mov", fileSize: 2)
+        let replacement = CustomPlaylistDetailProjectionCache.makeProjection(
+            search: MediaCollectionSearch(query: "sky-"), entries: entries,
+            resolutionIndex: MediaReferenceResolutionIndex(items: [changed])
+        )
+        XCTAssertFalse(try CustomPlaylistDetailProjection.hasSameContent(first, replacement))
+    }
+
+    func testLargeProjectionComparisonHonorsCancellation() async {
+        let projection = MediaLibrarySearchProjection(
+            search: MediaCollectionSearch(query: "clip"),
+            items: makeLargeItemCollection(count: 12_000)
+        )
+        let worker = Task.detached {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try MediaLibrarySearchProjection.hasSameContent(projection, projection)
+        }
+        do {
+            _ = try await worker.value
+            XCTFail("Cancelled comparison must not scan a large result")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+    }
+
     private func makeItem(
         name: String,
         relativePath: String,
-        rootName: String = "Library"
+        rootName: String = "Library",
+        fileSize: Int64 = 1
     ) -> LibraryMediaItem {
         let rootURL = URL(fileURLWithPath: "/Library")
         return LibraryMediaItem(
@@ -454,7 +594,7 @@ final class MediaCollectionSearchTests: XCTestCase {
             relativeDirectory: (relativePath as NSString)
                 .deletingLastPathComponent,
             creationDate: nil,
-            fileSize: 1
+            fileSize: fileSize
         )
     }
 

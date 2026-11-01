@@ -165,7 +165,7 @@ actor AVAssetVideoInformationLoader: VideoInformationLoading {
                 if access { request.source.url.stopAccessingSecurityScopedResource() }
             }
             let lease = try MediaPlaybackURLLease(
-                sourceURL: request.source.url
+                sourceURL: request.source.url, accessLease: request.source.accessLease
             )
             defer { lease.invalidate() }
             let asset = assetFactory(lease.url)

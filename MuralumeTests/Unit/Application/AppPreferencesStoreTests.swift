@@ -15,6 +15,7 @@ final class AppPreferencesStoreTests: XCTestCase {
             XCTAssertEqual(preferences.playbackOrder, .shuffled)
             XCTAssertEqual(preferences.playbackRepeatBehavior, .queue)
             XCTAssertEqual(preferences.queueTransitionStyle, .crossfade)
+            XCTAssertEqual(preferences.libraryBrowserLayout, .list)
         }
     }
 
@@ -59,6 +60,7 @@ final class AppPreferencesStoreTests: XCTestCase {
             store.savePlaybackRepeatBehavior(.currentItem)
             store.saveQueueTransitionStyle(.immediate)
             store.saveLibrarySort(sort)
+            store.saveLibraryBrowserLayout(.grid)
             store.saveLanguage(.simplifiedChinese)
             store.saveSubtitleAppearance(subtitleAppearance)
             store.saveSmartPause(smartPause)
@@ -79,6 +81,7 @@ final class AppPreferencesStoreTests: XCTestCase {
             )
             XCTAssertEqual(restored.queueTransitionStyle, .immediate)
             XCTAssertEqual(restored.librarySort, sort)
+            XCTAssertEqual(restored.libraryBrowserLayout, .grid)
             XCTAssertEqual(restored.language, .simplifiedChinese)
             XCTAssertEqual(
                 restored.subtitleAppearance,
@@ -91,6 +94,45 @@ final class AppPreferencesStoreTests: XCTestCase {
                 ),
                 "zh-Hans"
             )
+        }
+    }
+
+    func testLibraryLayoutSurvivesFreshStoreAndSidebarControllerInstances() throws {
+        try withStore { store, defaults in
+            let initial = LibrarySidebarController(
+                mediaBrowserLayout: store.load().libraryBrowserLayout,
+                preferencesStore: store
+            )
+            initial.mediaBrowserLayout = .grid
+            initial.updateQuery("temporary search")
+
+            let restartedStore = UserDefaultsAppPreferencesStore(userDefaults: defaults)
+            let restarted = LibrarySidebarController(
+                mediaBrowserLayout: restartedStore.load().libraryBrowserLayout,
+                preferencesStore: restartedStore
+            )
+            XCTAssertEqual(restarted.mediaBrowserLayout, .grid)
+            XCTAssertEqual(restarted.query, "")
+            XCTAssertEqual(restarted.destination, .mediaLibrary)
+            restarted.mediaBrowserLayout = .list
+
+            let secondRestart = UserDefaultsAppPreferencesStore(userDefaults: defaults).load()
+            XCTAssertEqual(secondRestart.libraryBrowserLayout, .list)
+            XCTAssertEqual(secondRestart.language, AppPreferences.defaultValue.language)
+            XCTAssertEqual(defaults.string(forKey: AppPreferencesStorageKey.libraryBrowserLayout), "list")
+        }
+    }
+
+    func testUnsupportedLibraryLayoutsFallBackWithoutChangingOtherPreferences() throws {
+        try withStore { store, defaults in
+            store.saveLanguage(.english)
+            let invalidValues: [Any] = ["unsupported", "GRID", "", 1, true, ["grid"]]
+            for value in invalidValues {
+                defaults.set(value, forKey: AppPreferencesStorageKey.libraryBrowserLayout)
+                let restored = UserDefaultsAppPreferencesStore(userDefaults: defaults).load()
+                XCTAssertEqual(restored.libraryBrowserLayout, .list)
+                XCTAssertEqual(restored.language, .english)
+            }
         }
     }
 

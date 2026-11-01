@@ -268,6 +268,101 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         XCTAssertTrue(storedSourceRecords(in: fixture.defaults).isEmpty)
     }
 
+    func testPersistentAccessGrantExportsInactiveRecordsWithoutReopeningAccess() throws {
+        var persistenceCount = 0
+        let fixture = makeSessionFixture(
+            sourceKindResolver: { _ in
+                XCTFail("Exporting an unavailable grant must not inspect its source")
+                return nil
+            },
+            sourceRecordStoreObserver: { _ in persistenceCount += 1 }
+        )
+        defer { fixture.clearDefaults() }
+        let grants = [
+            CustomPlaylistMediaGrant(
+                sourcePath: "/Volumes/Offline/Playlist Folder", kind: .folder,
+                bookmark: Data("offline-folder-grant".utf8)
+            ),
+            CustomPlaylistMediaGrant(
+                sourcePath: "/Volumes/Offline/Playlist File.mov", kind: .file,
+                bookmark: Data("offline-file-grant".utf8)
+            )
+        ]
+        let records = grants.map { grant -> [String: Any] in
+            var record = StoredSourceRecord(kind: grant.kind, bookmark: grant.bookmark).storedValue
+            record[TestStorage.RecordField.identifier] = grant.id.uuidString
+            record[TestStorage.RecordField.displayName] = "Offline source"
+            record[TestStorage.RecordField.lastKnownPath] = grant.sourcePath
+            return record
+        }
+        fixture.defaults.set(records, forKey: TestStorage.sourceRecordKey)
+        XCTAssertTrue(fixture.session.restoreSources().isEmpty)
+        let resolutionAttempts = fixture.recorder.resolvedBookmarks
+        let writesAfterRestore = persistenceCount
+        let persistedAfterRestore = NSArray(array: fixture.defaults.array(forKey: TestStorage.sourceRecordKey) ?? [])
+
+        for expected in grants {
+            let sourceID = MediaSource.ID(standardizedPath: expected.sourcePath)
+            XCTAssertEqual(fixture.session.persistentAccessGrant(for: sourceID), expected)
+            XCTAssertEqual(fixture.session.persistentAccessGrant(for: sourceID), expected)
+            XCTAssertNil(fixture.session.persistentAccessGrant(
+                for: .init(standardizedPath: expected.sourcePath + "/Child.mov")
+            ))
+        }
+
+        XCTAssertEqual(fixture.recorder.resolvedBookmarks, resolutionAttempts)
+        XCTAssertTrue(fixture.recorder.startedURLs.isEmpty)
+        XCTAssertTrue(fixture.recorder.stoppedURLs.isEmpty)
+        XCTAssertTrue(fixture.recorder.bookmarkedURLs.isEmpty)
+        XCTAssertEqual(persistenceCount, writesAfterRestore)
+        XCTAssertEqual(
+            NSArray(array: fixture.defaults.array(forKey: TestStorage.sourceRecordKey) ?? []),
+            persistedAfterRestore
+        )
+
+        let removed = try XCTUnwrap(fixture.session.unavailablePersistedSources.first)
+        fixture.session.removeUnavailableSource(removed)
+        XCTAssertNil(fixture.session.persistentAccessGrant(
+            for: .init(standardizedPath: removed.lastKnownURL.path)
+        ))
+    }
+
+    func testPersistentAccessGrantPrefersActiveRecordOverInactiveSamePath() throws {
+        let fixture = makeSessionFixture()
+        defer {
+            fixture.session.stop()
+            fixture.clearDefaults()
+        }
+        let rootURL = URL(
+            fileURLWithPath: "/tmp/Active Playlist Grant \(UUID().uuidString)", isDirectory: true
+        )
+        let active = CustomPlaylistMediaGrant(
+            sourcePath: rootURL.path, kind: .folder, bookmark: Data("active-grant".utf8)
+        )
+        let inactive = CustomPlaylistMediaGrant(
+            sourcePath: rootURL.path, kind: .folder, bookmark: Data("inactive-grant".utf8)
+        )
+        let records = [inactive, active].map { grant -> [String: Any] in
+            var record = StoredSourceRecord(kind: grant.kind, bookmark: grant.bookmark).storedValue
+            record[TestStorage.RecordField.identifier] = grant.id.uuidString
+            record[TestStorage.RecordField.displayName] = "Playlist source"
+            record[TestStorage.RecordField.lastKnownPath] = grant.sourcePath
+            return record
+        }
+        fixture.defaults.set(records, forKey: TestStorage.sourceRecordKey)
+        fixture.recorder.resolvedURLByBookmark[active.bookmark] = rootURL
+        fixture.recorder.generatedBookmarkByURL[rootURL] = active.bookmark
+        XCTAssertEqual(fixture.session.restoreSources(), [MediaSource(url: rootURL, kind: .folder)])
+        XCTAssertEqual(fixture.session.unavailablePersistedSources.count, 1)
+        let resolutionAttempts = fixture.recorder.resolvedBookmarks
+
+        XCTAssertEqual(
+            fixture.session.persistentAccessGrant(for: .init(standardizedPath: rootURL.path)),
+            active
+        )
+        XCTAssertEqual(fixture.recorder.resolvedBookmarks, resolutionAttempts)
+    }
+
     func testTypedFileRecordRestoresAsFileAcrossSessions() throws {
         let fixture = makeSessionFixture(
             sourceKindResolver: Self.liveSourceKind(at:)
