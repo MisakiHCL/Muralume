@@ -77,8 +77,8 @@
 "desktop.status.playingCount" = "%d / %d 台显示器正在播放";
 "desktop.status.availableCount" = "%d / %d 台显示器可用";
 "desktop.smartPause.reason" = "智能暂停 · %@";
-"desktop.smartPause.hiddenCount" = "智能暂停 · %d/%d 块显示器不可见";
-"desktop.smartPause.reason.thermalPressure" = "热压力";
+"desktop.smartPause.hiddenCount" = "智能暂停 · %d/%d 台显示器上的桌面不可见";
+"desktop.smartPause.reason.thermalPressure" = "系统温度过高";
 "desktop.smartPause.reason.lowBattery" = "电量极低";
 "desktop.smartPause.reason.lowPowerMode" = "低电量模式";
 "desktop.smartPause.reason.limitedPowerSource" = "电池供电";
@@ -150,7 +150,7 @@
 "playlists.error" = "无法更改播放列表，请重试。";
 "playlists.delete" = "删除";
 "playlists.delete.title" = "删除这个播放列表？";
-"playlists.delete.message" = "将删除“%@”。其中的视频仍会保留在媒体库中，原文件也不会被删除。";
+"playlists.delete.message" = "将删除“%@”播放列表。媒体库和原文件不受影响。";
 "playlists.actions" = "播放列表操作";
 "playlists.back" = "所有播放列表";
 "playlists.count.one" = "%d 个播放列表";
@@ -235,7 +235,7 @@
 "videoInfo.colorSpace" = "色彩空间";
 "videoInfo.audioCodec" = "音频编码";
 "videoInfo.audioTrackCount" = "音轨数量";
-"videoInfo.subtitleTrackCount" = "字幕数量";
+"videoInfo.subtitleTrackCount" = "字幕轨数量";
 "videoInfo.fileSize" = "文件大小";
 "videoInfo.value.unknown" = "未知";
 "videoInfo.value.none" = "无";
@@ -313,7 +313,7 @@
 "settings.subtitles.fontSize" = "字幕大小";
 "settings.subtitles.fontSize.unit" = "pt";
 "settings.subtitles.textColor" = "文字颜色";
-"settings.subtitles.shadowColor" = "投影颜色";
+"settings.subtitles.shadowColor" = "阴影颜色";
 "settings.subtitles.restoreDefaults" = "恢复默认";
 "settings.subtitles.preview" = "字幕预览";
 "settings.subtitles.preview.text" = "这是一段字幕预览";
@@ -322,6 +322,14 @@
 "settings.language.system" = "跟随系统";
 "settings.language.english" = "English";
 "settings.language.simplifiedChinese" = "简体中文";
+"settings.language.traditionalChinese" = "繁體中文";
+"settings.language.japanese" = "日本語";
+"settings.language.korean" = "한국어";
+"settings.language.french" = "Français";
+"settings.language.german" = "Deutsch";
+"settings.language.spanish" = "Español";
+"settings.language.brazilianPortuguese" = "Português (Brasil)";
+"settings.language.italian" = "Italiano";
 "settings.launchAtLogin" = "登录时启动";
 "settings.launchAtLogin.accessibilityHint" = "登录时启动 Muralume，并恢复最近可用的动态桌面。";
 "settings.launchAtLogin.requiresApproval" = "需要在系统设置中批准。";
@@ -356,7 +364,7 @@
 "settings.smartPause.limitedPowerSource" = "使用电池供电时暂停";
 "settings.smartPause.sustainedSystemLoad" = "系统持续高负载时暂停";
 "settings.smartPause.protections" = "睡眠、电量极低和热保护始终保持生效。";
-"settings.smartPause.accessibilityHint" = "立即更改此智能暂停条件，同时保留手动播放意图。";
+"settings.smartPause.accessibilityHint" = "立即更改此智能暂停条件，不会更改手动选择的播放或暂停状态。";
 "menu.actions" = "操作";
 "menu.window" = "窗口";
 "menu.help" = "帮助";

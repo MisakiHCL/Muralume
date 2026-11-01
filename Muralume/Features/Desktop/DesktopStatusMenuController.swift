@@ -323,9 +323,7 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
                         state.enabledDisplayCount
                     )
                 } else {
-                    let key = state.enabledDisplayCount == 1
-                        ? "desktop.status.display.one"
-                        : "desktop.status.displays"
+                    let key = "desktop.status.displays"
                     fullCurrentTitle = String(
                         format: localized(key),
                         locale: localization.locale,

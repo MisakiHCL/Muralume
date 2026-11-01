@@ -827,9 +827,7 @@ struct LibraryQueueSidebar: View {
             )
         }
         return localization.localizedFormat(
-            library.items.count == 1
-                ? "library.video.count.one"
-                : "library.video.count",
+            "library.video.count",
             library.items.count
         )
     }
@@ -910,9 +908,7 @@ struct LibraryQueueSidebar: View {
         let sourceCount = library.roots.count
             + library.unavailableSources.count
         return localization.localizedFormat(
-            sourceCount == 1
-                ? "library.source.count.one"
-                : "library.source.count",
+            "library.source.count",
             sourceCount
         )
     }

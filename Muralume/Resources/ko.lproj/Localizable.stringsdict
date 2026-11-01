@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>external.open.skipped</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d개의 파일을 재생할 수 없어 건너뛰었습니다.</string>
+			<key>other</key>
+			<string>%d개의 파일을 재생할 수 없어 건너뛰었습니다.</string>
+		</dict>
+	</dict>
+	<key>desktop.status.displays</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>디스플레이 %d개 사용 중</string>
+			<key>other</key>
+			<string>디스플레이 %d개 사용 중</string>
+		</dict>
+	</dict>
+	<key>desktop.layout.apply</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>디스플레이 %d개에 적용</string>
+			<key>other</key>
+			<string>디스플레이 %d개에 적용</string>
+		</dict>
+	</dict>
+	<key>desktop.layout.disconnected</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>저장된 디스플레이 %d개가 연결되어 있지 않습니다.</string>
+			<key>other</key>
+			<string>저장된 디스플레이 %d개가 연결되어 있지 않습니다.</string>
+		</dict>
+	</dict>
+	<key>playlists.count</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>재생목록 %d개</string>
+			<key>other</key>
+			<string>재생목록 %d개</string>
+		</dict>
+	</dict>
+	<key>playlists.video.count</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>동영상 %d개</string>
+			<key>other</key>
+			<string>동영상 %d개</string>
+		</dict>
+	</dict>
+	<key>library.video.count</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>동영상 %d개</string>
+			<key>other</key>
+			<string>동영상 %d개</string>
+		</dict>
+	</dict>
+	<key>library.source.count</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>미디어 소스 %d개</string>
+			<key>other</key>
+			<string>미디어 소스 %d개</string>
+		</dict>
+	</dict>
+	<key>library.folder.count</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>폴더 %d개</string>
+			<key>other</key>
+			<string>폴더 %d개</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

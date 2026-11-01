@@ -608,7 +608,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         controller.menuNeedsUpdate(menu)
         XCTAssertEqual(
             try XCTUnwrap(menu.items.first).title,
-            "1 of 2 displays available"
+            "Displays available: 1 of 2"
         )
 
         localization.selectLanguage(.simplifiedChinese)
@@ -653,7 +653,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             enabledDisplayCount: 2
         )
         localization.selectLanguage(.simplifiedChinese)
-        XCTAssertEqual(menu.items[1].title, "智能暂停 · 1/2 块显示器不可见")
+        XCTAssertEqual(menu.items[1].title, "智能暂停 · 1/2 台显示器上的桌面不可见")
     }
 
     func testLifecycleSuspensionPausesPlayerAndDesktopWithoutLosingIntent()

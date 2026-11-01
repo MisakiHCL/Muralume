@@ -621,7 +621,7 @@ final class AppLocalizationControllerTests: XCTestCase {
                 2,
                 3
             ),
-            "2 of 3 displays playing"
+            "Displays playing: 2 of 3"
         )
         XCTAssertEqual(
             controller.localizedFormat(
@@ -629,7 +629,7 @@ final class AppLocalizationControllerTests: XCTestCase {
                 2,
                 3
             ),
-            "2 of 3 displays available"
+            "Displays available: 2 of 3"
         )
         XCTAssertEqual(
             controller.localizedFormat("desktop.layout.apply.one", 1),

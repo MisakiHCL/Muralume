@@ -74,11 +74,11 @@
 "desktop.stop" = "Stop Dynamic Desktop";
 "desktop.status.display.one" = "%d display active";
 "desktop.status.displays" = "%d displays active";
-"desktop.status.playingCount" = "%d of %d displays playing";
-"desktop.status.availableCount" = "%d of %d displays available";
+"desktop.status.playingCount" = "Displays playing: %d of %d";
+"desktop.status.availableCount" = "Displays available: %d of %d";
 "desktop.smartPause.reason" = "Smart Pause · %@";
-"desktop.smartPause.hiddenCount" = "Smart Pause · %d of %d displays hidden";
-"desktop.smartPause.reason.thermalPressure" = "Thermal Pressure";
+"desktop.smartPause.hiddenCount" = "Smart Pause · Desktops hidden: %d of %d";
+"desktop.smartPause.reason.thermalPressure" = "High System Temperature";
 "desktop.smartPause.reason.lowBattery" = "Critical Battery";
 "desktop.smartPause.reason.lowPowerMode" = "Low Power Mode";
 "desktop.smartPause.reason.limitedPowerSource" = "Battery Power";
@@ -133,7 +133,7 @@
 "library.search.placeholder" = "Search videos";
 "library.search.accessibility" = "Search videos in the media library";
 "library.search.clear" = "Clear Search";
-"library.search.results" = "%d of %d videos";
+"library.search.results" = "Videos: %d of %d";
 "library.search.noResults" = "No matching videos";
 "library.search.noResults.detail" = "Try a different name, folder, or file path.";
 "playlists.title" = "Playlists";
@@ -150,7 +150,7 @@
 "playlists.error" = "The playlist could not be changed. Try again.";
 "playlists.delete" = "Delete";
 "playlists.delete.title" = "Delete this playlist?";
-"playlists.delete.message" = "“%@” will be deleted. Its videos will remain in the Media Library, and the original files will not be deleted.";
+"playlists.delete.message" = "“%@” will be deleted. Your media library and original files will stay unchanged.";
 "playlists.actions" = "Playlist Actions";
 "playlists.back" = "All Playlists";
 "playlists.count.one" = "%d playlist";
@@ -322,6 +322,14 @@
 "settings.language.system" = "Follow System";
 "settings.language.english" = "English";
 "settings.language.simplifiedChinese" = "简体中文";
+"settings.language.traditionalChinese" = "繁體中文";
+"settings.language.japanese" = "日本語";
+"settings.language.korean" = "한국어";
+"settings.language.french" = "Français";
+"settings.language.german" = "Deutsch";
+"settings.language.spanish" = "Español";
+"settings.language.brazilianPortuguese" = "Português (Brasil)";
+"settings.language.italian" = "Italiano";
 "settings.launchAtLogin" = "Launch at Login";
 "settings.launchAtLogin.accessibilityHint" = "Starts Muralume at login and restores the last eligible Dynamic Desktop.";
 "settings.launchAtLogin.requiresApproval" = "Approval is required in System Settings.";
@@ -356,7 +364,7 @@
 "settings.smartPause.limitedPowerSource" = "Pause on battery power";
 "settings.smartPause.sustainedSystemLoad" = "Pause under sustained system load";
 "settings.smartPause.protections" = "Sleep, critical battery, and thermal protections always remain active.";
-"settings.smartPause.accessibilityHint" = "Changes this Smart Pause condition immediately while preserving manual playback intent.";
+"settings.smartPause.accessibilityHint" = "Applies this Smart Pause condition immediately and keeps your manual choice to play or pause.";
 "menu.actions" = "Actions";
 "menu.window" = "Window";
 "menu.help" = "Help";

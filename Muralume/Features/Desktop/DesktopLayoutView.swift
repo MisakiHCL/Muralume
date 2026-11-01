@@ -405,9 +405,7 @@ struct DesktopLayoutView: View {
 
     private var disconnectedDisplaysMessage: String {
         localization.localizedFormat(
-            disconnectedAssignmentCount == 1
-                ? "desktop.layout.disconnected.one"
-                : "desktop.layout.disconnected",
+            "desktop.layout.disconnected",
             disconnectedAssignmentCount
         )
     }
@@ -415,9 +413,7 @@ struct DesktopLayoutView: View {
     private var applyButtonTitle: String {
         let count = desktopScene.enabledDisplayCount
         return localization.localizedFormat(
-            count == 1
-                ? "desktop.layout.apply.one"
-                : "desktop.layout.apply",
+            "desktop.layout.apply",
             count
         )
     }

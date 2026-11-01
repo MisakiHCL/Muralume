@@ -207,9 +207,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
         case .noPlayableFiles:
             return localization.localized("external.open.none")
         case let .skippedFiles(count):
-            let key = count == 1
-                ? "external.open.skipped.one"
-                : "external.open.skipped"
+            let key = "external.open.skipped"
             return localization.localizedFormat(
                 key,
                 count

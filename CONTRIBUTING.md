@@ -10,7 +10,7 @@ video playback, media organization, and Dynamic Desktop presentation.
 - Keep user media local and read-only. Do not add accounts, uploads, product
   telemetry, advertising, or automatic crash reporting.
 - Discuss new runtime dependencies before adding them.
-- Keep user-visible behavior consistent in English and Simplified Chinese.
+- Keep user-visible behavior consistent across all supported languages.
 
 ## Local setup
 
@@ -66,8 +66,9 @@ one. Official version notes and binaries are available through
   removal, cancellation, and shutdown.
 - Use explicit types and named constants for product state, persisted keys,
   events, and operational limits.
-- Put every user-visible string in both English and Simplified Chinese
-  localization resources.
+- Put every user-visible string in all supported localization resources. Use
+  natural interface wording, keep terminology consistent, and preserve format
+  arguments. Keep plural forms in the localization dictionaries.
 - Follow the existing design system and accessibility conventions. UI spacing
   should normally follow the project's 4-point grid.
 - Keep caches bounded and give them explicit invalidation and teardown paths.
@@ -83,8 +84,8 @@ pull request should describe:
 - manual macOS validation still required; and
 - lifecycle, privacy, accessibility, or localization effects.
 
-Include English and Simplified Chinese screenshots for visual changes when
-text or layout differs. Do not attach personal videos, real folder paths,
+When images help explain a visual change, capture only the app window or
+affected control in English and another affected language. Do not attach personal videos, real folder paths,
 security-scoped bookmarks, credentials, signing material, or private logs.
 
 ## Security reports

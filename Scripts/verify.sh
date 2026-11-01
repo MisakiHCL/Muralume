@@ -366,26 +366,9 @@ reject_references() {
     fi
 }
 
-localization_keys() {
-    local strings_file="$1"
-
-    rg -N -o '^"[^"]+"[[:space:]]*=' "${strings_file}" \
-        | sed -E 's/^"([^"]+)"[[:space:]]*=$/\1/' \
-        | sort
-}
-
 check_localization_key_parity() {
-    local english_strings="${project_root}/Muralume/Resources/en.lproj/Localizable.strings"
-    local chinese_strings="${project_root}/Muralume/Resources/zh-Hans.lproj/Localizable.strings"
-
-    if ! diff -u \
-        <(localization_keys "${english_strings}") \
-        <(localization_keys "${chinese_strings}"); then
-        echo "English and Simplified Chinese localization keys differ." >&2
-        return 1
-    fi
-
-    echo "Localization key parity checks passed."
+    python3 "${script_directory}/lib/check_localizations.py" \
+        --project-root "${project_root}"
 }
 
 discover_test_classes() {
@@ -915,8 +898,6 @@ check_bundled_resources() {
         "${app_bundle}/Contents/Resources/AppIcon.icns"
         "${app_bundle}/Contents/Resources/Assets.car"
         "${app_bundle}/Contents/Resources/PrivacyInfo.xcprivacy"
-        "${app_bundle}/Contents/Resources/en.lproj/Localizable.strings"
-        "${app_bundle}/Contents/Resources/zh-Hans.lproj/Localizable.strings"
         "${test_bundle}/Contents/Resources/landscape-20s-h264.mp4"
         "${test_bundle}/Contents/Resources/portrait-20s-h264.mp4"
     )
@@ -929,6 +910,9 @@ check_bundled_resources() {
         fi
     done
 
+    python3 "${script_directory}/lib/check_localizations.py" \
+        --project-root "${project_root}" \
+        --bundle-resources "${app_bundle}/Contents/Resources" || return
     echo "Bundled resource checks passed."
 }
 

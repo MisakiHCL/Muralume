@@ -52,6 +52,9 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
   playback and seamless independent loops on each display.
 - **A refined Mac interface:** Translucent playback controls, a searchable media
   library, and a consistent layout keep your videos in focus.
+- **In your language:** English, Simplified and Traditional Chinese, Japanese,
+  Korean, French, German, Spanish, Brazilian Portuguese, and Italian. Follow your
+  system language or switch instantly in Settings.
 - **One Mac. Every display:** Place video behind desktop files and widgets, use one
   synchronized collection across displays, or assign an independent, seamless
   loop to each display.

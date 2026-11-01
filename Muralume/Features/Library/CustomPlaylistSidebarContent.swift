@@ -111,9 +111,7 @@ struct CustomPlaylistSidebarContent: View {
             HStack {
                 Text(
                     verbatim: localization.localizedFormat(
-                        playlists.playlists.count == 1
-                            ? "playlists.count.one"
-                            : "playlists.count",
+                        "playlists.count",
                         playlists.playlists.count
                     )
                 )
@@ -767,7 +765,7 @@ struct CustomPlaylistSidebarContent: View {
 
     private func playlistCountText(_ count: Int) -> String {
         localization.localizedFormat(
-            count == 1 ? "playlists.video.count.one" : "playlists.video.count",
+            "playlists.video.count",
             count
         )
     }
