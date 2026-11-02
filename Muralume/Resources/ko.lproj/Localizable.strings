@@ -141,7 +141,7 @@
 "playlists.empty" = "아직 재생목록이 없습니다";
 "playlists.empty.detail" = "원하는 동영상을 모아 나만의 재생목록을 만드세요.";
 "playlists.items.empty" = "이 재생목록은 비어 있습니다";
-"playlists.items.empty.detail" = "미디어 보관함에서 동영상을 추가하세요.";
+"playlists.items.empty.detail" = "이 재생목록에 동영상을 추가하세요.";
 "playlists.open" = "재생목록 열기";
 "playlists.search.accessibility" = "%@에서 검색";
 "playlists.addTo" = "재생목록에 추가";
@@ -409,3 +409,13 @@
 "library.source.health.lastRefresh.unknown" = "마지막 새로 고침 시간 알 수 없음";
 "library.source.health.statusReason" = "%@. %@";
 "library.source.health.needsAttention" = "일부 미디어 소스를 확인해야 합니다";
+"playlists.import.failed.title" = "동영상을 추가할 수 없음";
+"playlists.import.limit" = "한 번에 동영상을 최대 %d개까지 선택할 수 있습니다. 추가된 동영상은 없습니다.";
+"playlists.media.picker.message" = "이 재생목록에 추가할 동영상을 선택하세요.";
+"menu.edit" = "편집";
+"menu.undo" = "실행 취소";
+"menu.redo" = "실행 복귀";
+"menu.cut" = "오려두기";
+"menu.copy" = "복사하기";
+"menu.paste" = "붙여넣기";
+"menu.selectAll" = "전체 선택";

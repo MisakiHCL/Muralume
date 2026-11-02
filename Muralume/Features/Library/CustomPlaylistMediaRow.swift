@@ -21,9 +21,20 @@ struct CustomPlaylistMediaRow: View {
     let toggleSelection: () -> Void
     let retry: () -> Void
     var reauthorize: (() -> Void)? = nil
+    var layout: MediaBrowserLayout = .list
+    var artworkSize = CGSize(
+        width: MuralumeTheme.Size.playlistArtworkWidth,
+        height: MuralumeTheme.Size.playlistArtworkHeight
+    )
+    var rowHeight: CGFloat = MuralumeTheme.Size.playlistRowHeight
+    let playbackState: LibraryMediaRowPlaybackState
 
     var body: some View {
-        rowControl
+        let metadata = MediaBrowserItemMetadata(
+            item: item, reference: entry.media, localization: localization
+        )
+        rowControl(metadata: metadata)
+        .contentShape(Rectangle())
         .contextMenu {
             if let displayedIssue, displayedIssue != .resolving {
                 if displayedIssue == .authorizationRequired
@@ -49,12 +60,12 @@ struct CustomPlaylistMediaRow: View {
             Divider()
             Button("playlists.removeVideo", role: .destructive, action: remove)
         }
-        .accessibilityLabel(
-            Text(verbatim: item?.displayName ?? entry.media.lastKnownDisplayName)
-        )
+        .accessibilityLabel(Text(verbatim: metadata.accessibilityLabel))
         .accessibilityValue(Text(verbatim: accessibilityValue))
         .accessibilityHint(Text(verbatim: recoveryHint))
-        .help(Text(verbatim: tooltipText))
+        .help(Text(verbatim: metadata.tooltipText(
+            status: displayedIssue.map { localization.localized($0.localizedMessageKey) }
+        )))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier(
             MuralumeAccessibilityIdentifier.playlistEntryPrefix
@@ -74,15 +85,15 @@ struct CustomPlaylistMediaRow: View {
     }
 
     @ViewBuilder
-    private var rowControl: some View {
+    private func rowControl(metadata: MediaBrowserItemMetadata) -> some View {
         if let rowAction {
             Button(action: rowAction) {
-                rowLabel
+                rowLabel(metadata: metadata)
             }
             .buttonStyle(MuralumeMediaItemButtonStyle())
             .disabled(!isSelecting && displayedIssue == .resolving)
         } else {
-            rowLabel
+            rowLabel(metadata: metadata)
         }
     }
 
@@ -95,91 +106,21 @@ struct CustomPlaylistMediaRow: View {
         return displayedIssue == .resolving ? nil : retry
     }
 
-    private var rowLabel: some View {
-        HStack(spacing: MuralumeTheme.Spacing.small) {
-            if isSelecting {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(
-                        isSelected
-                            ? MuralumeTheme.Colors.controlAccent
-                            : MuralumeTheme.Colors.textTertiary
-                    )
-                    .frame(width: MuralumeTheme.Size.iconLarge)
-                    .accessibilityHidden(true)
-            }
-            if let item {
-                LibraryMediaThumbnail(
-                    item: item,
-                    isCurrent: isCurrent,
-                    provider: mediaThumbnailProvider
-                )
-            } else {
-                unavailableThumbnail
-            }
+    private func rowLabel(metadata: MediaBrowserItemMetadata) -> some View {
+        MediaBrowserItemLabel(
+            item: item, metadata: metadata,
+            isCurrent: isCurrent, playbackState: displayedPlaybackState,
+            rowHeight: rowHeight, mediaThumbnailProvider: mediaThumbnailProvider,
+            layout: layout, artworkSize: artworkSize,
+            isSelecting: isSelecting, isSelected: isSelected,
+            statusHelp: displayedIssue.map { localization.localized($0.localizedMessageKey) }
+        )
+    }
 
-            VStack(
-                alignment: .leading,
-                spacing: MuralumeTheme.Spacing.xSmall
-            ) {
-                Text(
-                    verbatim: item?.displayName
-                        ?? entry.media.lastKnownDisplayName
-                )
-                .font(.body.weight(isCurrent ? .semibold : .regular))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                Text(
-                    verbatim: item?.relativePath
-                        ?? entry.media.mediaItemID.relativePath
-                )
-                .font(.caption)
-                .foregroundStyle(MuralumeTheme.Colors.textTertiary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            }
-
-            Spacer(minLength: MuralumeTheme.Spacing.small)
-            if displayedIssue == .resolving {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(
-                        width: MuralumeTheme.Size.iconLarge,
-                        height: MuralumeTheme.Size.iconLarge
-                    )
-                    .help(Text(verbatim: tooltipText))
-                    .accessibilityHidden(true)
-            } else if displayedIssue != nil {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .foregroundStyle(MuralumeTheme.Colors.warning)
-                    .help(Text(verbatim: tooltipText))
-                    .accessibilityHidden(true)
-            } else if isCurrent {
-                Image(systemName: "waveform")
-                    .foregroundStyle(MuralumeTheme.Colors.controlAccent)
-                    .accessibilityHidden(true)
-            }
-        }
-        .padding(MuralumeTheme.Spacing.small)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(minHeight: MuralumeTheme.Size.control * 2)
-        .background {
-            RoundedRectangle(
-                cornerRadius: MuralumeTheme.Radius.medium,
-                style: .continuous
-            )
-            .fill(
-                isCurrent ? MuralumeTheme.Colors.controlHover
-                    : isSelected ? MuralumeTheme.Colors.controlFill
-                    : MuralumeTheme.Colors.controlFill.opacity(0.36)
-            )
-            .overlay {
-                MuralumeMediaItemOutline(
-                    isCurrent: isCurrent,
-                    isSelected: isSelected,
-                    cornerRadius: MuralumeTheme.Radius.medium
-                )
-            }
-        }
+    private var displayedPlaybackState: LibraryMediaRowPlaybackState {
+        if displayedIssue == .resolving { return .loading }
+        if displayedIssue != nil { return .unavailable }
+        return playbackState
     }
 
     private var accessibilityValue: String {
@@ -193,19 +134,14 @@ struct CustomPlaylistMediaRow: View {
         }
         if let displayedIssue {
             values.append(localization.localized(displayedIssue.localizedMessageKey))
+        } else if !isSelecting || displayedPlaybackState != .available {
+            values.append(localization.localized(displayedPlaybackState.accessibilityKey))
         }
         return values.joined(separator: ", ")
     }
 
     private var displayedIssue: CustomPlaylistMediaIssue? {
         issue ?? (item == nil ? .temporarilyUnavailable : nil)
-    }
-
-    private var tooltipText: String {
-        if let displayedIssue {
-            return localization.localized(displayedIssue.localizedMessageKey)
-        }
-        return item?.url.path ?? entry.media.mediaItemID.standardizedMediaPath
     }
 
     private var recoveryHint: String {
@@ -218,24 +154,6 @@ struct CustomPlaylistMediaRow: View {
             ? "" : localization.localized("playlists.media.retry.hint")
     }
 
-    private var unavailableThumbnail: some View {
-        ZStack {
-            MuralumeTheme.Colors.panelRaised
-            Image(systemName: "film")
-                .foregroundStyle(MuralumeTheme.Colors.textTertiary)
-        }
-        .frame(
-            width: MuralumeTheme.Size.playlistArtworkWidth,
-            height: MuralumeTheme.Size.playlistArtworkHeight
-        )
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: MuralumeTheme.Radius.small,
-                style: .continuous
-            )
-        )
-        .accessibilityHidden(true)
-    }
 }
 
 private extension View {

@@ -167,6 +167,55 @@ struct LibraryBrowserLayoutPicker: View {
     }
 }
 
+struct MediaBrowserSelectionControl: View {
+    let isSelecting: Bool
+    let isEnabled: Bool
+    let identifier: String
+    let toggle: () -> Void
+
+    var body: some View {
+        let title = LocalizedStringKey(isSelecting
+            ? "library.selection.done" : "library.selection.begin")
+        Button(action: toggle) {
+            Image(systemName: "checkmark.circle")
+        }
+        .buttonStyle(LibraryBrowserControlStyle(isSelected: isSelecting))
+        .disabled(!isEnabled)
+        .help(Text(title))
+        .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(isSelecting ? .isSelected : [])
+        .accessibilityIdentifier(identifier)
+    }
+}
+
+struct MediaBrowserSelectionActionsMenu: View {
+    let canSelectAll: Bool
+    let canClear: Bool
+    let identifier: String
+    let selectAllIdentifier: String
+    let clearIdentifier: String
+    let selectAll: () -> Void
+    let clear: () -> Void
+
+    var body: some View {
+        Menu {
+            Button("library.selection.all", action: selectAll)
+                .disabled(!canSelectAll)
+                .accessibilityIdentifier(selectAllIdentifier)
+            Button("library.selection.clear", action: clear)
+                .disabled(!canClear)
+                .accessibilityIdentifier(clearIdentifier)
+        } label: {
+            Image(systemName: "checklist")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel(Text("library.selection.actions"))
+        .accessibilityIdentifier(identifier)
+    }
+}
+
 /// Keeps the icon, highlight and hit area consistent for buttons and menus.
 struct LibraryBrowserControlStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled

@@ -87,9 +87,12 @@ enum MuralumeTheme {
         static let playlistRefreshActionWidth: CGFloat = 112
         static let playerControlsMaximumWidth: CGFloat = 1_040
         static let widePlayerControlsMinimumWidth: CGFloat = 1_000
-        static let playlistRowHeight: CGFloat = 72
+        static let mediaItemContentPadding: CGFloat = 8
+        // Compact three metadata baselines within the standard 48pt artwork.
+        static let mediaItemMetadataSpacing: CGFloat = 2
         static let playlistArtworkWidth: CGFloat = 84
         static let playlistArtworkHeight: CGFloat = 48
+        static let playlistRowHeight = playlistArtworkHeight + mediaItemContentPadding * 2
         static let libraryGridMinimumWidth: CGFloat = 88
         static let libraryGridScrollerAllowance: CGFloat = 16
         static let libraryBrowserControlSize: CGFloat = 28
@@ -102,6 +105,15 @@ enum MuralumeTheme {
         static let desktopEntryOptionsWidth: CGFloat = 20
         static let desktopMediaPreviewWidth: CGFloat = 128
         static let desktopMediaPreviewHeight: CGFloat = 72
+
+        static func mediaItemListArtworkSize(
+            rowHeight: CGFloat,
+            width: CGFloat = playlistArtworkWidth
+        ) -> CGSize {
+            // Grow vertically for larger text while keeping the metadata lane
+            // usable in the narrow sidebar at accessibility text sizes.
+            CGSize(width: width, height: max(0, rowHeight - mediaItemContentPadding * 2))
+        }
 
         static func playlistRowHeight(
             for dynamicTypeSize: DynamicTypeSize
@@ -259,6 +271,8 @@ enum MuralumeAccessibilityIdentifier {
     static let librarySelectedCount = "muralume.library-selected-count"
     static let librarySelectionActionsMenu = "muralume.library-selection-actions"
     static let libraryItemPrefix = "muralume.library-item."
+    static let playlistAddVideosAction = "muralume.playlist-add-videos"
+    static let playlistSelectionActionsMenu = "muralume.playlist-selection-actions"
     static let playlistSelectionButton = "muralume.playlist-selection"
     static let playlistSelectAllButton = "muralume.playlist-select-all"
     static let playlistClearSelectionButton = "muralume.playlist-clear-selection"
@@ -347,6 +361,24 @@ struct MuralumeBrandMark: View {
 struct MuralumeMediaItemButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+    }
+}
+
+struct MuralumeMediaItemBackground: View {
+    let isCurrent: Bool
+    let isSelected: Bool
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: MuralumeTheme.Radius.medium, style: .continuous)
+            .fill(isCurrent ? MuralumeTheme.Colors.controlHover
+                : isSelected ? MuralumeTheme.Colors.controlFill
+                : MuralumeTheme.Colors.controlFill.opacity(0.36))
+            .overlay {
+                MuralumeMediaItemOutline(
+                    isCurrent: isCurrent, isSelected: isSelected,
+                    cornerRadius: MuralumeTheme.Radius.medium
+                )
+            }
     }
 }
 

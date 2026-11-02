@@ -13,6 +13,65 @@ final class AppCoordinatorTests: XCTestCase {
         static let automaticRefreshPollAttempts = 200
     }
 
+    func testPlaylistAddVideosUsesFilePickerWithoutChangingLibraryOrNavigation() async throws {
+        var collection = CustomPlaylistCollection.empty
+        let id = try collection.createPlaylist(named: "Direct")
+        let urls = [URL(fileURLWithPath: "/SyntheticDirectPlaylist/B.mp4"), URL(fileURLWithPath: "/SyntheticDirectPlaylist/A.mp4")]
+        let fixture = makeFixture(
+            launchStatus: .disabled, selectedSources: [urls, []], playlistCollection: collection,
+            playlistVideoImporter: AppCoordinatorPlaylistVideoImporter()
+        )
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil { fixture.window.isVisible && fixture.library.scanState == .ready && fixture.coordinator.playlists.isReady }
+        let sources = fixture.mediaSession.activeSources
+        let items = fixture.library.items
+        let navigation = fixture.coordinator.playerChrome.librarySidebarController
+        navigation.selectDestination(.playlist(id))
+
+        fixture.coordinator.addVideosToPlaylist(id)
+        await waitUntil { fixture.coordinator.playlists.collection.allEntries.count == 2 }
+        XCTAssertEqual(fixture.sourceSelector.intents.last, .addingPlaylistVideos)
+        XCTAssertEqual(fixture.coordinator.playlists.collection.allEntries.map(\.media.lastKnownDisplayName), ["B", "A"])
+        XCTAssertEqual(fixture.mediaSession.activeSources, sources)
+        XCTAssertEqual(fixture.library.items, items)
+        XCTAssertEqual(navigation.destination, .playlist(id))
+        fixture.coordinator.addVideosToPlaylist(id)
+        XCTAssertEqual(fixture.coordinator.playlists.collection.allEntries.count, 2, "Cancelling the picker keeps the playlist intact")
+        XCTAssertNil(fixture.coordinator.playlists.videoImportFailure)
+        await fixture.coordinator.shutdown()
+    }
+
+    func testPlaylistImportDoesNotReopenPickerWhilePreparingAndClearsBusyAfterEveryOutcome() async throws {
+        for outcome in AppCoordinatorBlockedPlaylistImporter.Outcome.allCases {
+            var collection = CustomPlaylistCollection.empty
+            let id = try collection.createPlaylist(named: "Single Import")
+            let importer = AppCoordinatorBlockedPlaylistImporter()
+            let urls = [URL(fileURLWithPath: "/SyntheticDirectPlaylist/A.mp4")]
+            let fixture = makeFixture(
+                launchStatus: .disabled, selectedSources: [urls, [], []], playlistCollection: collection,
+                playlistVideoImporter: importer
+            )
+            fixture.coordinator.start(source: .interactive)
+            await waitUntil { fixture.window.isVisible && fixture.coordinator.playlists.isReady }
+            fixture.coordinator.addVideosToPlaylist(id)
+            await waitUntil { importer.prepareCount == 1 }
+            fixture.coordinator.addVideosToPlaylist(id)
+            fixture.coordinator.addVideosToPlaylist(id)
+            XCTAssertEqual(fixture.sourceSelector.intents, [.addingPlaylistVideos])
+            XCTAssertEqual(importer.prepareCount, 1, "Repeated Add must not retain another batch of input scopes")
+
+            importer.finish(outcome)
+            await waitUntil {
+                if fixture.sourceSelector.intents.count == 1 { fixture.coordinator.addVideosToPlaylist(id) }
+                return fixture.sourceSelector.intents.count == 2
+            }
+            XCTAssertEqual(importer.prepareCount, 1, "Cancelling the newly opened picker does not prepare input")
+            fixture.coordinator.addVideosToPlaylist(id)
+            XCTAssertEqual(fixture.sourceSelector.intents.count, 3, "Picker cancellation releases the guard immediately")
+            await fixture.coordinator.shutdown()
+        }
+    }
+
     func testInteractiveLaunchUsesPlaybackSessionInsteadOfLoginPreset() async {
         let fixture = makeFixture(launchStatus: .enabled)
 
@@ -2039,7 +2098,8 @@ final class AppCoordinatorTests: XCTestCase {
                 AppCoordinatorSourceAccessRecoveryMonitorSpy(),
         automaticLibraryRefreshSchedule:
             MediaLibraryAutomaticRefreshSchedule = .production,
-        canonicalLookup: MediaLibraryCanonicalLookup = MediaLibraryCanonicalLookup()
+        canonicalLookup: MediaLibraryCanonicalLookup = MediaLibraryCanonicalLookup(),
+        playlistVideoImporter: any CustomPlaylistVideoImporting = CustomPlaylistVideoImporter()
     ) -> AppCoordinatorFixture {
         let rootURL = URL(
             fileURLWithPath: "/tmp/AppCoordinatorTests/Library"
@@ -2197,7 +2257,8 @@ final class AppCoordinatorTests: XCTestCase {
             automaticLibraryRefreshSchedule:
                 automaticLibraryRefreshSchedule,
             sourceAccessRecoveryMonitor: sourceAccessRecoveryMonitor,
-            desktopScene: desktopScene
+            desktopScene: desktopScene,
+            playlistVideoImporter: playlistVideoImporter
         )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
@@ -2916,5 +2977,44 @@ private final class AppCoordinatorThumbnailProvider: MediaThumbnailProviding {
 
     func shutdown() async {
         shutdownCount += 1
+    }
+}
+
+@MainActor
+private struct AppCoordinatorPlaylistVideoImporter: CustomPlaylistVideoImporting {
+    func prepare(_ selectedURLs: [URL]) async throws -> CustomPlaylistVideoImport {
+        let items = selectedURLs.map { url in
+            LibraryMediaItem(
+                rootURL: url, rootName: url.lastPathComponent, kind: .file, url: url,
+                displayName: url.deletingPathExtension().lastPathComponent,
+                relativePath: "", relativeDirectory: "", creationDate: nil, fileSize: 1
+            )
+        }
+        return CustomPlaylistVideoImport(items: items, grantsByItemID: Dictionary(uniqueKeysWithValues: items.map {
+            ($0.id, CustomPlaylistMediaGrant(sourcePath: $0.id.rootPath, kind: .file, bookmark: Data([1])))
+        }))
+    }
+}
+
+@MainActor
+private final class AppCoordinatorBlockedPlaylistImporter: CustomPlaylistVideoImporting {
+    enum Outcome: CaseIterable { case success, unavailable, cancelled }
+    private(set) var prepareCount = 0
+    private var continuation: CheckedContinuation<Void, Error>?
+
+    func prepare(_ selectedURLs: [URL]) async throws -> CustomPlaylistVideoImport {
+        prepareCount += 1
+        try await withCheckedThrowingContinuation { continuation = $0 }
+        return try await AppCoordinatorPlaylistVideoImporter().prepare(selectedURLs)
+    }
+
+    func finish(_ outcome: Outcome) {
+        let pending = continuation
+        continuation = nil
+        switch outcome {
+        case .success: pending?.resume()
+        case .unavailable: pending?.resume(throwing: CustomPlaylistVideoImportError.unavailable)
+        case .cancelled: pending?.resume(throwing: CancellationError())
+        }
     }
 }

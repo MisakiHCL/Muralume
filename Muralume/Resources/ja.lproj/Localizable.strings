@@ -141,7 +141,7 @@
 "playlists.empty" = "プレイリストがありません";
 "playlists.empty.detail" = "動画を自由にまとめて整理できます。";
 "playlists.items.empty" = "このプレイリストは空です";
-"playlists.items.empty.detail" = "メディアライブラリから動画を追加してください。";
+"playlists.items.empty.detail" = "このプレイリストに動画を追加してください。";
 "playlists.open" = "プレイリストを開く";
 "playlists.search.accessibility" = "%@内を検索";
 "playlists.addTo" = "プレイリストに追加";
@@ -409,3 +409,13 @@
 "library.source.health.lastRefresh.unknown" = "最終更新日時は不明です";
 "library.source.health.statusReason" = "%@。%@";
 "library.source.health.needsAttention" = "対応が必要なメディアソースがあります";
+"playlists.import.failed.title" = "動画を追加できませんでした";
+"playlists.import.limit" = "一度に選択できる動画は%d本までです。動画は追加されませんでした。";
+"playlists.media.picker.message" = "このプレイリストに追加する動画を選択してください。";
+"menu.edit" = "編集";
+"menu.undo" = "取り消す";
+"menu.redo" = "やり直す";
+"menu.cut" = "カット";
+"menu.copy" = "コピー";
+"menu.paste" = "ペースト";
+"menu.selectAll" = "すべてを選択";

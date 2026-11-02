@@ -1,3 +1,5 @@
+import Combine
+
 struct LibraryPlaybackStatus: Equatable {
     let rowState: LibraryMediaRowPlaybackState
 
@@ -28,5 +30,25 @@ struct LibraryPlaybackStatus: Equatable {
         case .empty, .failed:
             rowState = .paused
         }
+    }
+}
+
+extension LibraryPlaybackStatus {
+    @MainActor
+    static func publisher(for playback: PlaybackCoordinator) -> AnyPublisher<Self, Never> {
+        Publishers.CombineLatest3(
+            playback.$readiness,
+            playback.$isPlaybackRequested,
+            playback.$hasPlayableMedia
+        )
+        .map { readiness, isPlaybackRequested, hasPlayableMedia in
+            Self(
+                readiness: readiness,
+                isPlaybackRequested: isPlaybackRequested,
+                hasPlayableMedia: hasPlayableMedia
+            )
+        }
+        .removeDuplicates()
+        .eraseToAnyPublisher()
     }
 }

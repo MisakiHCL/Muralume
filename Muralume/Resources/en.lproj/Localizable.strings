@@ -141,7 +141,7 @@
 "playlists.empty" = "No playlists yet";
 "playlists.empty.detail" = "Create custom groups for your videos.";
 "playlists.items.empty" = "This playlist is empty";
-"playlists.items.empty.detail" = "Add videos from the media library.";
+"playlists.items.empty.detail" = "Add videos to this playlist.";
 "playlists.open" = "Open Playlist";
 "playlists.search.accessibility" = "Search in %@";
 "playlists.addTo" = "Add to Playlist";
@@ -409,3 +409,13 @@
 "library.source.health.lastRefresh.unknown" = "Last refresh time unknown";
 "library.source.health.statusReason" = "%@. %@";
 "library.source.health.needsAttention" = "Some media sources need attention";
+"playlists.import.failed.title" = "Couldn’t Add Videos";
+"playlists.import.limit" = "Choose up to %d videos at a time. No videos were added.";
+"playlists.media.picker.message" = "Choose videos to add to this playlist.";
+"menu.edit" = "Edit";
+"menu.undo" = "Undo";
+"menu.redo" = "Redo";
+"menu.cut" = "Cut";
+"menu.copy" = "Copy";
+"menu.paste" = "Paste";
+"menu.selectAll" = "Select All";

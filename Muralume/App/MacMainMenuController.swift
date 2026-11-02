@@ -134,6 +134,12 @@ protocol MacMainMenuCommandHandling: AnyObject {
 @MainActor
 final class MacMainMenuController: NSObject, NSMenuDelegate {
     private enum Shortcut {
+        static let undo = "z"
+        static let redo = "z"
+        static let cut = "x"
+        static let copy = "c"
+        static let paste = "v"
+        static let selectAll = "a"
         static let addMedia = "o"
         static let togglePlayback = " "
         static let captureScreenshot = "s"
@@ -189,6 +195,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
 
     private let rootMenu = NSMenu()
     private let applicationMenu = NSMenu()
+    private let editMenu = NSMenu()
     private let actionsMenu = NSMenu()
     private let windowMenu = NSMenu()
     private let helpMenu = NSMenu()
@@ -196,6 +203,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private let dockMenu = NSMenu()
 
     private let applicationMenuItem = NSMenuItem()
+    private let editMenuItem = NSMenuItem()
     private let actionsMenuItem = NSMenuItem()
     private let windowMenuItem = NSMenuItem()
     private let helpMenuItem = NSMenuItem()
@@ -207,6 +215,13 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private let hideOtherApplicationsItem = NSMenuItem()
     private let showAllApplicationsItem = NSMenuItem()
     private let quitApplicationItem = NSMenuItem()
+
+    private let undoItem = NSMenuItem()
+    private let redoItem = NSMenuItem()
+    private let cutItem = NSMenuItem()
+    private let copyItem = NSMenuItem()
+    private let pasteItem = NSMenuItem()
+    private let selectAllItem = NSMenuItem()
 
     private let addMediaItem = NSMenuItem()
     private let editLibraryItem = NSMenuItem()
@@ -355,22 +370,26 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
 
     private func configureMenuStructure() {
         rootMenu.autoenablesItems = false
+        editMenu.autoenablesItems = true
         actionsMenu.autoenablesItems = false
         windowMenu.autoenablesItems = false
         actionsMenu.delegate = self
         windowMenu.delegate = self
 
         attach(applicationMenu, to: applicationMenuItem)
+        attach(editMenu, to: editMenuItem)
         attach(actionsMenu, to: actionsMenuItem)
         attach(windowMenu, to: windowMenuItem)
         attach(helpMenu, to: helpMenuItem)
 
         rootMenu.addItem(applicationMenuItem)
+        rootMenu.addItem(editMenuItem)
         rootMenu.addItem(actionsMenuItem)
         rootMenu.addItem(windowMenuItem)
         rootMenu.addItem(helpMenuItem)
 
         configureApplicationMenu()
+        configureEditMenu()
         configureActionsMenu()
         configureWindowMenu()
         configureHelpMenu()
@@ -432,6 +451,33 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         applicationMenu.addItem(showAllApplicationsItem)
         applicationMenu.addItem(.separator())
         applicationMenu.addItem(quitApplicationItem)
+    }
+
+    private func configureEditMenu() {
+        let commands: [(NSMenuItem, Selector, String, NSEvent.ModifierFlags)] = [
+            (undoItem, Selector(("undo:")), Shortcut.undo, [.command]),
+            (redoItem, Selector(("redo:")), Shortcut.redo, [.command, .shift]),
+            (cutItem, #selector(NSText.cut(_:)), Shortcut.cut, [.command]),
+            (copyItem, #selector(NSText.copy(_:)), Shortcut.copy, [.command]),
+            (pasteItem, #selector(NSText.paste(_:)), Shortcut.paste, [.command]),
+            (selectAllItem, #selector(NSResponder.selectAll(_:)), Shortcut.selectAll, [.command])
+        ]
+        for (item, action, key, modifiers) in commands {
+            // Standard editing belongs to the current responder, including
+            // system panels and field editors, rather than the player window.
+            item.target = nil
+            item.action = action
+            item.keyEquivalent = key
+            item.keyEquivalentModifierMask = modifiers
+        }
+        editMenu.addItem(undoItem)
+        editMenu.addItem(redoItem)
+        editMenu.addItem(.separator())
+        editMenu.addItem(cutItem)
+        editMenu.addItem(copyItem)
+        editMenu.addItem(pasteItem)
+        editMenu.addItem(.separator())
+        editMenu.addItem(selectAllItem)
     }
 
     private func configureActionsMenu() {
@@ -628,6 +674,14 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         let appName = localization.localized("app.name")
         applicationMenuItem.title = appName
         applicationMenu.title = appName
+        editMenuItem.title = localization.localized("menu.edit")
+        editMenu.title = editMenuItem.title
+        undoItem.title = localization.localized("menu.undo")
+        redoItem.title = localization.localized("menu.redo")
+        cutItem.title = localization.localized("menu.cut")
+        copyItem.title = localization.localized("menu.copy")
+        pasteItem.title = localization.localized("menu.paste")
+        selectAllItem.title = localization.localized("menu.selectAll")
         actionsMenuItem.title = localization.localized("menu.actions")
         actionsMenu.title = actionsMenuItem.title
         windowMenuItem.title = localization.localized("menu.window")

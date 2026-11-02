@@ -725,6 +725,11 @@ final class MediaLibraryCoordinator: ObservableObject {
         sourceSelector.selectSources(for: .reauthorizingSource(source)).first
     }
 
+    func selectPlaylistVideos() -> [URL] {
+        guard !isShutDown else { return [] }
+        return sourceSelector.selectSources(for: .addingPlaylistVideos)
+    }
+
     func removeUnavailableSource(_ source: UnavailableMediaSource) {
         guard !isShutDown,
               rootIDsPendingRemoval.isEmpty,

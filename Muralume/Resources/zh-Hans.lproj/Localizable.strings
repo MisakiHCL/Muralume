@@ -141,7 +141,7 @@
 "playlists.empty" = "还没有播放列表";
 "playlists.empty.detail" = "为视频创建自定义分组。";
 "playlists.items.empty" = "这个播放列表是空的";
-"playlists.items.empty.detail" = "请从媒体库添加视频。";
+"playlists.items.empty.detail" = "向此播放列表添加视频。";
 "playlists.open" = "打开播放列表";
 "playlists.search.accessibility" = "在“%@”中搜索";
 "playlists.addTo" = "添加到播放列表";
@@ -409,3 +409,13 @@
 "library.source.health.lastRefresh.unknown" = "上次刷新时间未知";
 "library.source.health.statusReason" = "%@。%@";
 "library.source.health.needsAttention" = "部分媒体来源需要处理";
+"playlists.import.failed.title" = "未能添加视频";
+"playlists.import.limit" = "每次最多选择 %d 个视频。本次未添加任何视频。";
+"playlists.media.picker.message" = "选择要加入此播放列表的视频。";
+"menu.edit" = "编辑";
+"menu.undo" = "撤销";
+"menu.redo" = "重做";
+"menu.cut" = "剪切";
+"menu.copy" = "拷贝";
+"menu.paste" = "粘贴";
+"menu.selectAll" = "全选";

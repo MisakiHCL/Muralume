@@ -2,6 +2,7 @@ import Foundation
 
 enum MediaSourceSelectionIntent: Equatable, Sendable {
     case addingMedia
+    case addingPlaylistVideos
     case reauthorizingSources
     case reauthorizingSource(UnavailableMediaSource)
 }

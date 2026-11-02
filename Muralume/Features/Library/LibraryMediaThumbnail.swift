@@ -80,24 +80,7 @@ struct LibraryMediaThumbnail: View {
     }
 
     private var placeholder: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    MuralumeTheme.Colors.panelRaised,
-                    MuralumeTheme.Colors.canvas
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            Image(systemName: "play.rectangle.fill")
-                .font(.system(size: MuralumeTheme.Size.icon))
-                .foregroundStyle(
-                    isCurrent
-                        ? MuralumeTheme.Colors.controlAccent
-                        : MuralumeTheme.Colors.textTertiary
-                )
-        }
+        MediaBrowserItemPlaceholder(isCurrent: isCurrent, size: size)
     }
 
     private var requestID: RequestID {

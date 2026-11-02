@@ -390,6 +390,9 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 .frame(width: sidePanelWidth(for: panel))
                 .frame(maxHeight: .infinity)
                 .muralumePanel(style: .playerOverlay)
+                // Content added during the transition must inherit the panel's
+                // current position, including asynchronously resolved playlists.
+                .geometryGroup()
                 .transition(
                     .move(edge: .trailing).combined(with: .opacity)
                 )
@@ -424,6 +427,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 playLibraryItem: actions.playLibraryItem,
                 playCustomPlaylistItem:
                     actions.playCustomPlaylistItem,
+                addVideosToPlaylist: actions.addVideosToPlaylist,
                 addLibraryItemToPlaylist:
                     actions.addLibraryItemToPlaylist,
                 revealMediaInFinder: actions.revealMediaInFinder,

@@ -76,10 +76,10 @@ available in each published version.
 - **Know how each source is doing:** Check source status and the latest successful
   refresh in the current app session, retry incomplete scans, or choose a source again
   when access needs attention.
-- **Playlists, your way:** Create custom groups, select multiple videos to add together,
-  remove playlist entries in batches, reorder videos, search within a playlist,
-  and continue from the same playlist after relaunch. Playlists retain access to their
-  original local files when a source is removed from the Media Library.
+- **Playlists, your way:** Add videos directly from your Mac or select them from the
+  Media Library. Browse in list or grid view, remove entries in batches, reorder videos,
+  search within a playlist, and pick up where you left off after relaunch. Playlists
+  retain access to their original local files when a Media Library source is removed.
 - **See exactly what plays next:** Use ordered playback, shuffle, Repeat Current Video,
   seeking, volume, speed, fullscreen, and a separate Play Queue. An optional short
   crossfade smooths queue changes after the incoming first frame is ready.

@@ -41,7 +41,7 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
         for intent: MediaSourceSelectionIntent
     ) -> Bool {
         switch intent {
-        case .addingMedia, .reauthorizingSources:
+        case .addingMedia, .addingPlaylistVideos, .reauthorizingSources:
             true
         case .reauthorizingSource:
             false
@@ -54,6 +54,8 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
         switch intent {
         case .addingMedia, .reauthorizingSources:
             [.folder] + supportedVideoContentTypes
+        case .addingPlaylistVideos:
+            supportedVideoContentTypes
         case let .reauthorizingSource(source):
             source.kind == .folder ? [.folder] : supportedVideoContentTypes
         }
@@ -65,6 +67,8 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
         switch intent {
         case .addingMedia, .reauthorizingSources:
             true
+        case .addingPlaylistVideos:
+            false
         case let .reauthorizingSource(source):
             source.kind == .folder
         }
@@ -72,7 +76,7 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
 
     private func canChooseFiles(for intent: MediaSourceSelectionIntent) -> Bool {
         switch intent {
-        case .addingMedia, .reauthorizingSources:
+        case .addingMedia, .addingPlaylistVideos, .reauthorizingSources:
             true
         case let .reauthorizingSource(source):
             source.kind == .file
@@ -81,7 +85,7 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
 
     private func message(for intent: MediaSourceSelectionIntent) -> String {
         switch intent {
-        case .addingMedia, .reauthorizingSources:
+        case .addingMedia, .addingPlaylistVideos, .reauthorizingSources:
             localized(messageKey(for: intent))
         case let .reauthorizingSource(source):
             localization.localizedFormat(
@@ -97,6 +101,8 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
         switch intent {
         case .addingMedia:
             "library.media.picker.message"
+        case .addingPlaylistVideos:
+            "playlists.media.picker.message"
         case .reauthorizingSources, .reauthorizingSource:
             "library.media.picker.reauthorize.message"
         }
@@ -104,7 +110,7 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
 
     private func promptKey(for intent: MediaSourceSelectionIntent) -> String {
         switch intent {
-        case .addingMedia:
+        case .addingMedia, .addingPlaylistVideos:
             "library.media.picker.prompt"
         case .reauthorizingSources, .reauthorizingSource:
             "library.media.picker.reauthorize.prompt"

@@ -106,6 +106,7 @@ final class CustomPlaylistController: ObservableObject {
     @Published private(set) var loadingState: CustomPlaylistLoadingState = .idle
     @Published private(set) var persistenceFailure:
         CustomPlaylistPersistenceFailure?
+    @Published private(set) var videoImportFailure: CustomPlaylistVideoImportFailure?
 
     var collection: CustomPlaylistCollection {
         collectionSnapshot.collection
@@ -446,6 +447,38 @@ final class CustomPlaylistController: ObservableObject {
             try collection.add(items: items, to: playlistID, grantsByItemID: grants)
         }
     }
+
+    @discardableResult
+    func addSelectedVideos(
+        _ urls: [URL], to playlistID: CustomPlaylist.ID,
+        using importer: any CustomPlaylistVideoImporting
+    ) async throws -> Int {
+        let prepared = try await importer.prepare(urls)
+        try Task.checkCancellation()
+        guard !isShuttingDown else { throw CancellationError() }
+        guard prepared.items.allSatisfy({ item in
+            guard let grant = prepared.grantsByItemID[item.id] else { return false }
+            return grant.kind == .file && grant.sourcePath == item.id.rootPath
+                && item.id.relativePath.isEmpty && CustomPlaylistCollection.isValidAccessGrant(grant)
+        }) else { throw CustomPlaylistVideoImportError.unavailable }
+        return try mutate { collection in
+            try collection.add(items: prepared.items, to: playlistID, grantsByItemID: prepared.grantsByItemID)
+        }
+    }
+
+    func reportVideoImportFailure(_ error: any Error) {
+        if error as? CustomPlaylistVideoImportError == .selectionLimitReached {
+            videoImportFailure = .selectionLimitReached
+        } else if error as? CustomPlaylistMutationError == .playlistNotFound {
+            videoImportFailure = .playlistUnavailable
+        } else if error as? CustomPlaylistMutationError == .entryLimitReached {
+            videoImportFailure = .playlistFull
+        } else {
+            videoImportFailure = .unavailable
+        }
+    }
+
+    func dismissVideoImportFailure() { videoImportFailure = nil }
 
     func removeEntry(
         _ entryID: CustomPlaylistEntry.ID,

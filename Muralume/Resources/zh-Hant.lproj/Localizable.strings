@@ -141,7 +141,7 @@
 "playlists.empty" = "尚無播放清單";
 "playlists.empty.detail" = "建立自訂清單，整理喜愛的影片。";
 "playlists.items.empty" = "此播放清單是空的";
-"playlists.items.empty.detail" = "請從媒體資料庫加入影片。";
+"playlists.items.empty.detail" = "將影片加入此播放清單。";
 "playlists.open" = "開啟播放清單";
 "playlists.search.accessibility" = "搜尋「%@」";
 "playlists.addTo" = "加入播放清單";
@@ -409,3 +409,13 @@
 "library.source.health.lastRefresh.unknown" = "上次重新整理時間未知";
 "library.source.health.statusReason" = "%@。%@";
 "library.source.health.needsAttention" = "部分媒體來源需要處理";
+"playlists.import.failed.title" = "無法加入影片";
+"playlists.import.limit" = "每次最多選取 %d 部影片。本次未加入任何影片。";
+"playlists.media.picker.message" = "選取要加入此播放清單的影片。";
+"menu.edit" = "編輯";
+"menu.undo" = "還原";
+"menu.redo" = "重做";
+"menu.cut" = "剪下";
+"menu.copy" = "拷貝";
+"menu.paste" = "貼上";
+"menu.selectAll" = "全選";

@@ -29,6 +29,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         (any ExternalSubtitleSelecting)?
     private let videoScreenshotController:
         (any VideoScreenshotControlling)?
+    private let playlistVideoImporter: any CustomPlaylistVideoImporting
     private let customPlaylistPlaybackBridge:
         CustomPlaylistPlaybackBridge
     private let automaticLibraryRefresh:
@@ -39,6 +40,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     private var initialRestoreTask: Task<Void, Never>?
     private var sourceAccessRetryTask: Task<Void, Never>?
     private var mediaImportTasks: [UUID: Task<Void, Never>] = [:]
+    private var playlistVideoImportID: UUID?
     private var sourceAccessRetryGeneration: UInt64 = 0
     private var initialRestoreGeneration: UInt64 = 0
     private var hasStarted = false
@@ -73,7 +75,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         externalSubtitlePicker:
             (any ExternalSubtitleSelecting)? = nil,
         videoScreenshotController:
-            (any VideoScreenshotControlling)? = nil
+            (any VideoScreenshotControlling)? = nil,
+        playlistVideoImporter: any CustomPlaylistVideoImporting = CustomPlaylistVideoImporter()
     ) {
         self.playback = playback
         self.desktopSession = desktopSession
@@ -88,6 +91,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         self.playbackSession = playbackSession
         self.externalSubtitlePicker = externalSubtitlePicker
         self.videoScreenshotController = videoScreenshotController
+        self.playlistVideoImporter = playlistVideoImporter
         customPlaylistPlaybackBridge = CustomPlaylistPlaybackBridge(
             playlists: playlists,
             library: library
@@ -387,6 +391,34 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             after: libraryStart,
             overridingPresentation: .player
         )
+    }
+
+    func addVideosToPlaylist(_ playlistID: CustomPlaylist.ID) {
+        guard canImportMedia, playlists.isReady, playlistVideoImportID == nil,
+              playlists.collection.playlist(id: playlistID) != nil else { return }
+        let importID = UUID()
+        playlistVideoImportID = importID
+        let urls = library.selectPlaylistVideos()
+        guard !urls.isEmpty else {
+            playlistVideoImportID = nil
+            return
+        }
+        playlists.dismissVideoImportFailure()
+        performMediaImport { [weak self, playlists, playlistVideoImporter] in
+            defer {
+                if self?.playlistVideoImportID == importID { self?.playlistVideoImportID = nil }
+            }
+            // Preparation must consume the picker scopes even if the app has
+            // begun shutting down before this task gets its first turn.
+            do {
+                _ = try await playlists.addSelectedVideos(urls, to: playlistID, using: playlistVideoImporter)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard let self, !isShutDown, !Task.isCancelled else { return }
+                playlists.reportVideoImportFailure(error)
+            }
+        }
     }
 
     func reauthorizePlaylistEntry(

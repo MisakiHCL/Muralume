@@ -65,8 +65,13 @@ struct LibraryMediaBrowser: View {
                 .foregroundStyle(MuralumeTheme.Colors.textSecondary)
                 .accessibilityIdentifier(MuralumeAccessibilityIdentifier.librarySelectedCount)
             Spacer(minLength: 0)
-            Menu {
-                Button("library.selection.all") {
+            MediaBrowserSelectionActionsMenu(
+                canSelectAll: !isSearching && !items.isEmpty,
+                canClear: !selection.ids.isEmpty,
+                identifier: MuralumeAccessibilityIdentifier.librarySelectionActionsMenu,
+                selectAllIdentifier: MuralumeAccessibilityIdentifier.librarySelectAllButton,
+                clearIdentifier: MuralumeAccessibilityIdentifier.libraryClearSelectionButton,
+                selectAll: {
                     selection.selectAll(items.compactMap {
                         guard let current = library.libraryItemsByID[$0.id],
                               MediaBrowserItemIdentity(current) == MediaBrowserItemIdentity($0) else {
@@ -74,20 +79,9 @@ struct LibraryMediaBrowser: View {
                         }
                         return MediaBrowserItemIdentity(current)
                     })
-                }
-                    .disabled(isSearching || items.isEmpty)
-                    .accessibilityIdentifier(MuralumeAccessibilityIdentifier.librarySelectAllButton)
-                Button("library.selection.clear") { selection.clear() }
-                    .disabled(selection.ids.isEmpty)
-                    .accessibilityIdentifier(MuralumeAccessibilityIdentifier.libraryClearSelectionButton)
-            } label: {
-                Image(systemName: "checklist")
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .accessibilityLabel(Text("library.selection.actions"))
-            .accessibilityIdentifier(MuralumeAccessibilityIdentifier.librarySelectionActionsMenu)
+                },
+                clear: { selection.clear() }
+            )
 
             Menu {
                 ForEach(customPlaylists) { playlist in
@@ -126,34 +120,17 @@ struct LibraryMediaBrowser: View {
             } else {
                 LibrarySearchEmptyState(clear: clearSearch)
             }
-        } else if layout == .grid {
-            GeometryReader { geometry in
-                let size = gridItemSize(availableWidth: geometry.size.width)
-                FixedSizeVirtualizedGrid(
-                    items: items,
-                    snapshotRevision: contentSnapshotRevision,
-                    rowContentRevision: rowContentRevision,
-                    scrollTargetID: scrollTargetID,
-                    scrollToTopRequest: scrollToTopRequest,
-                    itemSize: size,
-                    spacing: MuralumeTheme.Spacing.xSmall
-                ) { item in
-                    mediaRow(item, layout: .grid, itemSize: size)
-                }
-            }
-            .padding(.top, MuralumeTheme.Spacing.small)
         } else {
-            FixedHeightVirtualizedTable(
+            MediaCollectionBrowser(
                 items: items,
+                layout: layout,
                 snapshotRevision: contentSnapshotRevision,
-                rowContentRevision: rowContentRevision,
+                rowContentRevision: AnyHashable(rowContentRevision),
                 scrollTargetID: scrollTargetID,
                 scrollToTopRequest: scrollToTopRequest,
-                rowHeight: MuralumeTheme.Size.playlistRowHeight(for: dynamicTypeSize),
-                rowSpacing: MuralumeTheme.Spacing.xSmall,
-                verticalContentInset: MuralumeTheme.Size.playlistContentInset
-            ) { item in
-                mediaRow(item, layout: .list)
+                rowHeight: MuralumeTheme.Size.playlistRowHeight(for: dynamicTypeSize)
+            ) { item, layout, size in
+                mediaRow(item, layout: layout, itemSize: size)
             }
         }
     }
@@ -161,7 +138,7 @@ struct LibraryMediaBrowser: View {
     private func mediaRow(
         _ item: LibraryMediaItem,
         layout: MediaBrowserLayout,
-        itemSize: CGSize = .zero
+        itemSize: CGSize
     ) -> some View {
         LibraryMediaRow(
             item: item,
@@ -254,14 +231,6 @@ struct LibraryMediaBrowser: View {
         }
     }
 
-    private func gridItemSize(availableWidth: CGFloat) -> CGSize {
-        let spacing = MuralumeTheme.Spacing.xSmall
-        let usableWidth = max(availableWidth - MuralumeTheme.Size.libraryGridScrollerAllowance, 0)
-        let columns = dynamicTypeSize.isAccessibilitySize ? 1
-            : max(Int((usableWidth + spacing) / (MuralumeTheme.Size.libraryGridMinimumWidth + spacing)), 1)
-        let width = max(floor((usableWidth - CGFloat(columns - 1) * spacing) / CGFloat(columns) / 4) * 4, 4)
-        return CGSize(width: width, height: width)
-    }
 }
 
 private struct MediaBrowserRowContentRevision: Hashable {

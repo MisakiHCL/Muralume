@@ -508,19 +508,13 @@ struct LibraryQueueSidebar: View {
     }
 
     private var mediaSelectionButton: some View {
-        let title = LocalizedStringKey(mediaSelection.isSelecting
-            ? "library.selection.done" : "library.selection.begin")
-        return Button {
+        MediaBrowserSelectionControl(
+            isSelecting: mediaSelection.isSelecting,
+            isEnabled: !library.items.isEmpty || mediaSelection.isSelecting,
+            identifier: MuralumeAccessibilityIdentifier.librarySelectionButton
+        ) {
             if mediaSelection.isSelecting { mediaSelection.end() } else { mediaSelection.begin() }
-        } label: {
-            Image(systemName: "checkmark.circle")
         }
-        .buttonStyle(LibraryBrowserControlStyle(isSelected: mediaSelection.isSelecting))
-        .disabled(library.items.isEmpty)
-        .help(Text(title))
-        .accessibilityLabel(Text(title))
-        .accessibilityAddTraits(mediaSelection.isSelecting ? .isSelected : [])
-        .accessibilityIdentifier(MuralumeAccessibilityIdentifier.librarySelectionButton)
     }
 
     @ViewBuilder
@@ -823,20 +817,7 @@ struct LibraryQueueSidebar: View {
 
     private var playbackStatusPublisher:
         AnyPublisher<LibraryPlaybackStatus, Never> {
-        Publishers.CombineLatest3(
-            playback.$readiness,
-            playback.$isPlaybackRequested,
-            playback.$hasPlayableMedia
-        )
-        .map { readiness, isPlaybackRequested, hasPlayableMedia in
-            LibraryPlaybackStatus(
-                readiness: readiness,
-                isPlaybackRequested: isPlaybackRequested,
-                hasPlayableMedia: hasPlayableMedia
-            )
-        }
-        .removeDuplicates()
-        .eraseToAnyPublisher()
+        LibraryPlaybackStatus.publisher(for: playback)
     }
 
     private var videoCountText: String {

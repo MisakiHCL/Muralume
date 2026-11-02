@@ -4,9 +4,11 @@ struct CustomPlaylistSidebarContent: View {
     @ObservedObject var library: MediaLibraryCoordinator
     @ObservedObject var playlists: CustomPlaylistController
     @ObservedObject var navigation: LibrarySidebarController
+    let playback: PlaybackCoordinator
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let playCustomPlaylistItem:
         (LibraryMediaItem, CustomPlaylist.ID) -> Void
+    let addVideosToPlaylist: (CustomPlaylist.ID) -> Void
     let revealMediaInFinder: (URL) -> Void
     let showVideoInformation: (LibraryMediaItem) -> Void
     let dismiss: () -> Void
@@ -15,6 +17,7 @@ struct CustomPlaylistSidebarContent: View {
 
     @EnvironmentObject private var localization: AppLocalizationController
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var playbackStatus: LibraryPlaybackStatus?
     @State private var pendingDeletion: CustomPlaylist?
     @State private var selection = MediaBrowserSelection<CustomPlaylistEntry.ID>()
     @State private var batchRemovalFailed = false
@@ -85,6 +88,7 @@ struct CustomPlaylistSidebarContent: View {
         .onChange(of: playlists.collectionRevision) {
             retainCurrentSelection()
         }
+        .onReceive(LibraryPlaybackStatus.publisher(for: playback)) { playbackStatus = $0 }
         .onDisappear { selection.end() }
     }
 
@@ -188,8 +192,9 @@ struct CustomPlaylistSidebarContent: View {
 
                 Menu {
                     Button("playlists.addVideos") {
-                        navigation.selectDestination(.mediaLibrary)
+                        addVideosToPlaylist(playlist.id)
                     }
+                    .accessibilityIdentifier(MuralumeAccessibilityIdentifier.playlistAddVideosAction)
                     Button("playlists.rename") {
                         nameEditor = .rename(playlist)
                     }
@@ -232,11 +237,7 @@ struct CustomPlaylistSidebarContent: View {
 
             HStack(spacing: MuralumeTheme.Spacing.small) {
                 Text(
-                    verbatim: selection.isSelecting
-                        ? localization.localizedFormat(
-                            "library.selection.count", selection.ids.count
-                        )
-                        : (projection?.search.isEmpty ?? true)
+                    verbatim: (projection?.search.isEmpty ?? true)
                             ? playlistCountText(playlist.entries.count)
                             : localization.localizedFormat(
                                 "library.search.results",
@@ -247,9 +248,7 @@ struct CustomPlaylistSidebarContent: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(MuralumeTheme.Colors.textSecondary)
                 .accessibilityIdentifier(
-                    selection.isSelecting
-                        ? MuralumeAccessibilityIdentifier.playlistSelectedCount
-                        : MuralumeAccessibilityIdentifier.searchResultsSummary
+                    MuralumeAccessibilityIdentifier.searchResultsSummary
                 )
                 Spacer()
                 if !search.isEmpty && !selection.isSelecting {
@@ -261,22 +260,17 @@ struct CustomPlaylistSidebarContent: View {
                         )
                 }
                 persistenceFailureButton
-                Button(
-                    LocalizedStringKey(selection.isSelecting
-                        ? "library.selection.done"
-                        : "library.selection.begin")
-                ) {
-                    if selection.isSelecting {
-                        selection.end()
-                    } else {
-                        selection.begin()
+                HStack(spacing: MuralumeTheme.Spacing.libraryBrowserControls) {
+                    LibraryBrowserLayoutPicker(layout: $navigation.mediaBrowserLayout)
+                    MediaBrowserSelectionControl(
+                        isSelecting: selection.isSelecting,
+                        isEnabled: !playlist.entries.isEmpty || selection.isSelecting,
+                        identifier: MuralumeAccessibilityIdentifier.playlistSelectionButton
+                    ) {
+                        if selection.isSelecting { selection.end() } else { selection.begin() }
                     }
                 }
-                .buttonStyle(.link)
-                .disabled(playlist.entries.isEmpty && !selection.isSelecting)
-                .accessibilityIdentifier(
-                    MuralumeAccessibilityIdentifier.playlistSelectionButton
-                )
+                .fixedSize()
             }
             .frame(minHeight: MuralumeTheme.Size.playlistStatusBarHeight)
 
@@ -291,19 +285,32 @@ struct CustomPlaylistSidebarContent: View {
             Divider().overlay(MuralumeTheme.Colors.border)
 
             if playlist.entries.isEmpty {
-                playlistDetailEmptyState
+                playlistDetailEmptyState(playlist.id)
             } else if let projection {
                 if projection.entries.isEmpty {
                     LibrarySearchEmptyState {
                         navigation.updateQuery("")
                     }
                 } else {
-                    playlistEntries(
-                        projection,
-                        in: playlist,
+                    CustomPlaylistMediaBrowser(
+                        library: library,
+                        playlists: playlists,
+                        selection: $selection,
+                        layout: navigation.mediaBrowserLayout,
+                        playlist: playlist,
+                        projection: projection,
                         contentRevision: displayed?.contentRevision ?? 0,
+                        scrollToTopRequest: projection.search.isEmpty ? nil : searchScrollToTopRequest,
                         isSearching: isSearching,
-                        allowsReordering: search.isEmpty && !selection.isSelecting && !isSearching
+                        allowsReordering: search.isEmpty && !selection.isSelecting && !isSearching,
+                        playbackState: playbackStatus?.rowState
+                            ?? LibraryPlaybackStatus(playback: playback).rowState,
+                        mediaThumbnailProvider: mediaThumbnailProvider,
+                        play: playCustomPlaylistItem,
+                        revealInFinder: revealMediaInFinder,
+                        showInformation: showVideoInformation,
+                        dismiss: dismiss,
+                        reauthorize: reauthorizePlaylistEntry
                     )
                     .overlay(alignment: .topTrailing) {
                         if isSearching {
@@ -345,156 +352,26 @@ struct CustomPlaylistSidebarContent: View {
         )
     }
 
-    private func playlistEntries(
-        _ projection: CustomPlaylistDetailProjection,
-        in playlist: CustomPlaylist,
-        contentRevision: UInt64,
-        isSearching: Bool,
-        allowsReordering: Bool
-    ) -> some View {
-        FixedHeightVirtualizedTable(
-            items: projection.entries,
-            snapshotRevision: CustomPlaylistSnapshotRevision(
-                playlistID: playlist.id,
-                contentRevision: contentRevision
-            ),
-            rowContentRevision: CustomPlaylistRowContentRevision(
-                currentItemID: library.currentItemID,
-                allowsReordering: allowsReordering,
-                selectionRevision: selection.revision,
-                isSearching: isSearching,
-                availabilityRevision: playlists.availabilityRevision,
-                unavailableItemsRevision: library.unavailableItemsRevision
-            ),
-            scrollTargetID: projection.search.isEmpty
-                ? projection.entryID(for: library.currentItemID)
-                : nil,
-            scrollToTopRequest: projection.search.isEmpty
-                ? nil
-                : searchScrollToTopRequest,
-            rowHeight: playlistRowHeight,
-            rowSpacing: MuralumeTheme.Spacing.small,
-            verticalContentInset: MuralumeTheme.Size.playlistContentInset
-        ) { entry in
-            let item = projection.resolvedItemsByEntryID[entry.id]
-            CustomPlaylistMediaRow(
-                entry: entry,
-                item: item,
-                issue: issue(for: entry, item: item),
-                isCurrent: item?.id == library.currentItemID,
-                isSelecting: selection.isSelecting,
-                isSelected: selection.ids.contains(entry.id),
-                mediaThumbnailProvider: mediaThumbnailProvider,
-                play: {
-                    guard let item else { return }
-                    playCustomPlaylistItem(item, playlist.id)
-                    dismiss()
-                },
-                revealInFinder: {
-                    guard let item else { return }
-                    revealMediaInFinder(item.url)
-                },
-                showInformation: {
-                    guard let item else { return }
-                    showVideoInformation(item)
-                },
-                remove: { try? playlists.removeEntry(entry.id, from: playlist.id) },
-                moveUp: { move(entry, by: -1, in: playlist) },
-                moveDown: { move(entry, by: 1, in: playlist) },
-                canMoveUp: allowsReordering
-                    && playlist.entries.first?.id != entry.id,
-                canMoveDown: allowsReordering
-                    && playlist.entries.last?.id != entry.id,
-                toggleSelection: { selection.toggle(entry.id) },
-                retry: {
-                    if let item {
-                        playCustomPlaylistItem(item, playlist.id)
-                    } else {
-                        playlists.retryResolution()
-                    }
-                },
-                reauthorize: reauthorizePlaylistEntry.map { action in
-                    { action(playlist.id, entry.id) }
-                }
-            )
-            .disabled(isSearching)
-            .frame(height: playlistRowHeight)
-            .customPlaylistDragTarget(
-                enabled: allowsReordering,
-                entryID: entry.id,
-                dropMidpoint: playlistRowHeight / 2
-            ) { draggedEntryID, destinationEntryID, placement in
-                guard draggedEntryID != destinationEntryID else {
-                    return false
-                }
-                let destinationID: CustomPlaylistEntry.ID?
-                switch placement {
-                case .before:
-                    destinationID = destinationEntryID
-                case .after:
-                    guard let destinationIndex = playlist.entries.firstIndex(
-                        where: { $0.id == destinationEntryID }
-                    ) else {
-                        return false
-                    }
-                    let followingIndex = destinationIndex + 1
-                    destinationID = playlist.entries.indices.contains(
-                        followingIndex
-                    ) ? playlist.entries[followingIndex].id : nil
-                }
-                do {
-                    try playlists.moveEntry(
-                        draggedEntryID,
-                        before: destinationID,
-                        in: playlist.id
-                    )
-                    return true
-                } catch {
-                    return false
-                }
-            }
-            // NSHostingView is a separate SwiftUI root.
-            .environmentObject(localization)
-        }
-        .scrollIndicators(.visible)
-    }
-
-    private func issue(
-        for entry: CustomPlaylistEntry,
-        item: LibraryMediaItem?
-    ) -> CustomPlaylistMediaIssue? {
-        if let item, let failure = library.unavailableItemFailures[item.id] {
-            return switch failure {
-            case .unsupported: .unsupportedFormat
-            case .cannotOpen: .cannotOpen
-            case .surfaceTimeout: .temporarilyUnavailable
-            }
-        }
-        return playlists.issue(for: entry)
-    }
-
     private func selectionActions(
         playlistID: CustomPlaylist.ID,
         visibleEntries: [CustomPlaylistEntry],
         isSearching: Bool
     ) -> some View {
-        HStack(spacing: MuralumeTheme.Spacing.medium) {
-            Button("library.selection.all") {
-                selection.selectAll(visibleEntries.map(\.id))
-            }
-            .disabled(isSearching || visibleEntries.isEmpty)
-            .accessibilityIdentifier(
-                MuralumeAccessibilityIdentifier.playlistSelectAllButton
-            )
-
-            Button("library.selection.clear") { selection.clear() }
-                .disabled(selection.ids.isEmpty)
-                .accessibilityIdentifier(
-                    MuralumeAccessibilityIdentifier.playlistClearSelectionButton
-                )
-
+        HStack(spacing: MuralumeTheme.Spacing.small) {
+            Text(verbatim: localization.localizedFormat("library.selection.count", selection.ids.count))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+                .accessibilityIdentifier(MuralumeAccessibilityIdentifier.playlistSelectedCount)
             Spacer(minLength: 0)
-
+            MediaBrowserSelectionActionsMenu(
+                canSelectAll: !isSearching && !visibleEntries.isEmpty,
+                canClear: !selection.ids.isEmpty,
+                identifier: MuralumeAccessibilityIdentifier.playlistSelectionActionsMenu,
+                selectAllIdentifier: MuralumeAccessibilityIdentifier.playlistSelectAllButton,
+                clearIdentifier: MuralumeAccessibilityIdentifier.playlistClearSelectionButton,
+                selectAll: { selection.selectAll(visibleEntries.map(\.id)) },
+                clear: { selection.clear() }
+            )
             Button("playlists.removeSelected", role: .destructive) {
                 guard !isSearching else { return }
                 do {
@@ -504,14 +381,12 @@ struct CustomPlaylistSidebarContent: View {
                     batchRemovalFailed = true
                 }
             }
+            .buttonStyle(.link)
+            .font(.caption)
             .disabled(isSearching || selection.ids.isEmpty)
-            .accessibilityIdentifier(
-                MuralumeAccessibilityIdentifier.playlistRemoveSelectedButton
-            )
+            .accessibilityIdentifier(MuralumeAccessibilityIdentifier.playlistRemoveSelectedButton)
         }
-        .buttonStyle(.link)
-        .font(.caption)
-        .padding(.bottom, MuralumeTheme.Spacing.small)
+        .frame(minHeight: MuralumeTheme.Size.playlistStatusBarHeight)
     }
 
     private func retainCurrentSelection() {
@@ -703,7 +578,7 @@ struct CustomPlaylistSidebarContent: View {
         }
     }
 
-    private var playlistDetailEmptyState: some View {
+    private func playlistDetailEmptyState(_ playlistID: CustomPlaylist.ID) -> some View {
         VStack(spacing: MuralumeTheme.Spacing.medium) {
             Spacer()
             Image(systemName: "film.stack")
@@ -715,8 +590,8 @@ struct CustomPlaylistSidebarContent: View {
                 .font(.caption)
                 .foregroundStyle(MuralumeTheme.Colors.textSecondary)
                 .multilineTextAlignment(.center)
-            Button("library.playlist") {
-                navigation.selectDestination(.mediaLibrary)
+            Button("playlists.addVideos") {
+                addVideosToPlaylist(playlistID)
             }
             .buttonStyle(.link)
             Spacer()
@@ -738,31 +613,6 @@ struct CustomPlaylistSidebarContent: View {
         navigation.playlistDidDelete(playlist.id)
     }
 
-    private func move(
-        _ entry: CustomPlaylistEntry,
-        by offset: Int,
-        in playlist: CustomPlaylist
-    ) {
-        guard let index = playlist.entries.firstIndex(
-            where: { $0.id == entry.id }
-        ) else {
-            return
-        }
-        let destinationIndex = index + offset
-        guard playlist.entries.indices.contains(destinationIndex) else {
-            return
-        }
-        let beforeIndex = offset < 0 ? destinationIndex : destinationIndex + 1
-        let destinationID = playlist.entries.indices.contains(beforeIndex)
-            ? playlist.entries[beforeIndex].id
-            : nil
-        try? playlists.moveEntry(
-            entry.id,
-            before: destinationID,
-            in: playlist.id
-        )
-    }
-
     private func playlistCountText(_ count: Int) -> String {
         localization.localizedFormat(
             "playlists.video.count",
@@ -770,63 +620,7 @@ struct CustomPlaylistSidebarContent: View {
         )
     }
 
-    private var playlistRowHeight: CGFloat {
-        MuralumeTheme.Size.playlistRowHeight(for: dynamicTypeSize)
-    }
-
     private var normalizedSearchQuery: String {
         MediaCollectionSearch(query: navigation.query).query
-    }
-}
-
-private struct CustomPlaylistSnapshotRevision: Hashable {
-    let playlistID: CustomPlaylist.ID
-    let contentRevision: UInt64
-}
-
-private struct CustomPlaylistRowContentRevision: Hashable {
-    let currentItemID: LibraryMediaItem.ID?
-    let allowsReordering: Bool
-    let selectionRevision: UInt64
-    let isSearching: Bool
-    let availabilityRevision: UInt64
-    let unavailableItemsRevision: UInt64
-}
-
-private enum CustomPlaylistDropPlacement {
-    case before
-    case after
-}
-
-private extension View {
-    @ViewBuilder
-    func customPlaylistDragTarget(
-        enabled: Bool,
-        entryID: CustomPlaylistEntry.ID,
-        dropMidpoint: CGFloat,
-        moveBefore: @escaping (
-            CustomPlaylistEntry.ID,
-            CustomPlaylistEntry.ID,
-            CustomPlaylistDropPlacement
-        ) -> Bool
-    ) -> some View {
-        if enabled {
-            draggable(entryID.rawValue.uuidString)
-                .dropDestination(for: String.self) { values, location in
-                    guard let value = values.first,
-                          let rawID = UUID(uuidString: value) else {
-                        return false
-                    }
-                    return moveBefore(
-                        CustomPlaylistEntry.ID(rawValue: rawID),
-                        entryID,
-                        location.y < dropMidpoint
-                            ? .before
-                            : .after
-                    )
-                }
-        } else {
-            self
-        }
     }
 }
