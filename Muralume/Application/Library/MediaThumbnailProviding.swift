@@ -9,6 +9,10 @@ protocol MediaThumbnailProviding: AnyObject {
         scale: CGFloat
     ) -> CGImage?
 
+    /// Reuses a valid in-memory representation while a different size is loading.
+    /// This does not start work or satisfy the exact-size thumbnail request.
+    func cachedPreviewThumbnail(for item: LibraryMediaItem) -> CGImage?
+
     func thumbnail(
         for item: LibraryMediaItem,
         size: CGSize,
@@ -31,6 +35,8 @@ protocol MediaThumbnailProviding: AnyObject {
 }
 
 extension MediaThumbnailProviding {
+    func cachedPreviewThumbnail(for item: LibraryMediaItem) -> CGImage? { nil }
+
     func cachedThumbnail(
         for item: LibraryMediaItem,
         size: CGSize,

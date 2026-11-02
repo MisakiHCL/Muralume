@@ -162,6 +162,70 @@ final class FixedSizeVirtualizedGridTests: XCTestCase {
     }
 
     @MainActor
+    func testFirstNativeLayoutCentersTargetBeforeAnotherRunLoop() throws {
+        let fixture = HostedGridFixture(scrollTargetID: 10)
+        defer { fixture.close() }
+        XCTAssertTrue(fixture.waitUntil { fixture.collectionView != nil })
+
+        fixture.mount()
+
+        XCTAssertTrue(fixture.isFullyVisible(item: 10),
+                      "The first mounted layout must already show the target, without a later Task scrolling it")
+    }
+
+    @MainActor
+    func testViewportReconciliationKeepsUserScrollAndExplicitSearchTop() {
+        let fixture = GridAppKitFixture()
+        defer { fixture.dismantle() }
+        let items = (0..<300).map(GridTestItem.init)
+        fixture.scrollView.setFrameSize(CGSize(width: 400, height: 10))
+        fixture.update(items: items, revision: 1, scrollTargetID: 200)
+        fixture.layout()
+        fixture.scrollView.setFrameSize(CGSize(width: 400, height: 320))
+        fixture.layout()
+        let target = IndexPath(item: 200, section: 0)
+        XCTAssertTrue(fixture.collectionView.indexPathsForVisibleItems().contains(target))
+
+        fixture.scrollView.contentView.scroll(to: .zero)
+        fixture.scrollView.reflectScrolledClipView(fixture.scrollView.contentView)
+        fixture.scrollView.setFrameSize(CGSize(width: 400, height: 240))
+        fixture.update(items: items, revision: 1, scrollTargetID: 200)
+        fixture.layout()
+        XCTAssertEqual(fixture.scrollView.contentView.bounds.minY, 0, accuracy: 0.5)
+
+        fixture.update(items: items, revision: 1, scrollTargetID: 201, scrollToTopRequest: 1)
+        fixture.layout()
+        XCTAssertEqual(fixture.scrollView.contentView.bounds.minY, 0, accuracy: 0.5)
+    }
+
+    @MainActor
+    func testAppendingSnapshotKeepsTrailingTargetOffsetUntilTargetChanges() {
+        let fixture = GridAppKitFixture()
+        defer { fixture.dismantle() }
+        fixture.update(items: (0..<221).map(GridTestItem.init), revision: 1, scrollTargetID: 220)
+        fixture.layout()
+        let originalOffset = fixture.scrollView.contentView.bounds.minY
+        XCTAssertGreaterThan(originalOffset, 0)
+
+        let appended = (0..<300).map(GridTestItem.init)
+        fixture.update(items: appended, revision: 2, scrollTargetID: 220)
+        fixture.layout()
+        XCTAssertEqual(fixture.scrollView.contentView.bounds.minY, originalOffset, accuracy: 0.5)
+
+        fixture.update(items: appended, revision: 3, scrollTargetID: 230)
+        fixture.layout()
+        let targetFrame = fixture.collectionView.layoutAttributesForItem(
+            at: IndexPath(item: 230, section: 0)
+        )?.frame
+        XCTAssertNotNil(targetFrame)
+        if let targetFrame {
+            XCTAssertTrue(fixture.collectionView.visibleRect.contains(targetFrame),
+                          "Target frame \(targetFrame) must be inside the current viewport \(fixture.collectionView.visibleRect)")
+        }
+        XCTAssertNotEqual(fixture.scrollView.contentView.bounds.minY, originalOffset, accuracy: 0.5)
+    }
+
+    @MainActor
     func testProductionHostingRendersAfterHideAndReopenWithoutSnapshotChange() throws {
         let fixture = HostedGridFixture()
         defer { fixture.close() }
@@ -226,12 +290,13 @@ private final class GridAppKitFixture {
     }
 
     func update(
-        items: [GridTestItem], revision: Int, scrollToTopRequest: UInt64? = nil,
+        items: [GridTestItem], revision: Int, scrollTargetID: Int? = nil,
+        scrollToTopRequest: UInt64? = nil,
         content: @escaping (GridTestItem) -> AnyView = { AnyView(Text("\($0.id)")) }
     ) {
         coordinator.update(
             items: items, snapshotRevision: AnyHashable(revision),
-            contentRevision: AnyHashable(revision), scrollTargetID: nil,
+            contentRevision: AnyHashable(revision), scrollTargetID: scrollTargetID,
             scrollToTopRequest: scrollToTopRequest,
             collectionView: collectionView, scrollView: scrollView,
             makeContent: content

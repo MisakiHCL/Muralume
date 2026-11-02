@@ -33,6 +33,7 @@ struct LibraryMediaThumbnail: View {
         let requestID = requestID
         let image = thumbnail.flatMap { $0.requestID == requestID ? $0.image : nil }
             ?? provider.cachedThumbnail(for: item, size: size, scale: displayScale)
+            ?? provider.cachedPreviewThumbnail(for: item)
         Group {
             if let image {
                 Image(

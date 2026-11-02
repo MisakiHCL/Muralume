@@ -51,62 +51,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         static let drainDeadline: Duration = .seconds(2)
     }
 
-    private final class CacheKey: NSObject {
-        let itemID: LibraryMediaItem.ID
-        let fileIdentity: MediaFileIdentity?
-        let fileSize: Int64
-        let modificationDate: Date?
-        let pixelWidth: Int
-        let pixelHeight: Int
-        let generatorVersion: Int
-
-        init(
-            item: LibraryMediaItem,
-            size: CGSize,
-            scale: CGFloat
-        ) {
-            itemID = item.id
-            fileIdentity = item.fileIdentity
-            fileSize = item.fileSize
-            modificationDate = item.modificationDate
-            pixelWidth = Int((size.width * scale).rounded(.up))
-            pixelHeight = Int((size.height * scale).rounded(.up))
-            generatorVersion = Policy.generatorVersion
-        }
-
-        override var hash: Int {
-            var hasher = Hasher()
-            hasher.combine(itemID)
-            hasher.combine(fileIdentity)
-            hasher.combine(fileSize)
-            hasher.combine(modificationDate)
-            hasher.combine(pixelWidth)
-            hasher.combine(pixelHeight)
-            hasher.combine(generatorVersion)
-            return hasher.finalize()
-        }
-
-        override func isEqual(_ object: Any?) -> Bool {
-            guard let other = object as? CacheKey else {
-                return false
-            }
-            return itemID == other.itemID
-                && fileIdentity == other.fileIdentity
-                && fileSize == other.fileSize
-                && modificationDate == other.modificationDate
-                && pixelWidth == other.pixelWidth
-                && pixelHeight == other.pixelHeight
-                && generatorVersion == other.generatorVersion
-        }
-    }
-
-    private final class ImageBox {
-        let image: CGImage
-
-        init(_ image: CGImage) {
-            self.image = image
-        }
-    }
+    private typealias CacheKey = MediaThumbnailMemoryCache.Key
 
     @MainActor
     private final class CancellationBox {
@@ -198,7 +143,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
     private let maximumInFlightRequestCount: Int
     private let drainDeadline: Duration
     private let drainDelayer: DrainDelayer
-    private let cache = NSCache<CacheKey, ImageBox>()
+    private let cache = MediaThumbnailMemoryCache()
     private var attachableRequests: [CacheKey: ActiveRequest] = [:]
     private var firstQueuedRequest: ActiveRequest?
     private var lastQueuedRequest: ActiveRequest?
@@ -256,8 +201,6 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         self.drainDeadline = effectiveDrainDeadline
         self.cacheMissDelayer = cacheMissDelayer
         self.drainDelayer = drainDelayer
-        cache.countLimit = AppConfiguration.mediaThumbnailCacheCountLimit
-        cache.totalCostLimit = AppConfiguration.mediaThumbnailCacheByteLimit
     }
 
     func cachedThumbnail(
@@ -269,7 +212,12 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
               let cacheKey = makeCacheKey(for: item, size: size, scale: scale) else {
             return nil
         }
-        return cache.object(forKey: cacheKey)?.image
+        return cache.image(for: cacheKey)
+    }
+
+    func cachedPreviewThumbnail(for item: LibraryMediaItem) -> CGImage? {
+        guard !isShutDown, !invalidatedRootPaths.contains(item.id.rootPath) else { return nil }
+        return cache.preview(for: item, generatorVersion: Policy.generatorVersion)
     }
 
     func thumbnail(
@@ -348,7 +296,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         let pixelHeight = (size.height * effectiveScale).rounded(.up)
         guard pixelWidth.isFinite, pixelHeight.isFinite,
               pixelWidth < CGFloat(Int.max), pixelHeight < CGFloat(Int.max) else { return nil }
-        return CacheKey(item: item, size: size, scale: effectiveScale)
+        return CacheKey(item: item, size: size, scale: effectiveScale, generatorVersion: Policy.generatorVersion)
     }
 
     private func cachedImage(
@@ -358,7 +306,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         guard isCacheable else {
             return nil
         }
-        return cache.object(forKey: cacheKey)?.image
+        return cache.image(for: cacheKey)
     }
 
     private func attachToActiveRequestIfAvailable(
@@ -757,11 +705,7 @@ final class QuickLookMediaThumbnailProvider: MediaThumbnailProviding {
         if let result,
            activeRequest.isCacheable,
            activeRequest.cacheGeneration == cacheGeneration {
-            cache.setObject(
-                ImageBox(result),
-                forKey: activeRequest.cacheKey,
-                cost: result.bytesPerRow * result.height
-            )
+            cache.insert(result, for: activeRequest.cacheKey)
         }
 
         let waiters = activeRequest.waiters

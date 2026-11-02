@@ -117,8 +117,10 @@
 		AE0000000000000000000011 /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0000000000000000000001 /* AppDelegateTests.swift */; };
 		AF1000000000000000000011 /* MediaThumbnailProviding.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000001 /* MediaThumbnailProviding.swift */; };
 		AF1000000000000000000012 /* QuickLookMediaThumbnailProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000002 /* QuickLookMediaThumbnailProvider.swift */; };
+		51AAE86C3DD76A6A0A9B0691 /* MediaThumbnailMemoryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69291B097F4E37B51899DCBA /* MediaThumbnailMemoryCache.swift */; };
 		F22000000000000000000011 /* AVAssetCompatibilityThumbnailGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F22000000000000000000001 /* AVAssetCompatibilityThumbnailGenerator.swift */; };
 		F22000000000000000000012 /* MediaPlaybackCompatibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F22000000000000000000002 /* MediaPlaybackCompatibilityTests.swift */; };
+		1FDD45B47922CACF8EB94180 /* MediaThumbnailCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31761BEC15A78BDDF1FACF42 /* MediaThumbnailCacheTests.swift */; };
 		F23000000000000000000011 /* AVFoundationMediaSelectionContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23000000000000000000001 /* AVFoundationMediaSelectionContext.swift */; };
 		F23000000000000000000012 /* SeamlessPlaybackTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23000000000000000000002 /* SeamlessPlaybackTransitionTests.swift */; };
 		AF1000000000000000000013 /* LibraryMediaThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000003 /* LibraryMediaThumbnail.swift */; };
@@ -389,8 +391,10 @@
 		AEAFFBCADB9C4DDF8A43DB08 /* RealAVPlayerLayerRoundTripTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RealAVPlayerLayerRoundTripTests.swift; sourceTree = "<group>"; };
 		AF1000000000000000000001 /* MediaThumbnailProviding.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaThumbnailProviding.swift; sourceTree = "<group>"; };
 		AF1000000000000000000002 /* QuickLookMediaThumbnailProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuickLookMediaThumbnailProvider.swift; sourceTree = "<group>"; };
+		69291B097F4E37B51899DCBA /* MediaThumbnailMemoryCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaThumbnailMemoryCache.swift; sourceTree = "<group>"; };
 		F22000000000000000000001 /* AVAssetCompatibilityThumbnailGenerator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AVAssetCompatibilityThumbnailGenerator.swift; sourceTree = "<group>"; };
 		F22000000000000000000002 /* MediaPlaybackCompatibilityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaPlaybackCompatibilityTests.swift; sourceTree = "<group>"; };
+		31761BEC15A78BDDF1FACF42 /* MediaThumbnailCacheTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaThumbnailCacheTests.swift; sourceTree = "<group>"; };
 		F23000000000000000000001 /* AVFoundationMediaSelectionContext.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AVFoundationMediaSelectionContext.swift; sourceTree = "<group>"; };
 		F23000000000000000000002 /* SeamlessPlaybackTransitionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SeamlessPlaybackTransitionTests.swift; sourceTree = "<group>"; };
 		AF1000000000000000000003 /* LibraryMediaThumbnail.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryMediaThumbnail.swift; sourceTree = "<group>"; };
@@ -1092,6 +1096,7 @@
 				AA0000000000000000000006 /* FileSystemMediaLibraryScanner.swift */,
 				F22000000000000000000001 /* AVAssetCompatibilityThumbnailGenerator.swift */,
 				AF1000000000000000000002 /* QuickLookMediaThumbnailProvider.swift */,
+				69291B097F4E37B51899DCBA /* MediaThumbnailMemoryCache.swift */,
 				654368F2F8F46611FE1F0288 /* FileCustomPlaylistStore.swift */,
 				F13000000000000000000004 /* FSEventsMediaLibraryChangeMonitor.swift */,
 				247C3B36E97E4E8896CFC753 /* FSEventsNativeStream.swift */,
@@ -1193,6 +1198,7 @@
 				8ED1E3C1D1CB4EB199AB3A1A /* AVFoundationPlaybackLoadingTests.swift */,
 				060965ED2E4F42E997A0D10C /* EmbeddedSubtitlePlaybackTests.swift */,
 				F22000000000000000000002 /* MediaPlaybackCompatibilityTests.swift */,
+				31761BEC15A78BDDF1FACF42 /* MediaThumbnailCacheTests.swift */,
 				F23000000000000000000002 /* SeamlessPlaybackTransitionTests.swift */,
 				F19000000000000000000004 /* VideoInformationTests.swift */,
 				F17000000000000000000003 /* VideoScreenshotTests.swift */,
@@ -1559,6 +1565,7 @@
 				AA0000000000000000000016 /* FileSystemMediaLibraryScanner.swift in Sources */,
 				F22000000000000000000011 /* AVAssetCompatibilityThumbnailGenerator.swift in Sources */,
 				AF1000000000000000000012 /* QuickLookMediaThumbnailProvider.swift in Sources */,
+				51AAE86C3DD76A6A0A9B0691 /* MediaThumbnailMemoryCache.swift in Sources */,
 				AC0000000000000000000013 /* UserDefaultsAppPreferencesStore.swift in Sources */,
 				4B9EC4249AD1406990161515 /* AVFoundationPlaybackEngine.swift in Sources */,
 				F23000000000000000000011 /* AVFoundationMediaSelectionContext.swift in Sources */,
@@ -1698,6 +1705,7 @@
 				57D9A01BAFCE4B97ADDFCDE1 /* AVFoundationPlaybackLoadingTests.swift in Sources */,
 				16B4377C9ECC4D8A8FE7C182 /* EmbeddedSubtitlePlaybackTests.swift in Sources */,
 				F22000000000000000000012 /* MediaPlaybackCompatibilityTests.swift in Sources */,
+				1FDD45B47922CACF8EB94180 /* MediaThumbnailCacheTests.swift in Sources */,
 				F23000000000000000000012 /* SeamlessPlaybackTransitionTests.swift in Sources */,
 				F19000000000000000000014 /* VideoInformationTests.swift in Sources */,
 				F17000000000000000000013 /* VideoScreenshotTests.swift in Sources */,

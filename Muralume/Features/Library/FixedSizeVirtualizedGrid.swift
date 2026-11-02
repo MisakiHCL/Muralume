@@ -200,7 +200,8 @@ struct FixedSizeVirtualizedGrid<Item: Identifiable, RowContent: View>:
         private var makeContent: ((Item) -> AnyView)?
         private var requestedTarget: ScrollTarget?
         private var centeredTarget: ScrollTarget?
-        private var pendingScrollTask: Task<Void, Never>?
+        private var centeredViewport: VirtualizedScrollViewport?
+        private var isReconcilingLayout = false
         private let hostedItems = NSHashTable<VirtualizedGridItem>.weakObjects()
         weak var collectionView: NSCollectionView?
 
@@ -244,8 +245,10 @@ struct FixedSizeVirtualizedGrid<Item: Identifiable, RowContent: View>:
         ) {
             self.makeContent = makeContent
             self.contentRevision = contentRevision
+            let hadSnapshot = snapshot.revision != nil
             let changed = snapshot.apply(items, revision: snapshotRevision)
             if changed {
+                if hadSnapshot { centeredViewport = nil }
                 hostedItems.allObjects.forEach { $0.clearContent() }
                 collectionView.reloadData()
             }
@@ -254,17 +257,15 @@ struct FixedSizeVirtualizedGrid<Item: Identifiable, RowContent: View>:
                 snapshot.index(for: id).map { ScrollTarget(id: id, index: $0) }
             }
             if requestedTarget != target {
-                pendingScrollTask?.cancel()
-                pendingScrollTask = nil
                 requestedTarget = target
                 centeredTarget = nil
+                centeredViewport = nil
             }
             if updateTracker.shouldScrollToTop(
                 snapshotDidChange: changed, request: scrollToTopRequest
             ) {
-                pendingScrollTask?.cancel()
-                pendingScrollTask = nil
                 centeredTarget = requestedTarget
+                centeredViewport = nil
                 VirtualizedGridScrollGeometry.scrollToTop(
                     collectionView: collectionView, scrollView: scrollView
                 )
@@ -305,6 +306,9 @@ struct FixedSizeVirtualizedGrid<Item: Identifiable, RowContent: View>:
         func didLayout(
             _ collectionView: NSCollectionView, scrollView: NSScrollView
         ) {
+            guard !isReconcilingLayout else { return }
+            isReconcilingLayout = true
+            defer { isReconcilingLayout = false }
             VirtualizedGridScrollGeometry.centerColumns(
                 collectionView: collectionView, scrollView: scrollView
             )
@@ -312,40 +316,30 @@ struct FixedSizeVirtualizedGrid<Item: Identifiable, RowContent: View>:
                 collectionView: collectionView, scrollView: scrollView
             )
             refreshVisibleItems(in: collectionView)
-            guard requestedTarget != centeredTarget,
-                  pendingScrollTask == nil else { return }
-            pendingScrollTask = Task {
-                @MainActor [weak self, weak collectionView, weak scrollView] in
-                await Task.yield()
-                guard !Task.isCancelled, let self,
-                      let collectionView, let scrollView else { return }
-                self.pendingScrollTask = nil
-                guard let target = self.requestedTarget,
-                      self.centeredTarget != target,
-                      scrollView.contentSize.width > 0,
-                      scrollView.contentSize.height > 0,
-                      self.snapshot.index(for: target.id) == target.index else {
+            guard let target = requestedTarget,
+                  scrollView.contentSize.width > 0,
+                  scrollView.contentSize.height > 0,
+                  snapshot.index(for: target.id) == target.index else { return }
+            if centeredTarget == target {
+                guard let centeredViewport,
+                      centeredViewport.geometryChanged(in: scrollView) else { return }
+                guard centeredViewport.preservesProgrammaticOrigin(in: scrollView) else {
+                    self.centeredViewport = nil
                     return
                 }
-                let indexPath = IndexPath(item: target.index, section: 0)
-                guard let attributes = collectionView.layoutAttributesForItem(at: indexPath),
-                      attributes.frame.width > 0, attributes.frame.height > 0 else {
-                    return
-                }
-                collectionView.scrollToItems(
-                    at: [indexPath],
-                    scrollPosition: .centeredVertically
-                )
-                scrollView.reflectScrolledClipView(scrollView.contentView)
-                if collectionView.visibleRect.intersects(attributes.frame) {
-                    self.centeredTarget = target
-                }
+            }
+            let indexPath = IndexPath(item: target.index, section: 0)
+            guard let attributes = collectionView.layoutAttributesForItem(at: indexPath),
+                  attributes.frame.width > 0, attributes.frame.height > 0 else { return }
+            collectionView.scrollToItems(at: [indexPath], scrollPosition: .centeredVertically)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            if collectionView.visibleRect.intersects(attributes.frame) {
+                centeredTarget = target
+                centeredViewport = VirtualizedScrollViewport(scrollView)
             }
         }
 
         func dismantle(scrollView: NSScrollView) {
-            pendingScrollTask?.cancel()
-            pendingScrollTask = nil
             (collectionView as? VirtualizedGridCollectionView)?.layoutHandler = nil
             (scrollView as? VirtualizedGridScrollView)?.visibilityHandler = nil
             (scrollView as? VirtualizedGridScrollView)?.layoutHandler = nil
@@ -355,6 +349,7 @@ struct FixedSizeVirtualizedGrid<Item: Identifiable, RowContent: View>:
             contentRevision = nil
             requestedTarget = nil
             centeredTarget = nil
+            centeredViewport = nil
             snapshot.reset()
             updateTracker.reset()
             collectionView?.delegate = nil

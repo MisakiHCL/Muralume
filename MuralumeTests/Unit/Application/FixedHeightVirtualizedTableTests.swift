@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import XCTest
 @testable import Muralume
 
@@ -155,6 +156,137 @@ final class FixedHeightVirtualizedTableTests: XCTestCase {
         )
 
         XCTAssertNotEqual(initial, afterAddingAnItem)
+    }
+
+    @MainActor
+    func testFirstCenterWaitsForViewportAndCompletesInsideNativeLayout() {
+        let fixture = TableCenteringFixture(size: .zero)
+        defer { fixture.dismantle() }
+        fixture.update(target: 200)
+        XCTAssertEqual(fixture.scrollView.contentView.bounds.minY, 0,
+                       "A measuring viewport must not first reveal the target at a different offset")
+
+        fixture.layout(size: CGSize(width: 600, height: 500))
+        fixture.assertCentered(200)
+    }
+
+    @MainActor
+    func testMeasuringViewportReconcilesWithoutTakingBackUserScroll() {
+        let fixture = TableCenteringFixture(size: CGSize(width: 600, height: 10))
+        defer { fixture.dismantle() }
+        fixture.update(target: 200)
+        fixture.layout(size: CGSize(width: 600, height: 10))
+        fixture.assertCentered(200)
+
+        fixture.layout(size: CGSize(width: 600, height: 500))
+        fixture.assertCentered(200)
+        fixture.scrollView.contentView.scroll(to: .zero)
+        fixture.scrollView.reflectScrolledClipView(fixture.scrollView.contentView)
+        fixture.update(target: 200)
+        fixture.layout(size: CGSize(width: 600, height: 400))
+        XCTAssertEqual(fixture.scrollView.contentView.bounds.minY, 0, accuracy: 0.5)
+    }
+
+    @MainActor
+    func testNativeDocumentHeightNormalizationCentersWithinTheSameLayout() {
+        let fixture = TableCenteringFixture(size: CGSize(width: 600, height: 500))
+        defer { fixture.dismantle() }
+        fixture.update(target: 200)
+        fixture.tableView.setFrameSize(CGSize(width: 600, height: 0))
+        // Asking NSTableView for row geometry normalizes its zero measuring
+        // frame to the real row extent. Centering uses this same native extent
+        // and must not need another run-loop turn to repair its first position.
+        let lastRow = fixture.tableView.rect(ofRow: 220)
+        XCTAssertGreaterThan(lastRow.height, 0)
+        XCTAssertGreaterThanOrEqual(fixture.tableView.bounds.height, lastRow.maxY)
+        fixture.coordinator.tableDidLayout(tableView: fixture.tableView, scrollView: fixture.scrollView)
+        fixture.assertCentered(200)
+        let firstLayoutOffset = fixture.scrollView.contentView.bounds.minY
+
+        fixture.layout(size: CGSize(width: 600, height: 500))
+        fixture.assertCentered(200)
+        XCTAssertEqual(fixture.scrollView.contentView.bounds.minY, firstLayoutOffset, accuracy: 0.5)
+    }
+
+    @MainActor
+    func testExplicitSearchTopWinsOverInitialCenterAndViewportChanges() {
+        let fixture = TableCenteringFixture(size: CGSize(width: 600, height: 10))
+        defer { fixture.dismantle() }
+        fixture.update(target: 200, scrollToTopRequest: 1)
+        fixture.layout(size: CGSize(width: 600, height: 500))
+        XCTAssertEqual(fixture.scrollView.contentView.bounds.minY, 0, accuracy: 0.5)
+    }
+
+    @MainActor
+    func testAppendingSnapshotDoesNotRecenterAnAlreadyPositionedTrailingRow() {
+        let fixture = TableCenteringFixture(size: CGSize(width: 600, height: 500))
+        defer { fixture.dismantle() }
+        fixture.update(target: 220)
+        fixture.layout(size: CGSize(width: 600, height: 500))
+        let originalOffset = fixture.scrollView.contentView.bounds.minY
+        XCTAssertGreaterThan(originalOffset, 0)
+
+        fixture.update(target: 220, count: 260, revision: 2)
+        fixture.layout(size: CGSize(width: 600, height: 500))
+        XCTAssertEqual(fixture.scrollView.contentView.bounds.minY, originalOffset, accuracy: 0.5)
+
+        fixture.update(target: 230, count: 260, revision: 3)
+        fixture.layout(size: CGSize(width: 600, height: 500))
+        fixture.assertCentered(230)
+    }
+}
+
+private struct TableCenteringItem: Identifiable {
+    let id: Int
+}
+
+@MainActor
+private final class TableCenteringFixture {
+    let coordinator = FixedHeightVirtualizedTable<TableCenteringItem, Text>.Coordinator()
+    let tableView = NSTableView()
+    let scrollView: NSScrollView
+
+    init(size: CGSize) {
+        scrollView = NSScrollView(frame: CGRect(origin: .zero, size: size))
+        tableView.addTableColumn(NSTableColumn(identifier: .init("column")))
+        tableView.headerView = nil
+        tableView.rowHeight = 64
+        tableView.intercellSpacing = CGSize(width: 0, height: 4)
+        tableView.dataSource = coordinator
+        tableView.delegate = coordinator
+        scrollView.documentView = tableView
+        scrollView.automaticallyAdjustsContentInsets = false
+        coordinator.tableView = tableView
+    }
+
+    func update(target: Int, count: Int = 221, revision: Int = 1, scrollToTopRequest: UInt64? = nil) {
+        coordinator.update(
+            items: (0..<count).map(TableCenteringItem.init), snapshotRevision: AnyHashable(revision),
+            rowContentRevision: AnyHashable(1), scrollTargetID: target,
+            scrollToTopRequest: scrollToTopRequest, tableView: tableView, scrollView: scrollView,
+            makeRowContent: { AnyView(Text("Row \($0.id)")) }
+        )
+    }
+
+    func layout(size: CGSize) {
+        scrollView.setFrameSize(size)
+        scrollView.layoutSubtreeIfNeeded()
+        // Model the document geometry AppKit resolves after reloadData. The
+        // stale-document test deliberately invokes the earlier layout phase.
+        tableView.setFrameSize(CGSize(width: size.width, height: tableView.rect(ofRow: tableView.numberOfRows - 1).maxY))
+        tableView.layoutSubtreeIfNeeded()
+        coordinator.tableDidLayout(tableView: tableView, scrollView: scrollView)
+    }
+
+    func assertCentered(_ row: Int, file: StaticString = #filePath, line: UInt = #line) {
+        let bounds = scrollView.contentView.bounds
+        let expected = tableView.rect(ofRow: row).midY - bounds.height / 2
+        XCTAssertEqual(bounds.minY, expected, accuracy: 0.5, file: file, line: line)
+    }
+
+    func dismantle() {
+        coordinator.dismantle(scrollView: scrollView)
+        scrollView.documentView = nil
     }
 }
 

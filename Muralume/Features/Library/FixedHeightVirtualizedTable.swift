@@ -61,6 +61,35 @@ struct VirtualizedTableUpdateTracker {
     }
 }
 
+/// Reconcile an initial measuring viewport without taking a later user scroll
+/// back to the current item when the viewport changes again.
+@MainActor
+struct VirtualizedScrollViewport {
+    private let size: CGSize
+    private let documentSize: CGSize
+    private let origin: CGPoint
+    private static let originTolerance: CGFloat = 0.5
+
+    init(_ scrollView: NSScrollView) {
+        size = scrollView.contentView.bounds.size
+        documentSize = scrollView.documentView?.bounds.size ?? .zero
+        origin = scrollView.contentView.bounds.origin
+    }
+
+    func geometryChanged(in scrollView: NSScrollView) -> Bool {
+        size != scrollView.contentView.bounds.size
+            || documentSize != (scrollView.documentView?.bounds.size ?? .zero)
+    }
+
+    func preservesProgrammaticOrigin(in scrollView: NSScrollView) -> Bool {
+        let clipView = scrollView.contentView
+        let constrained = clipView.constrainBoundsRect(
+            CGRect(origin: origin, size: clipView.bounds.size)
+        ).origin
+        return abs(clipView.bounds.minY - constrained.y) <= Self.originTolerance
+    }
+}
+
 @MainActor
 enum VirtualizedTableScrollGeometry {
     static func scrollToTop(
@@ -155,7 +184,7 @@ struct FixedHeightVirtualizedTable<
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
 
-        let scrollView = NSScrollView()
+        let scrollView = VirtualizedTableScrollView()
         scrollView.documentView = tableView
         scrollView.drawsBackground = false
         scrollView.hasHorizontalScroller = false
@@ -174,6 +203,11 @@ struct FixedHeightVirtualizedTable<
                 tableView: tableView,
                 scrollView: scrollView
             )
+        }
+        scrollView.layoutHandler = {
+            [weak coordinator = context.coordinator, weak tableView, weak scrollView] in
+            guard let tableView, let scrollView else { return }
+            coordinator?.tableDidLayout(tableView: tableView, scrollView: scrollView)
         }
 
         context.coordinator.tableView = tableView
@@ -263,7 +297,8 @@ extension FixedHeightVirtualizedTable {
         private var requestedScrollTarget: ScrollTarget?
         private var centeredScrollTarget: ScrollTarget?
         private var makeRowContent: ((Item) -> AnyView)?
-        private var pendingCenterTask: Task<Void, Never>?
+        private var centeredViewport: VirtualizedScrollViewport?
+        private var isCenteringRequestedRow = false
         private let hostedCells = NSHashTable<HostedTableCell>.weakObjects()
         weak var tableView: NSTableView?
 
@@ -324,10 +359,14 @@ extension FixedHeightVirtualizedTable {
         ) {
             self.makeRowContent = makeRowContent
 
+            let hadSnapshot = updateTracker.appliedSnapshotToken != nil
             let snapshotDidChange = updateTracker.consumeSnapshotToken(
                 snapshotRevision
             )
             if snapshotDidChange {
+                // A later content refresh is not an unfinished measuring
+                // viewport. Preserve the offset for an unchanged target/index.
+                if hadSnapshot { centeredViewport = nil }
                 applySnapshot(
                     items,
                     to: tableView
@@ -358,11 +397,11 @@ extension FixedHeightVirtualizedTable {
         }
 
         func dismantle(scrollView _: NSScrollView) {
-            pendingCenterTask?.cancel()
-            pendingCenterTask = nil
+            (tableView?.enclosingScrollView as? VirtualizedTableScrollView)?.layoutHandler = nil
             (tableView as? WidthTrackingTableView)?.layoutHandler = nil
             requestedScrollTarget = nil
             centeredScrollTarget = nil
+            centeredViewport = nil
             hostedCells.allObjects.forEach { $0.clearContent() }
             makeRowContent = nil
             items.removeAll(keepingCapacity: false)
@@ -398,11 +437,10 @@ extension FixedHeightVirtualizedTable {
             tableView: NSTableView,
             scrollView: NSScrollView
         ) {
-            pendingCenterTask?.cancel()
-            pendingCenterTask = nil
             // An explicit top request wins over centering the current item
             // until a different target is requested.
             centeredScrollTarget = requestedScrollTarget
+            centeredViewport = nil
             VirtualizedTableScrollGeometry.scrollToTop(
                 tableView: tableView,
                 scrollView: scrollView
@@ -443,59 +481,46 @@ extension FixedHeightVirtualizedTable {
             scrollView: NSScrollView
         ) {
             guard requestedScrollTarget != target else {
-                centerRequestedRowIfNeeded(
-                    tableView: tableView,
-                    scrollView: scrollView
-                )
                 return
             }
             requestedScrollTarget = target
             centeredScrollTarget = nil
-            pendingCenterTask?.cancel()
-            pendingCenterTask = nil
-            centerRequestedRowIfNeeded(
-                tableView: tableView,
-                scrollView: scrollView
-            )
+            centeredViewport = nil
+            // Resolve the target after AppKit assigns the viewport, before
+            // drawing. Revealing it with a zero/measuring viewport first and
+            // centering in a later Task produces two visible positions.
+            scrollView.needsLayout = true
+            tableView.needsLayout = true
         }
 
-        fileprivate func tableDidLayout(
+        func tableDidLayout(
             tableView: NSTableView,
             scrollView: NSScrollView
         ) {
-            guard requestedScrollTarget != centeredScrollTarget,
-                  pendingCenterTask == nil else {
-                return
-            }
-            pendingCenterTask = Task {
-                @MainActor [weak self, weak tableView, weak scrollView] in
-                await Task.yield()
-                guard !Task.isCancelled,
-                      let self,
-                      let tableView,
-                      let scrollView else {
-                    return
-                }
-                self.pendingCenterTask = nil
-                self.centerRequestedRowIfNeeded(
-                    tableView: tableView,
-                    scrollView: scrollView
-                )
-            }
+            centerRequestedRowIfNeeded(tableView: tableView, scrollView: scrollView)
         }
 
         private func centerRequestedRowIfNeeded(
             tableView: NSTableView,
             scrollView: NSScrollView
         ) {
-            guard let target = requestedScrollTarget,
-                  centeredScrollTarget != target,
+            guard !isCenteringRequestedRow, let target = requestedScrollTarget,
                   items.indices.contains(target.index),
-                  items[target.index].id == target.id else {
+                  items[target.index].id == target.id,
+                  scrollView.contentSize.width > 0,
+                  scrollView.contentSize.height > 0 else {
                 return
             }
-
-            tableView.scrollRowToVisible(target.index)
+            if centeredScrollTarget == target {
+                guard let centeredViewport,
+                      centeredViewport.geometryChanged(in: scrollView) else { return }
+                guard centeredViewport.preservesProgrammaticOrigin(in: scrollView) else {
+                    self.centeredViewport = nil
+                    return
+                }
+            }
+            isCenteringRequestedRow = true
+            defer { isCenteringRequestedRow = false }
             guard centerRow(
                 at: target.index,
                 tableView: tableView,
@@ -504,6 +529,7 @@ extension FixedHeightVirtualizedTable {
                 return
             }
             centeredScrollTarget = target
+            centeredViewport = VirtualizedScrollViewport(scrollView)
         }
 
         private func centerRow(
@@ -522,6 +548,15 @@ extension FixedHeightVirtualizedTable {
             }
 
             let rowRectangle = tableView.rect(ofRow: index)
+            // reloadData can precede AppKit's document-height reconciliation.
+            // Do not consume the request against the previous document bounds.
+            guard let lastIndex = items.indices.last,
+                  rowRectangle.height > 0 else { return false }
+            let lastRowRectangle = tableView.rect(ofRow: lastIndex)
+            guard lastRowRectangle.height > 0,
+                  tableView.bounds.height + 0.5 >= lastRowRectangle.maxY else {
+                return false
+            }
             let minimumOffset = -scrollView.contentInsets.top
             let maximumOffset = max(
                 tableView.bounds.height
@@ -541,6 +576,35 @@ extension FixedHeightVirtualizedTable {
             scrollView.reflectScrolledClipView(clipView)
             return true
         }
+    }
+}
+
+@MainActor
+private final class VirtualizedTableScrollView: NSScrollView {
+    var layoutHandler: (() -> Void)?
+    private var invokesLayoutHandler = false
+
+    override func layout() {
+        super.layout()
+        guard !invokesLayoutHandler else { return }
+        invokesLayoutHandler = true
+        defer { invokesLayoutHandler = false }
+        layoutHandler?()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { invalidateViewportLayout() }
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        invalidateViewportLayout()
+    }
+
+    private func invalidateViewportLayout() {
+        needsLayout = true
+        documentView?.needsLayout = true
     }
 }
 
