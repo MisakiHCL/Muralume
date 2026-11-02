@@ -132,10 +132,6 @@ final class MacDesktopHost: DesktopHosting {
         hostedDisplays.mapValues(\.window.alphaValue)
     }
 
-    var hostedWindows: [MacDesktopDisplayID: DesktopWindow] {
-        hostedDisplays.mapValues(\.window)
-    }
-
     var hostedProbeWindows: [
         MacDesktopDisplayID: [DesktopOcclusionProbeWindow]
     ] {

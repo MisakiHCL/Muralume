@@ -130,21 +130,5 @@
 			<string>미디어 소스 %d개</string>
 		</dict>
 	</dict>
-	<key>library.folder.count</key>
-	<dict>
-		<key>NSStringLocalizedFormatKey</key>
-		<string>%#@count@</string>
-		<key>count</key>
-		<dict>
-			<key>NSStringFormatSpecTypeKey</key>
-			<string>NSStringPluralRuleType</string>
-			<key>NSStringFormatValueTypeKey</key>
-			<string>d</string>
-			<key>one</key>
-			<string>폴더 %d개</string>
-			<key>other</key>
-			<string>폴더 %d개</string>
-		</dict>
-	</dict>
 </dict>
 </plist>

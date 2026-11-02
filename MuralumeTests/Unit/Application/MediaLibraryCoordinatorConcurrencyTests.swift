@@ -10,69 +10,49 @@ final class MediaLibraryCoordinatorConcurrencyTests: XCTestCase {
         static let backgroundSortItemCount = 600
     }
 
-    func testRefreshDoesNotPoisonActiveSearchProjectionCache() async {
+    func testRefreshDoesNotPoisonLatestSearchDuringWillSet() async throws {
         let rootURL = URL(fileURLWithPath: "/tmp/Search Refresh Library")
         let root = makeRoot(rootURL)
-        let existingItem = makeItem(
-            rootURL: rootURL,
-            name: "Existing",
-            path: "Existing.mov"
-        )
-        let addedItem = makeItem(
-            rootURL: rootURL,
-            name: "Northern Sky",
-            path: "Northern Sky.mov"
-        )
+        let existingItem = makeItem(rootURL: rootURL, name: "Existing", path: "Existing.mov")
+        let addedItem = makeItem(rootURL: rootURL, name: "Northern Sky", path: "Northern Sky.mov")
         let fixture = makeFixture(
             selectedURLs: [rootURL],
-            snapshot: MediaLibrarySnapshot(
-                roots: [root],
-                items: [existingItem]
-            )
+            snapshot: MediaLibrarySnapshot(roots: [root], items: [existingItem])
         )
-
         fixture.coordinator.addMedia()
         await waitForScan(fixture.coordinator)
-
-        let query = "northern sky"
-        let cache = MediaLibrarySearchProjectionCache()
-        XCTAssertTrue(
-            cache.projection(
-                query: query,
-                itemsRevision: fixture.coordinator.itemsRevision,
-                items: fixture.coordinator.items
-            ).items.isEmpty
+        let search = LatestMediaSearch<MediaLibrarySearchProjection>(
+            hasSameContent: MediaLibrarySearchProjection.hasSameContent
         )
-
-        // SwiftUI observes objectWillChange synchronously. Recompute here to
-        // catch any transient mismatch between the collection and its cache
-        // revision during @Published's will-set notification.
-        let observation = fixture.coordinator.objectWillChange.sink {
-            _ = cache.projection(
-                query: query,
-                itemsRevision: fixture.coordinator.itemsRevision,
-                items: fixture.coordinator.items
+        let filter = MediaCollectionSearch(query: "northern sky")
+        func request() -> MediaLibrarySearchRequestID {
+            let items = fixture.coordinator.items
+            let key = MediaLibrarySearchRequestID(
+                itemsRevision: fixture.coordinator.itemsRevision, query: filter.query
             )
+            search.request(key: key) {
+                MediaLibrarySearchProjection(
+                    search: filter, items: try filter.filteredItemsCancellable(from: items)
+                )
+            }
+            return key
         }
+        let initialKey = request()
+        await search.waitForPendingSearch()
+        XCTAssertTrue(try XCTUnwrap(search.result(for: initialKey)).items.isEmpty)
 
-        fixture.scanner.enqueueSnapshot(
-            MediaLibrarySnapshot(
-                roots: [root],
-                items: [existingItem, addedItem]
-            )
-        )
+        // A will-set observer must never cache old items under the new revision:
+        // the normal post-publication request would then reuse the wrong result.
+        let observation = fixture.coordinator.objectWillChange.sink { _ = request() }
+        fixture.scanner.enqueueSnapshot(.init(roots: [root], items: [existingItem, addedItem]))
         fixture.coordinator.refresh()
         await waitForScan(fixture.coordinator)
+        let updatedKey = request()
+        await search.waitForPendingSearch()
 
-        XCTAssertTrue(fixture.coordinator.items.contains(addedItem))
-        XCTAssertEqual(
-            cache.projection(
-                query: query,
-                itemsRevision: fixture.coordinator.itemsRevision,
-                items: fixture.coordinator.items
-            ).items,
-            [addedItem]
-        )
+        XCTAssertNotEqual(updatedKey, initialKey)
+        XCTAssertEqual(search.result(for: updatedKey)?.items, [addedItem])
+        XCTAssertNil(search.result(for: initialKey))
         withExtendedLifetime(observation) {}
         await fixture.coordinator.shutdown()
     }

@@ -37,10 +37,6 @@ final class PlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
         activePlayerLayer.videoRect
     }
 
-    var videoGravity: AVLayerVideoGravity {
-        activePlayerLayer.videoGravity
-    }
-
     private var activePlayerLayer = AVPlayerLayer()
     private var transitionPlayerLayer = AVPlayerLayer()
     private var preparedTransitionPlayerLayer: AVPlayerLayer?
@@ -76,11 +72,6 @@ final class PlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
     func connect(to player: AVPlayer?) {
         cancelPreparedTransition()
         activePlayerLayer.player = player
-    }
-
-    func setVideoGravity(_ videoGravity: AVLayerVideoGravity) {
-        activePlayerLayer.videoGravity = videoGravity
-        transitionPlayerLayer.videoGravity = videoGravity
     }
 
     private func configurePlayerLayer(

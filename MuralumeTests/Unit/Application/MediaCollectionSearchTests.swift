@@ -167,112 +167,129 @@ final class MediaCollectionSearchTests: XCTestCase {
         )
     }
 
-    func testLibraryProjectionCacheScansTenThousandItemsOncePerKey() {
+    @MainActor
+    func testLatestLibrarySearchCachesNormalizedKeyAndRefreshesTenThousandItemOrder() async throws {
         let items = makeLargeItemCollection(count: 10_000)
-        let cache = MediaLibrarySearchProjectionCache()
-
-        let first = cache.projection(
-            query: "batch-7",
-            itemsRevision: 41,
-            items: items
+        let search = LatestMediaSearch<MediaLibrarySearchProjection>(
+            hasSameContent: MediaLibrarySearchProjection.hasSameContent
         )
+        let executions = MediaSearchTestGate()
 
-        XCTAssertEqual(first.items.count, 1_000)
-        XCTAssertEqual(cache.recomputationCount, 1)
+        func request(_ query: String, revision: UInt64, items: [LibraryMediaItem])
+            -> MediaLibrarySearchRequestID {
+            let filter = MediaCollectionSearch(query: query)
+            let key = MediaLibrarySearchRequestID(itemsRevision: revision, query: filter.query)
+            search.request(key: key) {
+                await executions.record(Int(revision))
+                return MediaLibrarySearchProjection(
+                    search: filter, items: try filter.filteredItemsCancellable(from: items)
+                )
+            }
+            return key
+        }
 
-        let sameNormalizedQuery = cache.projection(
-            query: "  batch-7  ",
-            itemsRevision: 41,
-            items: items
-        )
-        XCTAssertEqual(sameNormalizedQuery.items, first.items)
-        XCTAssertEqual(cache.recomputationCount, 1)
+        let firstKey = request("batch-7", revision: 41, items: items)
+        await search.waitForPendingSearch()
+        let expected = stride(from: 7, to: items.count, by: 10).map { items[$0] }
+        XCTAssertEqual(search.result(for: firstKey)?.items, expected)
+        let firstRevision = try XCTUnwrap(search.latestResult(compatibleWith: firstKey) { _, _ in true })
+            .contentRevision
 
-        _ = cache.projection(
-            query: "batch-8",
-            itemsRevision: 41,
-            items: items
-        )
-        XCTAssertEqual(cache.recomputationCount, 2)
+        let sameKey = request("  batch-7  ", revision: 41, items: items)
+        await search.waitForPendingSearch()
+        XCTAssertEqual(sameKey, firstKey)
+        XCTAssertEqual(search.result(for: sameKey)?.items, expected)
+        let afterSameKey = await executions.recordedValues
+        XCTAssertEqual(afterSameKey, [41])
+        XCTAssertEqual(search.latestResult(compatibleWith: sameKey) { _, _ in true }?.contentRevision,
+                       firstRevision)
 
-        _ = cache.projection(
-            query: "batch-8",
-            itemsRevision: 42,
-            items: items
-        )
-        XCTAssertEqual(cache.recomputationCount, 3)
+        let nextKey = request("batch-8", revision: 41, items: items)
+        await search.waitForPendingSearch()
+        let nextExpected = stride(from: 8, to: items.count, by: 10).map { items[$0] }
+        XCTAssertEqual(search.result(for: nextKey)?.items, nextExpected)
+        let nextRevision = try XCTUnwrap(search.latestResult(compatibleWith: nextKey) { _, _ in true })
+            .contentRevision
+        XCTAssertNotEqual(nextRevision, firstRevision)
+
+        let reorderedKey = request("batch-8", revision: 42, items: Array(items.reversed()))
+        await search.waitForPendingSearch()
+        XCTAssertNil(search.result(for: nextKey))
+        XCTAssertEqual(search.result(for: reorderedKey)?.items, Array(nextExpected.reversed()))
+        XCTAssertNotEqual(search.latestResult(compatibleWith: reorderedKey) { _, _ in true }?.contentRevision,
+                          nextRevision)
+        let completedExecutions = await executions.recordedValues
+        XCTAssertEqual(completedExecutions, [41, 41, 42])
     }
 
-    func testPlaylistProjectionCachesTenThousandEntryFilterAndResolution() {
+    @MainActor
+    func testLatestPlaylistSearchPreservesTenThousandEntryOrderAndResolutionRevisions() async throws {
         let items = makeLargeItemCollection(count: 10_000)
-        let entries = items.map {
-            CustomPlaylistEntry(media: MediaReference(item: $0))
-        }
+        let entries = items.map { CustomPlaylistEntry(media: MediaReference(item: $0)) }
         let playlist = CustomPlaylist(
-            name: "Large",
-            entries: entries,
-            createdAt: Date(timeIntervalSince1970: 1),
-            updatedAt: Date(timeIntervalSince1970: 1)
+            name: "Large", entries: entries,
+            createdAt: Date(timeIntervalSince1970: 1), updatedAt: Date(timeIntervalSince1970: 1)
         )
-        let cache = CustomPlaylistDetailProjectionCache()
-
-        let first = cache.projection(
-            playlist: playlist,
-            playlistRevision: 7,
-            query: "batch-7",
-            libraryItems: items,
-            libraryItemsRevision: 11
+        let controller = CustomPlaylistController(store: SearchPlaylistStore())
+        await controller.startAndWait()
+        let search = LatestMediaSearch<CustomPlaylistDetailProjection>(
+            hasSameContent: CustomPlaylistDetailProjection.hasSameContent
         )
+        let executions = MediaSearchTestGate()
 
-        XCTAssertEqual(first.entries.count, 1_000)
+        func request(_ query: String, playlist: CustomPlaylist,
+                     playlistRevision: UInt64, libraryRevision: UInt64,
+                     items: [LibraryMediaItem]) -> CustomPlaylistSearchRequestID {
+            let key = CustomPlaylistSearchRequestID(
+                playlistID: playlist.id, playlistRevision: playlistRevision,
+                libraryItemsRevision: libraryRevision, query: MediaCollectionSearch(query: query).query
+            )
+            let operation = controller.detailSearchOperation(
+                for: playlist, query: query, using: items, itemsRevision: libraryRevision
+            )
+            search.request(key: key) {
+                await executions.record(Int(playlistRevision))
+                return try await operation()
+            }
+            return key
+        }
+
+        let firstKey = request("batch-7", playlist: playlist, playlistRevision: 7,
+                               libraryRevision: 11, items: items)
+        await search.waitForPendingSearch()
+        let expected = stride(from: 7, to: entries.count, by: 10).map { entries[$0] }
+        let first = try XCTUnwrap(search.result(for: firstKey))
+        XCTAssertEqual(first.entries.map(\.id), expected.map(\.id))
         XCTAssertEqual(first.resolvedItemsByEntryID.count, 1_000)
-        XCTAssertEqual(
-            first.entryID(for: items[9_997].id),
-            entries[9_997].id
-        )
-        XCTAssertEqual(cache.recomputationCount, 1)
-        XCTAssertEqual(cache.resolutionIndexRecomputationCount, 1)
+        XCTAssertEqual(first.entryID(for: items[9_997].id), entries[9_997].id)
 
-        let sameKey = cache.projection(
-            playlist: playlist,
-            playlistRevision: 7,
-            query: " batch-7 ",
-            libraryItems: items,
-            libraryItemsRevision: 11
-        )
-        XCTAssertEqual(sameKey.entries.map(\.id), first.entries.map(\.id))
-        XCTAssertEqual(cache.recomputationCount, 1)
-        XCTAssertEqual(cache.resolutionIndexRecomputationCount, 1)
+        let sameKey = request(" batch-7 ", playlist: playlist, playlistRevision: 7,
+                              libraryRevision: 11, items: items)
+        await search.waitForPendingSearch()
+        XCTAssertEqual(search.result(for: sameKey)?.entries.map(\.id), expected.map(\.id))
+        let afterSameKey = await executions.recordedValues
+        XCTAssertEqual(afterSameKey, [7])
 
-        _ = cache.projection(
-            playlist: playlist,
-            playlistRevision: 7,
-            query: "batch-8",
-            libraryItems: items,
-            libraryItemsRevision: 11
+        let reordered = CustomPlaylist(
+            id: playlist.id, name: playlist.name, entries: Array(entries.reversed()),
+            createdAt: playlist.createdAt, updatedAt: playlist.updatedAt
         )
-        XCTAssertEqual(cache.recomputationCount, 2)
-        XCTAssertEqual(cache.resolutionIndexRecomputationCount, 1)
-
-        _ = cache.projection(
-            playlist: playlist,
-            playlistRevision: 8,
-            query: "batch-7",
-            libraryItems: items,
-            libraryItemsRevision: 11
-        )
-        XCTAssertEqual(cache.recomputationCount, 3)
-        XCTAssertEqual(cache.resolutionIndexRecomputationCount, 1)
-
-        _ = cache.projection(
-            playlist: playlist,
-            playlistRevision: 8,
-            query: "batch-7",
-            libraryItems: items,
-            libraryItemsRevision: 12
-        )
-        XCTAssertEqual(cache.recomputationCount, 4)
-        XCTAssertEqual(cache.resolutionIndexRecomputationCount, 2)
+        let reorderedKey = request("batch-7", playlist: reordered, playlistRevision: 8,
+                                   libraryRevision: 11, items: items)
+        await search.waitForPendingSearch()
+        XCTAssertEqual(search.result(for: reorderedKey)?.entries.map(\.id),
+                       Array(expected.reversed()).map(\.id))
+        let missingKey = request("batch-7", playlist: reordered, playlistRevision: 8,
+                                 libraryRevision: 12, items: items.filter { $0.id != items[9_997].id })
+        await search.waitForPendingSearch()
+        let missing = try XCTUnwrap(search.result(for: missingKey))
+        XCTAssertEqual(missing.entries.map(\.id), Array(expected.reversed()).map(\.id))
+        XCTAssertEqual(missing.resolvedItemsByEntryID.count, 999)
+        XCTAssertNil(missing.resolvedItemsByEntryID[entries[9_997].id])
+        XCTAssertNil(missing.entryID(for: items[9_997].id))
+        let completedExecutions = await executions.recordedValues
+        XCTAssertEqual(completedExecutions, [7, 8, 8])
+        await controller.shutdown()
     }
 
     func testCancelledFilteringStopsBeforeScanning() async {
@@ -544,17 +561,17 @@ final class MediaCollectionSearchTests: XCTestCase {
     func testPlaylistContentComparisonIncludesResolvedMetadataAndIgnoresOnlyQuery() throws {
         let item = makeItem(name: "Sky-01", relativePath: "Sky-01.mov")
         let entries = [CustomPlaylistEntry(media: MediaReference(item: item))]
-        let first = CustomPlaylistDetailProjectionCache.makeProjection(
+        let first = CustomPlaylistDetailProjectionBuilder.makeProjection(
             search: MediaCollectionSearch(query: "sky"), entries: entries,
             resolutionIndex: MediaReferenceResolutionIndex(items: [item])
         )
-        let equivalent = CustomPlaylistDetailProjectionCache.makeProjection(
+        let equivalent = CustomPlaylistDetailProjectionBuilder.makeProjection(
             search: MediaCollectionSearch(query: "sky-"), entries: entries,
             resolutionIndex: MediaReferenceResolutionIndex(items: [item])
         )
         XCTAssertTrue(try CustomPlaylistDetailProjection.hasSameContent(first, equivalent))
         let changed = makeItem(name: "Sky-01", relativePath: "Sky-01.mov", fileSize: 2)
-        let replacement = CustomPlaylistDetailProjectionCache.makeProjection(
+        let replacement = CustomPlaylistDetailProjectionBuilder.makeProjection(
             search: MediaCollectionSearch(query: "sky-"), entries: entries,
             resolutionIndex: MediaReferenceResolutionIndex(items: [changed])
         )
@@ -653,4 +670,9 @@ private actor MediaSearchTestGate {
     func record(_ value: Int) {
         recordedValues.append(value)
     }
+}
+
+private struct SearchPlaylistStore: CustomPlaylistStoring {
+    func load() async throws -> CustomPlaylistCollection { .empty }
+    func save(_ collection: CustomPlaylistCollection) async throws {}
 }

@@ -142,8 +142,7 @@ struct LibraryRootEditor: View {
                 .accessibilityHint(Text(verbatim: statusDescription(health)))
                 .accessibilityIdentifier(MuralumeAccessibilityIdentifier.sourceRetryPrefix + identity)
         }
-        if health.status == .unavailable || health.issue == .authorizationRequired
-            || health.issue == .permissionDenied || health.issue == .sourceMissing
+        if health.status == .unavailable || health.issue == .permissionDenied
             || (health.status == .failed && health.issue == .unknown) {
             sourceAction(
                 symbol: "lock.open", labelKey: "library.sourceAccess.reauthorize",
@@ -238,10 +237,8 @@ private extension MediaLibrarySourceHealthStatus {
 private extension MediaLibrarySourceHealthIssue {
     var localizedKey: String {
         switch self {
-        case .authorizationRequired: "library.source.health.issue.authorizationRequired"
         case .permissionDenied: "library.source.health.issue.permissionDenied"
         case .temporarilyUnavailable: "library.source.health.issue.temporarilyUnavailable"
-        case .sourceMissing: "library.source.health.issue.sourceMissing"
         case .timeLimitExceeded: "library.source.health.issue.timeLimitExceeded"
         case .memoryLimitExceeded: "library.source.health.issue.memoryLimitExceeded"
         case .unknown: "library.source.health.issue.unknown"

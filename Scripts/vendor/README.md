@@ -8,4 +8,5 @@ sources, and licenses are recorded once in
 
 Only the importable runtime packages are included. Tests, documentation,
 packaging metadata, and command-line entry points are intentionally omitted.
-The source is otherwise unchanged from the tags listed above.
+The source is otherwise unchanged from the upstream tags identified in
+[Third-Party Notices](../../THIRD_PARTY_NOTICES.md).

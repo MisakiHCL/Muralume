@@ -46,6 +46,10 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 
 ## Features
 
+This page describes the current source tree. See
+[GitHub Releases](https://github.com/MisakiHCL/Muralume/releases) for the features
+available in each published version.
+
 - **Compact on disk:** A small, native Mac app that works directly with your own
   video files and folders.
 - **Native video playback:** Built on macOS's AVFoundation media engine for local
@@ -66,8 +70,12 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
   containers, Muralume recognizes common F4V, VOB, MOD, TOD, M2P, MP2V, MPV,
   MPEG4, MPG4, DivX, and Xvid filename variants without renaming or converting
   the source file.
-- **A library that keeps up:** Browse a list or thumbnail grid, sort your collection, search by name or
-  location, and automatically discover folder changes while the app is open.
+- **A library that keeps up:** Browse a list or thumbnail grid, remember your preferred
+  layout, sort your collection, search by name or location, and automatically discover
+  folder changes while the app is open.
+- **Know how each source is doing:** Check source status and the latest successful
+  refresh in the current app session, retry incomplete scans, or choose a source again
+  when access needs attention.
 - **Playlists, your way:** Create custom groups, select multiple videos to add together,
   remove playlist entries in batches, reorder videos, search within a playlist,
   and continue from the same playlist after relaunch. Playlists retain access to their
@@ -82,7 +90,8 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 - **Keep the frame, not the player:** Save the current video frame as a compact JPEG
   from the Actions menu or with `⇧⌘S`. Screenshots preserve the video's orientation
   and aspect ratio without player controls or letterboxing. A video information panel
-  keeps format, codec, resolution, frame rate, color, audio, and subtitle details close.
+  shows a selectable full file path, file size, and available format, codec,
+  resolution, frame rate, color, audio, and subtitle details.
 - **Private means private:** Local processing, read-only media access, no account,
   no uploads, no product telemetry, and no automatic crash reporting.
 - **Pick up where you left off:** Every video remembers its own position until it is

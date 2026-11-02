@@ -234,12 +234,4 @@ fi
     == "${manifest_before_failed_write}" ]] \
     || fail_test 'a failed write modified the durable manifest'
 
-release_testflight_state_is_complete VALID \
-    || fail_test 'VALID was not treated as a complete TestFlight build'
-for incomplete_state in PROCESSING FAILED INVALID UNKNOWN MISSING ''; do
-    if release_testflight_state_is_complete "${incomplete_state}"; then
-        fail_test "${incomplete_state:-empty state} was treated as complete"
-    fi
-done
-
-printf '%s\n' 'PASS: durable release provenance and TestFlight state tests'
+printf '%s\n' 'PASS: durable release provenance tests'

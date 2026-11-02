@@ -130,21 +130,5 @@
 			<string>%d fuentes multimedia</string>
 		</dict>
 	</dict>
-	<key>library.folder.count</key>
-	<dict>
-		<key>NSStringLocalizedFormatKey</key>
-		<string>%#@count@</string>
-		<key>count</key>
-		<dict>
-			<key>NSStringFormatSpecTypeKey</key>
-			<string>NSStringPluralRuleType</string>
-			<key>NSStringFormatValueTypeKey</key>
-			<string>d</string>
-			<key>one</key>
-			<string>Carpetas: %d</string>
-			<key>other</key>
-			<string>Carpetas: %d</string>
-		</dict>
-	</dict>
 </dict>
 </plist>

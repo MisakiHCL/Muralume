@@ -12,10 +12,8 @@ enum MediaLibrarySourceHealthStatus: Equatable, Sendable {
 }
 
 enum MediaLibrarySourceHealthIssue: Equatable, Hashable, Sendable {
-    case authorizationRequired
     case permissionDenied
     case temporarilyUnavailable
-    case sourceMissing
     case timeLimitExceeded
     case memoryLimitExceeded
     case unknown
@@ -142,7 +140,7 @@ enum MediaLibrarySourceHealthReducer {
             let id = MediaLibraryRoot.ID(standardizedPath: source.id.standardizedPath)
             result[id] = MediaLibrarySourceHealth(
                 status: issue == .temporarilyUnavailable || issue == .permissionDenied
-                    || issue == .authorizationRequired ? .unavailable : .failed,
+                    ? .unavailable : .failed,
                 issue: issue, lastSuccessfulRefresh: previous[id]?.lastSuccessfulRefresh
             )
         }

@@ -26,7 +26,8 @@ make test
 
 `make test` runs architecture and localization checks, unit and integration
 tests, the UI suite, fixture validation, and an unsigned Release build. UI
-tests require an active macOS graphical session.
+tests require an active, unlocked macOS graphical session. Real rendering tests in
+the integration suite also need access to that session.
 
 Run `./Scripts/check_toolchain.sh` to check the selected compiler, or
 `./Scripts/verify.sh compatibility` to compile the Debug app and test targets
@@ -84,9 +85,14 @@ pull request should describe:
 - manual macOS validation still required; and
 - lifecycle, privacy, accessibility, or localization effects.
 
-When images help explain a visual change, capture only the app window or
-affected control in English and another affected language. Do not attach personal videos, real folder paths,
-security-scoped bookmarks, credentials, signing material, or private logs.
+Screenshots are opt-in. When an image is needed to explain a visual change,
+capture only the app window or affected control in English and another affected
+language. Do not attach personal videos, real folder paths, security-scoped
+bookmarks, credentials, signing material, or private logs.
+
+Use reproducible synthetic media for committed test fixtures. Generated tones
+and subtitle samples are acceptable; personal or third-party footage and audio
+are not. See the [fixture guide](MuralumeTests/Fixtures/README.md).
 
 ## Security reports
 

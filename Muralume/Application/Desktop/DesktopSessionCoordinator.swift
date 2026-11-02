@@ -381,10 +381,6 @@ final class DesktopSessionCoordinator: ObservableObject {
         await independentPlayback?.stopAndDrain(itemIDs: itemIDs)
     }
 
-    var activeIndependentMediaItemIDs: Set<LibraryMediaItem.ID> {
-        independentPlayback?.activeMediaItemIDs ?? []
-    }
-
     func dismissTransientFailure() {
         transientFailure = nil
     }

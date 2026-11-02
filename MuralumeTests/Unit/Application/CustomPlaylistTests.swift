@@ -478,61 +478,42 @@ final class CustomPlaylistTests: XCTestCase {
         )
     }
 
-    func testPlaylistMutationDoesNotPoisonDetailSearchProjectionCache()
-        async throws
-    {
-        let store = CustomPlaylistStoreSpy()
-        let controller = CustomPlaylistController(store: store)
+    func testPlaylistMutationDoesNotPoisonLatestDetailSearchDuringWillSet() async throws {
+        let controller = CustomPlaylistController(store: CustomPlaylistStoreSpy())
         await controller.startAndWait()
         let playlistID = try controller.createPlaylist(named: "Favorites")
-        let matchingItem = makeItem(
-            name: "Northern Sky",
-            relativePath: "Northern Sky.mov"
+        let matchingItem = makeItem(name: "Northern Sky", relativePath: "Northern Sky.mov")
+        let search = LatestMediaSearch<CustomPlaylistDetailProjection>(
+            hasSameContent: CustomPlaylistDetailProjection.hasSameContent
         )
-        let query = "northern sky"
-        let initialPlaylist = try XCTUnwrap(
-            controller.collection.playlist(id: playlistID)
-        )
-
-        XCTAssertTrue(
-            controller.detailProjection(
-                for: initialPlaylist,
-                query: query,
-                using: [matchingItem],
-                itemsRevision: 1
-            ).entries.isEmpty
-        )
-
-        let observation = controller.objectWillChange.sink {
-            guard let playlist = controller.collection.playlist(
-                id: playlistID
-            ) else {
-                return
-            }
-            _ = controller.detailProjection(
-                for: playlist,
-                query: query,
-                using: [matchingItem],
-                itemsRevision: 1
+        func request() -> CustomPlaylistSearchRequestID? {
+            guard let playlist = controller.collection.playlist(id: playlistID) else { return nil }
+            let key = CustomPlaylistSearchRequestID(
+                playlistID: playlistID, playlistRevision: controller.collectionRevision,
+                libraryItemsRevision: 1, query: "northern sky"
             )
+            search.request(key: key, operation: controller.detailSearchOperation(
+                for: playlist, query: key.query, using: [matchingItem], itemsRevision: 1
+            ))
+            return key
         }
+        let initialKey = try XCTUnwrap(request())
+        await search.waitForPendingSearch()
+        XCTAssertTrue(try XCTUnwrap(search.result(for: initialKey)).entries.isEmpty)
 
-        XCTAssertEqual(
-            try controller.add(items: [matchingItem], to: playlistID),
-            1
-        )
-        let updatedPlaylist = try XCTUnwrap(
-            controller.collection.playlist(id: playlistID)
-        )
-        XCTAssertEqual(
-            controller.detailProjection(
-                for: updatedPlaylist,
-                query: query,
-                using: [matchingItem],
-                itemsRevision: 1
-            ).entries.count,
-            1
-        )
+        // A synchronous will-set notification sees one coherent old snapshot.
+        // It must not reserve the new key for an operation over the old entries.
+        let observation = controller.objectWillChange.sink { _ = request() }
+        XCTAssertEqual(try controller.add(items: [matchingItem], to: playlistID), 1)
+        let updatedPlaylist = try XCTUnwrap(controller.collection.playlist(id: playlistID))
+        let updatedKey = try XCTUnwrap(request())
+        await search.waitForPendingSearch()
+        let updated = try XCTUnwrap(search.result(for: updatedKey))
+        XCTAssertNotEqual(updatedKey, initialKey)
+        XCTAssertEqual(updated.entries.map(\.id), updatedPlaylist.entries.map(\.id))
+        let entry = try XCTUnwrap(updatedPlaylist.entries.first)
+        XCTAssertEqual(updated.resolvedItemsByEntryID[entry.id], matchingItem)
+        XCTAssertNil(search.result(for: initialKey))
         withExtendedLifetime(observation) {}
         await controller.shutdown()
     }
@@ -575,7 +556,7 @@ final class CustomPlaylistTests: XCTestCase {
         await restoredController.shutdown()
     }
 
-    func testLibraryRevisionReusesIndexAndInvalidatesOffscreenDetail() async throws {
+    func testLibraryRevisionReusesIndexAndInvalidatesOffscreenResolvedItems() async throws {
         let controller = CustomPlaylistController(store: CustomPlaylistStoreSpy())
         await controller.startAndWait()
         let item = makeItem(name: "Sky", relativePath: "Sky.mov")
@@ -587,28 +568,31 @@ final class CustomPlaylistTests: XCTestCase {
         _ = try controller.add(items: [item], to: playlistID)
         await controller.waitForLibraryReconciliation()
         let playlist = try XCTUnwrap(controller.collection.playlist(id: playlistID))
-        _ = controller.detailProjection(
-            for: playlist, query: "", using: [item], itemsRevision: 1
-        )
-        XCTAssertTrue(controller.hasCachedDetailProjection)
+        XCTAssertEqual(controller.resolvedItems(in: playlistID, using: [item], itemsRevision: 1), [item])
+        XCTAssertTrue(controller.hasCachedResolvedItems)
         XCTAssertTrue(controller.hasCachedResolutionIndex)
         XCTAssertEqual(controller.resolutionIndexRecomputationCount, 1)
         controller.updateAvailableItems([item], itemsRevision: 1)
-        _ = controller.resolvedItems(in: playlistID, using: [item], itemsRevision: 1)
+        XCTAssertEqual(controller.resolvedItems(in: playlistID, using: [item], itemsRevision: 1), [item])
         XCTAssertEqual(controller.resolutionIndexRecomputationCount, 1)
 
-        // No detail read follows this update: invalidation must be eager.
+        // No consumer read follows this update: old resolved items are released eagerly.
         controller.updateAvailableItems([], itemsRevision: 2)
-        XCTAssertFalse(controller.hasCachedDetailProjection)
+        XCTAssertFalse(controller.hasCachedResolvedItems)
         await controller.waitForLibraryReconciliation()
         XCTAssertEqual(controller.resolutionIndexRecomputationCount, 2)
-        let result = controller.detailProjection(
+        XCTAssertTrue(controller.resolvedItems(in: playlistID, using: [], itemsRevision: 2).isEmpty)
+        let operation = controller.detailSearchOperation(
             for: playlist, query: "", using: [], itemsRevision: 2
         )
+        let result = try await Task.detached { try await operation() }.value
+        XCTAssertEqual(result.entries.map(\.id), playlist.entries.map(\.id))
         XCTAssertTrue(result.resolvedItemsByEntryID.isEmpty)
         try controller.renamePlaylist(id: playlistID, to: "Renamed")
-        XCTAssertFalse(controller.hasCachedDetailProjection)
+        XCTAssertTrue(controller.resolvedItems(in: playlistID, using: [], itemsRevision: 2).isEmpty)
+        XCTAssertEqual(controller.resolutionIndexRecomputationCount, 2)
         try controller.removePlaylist(id: playlistID)
+        XCTAssertFalse(controller.hasCachedResolvedItems)
         XCTAssertFalse(controller.hasCachedResolutionIndex)
         await controller.shutdown()
     }

@@ -189,13 +189,6 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
         removeNode(for: displayID)
     }
 
-    func refreshSources() {
-        guard isStarted, !isShutDown else {
-            return
-        }
-        reconcilePlaybackNodes()
-    }
-
     func pauseAll() {
         setPlaybackIntent(.paused)
     }

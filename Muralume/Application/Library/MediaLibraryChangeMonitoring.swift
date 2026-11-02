@@ -68,19 +68,6 @@ extension MediaLibraryChangeMonitoring {
     }
 }
 
-@MainActor
-final class DisabledMediaLibraryChangeMonitor: MediaLibraryChangeMonitoring {
-    @discardableResult
-    func update(
-        folderURLs: [URL],
-        onChange: @escaping @Sendable () -> Void
-    ) async -> Bool {
-        true
-    }
-
-    func stop() {}
-}
-
 /// The narrow adapter needed by automatic refresh. The media library remains
 /// responsible for deciding whether a refresh request can actually start.
 @MainActor

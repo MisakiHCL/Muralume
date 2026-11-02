@@ -55,7 +55,7 @@ final class AppLocalizationControllerTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            controller.localizedFormat("library.video.count.one", 1),
+            controller.localizedFormat("library.video.count", 1),
             "1 video"
         )
         XCTAssertEqual(
@@ -70,15 +70,6 @@ final class AppLocalizationControllerTests: XCTestCase {
             ),
             "1 video, 3 media sources"
         )
-        XCTAssertEqual(
-            controller.localizedFormat(
-                "library.summary.accessibility.warning",
-                "1 video, 3 media sources",
-                "Some media sources are unavailable"
-            ),
-            "1 video, 3 media sources. Some media sources are unavailable."
-        )
-
         controller.selectLanguage(.simplifiedChinese)
 
         XCTAssertEqual(
@@ -86,7 +77,7 @@ final class AppLocalizationControllerTests: XCTestCase {
             "3 个视频"
         )
         XCTAssertEqual(
-            controller.localizedFormat("library.source.count.one", 1),
+            controller.localizedFormat("library.source.count", 1),
             "1 个媒体来源"
         )
         XCTAssertEqual(
@@ -96,14 +87,6 @@ final class AppLocalizationControllerTests: XCTestCase {
                 "1 个媒体来源"
             ),
             "3 个视频，1 个媒体来源"
-        )
-        XCTAssertEqual(
-            controller.localizedFormat(
-                "library.summary.accessibility.warning",
-                "3 个视频，1 个媒体来源",
-                "部分媒体来源暂时不可用"
-            ),
-            "3 个视频，1 个媒体来源。部分媒体来源暂时不可用。"
         )
     }
 
@@ -176,7 +159,7 @@ final class AppLocalizationControllerTests: XCTestCase {
                 + "Media Library."
         )
         XCTAssertEqual(
-            controller.localized("library.summary.empty"),
+            controller.localizedFormat("library.video.count", 0),
             "0 videos"
         )
         XCTAssertEqual(
@@ -211,7 +194,7 @@ final class AppLocalizationControllerTests: XCTestCase {
             "拖入视频或文件夹，或在媒体库中点按“添加媒体”。"
         )
         XCTAssertEqual(
-            controller.localized("library.summary.empty"),
+            controller.localizedFormat("library.video.count", 0),
             "0 个视频"
         )
         XCTAssertEqual(
@@ -492,7 +475,7 @@ final class AppLocalizationControllerTests: XCTestCase {
             "2 files could not be played and were skipped."
         )
         XCTAssertEqual(
-            controller.localizedFormat("external.open.skipped.one", 1),
+            controller.localizedFormat("external.open.skipped", 1),
             "1 file could not be played and was skipped."
         )
         XCTAssertEqual(
@@ -541,7 +524,7 @@ final class AppLocalizationControllerTests: XCTestCase {
             "已跳过 2 个无法播放的文件。"
         )
         XCTAssertEqual(
-            controller.localizedFormat("external.open.skipped.one", 1),
+            controller.localizedFormat("external.open.skipped", 1),
             "已跳过 1 个无法播放的文件。"
         )
         XCTAssertEqual(
@@ -560,11 +543,9 @@ final class AppLocalizationControllerTests: XCTestCase {
             "player.desktop.customize": "Customize Displays…",
             "desktop.pauseAll": "Pause All",
             "desktop.resumeAll": "Resume All",
-            "desktop.playNextAll": "Play Next on All Displays",
-            "desktop.displays": "Displays",
+            "desktop.playNext": "Play Next",
             "desktop.configure": "Customize Displays…",
-            "desktop.open": "Open Muralume",
-            "desktop.stop": "Stop Dynamic Desktop",
+            "desktop.return": "Return to Player",
             "desktop.layout.title": "Desktop Layout",
             "desktop.layout.detail":
                 "Choose what plays on each display and how it appears.",
@@ -581,9 +562,6 @@ final class AppLocalizationControllerTests: XCTestCase {
             "desktop.layout.video": "Video",
             "desktop.layout.currentVideo": "Current Video",
             "desktop.layout.chooseLibrary": "Choose from Media Library…",
-            "desktop.layout.chooseFinder": "Choose in Finder…",
-            "desktop.layout.notConnected": "Not Connected",
-            "desktop.layout.notUsing": "Not Using Muralume",
             "desktop.layout.noVideo": "No Video Selected",
             "desktop.layout.mainDisplay": "Main Display",
             "desktop.layout.search": "Search Videos",
@@ -608,20 +586,12 @@ final class AppLocalizationControllerTests: XCTestCase {
             XCTAssertEqual(controller.localized(key), expectedValue, key)
         }
         XCTAssertEqual(
-            controller.localizedFormat("desktop.status.display.one", 1),
+            controller.localizedFormat("desktop.status.displays", 1),
             "1 display active"
         )
         XCTAssertEqual(
             controller.localizedFormat("desktop.status.displays", 3),
             "3 displays active"
-        )
-        XCTAssertEqual(
-            controller.localizedFormat(
-                "desktop.status.playingCount",
-                2,
-                3
-            ),
-            "Displays playing: 2 of 3"
         )
         XCTAssertEqual(
             controller.localizedFormat(
@@ -632,7 +602,7 @@ final class AppLocalizationControllerTests: XCTestCase {
             "Displays available: 2 of 3"
         )
         XCTAssertEqual(
-            controller.localizedFormat("desktop.layout.apply.one", 1),
+            controller.localizedFormat("desktop.layout.apply", 1),
             "Apply to 1 Display"
         )
         XCTAssertEqual(
@@ -641,7 +611,7 @@ final class AppLocalizationControllerTests: XCTestCase {
         )
         XCTAssertEqual(
             controller.localizedFormat(
-                "desktop.layout.disconnected.one",
+                "desktop.layout.disconnected",
                 1
             ),
             "1 saved display is not connected."
@@ -669,11 +639,9 @@ final class AppLocalizationControllerTests: XCTestCase {
             "player.desktop.customize": "自定义显示器…",
             "desktop.pauseAll": "全部暂停",
             "desktop.resumeAll": "全部继续",
-            "desktop.playNextAll": "所有显示器播放下一个",
-            "desktop.displays": "显示器",
+            "desktop.playNext": "播放下一个",
             "desktop.configure": "自定义显示器…",
-            "desktop.open": "打开 Muralume",
-            "desktop.stop": "停止动态桌面",
+            "desktop.return": "返回播放器",
             "desktop.layout.title": "桌面布局",
             "desktop.layout.detail": "选择每台显示器播放的内容和显示方式。",
             "desktop.layout.close": "关闭桌面布局",
@@ -689,9 +657,6 @@ final class AppLocalizationControllerTests: XCTestCase {
             "desktop.layout.video": "视频",
             "desktop.layout.currentVideo": "当前视频",
             "desktop.layout.chooseLibrary": "从媒体库选择…",
-            "desktop.layout.chooseFinder": "在访达中选择…",
-            "desktop.layout.notConnected": "未连接",
-            "desktop.layout.notUsing": "未使用 Muralume",
             "desktop.layout.noVideo": "未选择视频",
             "desktop.layout.mainDisplay": "主显示器",
             "desktop.layout.search": "搜索视频",
@@ -713,20 +678,12 @@ final class AppLocalizationControllerTests: XCTestCase {
             XCTAssertEqual(controller.localized(key), expectedValue, key)
         }
         XCTAssertEqual(
-            controller.localizedFormat("desktop.status.display.one", 1),
+            controller.localizedFormat("desktop.status.displays", 1),
             "1 台显示器正在使用"
         )
         XCTAssertEqual(
             controller.localizedFormat("desktop.status.displays", 3),
             "3 台显示器正在使用"
-        )
-        XCTAssertEqual(
-            controller.localizedFormat(
-                "desktop.status.playingCount",
-                2,
-                3
-            ),
-            "2 / 3 台显示器正在播放"
         )
         XCTAssertEqual(
             controller.localizedFormat(
@@ -737,7 +694,7 @@ final class AppLocalizationControllerTests: XCTestCase {
             "2 / 3 台显示器可用"
         )
         XCTAssertEqual(
-            controller.localizedFormat("desktop.layout.apply.one", 1),
+            controller.localizedFormat("desktop.layout.apply", 1),
             "应用到 1 台显示器"
         )
         XCTAssertEqual(
@@ -746,7 +703,7 @@ final class AppLocalizationControllerTests: XCTestCase {
         )
         XCTAssertEqual(
             controller.localizedFormat(
-                "desktop.layout.disconnected.one",
+                "desktop.layout.disconnected",
                 1
             ),
             "1 台已保存的显示器未连接。"

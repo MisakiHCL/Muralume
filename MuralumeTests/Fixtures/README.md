@@ -1,8 +1,8 @@
 # Test Media
 
-The fixtures are synthetic test patterns created with FFmpeg. They contain no
-third-party footage or audio and are distributed under the repository's MIT
-License.
+The fixtures are synthetic test patterns, generated tones, and subtitle samples.
+They contain no personal or third-party footage or audio and are distributed
+under the repository's MIT License. FFmpeg creates the video and audio files.
 
 The landscape and portrait fixtures are silent, twenty seconds long, use
 low-resolution H.264 at 15fps, and
@@ -11,8 +11,10 @@ windowed/full-screen and landscape/portrait comparisons straightforward:
 
 - `landscape-20s-h264.mp4`: 320×180
 - `portrait-20s-h264.mp4`: 180×320
-- `alternate-tracks-5s.mp4`: 160×90 with two AAC audio options and two
-  embedded `mov_text` subtitle options
+- `alternate-tracks-5s.mp4`: 160×90, five seconds, with two generated AAC tone
+  tracks and two embedded `mov_text` subtitle options
+- `english-5s.srt` and `chinese-5s.srt`: synthetic subtitle samples used to
+  regenerate the embedded tracks
 
 Regenerate the landscape fixture with:
 

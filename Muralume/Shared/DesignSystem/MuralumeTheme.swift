@@ -2,7 +2,6 @@ import SwiftUI
 
 enum MuralumeTheme {
     enum Colors {
-        static let window = Color(red: 10 / 255, green: 10 / 255, blue: 14 / 255)
         static let canvas = Color(red: 4 / 255, green: 4 / 255, blue: 6 / 255)
         static let panel = Color(red: 18 / 255, green: 18 / 255, blue: 24 / 255)
         static let panelRaised = Color(red: 28 / 255, green: 28 / 255, blue: 36 / 255)
@@ -44,7 +43,6 @@ enum MuralumeTheme {
         static let large: CGFloat = 16
         static let xLarge: CGFloat = 24
         static let xxLarge: CGFloat = 32
-        static let hero: CGFloat = 48
         static let libraryBrowserControls: CGFloat = 0
     }
 
@@ -156,11 +154,6 @@ enum MuralumeTheme {
         endPoint: .bottomTrailing
     )
 
-    static let brandHighlightGradient = LinearGradient(
-        colors: [Colors.accentSecondary, Colors.accent],
-        startPoint: .leading,
-        endPoint: .trailing
-    )
 }
 
 enum MuralumeAsset {
@@ -336,62 +329,6 @@ enum MuralumeAccessibilityIdentifier {
     static let launchAtLoginStatus = "muralume.launch-at-login.status"
     static let launchAtLoginRecoveryButton =
         "muralume.launch-at-login.open-system-settings"
-}
-
-struct MuralumeBackground: View {
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                MuralumeTheme.Colors.window
-
-                Ellipse()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                MuralumeTheme.Colors.accent.opacity(0.08),
-                                MuralumeTheme.Colors.accent.opacity(0)
-                            ],
-                            center: .center,
-                            startRadius: 0,
-                            endRadius: proxy.size.width * 0.3
-                        )
-                    )
-                    .frame(
-                        width: proxy.size.width * 0.72,
-                        height: proxy.size.height * 0.6
-                    )
-                    .blur(radius: 96)
-                    .offset(
-                        x: -proxy.size.width * 0.28,
-                        y: -proxy.size.height * 0.34
-                    )
-
-                Ellipse()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                MuralumeTheme.Colors.accentSecondary.opacity(0.06),
-                                MuralumeTheme.Colors.accentSecondary.opacity(0)
-                            ],
-                            center: .center,
-                            startRadius: 0,
-                            endRadius: proxy.size.width * 0.26
-                        )
-                    )
-                    .frame(
-                        width: proxy.size.width * 0.64,
-                        height: proxy.size.height * 0.52
-                    )
-                    .blur(radius: 112)
-                    .offset(
-                        x: proxy.size.width * 0.34,
-                        y: proxy.size.height * 0.34
-                    )
-            }
-        }
-        .ignoresSafeArea()
-        .accessibilityHidden(true)
-    }
 }
 
 struct MuralumeBrandMark: View {

@@ -71,7 +71,7 @@ Usage: ./Scripts/verify.sh [suite]
 
 Suites:
   compatibility Compile Debug tests and unsigned Release with the selected Xcode.
-  architecture  Check layer boundaries and perform a clean test build.
+  architecture  Check layer boundaries and build the test targets.
   unit          Run deterministic domain and application tests.
   integration   Run AVFoundation and real rendering-surface tests.
   ui            Launch the app through XCUITest.

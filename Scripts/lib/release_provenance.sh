@@ -155,8 +155,3 @@ release_provenance_matches() {
         && "${MURALUME_PROVENANCE_APP_STORE_BUILD}" \
             == "${provenance_expected_build}" ]]
 }
-
-release_testflight_state_is_complete() {
-    [[ "$#" -eq 1 ]] || return 64
-    [[ "$1" == 'VALID' ]]
-}

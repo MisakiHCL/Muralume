@@ -110,40 +110,6 @@ struct MediaLibrarySearchProjection: Sendable {
     }
 }
 
-final class MediaLibrarySearchProjectionCache {
-    private struct Key: Equatable {
-        let itemsRevision: UInt64
-        let query: String
-    }
-
-    private var cached: (key: Key, projection: MediaLibrarySearchProjection)?
-    private(set) var recomputationCount = 0
-
-    func invalidate() {
-        cached = nil
-    }
-
-    func projection(
-        query: String,
-        itemsRevision: UInt64,
-        items: [LibraryMediaItem]
-    ) -> MediaLibrarySearchProjection {
-        let search = MediaCollectionSearch(query: query)
-        let key = Key(itemsRevision: itemsRevision, query: search.query)
-        if let cached, cached.key == key {
-            return cached.projection
-        }
-
-        let projection = MediaLibrarySearchProjection(
-            search: search,
-            items: search.filteredItems(from: items)
-        )
-        cached = (key, projection)
-        recomputationCount &+= 1
-        return projection
-    }
-}
-
 struct CustomPlaylistDetailProjection: Sendable {
     let search: MediaCollectionSearch
     let entries: [CustomPlaylistEntry]
@@ -229,65 +195,7 @@ final class MediaReferenceResolutionIndexCache {
     }
 }
 
-final class CustomPlaylistDetailProjectionCache {
-    private struct Key: Equatable {
-        let playlistID: CustomPlaylist.ID
-        let playlistRevision: UInt64
-        let libraryItemsRevision: UInt64
-        let query: String
-    }
-
-    private var cached: (key: Key, projection: CustomPlaylistDetailProjection)?
-    private let resolutionIndexCache: MediaReferenceResolutionIndexCache
-    private(set) var recomputationCount = 0
-
-    init(
-        resolutionIndexCache: MediaReferenceResolutionIndexCache =
-            MediaReferenceResolutionIndexCache()
-    ) {
-        self.resolutionIndexCache = resolutionIndexCache
-    }
-
-    var resolutionIndexRecomputationCount: Int {
-        resolutionIndexCache.recomputationCount
-    }
-
-    var hasCachedProjection: Bool { cached != nil }
-
-    func invalidate() {
-        cached = nil
-    }
-
-    func projection(
-        playlist: CustomPlaylist,
-        playlistRevision: UInt64,
-        query: String,
-        libraryItems: [LibraryMediaItem],
-        libraryItemsRevision: UInt64
-    ) -> CustomPlaylistDetailProjection {
-        let search = MediaCollectionSearch(query: query)
-        let key = Key(
-            playlistID: playlist.id,
-            playlistRevision: playlistRevision,
-            libraryItemsRevision: libraryItemsRevision,
-            query: search.query
-        )
-        if let cached, cached.key == key {
-            return cached.projection
-        }
-        let projection = Self.makeProjection(
-            search: search,
-            entries: search.filteredEntries(from: playlist.entries),
-            resolutionIndex: resolutionIndexCache.index(
-                items: libraryItems,
-                revision: libraryItemsRevision
-            )
-        )
-        cached = (key, projection)
-        recomputationCount &+= 1
-        return projection
-    }
-
+enum CustomPlaylistDetailProjectionBuilder {
     static func makeProjection(
         search: MediaCollectionSearch,
         entries: [CustomPlaylistEntry],

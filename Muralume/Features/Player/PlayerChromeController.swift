@@ -212,16 +212,6 @@ final class PlayerChromeController: ObservableObject {
         }
     }
 
-    func selectLibrarySidebarDestination(
-        _ destination: LibrarySidebarDestination
-    ) {
-        if destination != .mediaLibrary {
-            libraryQueueMode = .browsing
-        }
-        librarySidebarController.selectDestination(destination)
-        setPlaylistPresented(true)
-    }
-
     /// Restores persisted navigation without revealing or replacing the
     /// currently presented panel.
     func restoreLibrarySidebarDestination(

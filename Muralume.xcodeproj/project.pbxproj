@@ -63,6 +63,7 @@
 		7DFB6DBE3AD24C5E84DAE527 /* MainWindowPresenting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98AD3D8641D84124BEF6ECE4 /* MainWindowPresenting.swift */; };
 		81B665909BCAF7796843848A /* MacDesktopDisplayTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D6AF9AFA22C8D3E35AA6282 /* MacDesktopDisplayTopology.swift */; };
 		830486FEDB044884B2D283C5 /* PlaybackTestDoubles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7573A17FB1034C7A95BA8906 /* PlaybackTestDoubles.swift */; };
+		476E462A6C6B14575D15B12E /* MediaLibraryTestDoubles.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA38522DBD34A57950394D34 /* MediaLibraryTestDoubles.swift */; };
 		84DFFD8BE06BBE0F9BBB32E3 /* FixedHeightVirtualizedTableTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C406B5B4C8FAC8CDAFD55D33 /* FixedHeightVirtualizedTableTests.swift */; };
 		869F4CAEB4FB3753219AA1AA /* DesktopPlaybackOrchestratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E582603597B168EFFC9A4271 /* DesktopPlaybackOrchestratorTests.swift */; };
 		8B219C03A6BB4C95BECB2374 /* DesktopStatusPresenting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A5203BC7984913AC2EB88C /* DesktopStatusPresenting.swift */; };
@@ -325,6 +326,7 @@
 		7049C6BF053FC97D6AD106EF /* DesktopEntryControl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopEntryControl.swift; sourceTree = "<group>"; };
 		74A5203BC7984913AC2EB88C /* DesktopStatusPresenting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopStatusPresenting.swift; sourceTree = "<group>"; };
 		7573A17FB1034C7A95BA8906 /* PlaybackTestDoubles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackTestDoubles.swift; sourceTree = "<group>"; };
+		FA38522DBD34A57950394D34 /* MediaLibraryTestDoubles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryTestDoubles.swift; sourceTree = "<group>"; };
 		7B45D5363784459EA36A0566 /* PlaybackState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackState.swift; sourceTree = "<group>"; };
 		7EF3B5F8401B401A9D228F6E /* SystemLifecycleMonitoring.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemLifecycleMonitoring.swift; sourceTree = "<group>"; };
 		8074E4CA3AA4FB1321DFE13C /* DesktopPresetController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopPresetController.swift; sourceTree = "<group>"; };
@@ -1243,6 +1245,7 @@
 			isa = PBXGroup;
 			children = (
 				7573A17FB1034C7A95BA8906 /* PlaybackTestDoubles.swift */,
+				FA38522DBD34A57950394D34 /* MediaLibraryTestDoubles.swift */,
 			);
 			name = Support;
 			path = Support;
@@ -1659,6 +1662,7 @@
 				E83000000000000000000011 /* MacDesktopHostEnergyTests.swift in Sources */,
 				E80000000000000000000002 /* SystemLifecycleMonitorTests.swift in Sources */,
 				830486FEDB044884B2D283C5 /* PlaybackTestDoubles.swift in Sources */,
+				476E462A6C6B14575D15B12E /* MediaLibraryTestDoubles.swift in Sources */,
 				FA0000000000000000000013 /* DefaultVideoPlayerControllerTests.swift in Sources */,
 				E442427008084A208AE9D81D /* LaunchAtLoginControllerTests.swift in Sources */,
 				1741F81FE0ADC4A806D7CDF8 /* DesktopPresetControllerTests.swift in Sources */,

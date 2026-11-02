@@ -171,26 +171,6 @@ final class MediaLibraryCoordinator: ObservableObject {
         let mediaPathComponents: [String]
     }
 
-    private struct LexicalPathCoverageIndex {
-        private let sourcePathComponents: [[String]]
-
-        init<S: Sequence>(sourcePaths: S) where S.Element == String {
-            sourcePathComponents = sourcePaths.map {
-                Self.pathComponents(for: $0)
-            }
-        }
-
-        func covers(mediaPathComponents: [String]) -> Bool {
-            sourcePathComponents.contains {
-                mediaPathComponents.starts(with: $0)
-            }
-        }
-
-        static func pathComponents(for path: String) -> [String] {
-            URL(fileURLWithPath: path).standardizedFileURL.pathComponents
-        }
-    }
-
     /// Search projections use the revision as the identity of `items`.
     /// Publishing both fields together prevents a will-set observer from
     /// pairing a new revision with the previous collection.
@@ -325,18 +305,6 @@ final class MediaLibraryCoordinator: ObservableObject {
 
     var mediaReferenceResolutionIndex: MediaReferenceResolutionIndex {
         itemsSnapshot.resolutionIndex
-    }
-
-    var itemsPublisher: AnyPublisher<[LibraryMediaItem], Never> {
-        $itemsSnapshot
-            .map(\.items)
-            .eraseToAnyPublisher()
-    }
-
-    var itemsRevisionPublisher:
-        AnyPublisher<(items: [LibraryMediaItem], revision: UInt64), Never> {
-        $itemsSnapshot.map { (items: $0.items, revision: $0.revision) }
-            .eraseToAnyPublisher()
     }
 
     var itemsContentRevisionPublisher: AnyPublisher<(
