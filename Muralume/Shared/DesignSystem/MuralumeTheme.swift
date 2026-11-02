@@ -205,6 +205,12 @@ enum MuralumeAccessibilityIdentifier {
     static let playQueueSectionMenuItem =
         "muralume.library-section.play-queue"
     static let editLibraryButton = "muralume.edit-library"
+    static let sourceEditor = "muralume.source-editor"
+    static let sourceRowPrefix = "muralume.source-row."
+    static let sourceHealthPrefix = "muralume.source-health."
+    static let sourceLastRefreshPrefix = "muralume.source-last-refresh."
+    static let sourceRetryPrefix = "muralume.source-retry."
+    static let sourceReauthorizePrefix = "muralume.source-reauthorize."
     static let refreshLibraryButton = "muralume.refresh-library"
     static let addMediaButton = "muralume.add-media"
     static let librarySummary = "muralume.library-summary"
@@ -411,7 +417,6 @@ struct MuralumeMediaItemButtonStyle: ButtonStyle {
 struct MuralumeMediaItemOutline: View {
     private enum StrokeWidth {
         static let fine: CGFloat = 1
-        static let currentGrid: CGFloat = 2
     }
 
     @Environment(\.colorSchemeContrast) private var contrast
@@ -424,16 +429,14 @@ struct MuralumeMediaItemOutline: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         let visible = isCurrent || isSelected
-        let width = layout == .grid && isCurrent
-            ? StrokeWidth.currentGrid : StrokeWidth.fine
 
         shape
             .strokeBorder(
                 layout == .grid && visible ? Color.black.opacity(0.32) : .clear,
-                lineWidth: width + StrokeWidth.fine
+                lineWidth: StrokeWidth.fine
             )
             .overlay {
-                shape.strokeBorder(borderColor, lineWidth: width)
+                shape.strokeBorder(borderColor, lineWidth: StrokeWidth.fine)
             }
             .allowsHitTesting(false)
             .accessibilityHidden(true)

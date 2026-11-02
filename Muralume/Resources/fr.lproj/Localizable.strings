@@ -422,3 +422,22 @@
 "playlists.authorization.failed" = "L’autorisation d’accès aux vidéos sélectionnées n’a pas pu être enregistrée. Sélectionnez-les à nouveau et réessayez.";
 "playlists.access.preserveFailed" = "Impossible de retirer la source de médias";
 "playlists.access.preserveFailed.message" = "L’accès aux vidéos de cette source utilisées dans les listes de lecture n’a pas pu être conservé. La source a été gardée. Réessayez.";
+
+// Media source health
+"library.source.health.notScanned" = "Non analysée";
+"library.source.health.scanning" = "Actualisation…";
+"library.source.health.ready" = "À jour";
+"library.source.health.unavailable" = "Indisponible";
+"library.source.health.incomplete" = "Analyse incomplète";
+"library.source.health.failed" = "Échec de l’actualisation";
+"library.source.health.issue.authorizationRequired" = "Une autorisation d’accès est nécessaire.";
+"library.source.health.issue.permissionDenied" = "L’accès en lecture a été refusé.";
+"library.source.health.issue.temporarilyUnavailable" = "La source est temporairement indisponible.";
+"library.source.health.issue.sourceMissing" = "La source est introuvable à l’emplacement enregistré.";
+"library.source.health.issue.timeLimitExceeded" = "L’actualisation a atteint la limite de temps.";
+"library.source.health.issue.memoryLimitExceeded" = "L’actualisation a atteint la limite de mémoire.";
+"library.source.health.issue.unknown" = "La source n’a pas pu être actualisée.";
+"library.source.health.lastRefresh" = "Dernière actualisation réussie : %@";
+"library.source.health.lastRefresh.unknown" = "Dernière actualisation inconnue";
+"library.source.health.statusReason" = "%@. %@";
+"library.source.health.needsAttention" = "Certaines sources de médias demandent votre attention";

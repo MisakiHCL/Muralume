@@ -260,12 +260,95 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         XCTAssertEqual(unavailableSource.displayName, "Muralume Library")
         XCTAssertEqual(unavailableSource.lastKnownURL.path, sourcePath)
         XCTAssertEqual(unavailableSource.kind, .folder)
+        XCTAssertNil(unavailableSource.issue,
+                     "An unresolved bookmark does not prove a permission or offline cause")
 
         fixture.session.removeUnavailableSource(unavailableSource)
 
         XCTAssertTrue(fixture.session.unavailablePersistedSources.isEmpty)
         XCTAssertFalse(fixture.session.hasUnavailablePersistedSources)
         XCTAssertTrue(storedSourceRecords(in: fixture.defaults).isEmpty)
+    }
+
+    func testDetachedRestorePreservesExplicitFailureIssue() async {
+        let executor = UserSelectedMediaRestoreExecutor.detached { _, _ in
+            .unavailableWithIssue(.permissionDenied)
+        }
+        let result = await executor.prepare(kind: .folder, bookmark: Data("denied".utf8))
+        guard case let .unavailableWithIssue(issue) = result else {
+            return XCTFail("The bounded worker must preserve its diagnostic payload")
+        }
+        XCTAssertEqual(issue, .permissionDenied)
+    }
+
+    func testAsyncRestorePreservesExplicitIssueUntilSuccessfulRetry() async throws {
+        let controller = RestorePreparationController()
+        let executor = UserSelectedMediaRestoreExecutor { kind, bookmark in
+            await controller.prepare(kind: kind, bookmark: bookmark)
+        }
+        let fixture = makeSessionFixture(restoreExecutor: executor)
+        defer { fixture.session.stop(); fixture.clearDefaults() }
+        let bookmark = Data("identified-denied".utf8)
+        let rootURL = URL(fileURLWithPath: "/tmp/Restore Issue \(UUID().uuidString)", isDirectory: true)
+        var record = StoredSourceRecord(kind: .folder, bookmark: bookmark).storedValue
+        record[TestStorage.RecordField.identifier] = UUID().uuidString
+        record[TestStorage.RecordField.displayName] = rootURL.lastPathComponent
+        record[TestStorage.RecordField.lastKnownPath] = rootURL.path
+        fixture.defaults.set([record], forKey: TestStorage.sourceRecordKey)
+
+        let restore = Task { await fixture.session.restoreSourcesAsync() }
+        await controller.waitForCallCount(1)
+        await controller.resolveNext(with: .unavailableWithIssue(.permissionDenied))
+        let initiallyRestored = await restore.value
+        XCTAssertTrue(initiallyRestored.isEmpty)
+        let unavailable = try XCTUnwrap(fixture.session.unavailablePersistedSources.first)
+        XCTAssertEqual(unavailable.issue, .permissionDenied)
+        XCTAssertEqual(
+            NSArray(array: fixture.defaults.array(forKey: TestStorage.sourceRecordKey) ?? []),
+            NSArray(array: [record]),
+            "Observing a failure must not rewrite or discard the raw grant"
+        )
+
+        let closedScopes = ThreadSafeURLRecorder()
+        let retry = Task { await fixture.session.retryUnavailableSourcesAsync() }
+        await controller.waitForCallCount(2)
+        await controller.resolveNext(with: .resolved(makeExecutorOwnedRestore(
+            resolvedURL: rootURL, scopeCloseRecorder: closedScopes
+        )))
+        let recovered = await retry.value
+        XCTAssertEqual(recovered, [MediaSource(url: rootURL, kind: .folder)])
+        XCTAssertTrue(fixture.session.unavailablePersistedSources.isEmpty)
+        XCTAssertEqual(fixture.session.persistentAccessGrant(for: .init(
+            standardizedPath: rootURL.path
+        ))?.bookmark, bookmark)
+    }
+
+    func testCancelledAsyncRestoreDoesNotPublishLateFailureIssue() async {
+        let controller = RestorePreparationController()
+        let executor = UserSelectedMediaRestoreExecutor { kind, bookmark in
+            await controller.prepare(kind: kind, bookmark: bookmark)
+        }
+        let fixture = makeSessionFixture(restoreExecutor: executor)
+        defer { fixture.session.stop(); fixture.clearDefaults() }
+        var record = StoredSourceRecord(
+            kind: .folder, bookmark: Data("cancelled-issue".utf8)
+        ).storedValue
+        record[TestStorage.RecordField.identifier] = UUID().uuidString
+        record[TestStorage.RecordField.displayName] = "Cancelled source"
+        record[TestStorage.RecordField.lastKnownPath] = "/tmp/Cancelled Restore Issue"
+        fixture.defaults.set([record], forKey: TestStorage.sourceRecordKey)
+        let restore = Task { await fixture.session.restoreSourcesAsync() }
+        await controller.waitForCallCount(1)
+        restore.cancel()
+        await controller.resolveNext(with: .unavailableWithIssue(.permissionDenied))
+        let restored = await restore.value
+
+        XCTAssertTrue(restored.isEmpty)
+        XCTAssertTrue(fixture.session.unavailablePersistedSources.allSatisfy { $0.issue == nil })
+        XCTAssertEqual(
+            NSArray(array: fixture.defaults.array(forKey: TestStorage.sourceRecordKey) ?? []),
+            NSArray(array: [record])
+        )
     }
 
     func testPersistentAccessGrantExportsInactiveRecordsWithoutReopeningAccess() throws {
@@ -325,6 +408,126 @@ final class UserSelectedMediaSessionTests: XCTestCase {
         XCTAssertNil(fixture.session.persistentAccessGrant(
             for: .init(standardizedPath: removed.lastKnownURL.path)
         ))
+    }
+
+    func testExplicitReauthorizationRefreshesExactGrantWithoutChangingDuplicateImport() throws {
+        let fixture = makeSessionFixture()
+        defer { fixture.session.stop(); fixture.clearDefaults() }
+        let url = URL(fileURLWithPath: "/tmp/Reauthorize Exact \(UUID().uuidString)", isDirectory: true)
+        let source = MediaSource(url: url, kind: .folder)
+        let originalBookmark = fixture.recorder.bookmark(for: url)
+        fixture.recorder.resolvedURLByBookmark[originalBookmark] = url
+        XCTAssertEqual(fixture.session.addSources([url]).acceptedRequestCount, 1)
+        let originalGrant = try XCTUnwrap(fixture.session.persistentAccessGrant(for: source.id))
+        let bookmarkCount = fixture.recorder.bookmarkedURLs.count
+        XCTAssertFalse(fixture.session.addSources([url]).didChangeSources)
+        XCTAssertEqual(fixture.recorder.bookmarkedURLs.count, bookmarkCount)
+
+        let replacement = Data("explicit-exact-reauthorization".utf8)
+        fixture.recorder.generatedBookmarkByURL[url] = replacement
+        fixture.recorder.resolvedURLByBookmark[replacement] = url
+        var checkedDurability = false
+        fixture.recorder.stopAccessHandler = { stoppedURL in
+            guard stoppedURL == url else { return }
+            XCTAssertEqual(fixture.session.persistentAccessGrant(for: source.id)?.bookmark, replacement)
+            checkedDurability = true
+        }
+        let update = try XCTUnwrap(fixture.session.reauthorizeSource(source, selectedURL: url))
+        fixture.recorder.stopAccessHandler = nil
+
+        XCTAssertEqual(update.activeSources, [source])
+        XCTAssertTrue(update.didChangeSources)
+        XCTAssertTrue(checkedDurability, "Persist the replacement before closing the old scope")
+        let grant = try XCTUnwrap(fixture.session.persistentAccessGrant(for: source.id))
+        XCTAssertEqual(grant.id, originalGrant.id)
+        XCTAssertEqual(grant.bookmark, replacement)
+    }
+
+    func testAsyncExactReauthorizationPersistsBeforeClosingOldScope() async throws {
+        let url = URL(fileURLWithPath: "/tmp/Async Reauthorize \(UUID().uuidString)", isDirectory: true)
+        let source = MediaSource(url: url, kind: .folder)
+        let replacement = Data("async-exact-reauthorization".utf8)
+        let consumedScopes = ThreadSafeURLRecorder()
+        let preparedScopes = ThreadSafeURLRecorder()
+        let importExecutor = UserSelectedMediaImportExecutor(
+            inspect: { url, _ in
+                MediaSourceImportInspection(
+                    kind: .folder, linkResolution: .init(targetURL: url, didResolveLink: false),
+                    resourceIdentifier: nil, coveredByFolderPaths: [],
+                    containsFolderPaths: [], containsFilePaths: []
+                )
+            },
+            makeBookmark: { _ in replacement },
+            releaseIncomingScope: { consumedScopes.append($0) }
+        )
+        let restoreExecutor = UserSelectedMediaRestoreExecutor { _, _ in
+            .resolved(ExecutorOwnedPreparedMediaSourceRestore(
+                restore: PreparedMediaSourceRestore(
+                    resolvedURL: url, linkResolution: .init(targetURL: url, didResolveLink: false),
+                    refreshedBookmark: nil, resourceIdentifier: nil
+                ),
+                stopAccess: { preparedScopes.append($0) }
+            ))
+        }
+        let fixture = makeSessionFixture(restoreExecutor: restoreExecutor, importExecutor: importExecutor)
+        defer { fixture.session.stop(); fixture.clearDefaults() }
+        fixture.recorder.resolvedURLByBookmark[fixture.recorder.bookmark(for: url)] = url
+        XCTAssertEqual(fixture.session.addSources([url]).acceptedRequestCount, 1)
+        let originalGrant = try XCTUnwrap(fixture.session.persistentAccessGrant(for: source.id))
+        var checkedDurability = false
+        fixture.recorder.stopAccessHandler = { stoppedURL in
+            guard stoppedURL == url else { return }
+            XCTAssertEqual(fixture.session.persistentAccessGrant(for: source.id)?.bookmark, replacement)
+            checkedDurability = true
+        }
+
+        let result = await fixture.session.reauthorizeSourceAsync(source, selectedURL: url)
+        fixture.recorder.stopAccessHandler = nil
+        let update = try XCTUnwrap(result)
+        XCTAssertEqual(update.activeSources, [source])
+        XCTAssertTrue(checkedDurability)
+        XCTAssertEqual(consumedScopes.urls, [url])
+        XCTAssertTrue(preparedScopes.urls.isEmpty, "The adopted scope belongs to the session")
+        XCTAssertEqual(fixture.session.persistentAccessGrant(for: source.id)?.id, originalGrant.id)
+        XCTAssertEqual(fixture.session.persistentAccessGrant(for: source.id)?.bookmark, replacement)
+    }
+
+    func testFailedOrDifferentPathReauthorizationPreservesOriginalGrant() async throws {
+        let url = URL(fileURLWithPath: "/tmp/Failed Reauthorize \(UUID().uuidString)", isDirectory: true)
+        let source = MediaSource(url: url, kind: .folder)
+        let consumedScopes = ThreadSafeURLRecorder()
+        let importExecutor = UserSelectedMediaImportExecutor(
+            inspect: { url, _ in
+                MediaSourceImportInspection(
+                    kind: .folder, linkResolution: .init(targetURL: url, didResolveLink: false),
+                    resourceIdentifier: nil, coveredByFolderPaths: [],
+                    containsFolderPaths: [], containsFilePaths: []
+                )
+            },
+            makeBookmark: { _ in Data("failed-replacement".utf8) },
+            releaseIncomingScope: { consumedScopes.append($0) }
+        )
+        let restoreExecutor = UserSelectedMediaRestoreExecutor { _, _ in
+            .unavailableWithIssue(.permissionDenied)
+        }
+        let fixture = makeSessionFixture(restoreExecutor: restoreExecutor, importExecutor: importExecutor)
+        defer { fixture.session.stop(); fixture.clearDefaults() }
+        fixture.recorder.resolvedURLByBookmark[fixture.recorder.bookmark(for: url)] = url
+        XCTAssertEqual(fixture.session.addSources([url]).acceptedRequestCount, 1)
+        let originalGrant = try XCTUnwrap(fixture.session.persistentAccessGrant(for: source.id))
+        let originalRecords = NSArray(array: fixture.defaults.array(forKey: TestStorage.sourceRecordKey) ?? [])
+        let closedCount = fixture.recorder.stoppedURLs.count
+        let failed = await fixture.session.reauthorizeSourceAsync(source, selectedURL: url)
+        XCTAssertNil(failed)
+        let differentURL = url.deletingLastPathComponent().appendingPathComponent("Different \(UUID())", isDirectory: true)
+        let different = await fixture.session.reauthorizeSourceAsync(source, selectedURL: differentURL)
+        XCTAssertNil(different)
+
+        XCTAssertEqual(fixture.session.persistentAccessGrant(for: source.id), originalGrant)
+        XCTAssertEqual(NSArray(array: fixture.defaults.array(forKey: TestStorage.sourceRecordKey) ?? []), originalRecords)
+        XCTAssertEqual(fixture.recorder.stoppedURLs.count, closedCount,
+                       "Failure must retain the original active scope")
+        XCTAssertEqual(consumedScopes.urls, [url, differentURL])
     }
 
     func testPersistentAccessGrantPrefersActiveRecordOverInactiveSamePath() throws {
@@ -2822,16 +3025,21 @@ final class UserSelectedMediaSessionTests: XCTestCase {
             kind: .folder,
             bookmark: unavailableBookmark
         )
-        fixture.defaults.set(
-            [unavailableRecord.storedValue],
-            forKey: TestStorage.sourceRecordKey
-        )
-        XCTAssertTrue(fixture.session.restoreSources().isEmpty)
-
         let reauthorizedURL = URL(
             fileURLWithPath: "/tmp/Muralume Reauthorized Library",
             isDirectory: true
         )
+        let unavailableID = UUID().uuidString
+        var unavailableStoredValue = unavailableRecord.storedValue
+        unavailableStoredValue[TestStorage.RecordField.identifier] = unavailableID
+        unavailableStoredValue[TestStorage.RecordField.displayName] = "Unavailable Library"
+        unavailableStoredValue[TestStorage.RecordField.lastKnownPath] = reauthorizedURL.path
+        fixture.defaults.set(
+            [unavailableStoredValue],
+            forKey: TestStorage.sourceRecordKey
+        )
+        XCTAssertTrue(fixture.session.restoreSources().isEmpty)
+
         let reauthorizedBookmark = fixture.recorder.bookmark(
             for: reauthorizedURL
         )
@@ -2845,6 +3053,9 @@ final class UserSelectedMediaSessionTests: XCTestCase {
             [MediaSource(url: reauthorizedURL, kind: .folder)]
         )
         XCTAssertTrue(fixture.session.hasUnavailablePersistedSources)
+        XCTAssertEqual(fixture.session.unavailablePersistedSources.first?.id.rawValue, unavailableID)
+        XCTAssertEqual(fixture.session.unavailablePersistedSources.first?.lastKnownURL, reauthorizedURL)
+        XCTAssertEqual(fixture.session.unavailablePersistedSources.first?.kind, .folder)
         XCTAssertEqual(
             Set(storedSourceRecords(in: fixture.defaults)),
             Set([

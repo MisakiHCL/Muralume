@@ -101,6 +101,15 @@ protocol MediaAccessSession: AnyObject {
         incomingScopePolicy: MediaAccessIncomingScopePolicy
     ) async -> MediaAccessUpdate
 
+    /// Refreshes the grant for an existing exact source after an explicit
+    /// picker selection. A failed replacement keeps the previous grant alive.
+    func reauthorizeSource(
+        _ source: MediaSource, selectedURL: URL
+    ) -> MediaAccessUpdate?
+    func reauthorizeSourceAsync(
+        _ source: MediaSource, selectedURL: URL
+    ) async -> MediaAccessUpdate?
+
     /// Persists the user's removal decision while keeping the active security
     /// scope alive until in-flight readers have drained.
     func prepareToRemoveFolder(_ url: URL)
@@ -129,6 +138,18 @@ extension MediaAccessSession {
     func persistentAccessGrant(for sourceID: MediaSource.ID) -> CustomPlaylistMediaGrant? { nil }
 
     var supportsAsynchronousImportPreparation: Bool { false }
+
+    func reauthorizeSource(
+        _ source: MediaSource, selectedURL: URL
+    ) -> MediaAccessUpdate? {
+        addSources([selectedURL], incomingScopePolicy: .sessionManaged)
+    }
+
+    func reauthorizeSourceAsync(
+        _ source: MediaSource, selectedURL: URL
+    ) async -> MediaAccessUpdate? {
+        await addSourcesAsync([selectedURL], incomingScopePolicy: .sessionManaged)
+    }
 
     func addSourcesAsync(
         _ urls: [URL],

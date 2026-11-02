@@ -266,6 +266,10 @@ final class MediaLibraryCoordinator: ObservableObject {
 
     @Published private(set) var scanState: MediaLibraryScanState = .idle
     @Published private(set) var roots: [MediaLibraryRoot] = []
+    /// Active grants, including sources that have never scanned successfully.
+    @Published private(set) var sourceRoots: [MediaLibraryRoot] = []
+    @Published private(set) var sourceHealth:
+        [MediaLibraryRoot.ID: MediaLibrarySourceHealth] = [:]
     @Published private var itemsSnapshot = ItemsSnapshot(
         revision: 0,
         contentRevision: 0,
@@ -728,8 +732,15 @@ final class MediaLibraryCoordinator: ObservableObject {
     func reauthorizeMediaSource(
         _ source: UnavailableMediaSource
     ) -> MediaLibraryStartDisposition? {
-        guard unavailableSources.contains(where: { $0.id == source.id }) else {
-            return nil
+        guard canReauthorizeSource(source) else { return nil }
+        if let active = activeSource(forReauthorization: source) {
+            guard let selectedURL = sourceSelector.selectSources(
+                for: .reauthorizingSource(source)
+            ).first else { return nil }
+            let generation = beginSourceAccessOperation()
+            guard let update = mediaSession.reauthorizeSource(active, selectedURL: selectedURL),
+                  isCurrentSourceAccessOperation(generation) else { return nil }
+            return applyReauthorizedActiveSource(update, replacingUnavailableSource: source)
         }
         guard let preparation = selectMediaSourcesForPreparation(
             intent: .reauthorizingSource(source)
@@ -764,6 +775,62 @@ final class MediaLibraryCoordinator: ObservableObject {
                 withinRootPaths: [rootPath]
             )
         }
+    }
+
+    func sourceHealth(for root: MediaLibraryRoot) -> MediaLibrarySourceHealth {
+        sourceHealth[root.id] ?? MediaLibrarySourceHealth()
+    }
+
+    func sourceHealth(for source: UnavailableMediaSource) -> MediaLibrarySourceHealth {
+        let path = source.lastKnownURL.standardizedFileURL.path
+        let hasActiveSourceAtPath = activeSources.contains { $0.id.standardizedPath == path }
+        return MediaLibrarySourceHealth(
+            status: .unavailable, issue: source.issue ?? .unknown,
+            lastSuccessfulRefresh: hasActiveSourceAtPath ? nil
+                : sourceHealth[MediaLibraryRoot.ID(standardizedPath: path)]?.lastSuccessfulRefresh
+        )
+    }
+
+    func reauthorizationSource(for root: MediaLibraryRoot) -> UnavailableMediaSource? {
+        guard sourceRoots.contains(where: { $0.id == root.id && $0.kind == root.kind }) else {
+            return nil
+        }
+        return UnavailableMediaSource(
+            id: .init(rawValue: "active:" + root.id.standardizedPath),
+            displayName: root.displayName, lastKnownURL: root.url, kind: root.kind,
+            issue: sourceHealth(for: root).issue
+        )
+    }
+
+    private func activeSource(forReauthorization source: UnavailableMediaSource) -> MediaSource? {
+        activeSources.first {
+            $0.id.standardizedPath == source.lastKnownURL.standardizedFileURL.path
+                && $0.kind == source.kind
+        }
+    }
+
+    private func applyReauthorizedActiveSource(
+        _ update: MediaAccessUpdate, replacingUnavailableSource source: UnavailableMediaSource
+    ) -> MediaLibraryStartDisposition {
+        // A stored unavailable grant may share an active source's path. Clear
+        // only the explicitly recovered record, after the new grant succeeded.
+        if unavailableSources.contains(where: { $0.id == source.id }) {
+            mediaSession.removeUnavailableSource(source)
+            updateSourceAccessState(using: update.activeSources)
+        }
+        latestPreparedSources = update.activeSources
+        preparedSourcesNeedRefresh = true
+        refresh(using: update.activeSources)
+        return .scanStarted
+    }
+
+    private func canReauthorizeSource(_ source: UnavailableMediaSource) -> Bool {
+        guard !isShutDown, rootIDsPendingRemoval.isEmpty, scanState != .scanning else { return false }
+        return unavailableSources.contains(where: { $0.id == source.id })
+            || sourceRoots.contains(where: {
+                $0.id.standardizedPath == source.lastKnownURL.standardizedFileURL.path
+                    && $0.kind == source.kind
+            })
     }
 
     func unavailableSource(
@@ -1035,8 +1102,16 @@ final class MediaLibraryCoordinator: ObservableObject {
     func reauthorizeMediaSourceAsync(
         _ source: UnavailableMediaSource
     ) async -> MediaLibraryStartDisposition? {
-        guard unavailableSources.contains(where: { $0.id == source.id }) else {
-            return nil
+        guard canReauthorizeSource(source) else { return nil }
+        if let active = activeSource(forReauthorization: source) {
+            guard let selectedURL = sourceSelector.selectSources(
+                for: .reauthorizingSource(source)
+            ).first else { return nil }
+            let generation = beginSourceAccessOperation()
+            guard let update = await mediaSession.reauthorizeSourceAsync(
+                active, selectedURL: selectedURL
+            ), !Task.isCancelled, isCurrentSourceAccessOperation(generation) else { return nil }
+            return applyReauthorizedActiveSource(update, replacingUnavailableSource: source)
         }
         guard let disposition = await selectMediaSourcesAsync(
             intent: .reauthorizingSource(source), autoplay: false
@@ -1572,7 +1647,7 @@ final class MediaLibraryCoordinator: ObservableObject {
 
     func removeRoot(_ root: MediaLibraryRoot) async {
         guard !isShutDown,
-              roots.contains(where: { $0.id == root.id }),
+              sourceRoots.contains(where: { $0.id == root.id && $0.kind == root.kind }),
               rootIDsPendingRemoval.insert(root.id).inserted else {
             return
         }
@@ -2433,6 +2508,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         installActiveSources([])
         latestPreparedSources = []
         unavailableSources = []
+        sourceRoots = []
+        sourceHealth = [:]
         sourceAccessState = .empty
         preparedSourcesNeedRefresh = false
         supersededThumbnailRootPaths = []
@@ -2473,6 +2550,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         cancelCurrentScanTask()
         installActiveSources(sources)
         updateSourceAccessState(using: sources)
+        sourceHealth = MediaLibrarySourceHealthReducer.scanning(sourceHealth, sources: sources)
         scanState = .scanning
 
         let taskID = UUID()
@@ -2551,6 +2629,9 @@ final class MediaLibraryCoordinator: ObservableObject {
                       !isShutDown else {
                     return
                 }
+                sourceHealth = MediaLibrarySourceHealthReducer.completed(
+                    sourceHealth, snapshot: snapshot, sources: sources, now: Date()
+                )
                 try await publish(
                     snapshot,
                     for: sources,
@@ -2582,6 +2663,9 @@ final class MediaLibraryCoordinator: ObservableObject {
                       !isShutDown else {
                     return
                 }
+                sourceHealth = MediaLibrarySourceHealthReducer.failed(
+                    sourceHealth, sources: sources, issue: error.sourceHealthIssue
+                )
                 scanState = .failed(error.userFacingFailure)
             } catch {
                 guard let self,
@@ -2589,6 +2673,9 @@ final class MediaLibraryCoordinator: ObservableObject {
                       !isShutDown else {
                     return
                 }
+                sourceHealth = MediaLibrarySourceHealthReducer.failed(
+                    sourceHealth, sources: sources, issue: .unknown
+                )
                 scanState = .failed(.other)
             }
         }
@@ -2602,6 +2689,10 @@ final class MediaLibraryCoordinator: ObservableObject {
         scanGeneration generation: UInt64
     ) async throws {
         let requestedSourcePaths = sourcePathSet(requestedSources)
+        let completedScanState: MediaLibraryScanState = snapshot.roots.isEmpty
+            && !snapshot.sourceDiagnostics.isEmpty
+            && snapshot.sourceDiagnostics.values.allSatisfy({ $0.coverage == .unavailable })
+            ? .failed(.other) : .ready
         var pendingPrepared: PreparedMediaLibrarySnapshot?
         var pendingSort: MediaLibrarySort?
         if lastPublishedScanSourcePaths == requestedSourcePaths,
@@ -2641,7 +2732,7 @@ final class MediaLibraryCoordinator: ObservableObject {
                     if requestedSourcePaths == sourcePathSet(latestPreparedSources) {
                         preparedSourcesNeedRefresh = false
                     }
-                    scanState = .ready
+                    scanState = completedScanState
                     return
                 }
                 // A new queue still needs reconciliation, but cannot change
@@ -2723,7 +2814,8 @@ final class MediaLibraryCoordinator: ObservableObject {
                 self.applyPublication(
                     plan, prepared: prepared,
                     requestedSourcePaths: requestedSourcePaths,
-                    requestedSort: requestedSort
+                    requestedSort: requestedSort,
+                    completedScanState: completedScanState
                 )
                 return .applied(PublicationPruning(
                     itemIDs: plan.keepingItemIDs, rootPaths: plan.completeRootPaths
@@ -2762,7 +2854,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         _ plan: MediaLibraryPublicationPlan,
         prepared: PreparedMediaLibrarySnapshot,
         requestedSourcePaths: Set<String>,
-        requestedSort: MediaLibrarySort
+        requestedSort: MediaLibrarySort,
+        completedScanState: MediaLibraryScanState
     ) {
         let wasTemporaryPlayback = !temporaryItemIDs.isEmpty
         let previousCurrentItemID = currentItemID
@@ -2796,7 +2889,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         if requestedSourcePaths == sourcePathSet(latestPreparedSources) {
             preparedSourcesNeedRefresh = false
         }
-        scanState = .ready
+        scanState = completedScanState
         lastPublishedScanSourcePaths = requestedSourcePaths
         lastPublishedScanSort = requestedSort
         lastPublishedScanMembership = playbackQueueMembership
@@ -3366,6 +3459,9 @@ final class MediaLibraryCoordinator: ObservableObject {
 
     private func updateSourceAccessState(using sources: [MediaSource]) {
         unavailableSources = mediaSession.unavailablePersistedSources
+        sourceHealth = MediaLibrarySourceHealthReducer.reconcile(
+            sourceHealth, active: sources, unavailable: unavailableSources
+        )
         if !unavailableSources.isEmpty {
             sourceAccessState = sources.isEmpty
                 ? .temporarilyUnavailable
@@ -3481,6 +3577,17 @@ final class MediaLibraryCoordinator: ObservableObject {
 
     private func installActiveSources(_ sources: [MediaSource]) {
         activeSources = sources
+        sourceRoots = sources.map { source in
+            roots.first { $0.id.standardizedPath == source.id.standardizedPath }
+                ?? MediaLibraryRoot(
+                    url: source.url,
+                    displayName: source.url.lastPathComponent,
+                    kind: source.kind
+                )
+        }
+        sourceHealth = MediaLibrarySourceHealthReducer.reconcile(
+            sourceHealth, active: sources, unavailable: unavailableSources
+        )
         monitoredFolderURLs = sources
             .filter { $0.kind == .folder }
             // Preserve the security-scoped URL; a normalized path is only a

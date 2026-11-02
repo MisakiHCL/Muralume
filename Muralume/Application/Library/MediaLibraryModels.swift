@@ -32,6 +32,18 @@ struct UnavailableMediaSource: Identifiable, Hashable, Sendable {
     let displayName: String
     let lastKnownURL: URL
     let kind: MediaSourceKind
+    let issue: MediaLibrarySourceHealthIssue?
+
+    init(
+        id: ID, displayName: String, lastKnownURL: URL,
+        kind: MediaSourceKind, issue: MediaLibrarySourceHealthIssue? = nil
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.lastKnownURL = lastKnownURL
+        self.kind = kind
+        self.issue = issue
+    }
 }
 
 struct MediaLibraryRoot: Identifiable, Hashable, Sendable {
@@ -188,18 +200,23 @@ struct MediaLibrarySnapshot: Equatable, Sendable {
 
     let roots: [MediaLibraryRoot]
     let items: [LibraryMediaItem]
-    /// Roots that were reachable but could not be scanned completely.
+    /// Sources whose scan could not establish authoritative absence.
     /// Missing queue entries under these roots must not be treated as deleted.
     let incompleteRootPaths: Set<String>
+    let sourceDiagnostics: [MediaLibraryRoot.ID: MediaLibrarySourceScanDiagnostic]
 
     init(
         roots: [MediaLibraryRoot],
         items: [LibraryMediaItem],
-        incompleteRootPaths: Set<String> = []
+        incompleteRootPaths: Set<String> = [],
+        sourceDiagnostics: [MediaLibraryRoot.ID: MediaLibrarySourceScanDiagnostic] = [:]
     ) {
         self.roots = roots
         self.items = items
-        self.incompleteRootPaths = incompleteRootPaths
+        self.incompleteRootPaths = incompleteRootPaths.union(
+            sourceDiagnostics.keys.map(\.standardizedPath)
+        )
+        self.sourceDiagnostics = sourceDiagnostics
     }
 }
 

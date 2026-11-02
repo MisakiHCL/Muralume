@@ -157,23 +157,27 @@ actor AVAssetVideoInformationLoader: VideoInformationLoading {
     }
 
     private func perform(_ request: Request) async {
+        // Only immutable Sendable snapshots cross the cancellation-handler
+        // boundary. The continuation-bearing request stays actor-isolated.
+        let source = request.source
+        let cancellation = request.cancellation
+        let loadMetadata = metadataLoader
         let result: Result<VideoInformation, Error>
         do {
             try Task.checkCancellation()
-            let access = request.source.url.startAccessingSecurityScopedResource()
+            let access = source.url.startAccessingSecurityScopedResource()
             defer {
-                if access { request.source.url.stopAccessingSecurityScopedResource() }
+                if access { source.url.stopAccessingSecurityScopedResource() }
             }
             let lease = try MediaPlaybackURLLease(
-                sourceURL: request.source.url, accessLease: request.source.accessLease
+                sourceURL: source.url, accessLease: source.accessLease
             )
             defer { lease.invalidate() }
             let asset = assetFactory(lease.url)
-            let cancellation = request.cancellation
             try cancellation.install(asset)
             let information = try await withTaskCancellationHandler {
                 try Task.checkCancellation()
-                return try await metadataLoader(asset, request.source)
+                return try await loadMetadata(asset, source)
             } onCancel: {
                 cancellation.cancel()
             }
@@ -183,10 +187,10 @@ actor AVAssetVideoInformationLoader: VideoInformationLoading {
         } catch {
             // AVFoundation may produce its cancellation NSError before
             // the actor callback arrives; callers still see cancellation.
-            result = .failure(request.cancellation.wasCancelled
+            result = .failure(cancellation.wasCancelled
                 ? CancellationError() : error)
         }
-        request.cancellation.releaseAsset()
+        cancellation.releaseAsset()
         request.finish(result)
         running = nil
         worker = nil

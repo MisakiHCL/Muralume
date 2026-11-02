@@ -29,8 +29,8 @@ final class FSEventsCallbackGate: @unchecked Sendable {
     func disable() { lock.withLock { handler = nil } }
 
     func emit() {
-        let handler = lock.withLock { handler }
-        handler?()
+        let callback = lock.withLock { self.handler }
+        callback?()
     }
 }
 

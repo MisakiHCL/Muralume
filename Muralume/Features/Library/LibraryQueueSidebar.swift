@@ -168,7 +168,8 @@ struct LibraryQueueSidebar: View {
                 LocalizedStringKey(rootRemovalConfirmKey(for: root)),
                 role: .destructive
             ) {
-                let removesLastRoot = library.roots.count == 1
+                let removesLastRoot = library.sourceRoots.count == 1
+                    && library.unavailableSources.isEmpty
                 pendingRootRemoval = nil
                 if removesLastRoot {
                     setEditing(false)
@@ -199,7 +200,7 @@ struct LibraryQueueSidebar: View {
             ) {
                 pendingUnavailableSourceRemoval = nil
                 removeUnavailableMediaSource(source)
-                if library.roots.isEmpty,
+                if library.sourceRoots.isEmpty,
                    library.unavailableSources.isEmpty {
                     setEditing(false)
                 }
@@ -299,12 +300,17 @@ struct LibraryQueueSidebar: View {
             }
 
             if sidebarSection == .mediaLibrary,
-               !library.roots.isEmpty || !library.unavailableSources.isEmpty {
+               !library.sourceRoots.isEmpty || !library.unavailableSources.isEmpty {
                 Button {
                     setEditing(!isEditing)
                 } label: {
                     headerActionIcon(
-                        systemImage: isEditing ? "checkmark" : "pencil"
+                        systemImage: isEditing ? "checkmark"
+                            : sourceNeedsAttention ? "exclamationmark.triangle" : "pencil"
+                    )
+                    .foregroundStyle(
+                        !isEditing && sourceNeedsAttention
+                            ? MuralumeTheme.Colors.warning : MuralumeTheme.Colors.textPrimary
                     )
                 }
                 .buttonStyle(
@@ -316,7 +322,8 @@ struct LibraryQueueSidebar: View {
                 .help(
                     Text(
                         LocalizedStringKey(
-                            isEditing ? "library.done" : "library.edit"
+                            isEditing ? "library.done"
+                                : sourceNeedsAttention ? "library.source.health.needsAttention" : "library.edit"
                         )
                     )
                 )
@@ -327,6 +334,10 @@ struct LibraryQueueSidebar: View {
                         )
                     )
                 )
+                .accessibilityValue(Text(verbatim:
+                    !isEditing && sourceNeedsAttention
+                        ? localization.localized("library.source.health.needsAttention") : ""
+                ))
                 .accessibilityIdentifier(
                     MuralumeAccessibilityIdentifier.editLibraryButton
                 )
@@ -568,17 +579,27 @@ struct LibraryQueueSidebar: View {
 
     private var editorStatusBar: some View {
         HStack(spacing: MuralumeTheme.Spacing.small) {
-            librarySummary(showsInlineRetry: false)
+            libraryCountSummary
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     private var rootEditor: some View {
         LibraryRootEditor(
-            roots: library.roots,
+            roots: library.sourceRoots,
             unavailableSources: library.unavailableSources,
+            healthForRoot: library.sourceHealth(for:),
+            healthForUnavailableSource: library.sourceHealth(for:),
+            canRetryRoots: library.canRefresh,
+            canRetryUnavailableSources: library.canRetrySourceAccess,
+            requestRetry: { _ in library.refresh() },
+            requestUnavailableRetry: { _ in retryUnavailableSourceAccess() },
             requestRemoval: { root in
                 pendingRootRemoval = root
+            },
+            requestRootReauthorization: { root in
+                guard let source = library.reauthorizationSource(for: root) else { return }
+                reauthorizeMediaSource(source)
             },
             requestReauthorization: reauthorizeMediaSource,
             requestUnavailableRemoval: { source in
@@ -905,12 +926,21 @@ struct LibraryQueueSidebar: View {
     }
 
     private var sourceCountText: String {
-        let sourceCount = library.roots.count
+        let sourceCount = library.sourceRoots.count
             + library.unavailableSources.count
         return localization.localizedFormat(
             "library.source.count",
             sourceCount
         )
+    }
+
+    private var sourceNeedsAttention: Bool {
+        !library.unavailableSources.isEmpty || library.sourceRoots.contains { root in
+            switch library.sourceHealth(for: root).status {
+            case .unavailable, .incomplete, .failed: true
+            case .notScanned, .scanning, .ready: false
+            }
+        }
     }
 
     private var librarySummaryAccessibilityLabel: String {

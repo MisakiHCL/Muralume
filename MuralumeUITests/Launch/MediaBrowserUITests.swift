@@ -478,50 +478,66 @@ final class MediaBrowserUITests: XCTestCase {
 
     @MainActor
     private func importFixtureFolder(into application: XCUIApplication) throws {
-        for name in [Fixture.landscape, Fixture.portrait, Fixture.alternateTracks] {
-            XCTAssertTrue(
-                FileManager.default.fileExists(
-                    atPath: Fixture.directory.appendingPathComponent(name + ".mp4").path
-                ),
-                "The repository's synthetic video fixture must exist"
+        try MuralumeUITestInputSource.withASCIILayout { inputSource in
+            for name in [Fixture.landscape, Fixture.portrait, Fixture.alternateTracks] {
+                XCTAssertTrue(
+                    FileManager.default.fileExists(
+                        atPath: Fixture.directory.appendingPathComponent(name + ".mp4").path
+                    ),
+                    "The repository's synthetic video fixture must exist"
+                )
+            }
+            try click(Identifier.addMedia, in: application)
+            let picker = application.dialogs.firstMatch
+            defer {
+                let goTo = application.sheets["GoToWindow"]
+                let closeGoTo = goTo.buttons["CloseButton"]
+                if closeGoTo.exists { closeGoTo.click() }
+                let cancel = picker.buttons.matching(NSPredicate(
+                    format: "title == %@ OR label == %@", "Cancel", "Cancel"
+                )).firstMatch
+                if picker.exists, cancel.exists, cancel.isEnabled { cancel.click() }
+            }
+            _ = try require(picker)
+            application.typeKey("g", modifierFlags: [.command, .shift])
+            let goToWindow = try require(application.sheets["GoToWindow"])
+            let pathEntry: XCUIElement
+            let pathTextField = application.textFields["PathTextField"]
+            if pathTextField.waitForExistence(timeout: Timeout.control) {
+                pathEntry = pathTextField
+            } else if application.comboBoxes.firstMatch.waitForExistence(timeout: Timeout.control) {
+                pathEntry = application.comboBoxes.firstMatch
+            } else {
+                pathEntry = try require(
+                    application.textFields.matching(
+                        NSPredicate(format: "hasKeyboardFocus == true")
+                    ).firstMatch
+                )
+            }
+            try replaceText(in: pathEntry, with: Fixture.directory.path, application: application)
+            pathEntry.click()
+            try inputSource.prepareForConfirmation()
+            pathEntry.typeKey(.return, modifierFlags: [])
+            // The first Return may accept path completion. Keep the exact folder
+            // selected and confirm only after the Go to Folder sheet has closed.
+            if !goToWindow.waitForNonExistence(timeout: Timeout.control), pathEntry.exists {
+                pathEntry.click()
+                try inputSource.prepareForConfirmation()
+                pathEntry.typeKey(.return, modifierFlags: [])
+            }
+            _ = try XCTUnwrap(
+                goToWindow.waitForNonExistence(timeout: Timeout.control) ? true : nil,
+                "Go to Folder must close after selecting the fixture directory"
             )
-        }
-        try click(Identifier.addMedia, in: application)
-        let picker = try require(application.dialogs.firstMatch)
-        application.typeKey("g", modifierFlags: [.command, .shift])
-        let goToWindow = try require(application.sheets["GoToWindow"])
-        let pathEntry: XCUIElement
-        let pathTextField = application.textFields["PathTextField"]
-        if pathTextField.waitForExistence(timeout: Timeout.control) {
-            pathEntry = pathTextField
-        } else if application.comboBoxes.firstMatch.waitForExistence(timeout: Timeout.control) {
-            pathEntry = application.comboBoxes.firstMatch
-        } else {
-            pathEntry = try require(
-                application.textFields.matching(
-                    NSPredicate(format: "hasKeyboardFocus == true")
+            let add = try require(
+                picker.buttons.matching(
+                    NSPredicate(format: "label == %@ OR identifier == %@", "Add", "OKButton")
                 ).firstMatch
             )
+            try waitUntilEnabled(add)
+            add.click()
+            XCTAssertTrue(picker.waitForNonExistence(timeout: Timeout.control))
         }
-        try replaceText(in: pathEntry, with: Fixture.directory.path, application: application)
-        pathEntry.typeKey(.return, modifierFlags: [])
-        // The first Return may accept path completion. Keep the exact folder
-        // selected and confirm only after the Go to Folder sheet has closed.
-        if !goToWindow.waitForNonExistence(timeout: Timeout.control), pathEntry.exists {
-            pathEntry.typeKey(.return, modifierFlags: [])
-        }
-        _ = try XCTUnwrap(
-            goToWindow.waitForNonExistence(timeout: Timeout.control) ? true : nil,
-            "Go to Folder must close after selecting the fixture directory"
-        )
-        let add = try require(
-            picker.buttons.matching(
-                NSPredicate(format: "label == %@ OR identifier == %@", "Add", "OKButton")
-            ).firstMatch
-        )
-        try waitUntilEnabled(add)
-        add.click()
-        XCTAssertTrue(picker.waitForNonExistence(timeout: Timeout.control))
     }
 
     @MainActor

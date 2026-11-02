@@ -131,6 +131,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         // across files. Its small cap also covers trees crossing many mounts.
         var archivedVolumeIdentifiers: [NSObject: Data] = [:]
         var incompleteRootPaths: Set<String> = []
+        var sourceDiagnostics: [MediaLibraryRoot.ID: MediaLibrarySourceScanDiagnostic] = [:]
         var firstRootError: MediaLibraryScanError?
 
         for source in normalizedSources {
@@ -144,7 +145,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                     fileManager: fileManager
                 )
                 scannedRootPath = root.id.standardizedPath
-                let isComplete = try Self.scan(
+                let incompleteIssue = try Self.scan(
                     root: root,
                     fileManager: fileManager,
                     budget: &budget,
@@ -162,8 +163,11 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                     }
                 )
                 roots.append(root)
-                if !isComplete {
+                if let incompleteIssue {
                     incompleteRootPaths.insert(root.id.standardizedPath)
+                    sourceDiagnostics[root.id] = MediaLibrarySourceScanDiagnostic(
+                        coverage: .incomplete, issue: incompleteIssue
+                    )
                 }
             } catch let error as MediaLibraryScanError {
                 if error.isResourceLimitExceeded {
@@ -186,13 +190,16 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                     }
                     budget.restoreMemory(to: rootMemoryCheckpoint)
                 }
-                if firstRootError == nil {
-                    firstRootError = error
-                }
+                let id = MediaLibraryRoot.ID(standardizedPath: source.id.standardizedPath)
+                incompleteRootPaths.insert(id.standardizedPath)
+                sourceDiagnostics[id] = MediaLibrarySourceScanDiagnostic(
+                    coverage: .unavailable, issue: error.sourceHealthIssue
+                )
+                if firstRootError == nil { firstRootError = error }
             }
         }
 
-        if roots.isEmpty, let firstRootError {
+        if roots.isEmpty, normalizedSources.count == 1, let firstRootError {
             throw firstRootError
         }
 
@@ -213,7 +220,8 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         return MediaLibrarySnapshot(
             roots: roots,
             items: items,
-            incompleteRootPaths: incompleteRootPaths
+            incompleteRootPaths: incompleteRootPaths,
+            sourceDiagnostics: sourceDiagnostics
         )
     }
 
@@ -357,9 +365,18 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
     ) throws -> MediaLibraryRoot {
         let rootURL = source.url
         guard fileManager.fileExists(atPath: rootURL.path) else {
+            // `fileExists` also returns false for some permission failures.
+            // Inspect only enough to preserve an explicit permission error;
+            // other failures retain the existing unavailable-root semantics.
+            do {
+                _ = try rootURL.resourceValues(forKeys: [.isDirectoryKey])
+            } catch {
+                if MediaLibrarySourceHealthIssue.filesystemError(error) == .permissionDenied {
+                    throw MediaLibraryScanError.permissionDenied(rootURL)
+                }
+            }
             throw MediaLibraryScanError.rootUnavailable(rootURL)
         }
-
         let values: URLResourceValues
         do {
             values = try rootURL.resourceValues(
@@ -371,6 +388,9 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                 ]
             )
         } catch {
+            if MediaLibrarySourceHealthIssue.filesystemError(error) == .permissionDenied {
+                throw MediaLibraryScanError.permissionDenied(rootURL)
+            }
             throw MediaLibraryScanError.resourceAccessFailed(rootURL)
         }
 
@@ -413,14 +433,14 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         budget: inout FileSystemMediaLibraryScanBudget,
         archivedVolumeIdentifiers: inout [NSObject: Data],
         onItem: (LibraryMediaItem) -> Void
-    ) throws -> Bool {
+    ) throws -> MediaLibrarySourceHealthIssue? {
         if root.kind == .file {
             let item = try inspectFile(
                 root: root, archivedVolumeIdentifiers: &archivedVolumeIdentifiers
             )
             try budget.reserveMemory(for: item)
             onItem(item)
-            return true
+            return nil
         }
 
         let rootFailureRecorder = RootEnumerationFailureRecorder(
@@ -435,8 +455,8 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
                 .skipsHiddenFiles,
                 .skipsPackageDescendants
             ],
-            errorHandler: { failedURL, _ in
-                rootFailureRecorder.record(failedURL)
+            errorHandler: { failedURL, error in
+                rootFailureRecorder.record(failedURL, error: error)
                 return !rootFailureRecorder.didFailAtRoot
             }
         ) else {
@@ -460,7 +480,7 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
             } catch {
                 // One unreadable descendant must not hide the rest of an
                 // otherwise accessible media root.
-                rootFailureRecorder.record(fileURL)
+                rootFailureRecorder.record(fileURL, error: error)
                 return true
             }
 
@@ -526,13 +546,16 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         }) {}
 
         if let failedURL = rootFailureRecorder.failedRootURL {
+            if rootFailureRecorder.issue == .permissionDenied {
+                throw MediaLibraryScanError.permissionDenied(root.url)
+            }
             throw MediaLibraryScanError.enumerationFailed(
                 rootURL: root.url,
                 failedURL: failedURL
             )
         }
 
-        return !rootFailureRecorder.didEncounterFailure
+        return rootFailureRecorder.didEncounterFailure ? rootFailureRecorder.issue : nil
     }
 
     private static let mediaResourceKeys: Set<URLResourceKey> = [
@@ -556,6 +579,9 @@ struct FileSystemMediaLibraryScanner: MediaLibraryScanning {
         do {
             values = try root.url.resourceValues(forKeys: mediaResourceKeys)
         } catch {
+            if MediaLibrarySourceHealthIssue.filesystemError(error) == .permissionDenied {
+                throw MediaLibraryScanError.permissionDenied(root.url)
+            }
             throw MediaLibraryScanError.resourceAccessFailed(root.url)
         }
         guard values.isRegularFile == true else {
@@ -794,6 +820,7 @@ private final class RootEnumerationFailureRecorder: @unchecked Sendable {
     private let rootPath: String
     private var storedFailedRootURL: URL?
     private var storedDidEncounterFailure = false
+    private var storedIssue: MediaLibrarySourceHealthIssue = .unknown
 
     init(rootURL: URL) {
         rootPath = rootURL.standardizedFileURL.path
@@ -815,9 +842,14 @@ private final class RootEnumerationFailureRecorder: @unchecked Sendable {
         }
     }
 
-    func record(_ failedURL: URL) {
+    var issue: MediaLibrarySourceHealthIssue { lock.withLock { storedIssue } }
+
+    func record(_ failedURL: URL, error: (any Error)? = nil) {
         lock.withLock {
             storedDidEncounterFailure = true
+            if let error, MediaLibrarySourceHealthIssue.filesystemError(error) == .permissionDenied {
+                storedIssue = .permissionDenied
+            }
             if failedURL.standardizedFileURL.path == rootPath,
                storedFailedRootURL == nil {
                 storedFailedRootURL = failedURL

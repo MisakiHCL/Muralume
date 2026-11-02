@@ -426,7 +426,7 @@ final class FileSystemMediaLibraryScannerTests: XCTestCase {
         XCTAssertEqual(counter.resourceIdentifierCount, 0)
     }
 
-    func testManyUniqueFileSourcesUseNearLinearIdentityComparison() async {
+    func testManyUniqueFileSourcesUseNearLinearIdentityComparison() async throws {
         let sourceCount = 2_000
         let counter = SourceIdentifierEqualityCounter()
         let scanner = FileSystemMediaLibraryScanner(
@@ -449,17 +449,23 @@ final class FileSystemMediaLibraryScannerTests: XCTestCase {
             )
         }
 
-        do {
-            _ = try await scanner.scan(sources: sources)
-            XCTFail("Expected unavailable synthetic roots")
-        } catch let error as MediaLibraryScanError {
-            guard case .rootUnavailable = error else {
-                return XCTFail("Unexpected scan error: \(error)")
-            }
-        } catch {
-            XCTFail("Unexpected scan error: \(error)")
-        }
+        let snapshot = try await scanner.scan(sources: sources)
 
+        XCTAssertTrue(snapshot.roots.isEmpty)
+        XCTAssertTrue(snapshot.items.isEmpty)
+        XCTAssertEqual(snapshot.sourceDiagnostics.count, sourceCount)
+        XCTAssertEqual(
+            snapshot.incompleteRootPaths,
+            Set(sources.map(\.id.standardizedPath))
+        )
+        for source in sources {
+            XCTAssertEqual(
+                snapshot.sourceDiagnostics[.init(standardizedPath: source.id.standardizedPath)],
+                MediaLibrarySourceScanDiagnostic(
+                    coverage: .unavailable, issue: .temporarilyUnavailable
+                )
+            )
+        }
         XCTAssertLessThan(counter.equalityCount, sourceCount * 2)
     }
 
@@ -748,6 +754,32 @@ final class FileSystemMediaLibraryScannerTests: XCTestCase {
 
         XCTAssertEqual(snapshot.roots.map(\.url), [validRootURL.standardizedFileURL])
         XCTAssertEqual(snapshot.items.map(\.url), [mediaURL.standardizedFileURL])
+        let missingID = MediaLibraryRoot.ID(standardizedPath: missingRootURL.standardizedFileURL.path)
+        XCTAssertEqual(snapshot.sourceDiagnostics[missingID], MediaLibrarySourceScanDiagnostic(
+            coverage: .unavailable, issue: .temporarilyUnavailable
+        ))
+        XCTAssertTrue(snapshot.incompleteRootPaths.contains(missingID.standardizedPath))
+    }
+
+    func testAllUnavailableRootsPreserveSeparateDiagnostics() async throws {
+        let sandboxURL = try makeSandbox()
+        defer { removeSandbox(sandboxURL) }
+        let missing = sandboxURL.appendingPathComponent("Missing", isDirectory: true)
+        let unsupported = sandboxURL.appendingPathComponent("Unsupported.txt")
+        try writeFile(at: unsupported, byteCount: 1)
+        let snapshot = try await FileSystemMediaLibraryScanner().scan(sources: [
+            MediaSource(url: missing, kind: .folder),
+            MediaSource(url: unsupported, kind: .file)
+        ])
+        XCTAssertTrue(snapshot.roots.isEmpty)
+        XCTAssertTrue(snapshot.items.isEmpty)
+        XCTAssertEqual(snapshot.sourceDiagnostics[
+            .init(standardizedPath: missing.standardizedFileURL.path)
+        ]?.issue, .temporarilyUnavailable)
+        XCTAssertEqual(snapshot.sourceDiagnostics[
+            .init(standardizedPath: unsupported.standardizedFileURL.path)
+        ]?.issue, .unknown)
+        XCTAssertEqual(snapshot.incompleteRootPaths.count, 2)
     }
 
     func testUnreadableDescendantDoesNotDiscardOtherMediaInRoot() async throws {
@@ -796,6 +828,9 @@ final class FileSystemMediaLibraryScannerTests: XCTestCase {
             snapshot.incompleteRootPaths,
             [rootURL.standardizedFileURL.path]
         )
+        XCTAssertEqual(snapshot.sourceDiagnostics[
+            .init(standardizedPath: rootURL.standardizedFileURL.path)
+        ], MediaLibrarySourceScanDiagnostic(coverage: .incomplete, issue: .permissionDenied))
     }
 
     private func makeSandbox() throws -> URL {

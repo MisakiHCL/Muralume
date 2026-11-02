@@ -422,3 +422,22 @@
 "playlists.authorization.failed" = "无法保存所选视频的访问权限，请重新选择后再试。";
 "playlists.access.preserveFailed" = "无法移除媒体来源";
 "playlists.access.preserveFailed.message" = "未能为播放列表保留视频访问权限，因此未移除此媒体来源。请重试。";
+
+// Media source health
+"library.source.health.notScanned" = "尚未扫描";
+"library.source.health.scanning" = "正在刷新…";
+"library.source.health.ready" = "已是最新";
+"library.source.health.unavailable" = "不可用";
+"library.source.health.incomplete" = "扫描不完整";
+"library.source.health.failed" = "刷新失败";
+"library.source.health.issue.authorizationRequired" = "需要授予访问权限。";
+"library.source.health.issue.permissionDenied" = "读取权限被拒绝。";
+"library.source.health.issue.temporarilyUnavailable" = "此来源暂时不可用。";
+"library.source.health.issue.sourceMissing" = "在已保存的位置找不到此来源。";
+"library.source.health.issue.timeLimitExceeded" = "刷新已达到时间限制。";
+"library.source.health.issue.memoryLimitExceeded" = "刷新已达到内存限制。";
+"library.source.health.issue.unknown" = "无法刷新此来源。";
+"library.source.health.lastRefresh" = "上次成功刷新：%@";
+"library.source.health.lastRefresh.unknown" = "上次刷新时间未知";
+"library.source.health.statusReason" = "%@。%@";
+"library.source.health.needsAttention" = "部分媒体来源需要处理";

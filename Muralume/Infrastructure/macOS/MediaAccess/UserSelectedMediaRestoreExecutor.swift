@@ -55,11 +55,13 @@ struct MediaSourceURLInspector {
     }
 
     static func liveSourceKind(at url: URL) -> MediaSourceKind? {
-        guard let values = try? url.resourceValues(
+        try? sourceKind(at: url)
+    }
+
+    static func sourceKind(at url: URL) throws -> MediaSourceKind? {
+        let values = try url.resourceValues(
             forKeys: [.isDirectoryKey, .isRegularFileKey]
-        ) else {
-            return nil
-        }
+        )
         if values.isDirectory == true {
             return .folder
         }
@@ -220,6 +222,7 @@ final class ExecutorOwnedPreparedMediaSourceRestore: @unchecked Sendable {
 
 enum MediaSourceRestorePreparation: @unchecked Sendable {
     case unavailable
+    case unavailableWithIssue(MediaLibrarySourceHealthIssue)
     case resolved(ExecutorOwnedPreparedMediaSourceRestore)
 }
 
@@ -461,7 +464,7 @@ private final class DetachedRestorePreparationCoordinator:
         }
 
         switch result {
-        case .unavailable:
+        case .unavailable, .unavailableWithIssue:
             if workItem.didRequestCancellation,
                !workItem.requestIDs.isEmpty {
                 // A retry may have joined after the previous caller cancelled
@@ -475,7 +478,7 @@ private final class DetachedRestorePreparationCoordinator:
                 for requestID in requestIDs {
                     if let delivery = completeRequestLocked(
                         requestID,
-                        with: .unavailable
+                        with: result
                     ) {
                         deliveries.append(delivery)
                     }
@@ -653,17 +656,25 @@ struct UserSelectedMediaRestoreExecutor: Sendable {
         }
 
         var isStale = false
-        guard let resolvedURL = try? URL(
-            resolvingBookmarkData: bookmark,
-            options: [
-                .withSecurityScope,
-                .withoutUI,
-                .withoutMounting
-            ],
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        ), !Task.isCancelled,
-        resolvedURL.startAccessingSecurityScopedResource() else {
+        let resolvedURL: URL
+        do {
+            resolvedURL = try URL(
+                resolvingBookmarkData: bookmark,
+                options: [
+                    .withSecurityScope,
+                    .withoutUI,
+                    .withoutMounting
+                ],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            )
+        } catch {
+            return unavailablePreparation(for: error)
+        }
+        guard !Task.isCancelled,
+              resolvedURL.startAccessingSecurityScopedResource() else {
+            // The API does not explain a refusal. In particular, it cannot
+            // distinguish an unavailable resource from expired authorization.
             return .unavailable
         }
         var executorOwnsScope = true
@@ -680,10 +691,16 @@ struct UserSelectedMediaRestoreExecutor: Sendable {
         let linkResolution = MediaSourceURLInspector.linkResolution(
             for: resolvedURL
         )
-        guard !Task.isCancelled,
-        MediaSourceURLInspector.liveSourceKind(
-            at: linkResolution.targetURL
-        ) == kind,
+        guard !Task.isCancelled else { return .unavailable }
+        let resolvedKind: MediaSourceKind?
+        do {
+            resolvedKind = try MediaSourceURLInspector.sourceKind(
+                at: linkResolution.targetURL
+            )
+        } catch {
+            return unavailablePreparation(for: error)
+        }
+        guard !Task.isCancelled, resolvedKind == kind,
         MediaSourceURLInspector.isSupported(
             kind: kind,
             url: linkResolution.targetURL
@@ -723,5 +740,12 @@ struct UserSelectedMediaRestoreExecutor: Sendable {
         )
         executorOwnsScope = false
         return .resolved(preparedRestore)
+    }
+
+    private static func unavailablePreparation(
+        for error: any Error
+    ) -> MediaSourceRestorePreparation {
+        let issue = MediaLibrarySourceHealthIssue.filesystemError(error)
+        return issue == .unknown ? .unavailable : .unavailableWithIssue(issue)
     }
 }

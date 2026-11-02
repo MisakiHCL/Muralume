@@ -185,6 +185,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
     private var activeKeyByResourceIdentifier: [NSObject: String] = [:]
     private var activeFolderKeys: Set<String> = []
     private var unavailableStoredRecordValues: [Any] = []
+    private var unavailableSourceIssues:
+        [UnavailableMediaSource.ID: MediaLibrarySourceHealthIssue] = [:]
     private var unavailableLegacyBookmarks: [Data] = []
     private var deferredStoredRecordValues: ArraySlice<Any> = []
     private var deferredLegacyBookmarks: ArraySlice<Data> = []
@@ -227,7 +229,14 @@ final class UserSelectedMediaSession: MediaAccessSession {
     var unavailablePersistedSources: [UnavailableMediaSource] {
         unavailableStoredRecordValues
             .compactMap(PersistedSourceRecord.init(storedValue:))
-            .compactMap(\.unavailableSource)
+            .compactMap { record -> UnavailableMediaSource? in
+                guard let source = record.unavailableSource else { return nil }
+                return UnavailableMediaSource(
+                    id: source.id, displayName: source.displayName,
+                    lastKnownURL: source.lastKnownURL, kind: source.kind,
+                    issue: unavailableSourceIssues[source.id]
+                )
+            }
             .reduce(into: [UnavailableMediaSource.ID: UnavailableMediaSource]()) {
                 sourcesByID, source in
                 sourcesByID[source.id] = source
@@ -382,6 +391,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
         legacyBookmarks: [Data]
     ) {
         unavailableStoredRecordValues = []
+        unavailableSourceIssues = [:]
         unavailableLegacyBookmarks = []
         deferredStoredRecordValues = []
         deferredLegacyBookmarks = []
@@ -468,6 +478,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
         asyncPendingLinkedStoredRecordValues = []
         asyncPendingLinkedLegacyBookmarks = []
         unavailableStoredRecordValues = []
+        unavailableSourceIssues = [:]
         unavailableLegacyBookmarks = []
         deferredStoredRecordValues = []
         deferredLegacyBookmarks = []
@@ -758,6 +769,22 @@ final class UserSelectedMediaSession: MediaAccessSession {
         _ urls: [URL],
         incomingScopePolicy: MediaAccessIncomingScopePolicy
     ) -> MediaAccessUpdate {
+        addSources(urls, incomingScopePolicy: incomingScopePolicy, refreshingSource: nil)
+    }
+
+    func reauthorizeSource(
+        _ source: MediaSource, selectedURL: URL
+    ) -> MediaAccessUpdate? {
+        let update = addSources(
+            [selectedURL], incomingScopePolicy: .sessionManaged, refreshingSource: source
+        )
+        return update.acceptedRequestCount == 1 && update.didChangeSources ? update : nil
+    }
+
+    private func addSources(
+        _ urls: [URL], incomingScopePolicy: MediaAccessIncomingScopePolicy,
+        refreshingSource: MediaSource?
+    ) -> MediaAccessUpdate {
         _ = restoreSources()
         var requestedFileURLs: [URL] = []
         var requestedFileIDs: Set<LibraryMediaItem.ID> = []
@@ -815,13 +842,23 @@ final class UserSelectedMediaSession: MediaAccessSession {
             )
             let selectedComparisonURL = selectedLinkResolution.targetURL
                 .standardizedFileURL
-            let selectedDisposition = disposition(
+            var selectedDisposition = disposition(
                 for: selectedSource,
                 comparisonURL: selectedComparisonURL,
                 resourceIdentifier: MediaSourceURLInspector.resourceIdentifier(
                     for: selectedComparisonURL
                 )
             )
+            if let refreshingSource {
+                guard !selectedLinkResolution.didResolveLink,
+                      let key = exactRefreshKey(
+                        for: refreshingSource, url: selectedComparisonURL, kind: selectedKind
+                      ) else {
+                    recordRejection()
+                    continue
+                }
+                selectedDisposition = .insert(replacingKeys: [key])
+            }
             if selectedLinkResolution.didResolveLink {
                 if case .covered = selectedDisposition {
                     acceptedRequestCount += 1
@@ -918,11 +955,21 @@ final class UserSelectedMediaSession: MediaAccessSession {
                 }
                 continue
             }
-            let resolvedDisposition = disposition(
+            var resolvedDisposition = disposition(
                 for: resolvedSource,
                 comparisonURL: resolvedComparisonURL,
                 resourceIdentifier: resolvedResourceIdentifier
             )
+            if let refreshingSource {
+                guard let key = exactRefreshKey(
+                    for: refreshingSource, url: resolvedComparisonURL, kind: resolvedKind
+                ) else {
+                    securityAccess.stopAccess(resolvedURL)
+                    recordRejection()
+                    continue
+                }
+                resolvedDisposition = .insert(replacingKeys: [key])
+            }
             if case let .rejected(reason) = resolvedDisposition {
                 securityAccess.stopAccess(resolvedURL)
                 recordRejection(reason)
@@ -973,7 +1020,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
                     resolvedSource,
                     bookmark: activeBookmark,
                     replacingKeys: replacingKeys,
-                    resourceIdentifier: resolvedResourceIdentifier
+                    resourceIdentifier: resolvedResourceIdentifier,
+                    persistedRecord: refreshedRecord(for: refreshingSource, bookmark: activeBookmark)
                 )
                 hasUnpersistedSourceChanges = true
                 // A replacement is the one mid-batch durability barrier: the
@@ -1008,8 +1056,28 @@ final class UserSelectedMediaSession: MediaAccessSession {
         _ urls: [URL],
         incomingScopePolicy: MediaAccessIncomingScopePolicy
     ) async -> MediaAccessUpdate {
+        await addSourcesAsync(
+            urls, incomingScopePolicy: incomingScopePolicy, refreshingSource: nil
+        )
+    }
+
+    func reauthorizeSourceAsync(
+        _ source: MediaSource, selectedURL: URL
+    ) async -> MediaAccessUpdate? {
+        let update = await addSourcesAsync(
+            [selectedURL], incomingScopePolicy: .sessionManaged, refreshingSource: source
+        )
+        return update.acceptedRequestCount == 1 && update.didChangeSources ? update : nil
+    }
+
+    private func addSourcesAsync(
+        _ urls: [URL], incomingScopePolicy: MediaAccessIncomingScopePolicy,
+        refreshingSource: MediaSource?
+    ) async -> MediaAccessUpdate {
         guard let importExecutor, let restoreExecutor else {
-            return addSources(urls, incomingScopePolicy: incomingScopePolicy)
+            return addSources(
+                urls, incomingScopePolicy: incomingScopePolicy, refreshingSource: refreshingSource
+            )
         }
         let incomingLeases = urls.map { url in
             importExecutor.incomingLease(for: url, policy: incomingScopePolicy)
@@ -1060,7 +1128,18 @@ final class UserSelectedMediaSession: MediaAccessSession {
                     reject(.unsupportedFileFormat)
                     continue
                 }
-                let selectedDisposition = importDisposition(selected)
+                var selectedDisposition = importDisposition(selected)
+                if let refreshingSource {
+                    guard !selected.linkResolution.didResolveLink,
+                          let key = exactRefreshKey(
+                            for: refreshingSource, url: selected.linkResolution.targetURL,
+                            kind: selectedKind
+                          ) else {
+                        reject()
+                        continue
+                    }
+                    selectedDisposition = .insert(replacingKeys: [key])
+                }
                 if case .covered = selectedDisposition {
                     acceptedCount += 1
                     if selectedKind == .file {
@@ -1112,7 +1191,18 @@ final class UserSelectedMediaSession: MediaAccessSession {
                     reject()
                     continue
                 }
-                let disposition = importDisposition(resolved)
+                var disposition = importDisposition(resolved)
+                if let refreshingSource {
+                    guard !resolved.linkResolution.didResolveLink,
+                          let key = exactRefreshKey(
+                            for: refreshingSource, url: resolved.linkResolution.targetURL,
+                            kind: resolvedKind
+                          ) else {
+                        reject()
+                        continue
+                    }
+                    disposition = .insert(replacingKeys: [key])
+                }
                 if case .covered = disposition {
                     acceptedCount += 1
                     if resolvedKind == .file {
@@ -1144,6 +1234,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
                     source, bookmark: activeBookmark,
                     replacingKeys: replacingKeys,
                     resourceIdentifier: resolved.resourceIdentifier,
+                    persistedRecord: refreshedRecord(for: refreshingSource, bookmark: activeBookmark),
                     comparisonPath: resolved.linkResolution.targetURL.path
                 )
                 ownedRestore.transferScopeToSession()
@@ -1276,6 +1367,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
     }
 
     func removeUnavailableSource(_ source: UnavailableMediaSource) {
+        unavailableSourceIssues[source.id] = nil
         unavailableStoredRecordValues.removeAll { storedValue in
             PersistedSourceRecord(storedValue: storedValue)?
                 .unavailableSource?.id == source.id
@@ -1297,6 +1389,7 @@ final class UserSelectedMediaSession: MediaAccessSession {
         activeKeyByResourceIdentifier.removeAll()
         activeFolderKeys.removeAll()
         unavailableStoredRecordValues.removeAll()
+        unavailableSourceIssues.removeAll()
         unavailableLegacyBookmarks.removeAll()
         deferredStoredRecordValues.removeAll()
         deferredLegacyBookmarks.removeAll()
@@ -1384,6 +1477,28 @@ final class UserSelectedMediaSession: MediaAccessSession {
         case covered
         case rejected(MediaAccessRejectionReason)
         case insert(replacingKeys: [String])
+    }
+
+    private func exactRefreshKey(
+        for source: MediaSource, url: URL, kind: MediaSourceKind
+    ) -> String? {
+        let key = source.id.standardizedPath
+        guard source.kind == kind,
+              url.standardizedFileURL.path == key,
+              activeSourcesByKey[key]?.kind == kind else { return nil }
+        return key
+    }
+
+    private func refreshedRecord(
+        for source: MediaSource?, bookmark: Data
+    ) -> PersistedSourceRecord? {
+        guard let source,
+              let previous = activeRecordsByKey[source.id.standardizedPath] else { return nil }
+        return PersistedSourceRecord(
+            kind: source.kind, bookmark: bookmark,
+            identifier: previous.identifier, displayName: previous.displayName,
+            lastKnownPath: previous.lastKnownPath
+        )
     }
 
     private func canInstallSource(replacingKeys: [String]) -> Bool {
@@ -1621,6 +1736,8 @@ final class UserSelectedMediaSession: MediaAccessSession {
         switch preparation {
         case .unavailable:
             preserveUnavailable(candidate)
+        case let .unavailableWithIssue(issue):
+            preserveUnavailable(candidate, issue: issue)
         case let .resolved(executorOwnedRestore):
             let prepared = executorOwnedRestore.restore
             let preparedDisposition: SourceDisposition?
@@ -1789,7 +1906,21 @@ final class UserSelectedMediaSession: MediaAccessSession {
         return comparisonURL
     }
 
-    private func preserveUnavailable(_ candidate: RestoreCandidate) {
+    private func preserveUnavailable(
+        _ candidate: RestoreCandidate,
+        issue: MediaLibrarySourceHealthIssue? = nil
+    ) {
+        if let source = candidate.record.unavailableSource {
+            // Diagnostic observations are process-local and bounded separately
+            // from preserved raw records. Never rewrite a bookmark for a reason.
+            if let issue,
+               unavailableSourceIssues[source.id] != nil
+                || unavailableSourceIssues.count < MediaImportPolicy.maximumActiveSourceCount {
+                unavailableSourceIssues[source.id] = issue
+            } else if issue == nil {
+                unavailableSourceIssues[source.id] = nil
+            }
+        }
         switch candidate.origin {
         case let .typed(storedValue):
             unavailableStoredRecordValues.append(storedValue)

@@ -35,6 +35,7 @@ enum MediaLibraryScanError: Error, Equatable, Sendable {
     case cannotEnumerateRoot(URL)
     case enumerationFailed(rootURL: URL, failedURL: URL)
     case resourceAccessFailed(URL)
+    case permissionDenied(URL)
     case timeLimitExceeded
     case memoryLimitExceeded
 }

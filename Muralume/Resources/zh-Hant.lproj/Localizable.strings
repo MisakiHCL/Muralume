@@ -422,3 +422,22 @@
 "playlists.authorization.failed" = "無法儲存所選影片的存取權，請重新選取後再試一次。";
 "playlists.access.preserveFailed" = "無法移除媒體來源";
 "playlists.access.preserveFailed.message" = "無法為播放清單保留此來源影片的存取權，因此未移除來源。請再試一次。";
+
+// Media source health
+"library.source.health.notScanned" = "尚未掃描";
+"library.source.health.scanning" = "正在重新整理…";
+"library.source.health.ready" = "已是最新";
+"library.source.health.unavailable" = "無法使用";
+"library.source.health.incomplete" = "掃描不完整";
+"library.source.health.failed" = "重新整理失敗";
+"library.source.health.issue.authorizationRequired" = "需要授予存取權。";
+"library.source.health.issue.permissionDenied" = "讀取權限遭到拒絕。";
+"library.source.health.issue.temporarilyUnavailable" = "此來源暫時無法使用。";
+"library.source.health.issue.sourceMissing" = "在儲存的位置找不到此來源。";
+"library.source.health.issue.timeLimitExceeded" = "重新整理已達時間限制。";
+"library.source.health.issue.memoryLimitExceeded" = "重新整理已達記憶體限制。";
+"library.source.health.issue.unknown" = "無法重新整理此來源。";
+"library.source.health.lastRefresh" = "上次成功重新整理：%@";
+"library.source.health.lastRefresh.unknown" = "上次重新整理時間未知";
+"library.source.health.statusReason" = "%@。%@";
+"library.source.health.needsAttention" = "部分媒體來源需要處理";

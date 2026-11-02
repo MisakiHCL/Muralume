@@ -422,3 +422,22 @@
 "playlists.authorization.failed" = "Could not save access to the selected videos. Select them again and try again.";
 "playlists.access.preserveFailed" = "Couldn’t Remove Media Source";
 "playlists.access.preserveFailed.message" = "Could not preserve access to this source's playlist videos. The source has been kept; try again.";
+
+// Media source health
+"library.source.health.notScanned" = "Not scanned";
+"library.source.health.scanning" = "Refreshing…";
+"library.source.health.ready" = "Up to date";
+"library.source.health.unavailable" = "Unavailable";
+"library.source.health.incomplete" = "Incomplete";
+"library.source.health.failed" = "Refresh failed";
+"library.source.health.issue.authorizationRequired" = "Access permission is required.";
+"library.source.health.issue.permissionDenied" = "Read access was denied.";
+"library.source.health.issue.temporarilyUnavailable" = "Source is temporarily unavailable.";
+"library.source.health.issue.sourceMissing" = "Source was not found at its saved location.";
+"library.source.health.issue.timeLimitExceeded" = "Refresh reached the time limit.";
+"library.source.health.issue.memoryLimitExceeded" = "Refresh reached the memory limit.";
+"library.source.health.issue.unknown" = "Source could not be refreshed.";
+"library.source.health.lastRefresh" = "Last successful refresh: %@";
+"library.source.health.lastRefresh.unknown" = "Last refresh time unknown";
+"library.source.health.statusReason" = "%@. %@";
+"library.source.health.needsAttention" = "Some media sources need attention";

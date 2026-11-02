@@ -422,3 +422,22 @@
 "playlists.authorization.failed" = "선택한 동영상의 접근 권한을 저장할 수 없습니다. 동영상을 다시 선택하고 시도하세요.";
 "playlists.access.preserveFailed" = "미디어 소스를 제거할 수 없습니다";
 "playlists.access.preserveFailed.message" = "이 미디어 소스의 동영상을 재생목록에서 계속 사용할 수 있도록 접근 권한을 유지하지 못했습니다. 미디어 소스는 제거하지 않았습니다. 다시 시도하세요.";
+
+// Media source health
+"library.source.health.notScanned" = "스캔 안 함";
+"library.source.health.scanning" = "새로 고침 중…";
+"library.source.health.ready" = "최신 상태";
+"library.source.health.unavailable" = "사용 불가";
+"library.source.health.incomplete" = "스캔 미완료";
+"library.source.health.failed" = "새로 고침 실패";
+"library.source.health.issue.authorizationRequired" = "접근 권한이 필요합니다.";
+"library.source.health.issue.permissionDenied" = "읽기 권한이 거부되었습니다.";
+"library.source.health.issue.temporarilyUnavailable" = "이 소스를 일시적으로 사용할 수 없습니다.";
+"library.source.health.issue.sourceMissing" = "저장된 위치에서 소스를 찾을 수 없습니다.";
+"library.source.health.issue.timeLimitExceeded" = "새로 고침이 시간 제한에 도달했습니다.";
+"library.source.health.issue.memoryLimitExceeded" = "새로 고침이 메모리 제한에 도달했습니다.";
+"library.source.health.issue.unknown" = "이 소스를 새로 고칠 수 없습니다.";
+"library.source.health.lastRefresh" = "마지막 새로 고침 성공: %@";
+"library.source.health.lastRefresh.unknown" = "마지막 새로 고침 시간 알 수 없음";
+"library.source.health.statusReason" = "%@. %@";
+"library.source.health.needsAttention" = "일부 미디어 소스를 확인해야 합니다";

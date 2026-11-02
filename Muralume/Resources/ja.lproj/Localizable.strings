@@ -422,3 +422,22 @@
 "playlists.authorization.failed" = "選択した動画へのアクセス権を保存できませんでした。もう一度選択して、再試行してください。";
 "playlists.access.preserveFailed" = "メディアソースを取り除けませんでした";
 "playlists.access.preserveFailed.message" = "このソースのプレイリスト動画へのアクセスを保持できなかったため、ソースを取り除きませんでした。もう一度お試しください。";
+
+// Media source health
+"library.source.health.notScanned" = "未スキャン";
+"library.source.health.scanning" = "更新中…";
+"library.source.health.ready" = "最新の状態";
+"library.source.health.unavailable" = "利用不可";
+"library.source.health.incomplete" = "スキャン未完了";
+"library.source.health.failed" = "更新に失敗";
+"library.source.health.issue.authorizationRequired" = "アクセス許可が必要です。";
+"library.source.health.issue.permissionDenied" = "読み取りが許可されていません。";
+"library.source.health.issue.temporarilyUnavailable" = "このソースは一時的に利用できません。";
+"library.source.health.issue.sourceMissing" = "保存された場所にソースが見つかりません。";
+"library.source.health.issue.timeLimitExceeded" = "更新が制限時間に達しました。";
+"library.source.health.issue.memoryLimitExceeded" = "更新がメモリ使用量の上限に達しました。";
+"library.source.health.issue.unknown" = "このソースを更新できませんでした。";
+"library.source.health.lastRefresh" = "前回正常に更新した日時：%@";
+"library.source.health.lastRefresh.unknown" = "最終更新日時は不明です";
+"library.source.health.statusReason" = "%@。%@";
+"library.source.health.needsAttention" = "対応が必要なメディアソースがあります";
