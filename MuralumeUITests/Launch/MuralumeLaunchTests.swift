@@ -1450,8 +1450,8 @@ final class MuralumeLaunchTests: XCTestCase {
             file: file,
             line: line
         )
-        XCTAssertFalse(
-            application.menuBars.menuBarItems["Edit"].exists,
+        XCTAssertTrue(
+            application.menuBars.menuBarItems["Edit"].waitForExistence(timeout: 5),
             file: file,
             line: line
         )
