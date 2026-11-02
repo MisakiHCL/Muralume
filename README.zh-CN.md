@@ -19,6 +19,8 @@
   <a href="https://apps.apple.com/app/id6799577992"><strong>Mac App Store</strong></a>
   ·
   <a href="https://github.com/MisakiHCL/Muralume/releases/latest"><strong>GitHub Release</strong></a>
+  ·
+  <a href="https://hclgame.com/muralume"><strong>官网</strong></a>
   <br>
   免费 · 原生 Mac 应用 · Apple 芯片 · macOS 14+
 </p>

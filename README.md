@@ -19,6 +19,8 @@
   <a href="https://apps.apple.com/app/id6799577992"><strong>Mac App Store</strong></a>
   ·
   <a href="https://github.com/MisakiHCL/Muralume/releases/latest"><strong>GitHub Release</strong></a>
+  ·
+  <a href="https://hclgame.com/muralume"><strong>Website</strong></a>
   <br>
   Free · Native Mac app · Apple silicon · macOS 14+
 </p>
