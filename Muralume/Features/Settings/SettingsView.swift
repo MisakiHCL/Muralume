@@ -30,6 +30,9 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
 struct SettingsView: View {
     @EnvironmentObject private var localization: AppLocalizationController
     @State private var selectedCategory = SettingsCategory.general
+    // One font-directory snapshot per settings presentation. Closing settings
+    // releases it; reopening picks up installed/removed fonts without a global cache.
+    @State private var subtitleFontFamilies: [String] = []
     @ObservedObject var playback: PlaybackCoordinator
     @ObservedObject var dynamicDesktopStartup:
         DynamicDesktopStartupController
@@ -65,6 +68,11 @@ struct SettingsView: View {
         .onAppear {
             dynamicDesktopStartup.refresh()
             defaultVideoPlayer.refresh()
+        }
+        .task {
+            if let families = await SubtitleFontFamilyLoader.load() {
+                subtitleFontFamilies = families
+            }
         }
     }
 
@@ -186,7 +194,8 @@ struct SettingsView: View {
             smartPauseSection
         case .subtitles:
             SubtitleAppearanceSettingsView(
-                appearance: subtitleAppearance
+                appearance: subtitleAppearance,
+                availableFontFamilies: subtitleFontFamilies
             )
         }
     }

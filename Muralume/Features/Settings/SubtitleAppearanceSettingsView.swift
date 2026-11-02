@@ -2,27 +2,9 @@ import AppKit
 import SwiftUI
 
 struct SubtitleAppearanceSettingsView: View {
+    @EnvironmentObject private var localization: AppLocalizationController
     @ObservedObject var appearance: SubtitleAppearanceController
-
-    private let availableFontFamilies: [String]
-
-    init(appearance: SubtitleAppearanceController) {
-        self.appearance = appearance
-        var fontFamilies = Set(
-            NSFontManager.shared.availableFontFamilies.filter {
-                !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    && $0.count
-                        <= SubtitleAppearancePreferences
-                            .maximumFontFamilyNameLength
-            }
-        )
-        if let selectedFamily = appearance.preferences.fontFamilyName {
-            fontFamilies.insert(selectedFamily)
-        }
-        availableFontFamilies = fontFamilies.sorted {
-            $0.localizedStandardCompare($1) == .orderedAscending
-        }
-    }
+    let availableFontFamilies: [String]
 
     var body: some View {
         SettingsSection(
@@ -115,21 +97,17 @@ struct SubtitleAppearanceSettingsView: View {
     }
 
     private var fontPicker: some View {
-        Picker(
-            "settings.subtitles.font",
-            selection: fontFamilyBinding
-        ) {
-            Text("settings.subtitles.font.system")
-                .tag(String?.none)
-            ForEach(availableFontFamilies, id: \.self) { fontFamily in
-                Text(verbatim: fontFamily)
-                    .tag(Optional(fontFamily))
-            }
-        }
-        .labelsHidden()
-        .pickerStyle(.menu)
+        SubtitleFontPicker(
+            fontFamilies: availableFontFamilies,
+            selection: fontFamilyBinding,
+            systemFontTitle: localization.localized(
+                "settings.subtitles.font.system"
+            ),
+            accessibilityLabel: localization.localized(
+                "settings.subtitles.font"
+            )
+        )
         .frame(maxWidth: 180)
-        .accessibilityLabel(Text("settings.subtitles.font"))
     }
 
     private var fontFamilyBinding: Binding<String?> {

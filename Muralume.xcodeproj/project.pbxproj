@@ -39,6 +39,11 @@
 		F18000000000000000000001 /* SubtitleAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18000000000000000000002 /* SubtitleAppearance.swift */; };
 		F18000000000000000000003 /* EmbeddedSubtitleParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18000000000000000000004 /* EmbeddedSubtitleParser.swift */; };
 		F18000000000000000000005 /* SubtitleAppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18000000000000000000006 /* SubtitleAppearanceSettingsView.swift */; };
+		F24000000000000000000011 /* SubtitleFontFamilyLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F24000000000000000000001 /* SubtitleFontFamilyLoader.swift */; };
+		F24000000000000000000012 /* SubtitleFontPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F24000000000000000000002 /* SubtitleFontPicker.swift */; };
+		F24000000000000000000013 /* SubtitleFontFamilyLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F24000000000000000000003 /* SubtitleFontFamilyLoaderTests.swift */; };
+		F24000000000000000000014 /* SubtitleFontPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F24000000000000000000004 /* SubtitleFontPickerTests.swift */; };
+		F24000000000000000000015 /* SubtitleSettingsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F24000000000000000000005 /* SubtitleSettingsUITests.swift */; };
 		3F17219CF978658459118E51 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D3F2E5966FB709EA70C9D0D3 /* Cocoa.framework */; };
 		48F762B8D1EEAE1720420B00 /* LaunchAtLoginController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 122FC8442E8C165BB5468F59 /* LaunchAtLoginController.swift */; };
 		4B347BA8B5DD46B3D778F622 /* LibrarySidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175A64BC45FA05F76881C95C /* LibrarySidebar.swift */; };
@@ -475,6 +480,11 @@
 		F18000000000000000000002 /* SubtitleAppearance.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SubtitleAppearance.swift; sourceTree = "<group>"; };
 		F18000000000000000000004 /* EmbeddedSubtitleParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EmbeddedSubtitleParser.swift; sourceTree = "<group>"; };
 		F18000000000000000000006 /* SubtitleAppearanceSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SubtitleAppearanceSettingsView.swift; sourceTree = "<group>"; };
+		F24000000000000000000001 /* SubtitleFontFamilyLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleFontFamilyLoader.swift; sourceTree = "<group>"; };
+		F24000000000000000000002 /* SubtitleFontPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleFontPicker.swift; sourceTree = "<group>"; };
+		F24000000000000000000003 /* SubtitleFontFamilyLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleFontFamilyLoaderTests.swift; sourceTree = "<group>"; };
+		F24000000000000000000004 /* SubtitleFontPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleFontPickerTests.swift; sourceTree = "<group>"; };
+		F24000000000000000000005 /* SubtitleSettingsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleSettingsUITests.swift; sourceTree = "<group>"; };
 		EB1000000000000000000004 /* SubtitleSidecarDiscovery.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SubtitleSidecarDiscovery.swift; sourceTree = "<group>"; };
 		EB1000000000000000000005 /* UserDefaultsExternalSubtitleAssociationStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserDefaultsExternalSubtitleAssociationStore.swift; sourceTree = "<group>"; };
 		EB1000000000000000000006 /* MacExternalSubtitlePicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacExternalSubtitlePicker.swift; sourceTree = "<group>"; };
@@ -723,6 +733,7 @@
 			children = (
 				6E822D51DC4B3787E4B76B0B /* MuralumeLaunchTests.swift */,
 				FD56AECAD1E8B894629AA8D2 /* LocalizationUITests.swift */,
+				F24000000000000000000005 /* SubtitleSettingsUITests.swift */,
 				798F5627A4DC45809A48DF2F /* MediaBrowserUITests.swift */,
 				1826AFF0BFD2A23D3EF5F685 /* PlaylistMediaBrowserUITests.swift */,
 				4BF03DD89761D2616AD974EF /* SourceHealthUITests.swift */,
@@ -799,6 +810,8 @@
 				AC0000000000000000000005 /* AppLocalizationControllerTests.swift */,
 				AE830E76E11AA164831EE753 /* MultilingualLocalizationTests.swift */,
 				B30000000000000000000002 /* AppPreferencesStoreTests.swift */,
+				F24000000000000000000003 /* SubtitleFontFamilyLoaderTests.swift */,
+				F24000000000000000000004 /* SubtitleFontPickerTests.swift */,
 				FA0000000000000000000003 /* DefaultVideoPlayerControllerTests.swift */,
 				A25C19E5FB9B403F8E1080FB /* DesktopSessionCoordinatorTests.swift */,
 				AA000000000000000000000A /* MediaLibraryCoordinatorTests.swift */,
@@ -1145,6 +1158,8 @@
 			children = (
 				AC0000000000000000000004 /* SettingsView.swift */,
 				F18000000000000000000006 /* SubtitleAppearanceSettingsView.swift */,
+				F24000000000000000000001 /* SubtitleFontFamilyLoader.swift */,
+				F24000000000000000000002 /* SubtitleFontPicker.swift */,
 			);
 			name = Settings;
 			path = Settings;
@@ -1542,6 +1557,8 @@
 				F13000000000000000000001 /* MediaLibraryChangeMonitoring.swift in Sources */,
 				AC0000000000000000000014 /* SettingsView.swift in Sources */,
 				F18000000000000000000005 /* SubtitleAppearanceSettingsView.swift in Sources */,
+				F24000000000000000000011 /* SubtitleFontFamilyLoader.swift in Sources */,
+				F24000000000000000000012 /* SubtitleFontPicker.swift in Sources */,
 				74CB2874C8E84DCB9FB68E95 /* PlaybackFailure+Localization.swift in Sources */,
 				353A5218136446D38C6974E8 /* PlayerActions.swift in Sources */,
 				03DFE42FCA314D64B3B0A234 /* PlayerControlBar.swift in Sources */,
@@ -1642,6 +1659,7 @@
 			files = (
 				59A747D39B0D485767C9F57B /* MuralumeLaunchTests.swift in Sources */,
 				F8BAF6A301E61BEE7D3645B1 /* LocalizationUITests.swift in Sources */,
+				F24000000000000000000015 /* SubtitleSettingsUITests.swift in Sources */,
 				A8C0E5802E7E4F63868F22AA /* MediaBrowserUITests.swift in Sources */,
 				91759322B2B135FDE0AF442F /* PlaylistMediaBrowserUITests.swift in Sources */,
 				7B02A5983BE0A278CAED96AC /* SourceHealthUITests.swift in Sources */,
@@ -1676,6 +1694,8 @@
 				AC0000000000000000000015 /* AppLocalizationControllerTests.swift in Sources */,
 				0E50D8FDEBB2B80A6D8B4F57 /* MultilingualLocalizationTests.swift in Sources */,
 				B30000000000000000000012 /* AppPreferencesStoreTests.swift in Sources */,
+				F24000000000000000000013 /* SubtitleFontFamilyLoaderTests.swift in Sources */,
+				F24000000000000000000014 /* SubtitleFontPickerTests.swift in Sources */,
 				2471A0C9790F4BD3A0BF8A31 /* DesktopSessionCoordinatorTests.swift in Sources */,
 				AA000000000000000000001A /* MediaLibraryCoordinatorTests.swift in Sources */,
 				082ACD51091E20FD0D010771 /* MediaLibrarySourceHealthTests.swift in Sources */,

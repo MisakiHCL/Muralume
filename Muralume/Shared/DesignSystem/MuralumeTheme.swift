@@ -292,6 +292,7 @@ enum MuralumeAccessibilityIdentifier {
         "muralume.settings-section.subtitles"
     static let settingsSubtitleFontRow =
         "muralume.settings-row.subtitles.font"
+    static let subtitleFontPicker = "muralume.settings.subtitles.font-picker"
     static let settingsSubtitleFontSizeRow =
         "muralume.settings-row.subtitles.font-size"
     static let settingsSubtitleTextColorRow =
