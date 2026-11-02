@@ -295,8 +295,8 @@ private final class FSEventsNativeProbe: @unchecked Sendable {
     }
 
     func emitCallbacks() {
-        let callbacks = lock.withLock { callbacks }
-        callbacks.forEach { $0() }
+        let pendingCallbacks = lock.withLock { self.callbacks }
+        pendingCallbacks.forEach { $0() }
     }
 
     func recordCallback() { lock.withLock { storedCallbackCount += 1 } }
