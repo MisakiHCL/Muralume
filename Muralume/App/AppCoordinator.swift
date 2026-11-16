@@ -37,6 +37,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     private let sourceAccessRecoveryMonitor:
         any MediaSourceAccessRecoveryMonitoring
     private var automaticLibraryRefreshCancellables: Set<AnyCancellable> = []
+    private var libraryStartupTask: Task<MediaLibraryStartDisposition, Never>?
     private var initialRestoreTask: Task<Void, Never>?
     private var sourceAccessRetryTask: Task<Void, Never>?
     private var mediaImportTasks: [UUID: Task<Void, Never>] = [:]
@@ -198,6 +199,21 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             folderURLs: library.monitoredFolderURLs
         )
         dynamicDesktopStartup.refresh()
+
+        // Finder opens can supersede playback restoration during launch.
+        // Keep the saved library sources loading for the sidebar.
+        let libraryStartup = Task { [weak self] () -> MediaLibraryStartDisposition in
+            guard let self else { return .alreadyStarted }
+            defer { libraryStartupTask = nil }
+            guard !isShutDown else { return .alreadyStarted }
+            await customPlaylistPlaybackBridge.startAndWait()
+            guard !isShutDown else { return .alreadyStarted }
+            return await library.startAsync {
+                externalOpenTask != nil
+            }
+        }
+        libraryStartupTask = libraryStartup
+
         initialRestoreGeneration &+= 1
         let generation = initialRestoreGeneration
         initialRestoreTask = Task { [weak self] in
@@ -212,13 +228,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                 initialRestoreTask = nil
             }
 
-            await customPlaylistPlaybackBridge.startAndWait()
-            guard generation == initialRestoreGeneration,
-                  !isShutDown else {
-                return
-            }
-
-            let libraryStart = await library.startAsync()
+            let libraryStart = await libraryStartup.value
             guard generation == initialRestoreGeneration,
                   !isShutDown else {
                 return
@@ -725,6 +735,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             defer {
                 if generation == externalOpenGeneration {
                     externalOpenTask = nil
+                    library.refreshDeferredSourcesIfNeeded()
                 }
             }
             if let pendingInitialRestore {
@@ -795,7 +806,6 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                     playLibraryItem(libraryItem)
                 }
                 playerChrome.selectLibrarySidebarSection(.mediaLibrary)
-                library.refreshDeferredSourcesIfNeeded()
                 return
             }
 
@@ -809,8 +819,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                 playerChrome.selectLibrarySidebarSection(.playQueue)
             } else if dynamicDesktopReturnContext != nil {
                 restoreDynamicDesktop()
+                library.refreshDeferredSourcesIfNeeded()
             }
-            library.refreshDeferredSourcesIfNeeded()
         }
     }
 
@@ -907,6 +917,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         externalOpenTask = nil
         clearDynamicDesktopReturnContext()
 
+        let pendingLibraryStartup = libraryStartupTask
+        pendingLibraryStartup?.cancel()
         let pendingInitialRestore = cancelInitialRestore(
             disposition: .shutdown
         )
@@ -921,6 +933,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         desktopScene?.shutdown()
         desktopSession.shutdown()
         await pendingInitialRestore?.value
+        _ = await pendingLibraryStartup?.value
         await pendingSourceAccessRetry?.value
         await pendingExternalOpen?.value
         for task in pendingMediaImports { await task.value }

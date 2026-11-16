@@ -337,7 +337,7 @@ final class AppCoordinatorTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
-    func testDockReopenResumesScanDeferredBySourceRestoreCancellation()
+    func testDockReopenDuringSourceRestoreStillScansLibrary()
         async {
         let fixture = makeFixture(
             launchStatus: .disabled,
@@ -1375,6 +1375,57 @@ final class AppCoordinatorTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
+    func testFinderOpeningFileAtLaunchLoadsMediaLibrary() async {
+        let fixture = makeFixture(launchStatus: .disabled)
+        let chrome = fixture.coordinator.playerChrome
+        let externalURL = fixture.item.rootURL.deletingLastPathComponent()
+            .appendingPathComponent("External Open.mp4")
+        let externalItem = LibraryMediaItem(
+            rootURL: externalURL,
+            rootName: externalURL.lastPathComponent,
+            kind: .file,
+            url: externalURL,
+            displayName: "External Open",
+            relativePath: "",
+            relativeDirectory: "",
+            creationDate: nil,
+            fileSize: 1
+        )
+        fixture.scanner.replaceSnapshot(MediaLibrarySnapshot(
+            roots: [
+                MediaLibraryRoot(url: fixture.item.rootURL, displayName: "Library"),
+                MediaLibraryRoot(url: externalURL, displayName: "External Open", kind: .file),
+            ],
+            items: [fixture.item, externalItem]
+        ))
+        fixture.scanner.blockNextScan(matching: [fixture.item.rootURL])
+
+        // AppKit delivers the buffered open before the startup task can run.
+        fixture.coordinator.start(source: .interactive)
+        fixture.coordinator.handleOpenFiles([externalURL])
+        await waitUntil {
+            fixture.window.isVisible
+                && fixture.playback.source?.url == externalURL
+                && fixture.playback.readiness == .ready
+                && fixture.playback.isPlaybackRequested
+                && chrome.librarySidebarController.destination == .playQueue
+        }
+
+        chrome.setPlaylistPresented(true)
+        chrome.librarySidebarController.selectDestination(.mediaLibrary)
+        await waitUntil { fixture.scanner.didBeginBlockedScan }
+        fixture.scanner.finishBlockedScan()
+        await waitUntil { fixture.library.scanState == .ready }
+
+        XCTAssertTrue(chrome.isPlaylistPresented)
+        XCTAssertEqual(chrome.librarySidebarController.destination, .mediaLibrary)
+        XCTAssertEqual(fixture.library.items, [fixture.item])
+        XCTAssertTrue(fixture.library.currentItemIsTemporary)
+        XCTAssertEqual(fixture.playback.source?.url, externalURL)
+        XCTAssertTrue(fixture.playback.isPlaybackRequested)
+        await fixture.coordinator.shutdown()
+    }
+
     func testFinderOpeningKnownLibraryItemDuringStartupScanUsesLibraryQueue()
         async {
         let fixture = makeFixture(launchStatus: .disabled)
@@ -1417,7 +1468,7 @@ final class AppCoordinatorTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
-    func testFinderOpenResumesScanDeferredBySourceRestoreCancellation()
+    func testFinderOpenResumesScanDeferredDuringSourceRestore()
         async {
         let fixture = makeFixture(
             launchStatus: .disabled,
@@ -1435,14 +1486,12 @@ final class AppCoordinatorTests: XCTestCase {
             fixture.window.isVisible
                 && fixture.playback.source?.url == fixture.item.url
                 && fixture.playback.readiness == .ready
+                && fixture.playback.isPlaybackRequested
                 && fixture.library.scanState == .ready
                 && fixture.library.items == [fixture.item]
         }
 
-        // The deferred persistent-source scan discovers the same item that
-        // Finder initially had to open through a temporary file scope. Once
-        // reconciled, the library owns that item and the temporary scope must
-        // be released.
+        // The deferred scan adopts the temporary item into the library.
         XCTAssertFalse(fixture.library.isTemporaryPlayback)
         XCTAssertFalse(fixture.library.currentItemIsTemporary)
         XCTAssertTrue(

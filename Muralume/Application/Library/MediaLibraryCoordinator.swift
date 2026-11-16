@@ -596,7 +596,9 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     @discardableResult
-    func startAsync() async -> MediaLibraryStartDisposition {
+    func startAsync(
+        shouldDeferScan: () -> Bool = { false }
+    ) async -> MediaLibraryStartDisposition {
         guard let operationGeneration = beginStartup() else {
             return .alreadyStarted
         }
@@ -604,7 +606,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         guard isCurrentSourceAccessOperation(operationGeneration) else {
             return .alreadyStarted
         }
-        if Task.isCancelled {
+        if Task.isCancelled || shouldDeferScan() {
             recordDeferredStartupSources(restoredSources)
             return .alreadyStarted
         }
@@ -648,10 +650,9 @@ final class MediaLibraryCoordinator: ObservableObject {
     private func recordDeferredStartupSources(
         _ restoredSources: [MediaSource]
     ) {
-        // Cancellation suppresses publication and scanning so a close or
-        // external-open intent stays authoritative. Keep only source-access
-        // bookkeeping: start is one-shot, and dropping this state would make
-        // unavailable bookmarks impossible to retry after reopening.
+        // Deferring the scan lets a newer window or file-open intent proceed.
+        // Keep the source-access bookkeeping so the scan can resume and
+        // unavailable bookmarks can be retried.
         installActiveSources(restoredSources)
         latestPreparedSources = restoredSources
         preparedSourcesNeedRefresh = !restoredSources.isEmpty
@@ -1912,8 +1913,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         )
     }
 
-    /// Resumes the scan deliberately deferred when startup source restoration
-    /// was cancelled to honor a newer window or file-open intent.
+    /// Resumes a startup scan deferred to honor a newer window or file-open intent.
     @discardableResult
     func refreshDeferredSourcesIfNeeded() -> Bool {
         guard preparedSourcesNeedRefresh, canRefresh else {
