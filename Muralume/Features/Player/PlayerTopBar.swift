@@ -6,6 +6,8 @@ struct PlayerTopBar: View {
     let playback: PlaybackCoordinator
     let isFullScreen: Bool
     let isSettingsPresented: Bool
+    let videoScreenshotHistory: VideoScreenshotHistory?
+    let screenshotHistoryPresentationChanged: (Bool) -> Void
     let actions: PlayerActions
 
     @Environment(\.locale) private var locale
@@ -15,11 +17,15 @@ struct PlayerTopBar: View {
         playback: PlaybackCoordinator,
         isFullScreen: Bool,
         isSettingsPresented: Bool,
+        videoScreenshotHistory: VideoScreenshotHistory?,
+        screenshotHistoryPresentationChanged: @escaping (Bool) -> Void,
         actions: PlayerActions
     ) {
         self.playback = playback
         self.isFullScreen = isFullScreen
         self.isSettingsPresented = isSettingsPresented
+        self.videoScreenshotHistory = videoScreenshotHistory
+        self.screenshotHistoryPresentationChanged = screenshotHistoryPresentationChanged
         self.actions = actions
         _sourceDisplayName = State(
             initialValue: playback.source?.displayName
@@ -48,7 +54,15 @@ struct PlayerTopBar: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                settings
+                HStack(spacing: MuralumeTheme.Spacing.xSmall) {
+                    if let videoScreenshotHistory {
+                        ScreenshotHistoryButton(
+                            history: videoScreenshotHistory,
+                            presentationChanged: screenshotHistoryPresentationChanged
+                        )
+                    }
+                    settings
+                }
             }
 
             if let sourceDisplayName {
@@ -147,6 +161,106 @@ struct PlayerTopBar: View {
                 maxWidth: MuralumeTheme.Size.playerTopBarSourceMaximumWidth
             )
         .accessibilityElement(children: .combine)
+    }
+}
+
+private struct ScreenshotHistoryButton: View {
+    @ObservedObject var history: VideoScreenshotHistory
+    let presentationChanged: (Bool) -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isPresented = false
+
+    var body: some View {
+        if !history.records.isEmpty {
+            Button {
+                isPresented.toggle()
+            } label: {
+                Image(systemName: "arrow.down.circle")
+                    .symbolEffect(.bounce, value: reduceMotion ? nil : history.records.first?.id)
+            }
+            .buttonStyle(MuralumeControlButtonStyle(kind: isPresented ? .selected : .standard, scale: .compact))
+            .help(Text("screenshot.history.title"))
+            .accessibilityLabel(Text("screenshot.history.title"))
+            .accessibilityIdentifier(MuralumeAccessibilityIdentifier.screenshotHistoryButton)
+            .popover(isPresented: $isPresented, arrowEdge: .top) {
+                ScreenshotHistoryPopover(history: history)
+            }
+            .onChange(of: isPresented) { presentationChanged(isPresented) }
+            .onDisappear {
+                isPresented = false
+                presentationChanged(false)
+            }
+        }
+    }
+}
+
+private struct ScreenshotHistoryPopover: View {
+    private enum Layout {
+        static let width: CGFloat = 360
+        static let rowHeight: CGFloat = 44
+        static let maximumListHeight: CGFloat = 264
+    }
+
+    @ObservedObject var history: VideoScreenshotHistory
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.small) {
+            Text("screenshot.history.title")
+                .font(.headline)
+                .padding(.horizontal, MuralumeTheme.Spacing.small)
+                .accessibilityAddTraits(.isHeader)
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(history.records) { record in
+                        row(record)
+                    }
+                }
+            }
+            .frame(height: min(Layout.maximumListHeight, CGFloat(history.records.count) * Layout.rowHeight))
+        }
+        .padding(MuralumeTheme.Spacing.medium)
+        .frame(width: Layout.width)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(MuralumeAccessibilityIdentifier.screenshotHistoryPopover)
+    }
+
+    private func row(_ record: VideoScreenshotRecord) -> some View {
+        let name = record.url.lastPathComponent
+        return HStack(spacing: MuralumeTheme.Spacing.small) {
+            Button {
+                history.perform(.open, on: record)
+            } label: {
+                Label {
+                    Text(verbatim: name)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                } icon: {
+                    Image(systemName: "photo")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(Text("screenshot.history.open"))
+            .accessibilityLabel(Text("screenshot.history.open"))
+            .accessibilityValue(Text(verbatim: name))
+            .accessibilityIdentifier(MuralumeAccessibilityIdentifier.screenshotHistoryOpen)
+
+            Button {
+                history.perform(.reveal, on: record)
+            } label: {
+                Image(systemName: "folder")
+            }
+            .buttonStyle(MuralumeControlButtonStyle(scale: .compact))
+            .help(Text("screenshot.history.reveal"))
+            .accessibilityLabel(Text("screenshot.history.reveal"))
+            .accessibilityValue(Text(verbatim: name))
+            .accessibilityIdentifier(MuralumeAccessibilityIdentifier.screenshotHistoryReveal)
+        }
+        .padding(.horizontal, MuralumeTheme.Spacing.small)
+        .frame(height: Layout.rowHeight)
     }
 }
 

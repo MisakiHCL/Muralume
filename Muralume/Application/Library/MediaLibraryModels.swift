@@ -155,7 +155,7 @@ struct LibraryMediaItem: Identifiable, Hashable, Sendable {
     let modificationDate: Date?
     let fileSize: Int64
     let fileIdentity: MediaFileIdentity?
-    let accessLease: MediaSourceAccessLease?
+    var accessLease: MediaSourceAccessLease?
 
     init(
         rootURL: URL,

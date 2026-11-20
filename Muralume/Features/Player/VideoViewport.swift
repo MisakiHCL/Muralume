@@ -4,9 +4,15 @@ import SwiftUI
 struct VideoViewport<PlayerSurface: View>: View {
     let playback: PlaybackCoordinator
     let library: MediaLibraryCoordinator
+    let playlists: CustomPlaylistController
+    let chromeController: PlayerChromeController
+    let actions: PlayerActions
+    let canCaptureScreenshot: Bool
+    let showVideoInformation: (LibraryMediaItem) -> Void
     let playerSurface: PlayerSurface
 
     @State private var viewportState: PlayerViewportState
+    @State private var didStartTemporaryFastForward = false
     @State private var temporaryRateToken: PlaybackRateOverrideToken?
     @State private var visibleTemporaryRate: PlaybackRate?
     @State private var temporaryRateIndicatorTask: Task<Void, Never>?
@@ -14,10 +20,20 @@ struct VideoViewport<PlayerSurface: View>: View {
     init(
         playback: PlaybackCoordinator,
         library: MediaLibraryCoordinator,
+        playlists: CustomPlaylistController,
+        chromeController: PlayerChromeController,
+        actions: PlayerActions,
+        canCaptureScreenshot: Bool,
+        showVideoInformation: @escaping (LibraryMediaItem) -> Void,
         playerSurface: PlayerSurface
     ) {
         self.playback = playback
         self.library = library
+        self.playlists = playlists
+        self.chromeController = chromeController
+        self.actions = actions
+        self.canCaptureScreenshot = canCaptureScreenshot
+        self.showVideoInformation = showVideoInformation
         self.playerSurface = playerSurface
         _viewportState = State(
             initialValue: PlayerViewportState(playback: playback)
@@ -40,11 +56,14 @@ struct VideoViewport<PlayerSurface: View>: View {
                 if !viewportState.hasPlayableMedia {
                     PlayerLoadingState()
                 }
-            case let .failed(failure):
-                if !viewportState.hasPlayableMedia {
+            case .failed:
+                if let failure = displayedFailure {
                     PlayerFailureState(
                         failure: failure,
-                        library: library
+                        playback: playback,
+                        library: library,
+                        playlists: playlists,
+                        actions: actions
                     )
                 }
             case .ready:
@@ -72,10 +91,27 @@ struct VideoViewport<PlayerSurface: View>: View {
         .frame(minHeight: MuralumeTheme.Size.videoMinimumHeight)
         .background(MuralumeTheme.Colors.canvas)
         .layoutPriority(1)
+        .contentShape(Rectangle())
+        .simultaneousGesture(videoClickGesture, including: acceptsVideoClicks ? .all : .subviews)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(
             MuralumeAccessibilityIdentifier.videoViewport
         )
+        .contextMenu {
+            if let currentItem = library.currentItem {
+                Button {
+                    showVideoInformation(currentItem)
+                } label: {
+                    Label("videoInfo.menu", systemImage: "info.circle")
+                }
+                if canCaptureScreenshot && viewportState.readiness == .ready
+                    && viewportState.presentation == .player {
+                    Button(action: actions.captureScreenshot) {
+                        Label("screenshot.contextMenu", systemImage: "camera")
+                    }
+                }
+            }
+        }
         .onReceive(viewportStatePublisher) { state in
             viewportState = state
         }
@@ -90,20 +126,54 @@ struct VideoViewport<PlayerSurface: View>: View {
         .onDisappear {
             endTemporaryFastForward()
         }
+        .overlay {
+            if !acceptsVideoClicks && displayedFailure == nil && chromeController.isPlaylistPresented {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { chromeController.dismissPresentedPanel() }
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    private var acceptsVideoClicks: Bool {
+        viewportState.readiness == .ready && viewportState.presentation == .player
+    }
+
+    private var displayedFailure: PlaybackFailure? {
+        guard case let .failed(failure) = viewportState.readiness,
+              !viewportState.hasPlayableMedia || failure == .surfaceTimeout else { return nil }
+        return failure
+    }
+
+    private var videoClickGesture: some Gesture {
+        TapGesture(count: 2)
+            .exclusively(before: TapGesture())
+            .onEnded { click in
+                guard acceptsVideoClicks, !didStartTemporaryFastForward else { return }
+                switch click {
+                case .first:
+                    actions.toggleFullScreen()
+                case .second:
+                    chromeController.hideFromVideoClick()
+                }
+            }
     }
 
     private var viewportStatePublisher:
         AnyPublisher<PlayerViewportState, Never> {
-        Publishers.CombineLatest3(
+        Publishers.CombineLatest4(
             playback.$readiness,
             playback.$hasPlayableMedia,
-            playback.$temporaryPlaybackRate
+            playback.$temporaryPlaybackRate,
+            playback.$presentation
         )
-        .map { readiness, hasPlayableMedia, temporaryPlaybackRate in
+        .map { readiness, hasPlayableMedia, temporaryPlaybackRate, presentation in
             PlayerViewportState(
                 readiness: readiness,
                 hasPlayableMedia: hasPlayableMedia,
-                temporaryPlaybackRate: temporaryPlaybackRate
+                temporaryPlaybackRate: temporaryPlaybackRate,
+                presentation: presentation
             )
         }
         .removeDuplicates()
@@ -115,12 +185,15 @@ struct VideoViewport<PlayerSurface: View>: View {
         guard let token = playback.beginTemporaryPlaybackRate(rate) else {
             return
         }
+        didStartTemporaryFastForward = true
         temporaryRateToken = token
         showTemporaryRateIndicator(rate)
     }
 
     private func handleTemporaryFastForwardPressing(_ isPressing: Bool) {
-        if !isPressing {
+        if isPressing {
+            didStartTemporaryFastForward = false
+        } else {
             endTemporaryFastForward()
         }
     }
@@ -236,22 +309,26 @@ private struct PlayerViewportState: Equatable {
     let readiness: PlaybackReadiness
     let hasPlayableMedia: Bool
     let temporaryPlaybackRate: PlaybackRate?
+    let presentation: PlaybackPresentation
 
     @MainActor
     init(playback: PlaybackCoordinator) {
         readiness = playback.readiness
         hasPlayableMedia = playback.hasPlayableMedia
         temporaryPlaybackRate = playback.temporaryPlaybackRate
+        presentation = playback.presentation
     }
 
     init(
         readiness: PlaybackReadiness,
         hasPlayableMedia: Bool,
-        temporaryPlaybackRate: PlaybackRate?
+        temporaryPlaybackRate: PlaybackRate?,
+        presentation: PlaybackPresentation
     ) {
         self.readiness = readiness
         self.hasPlayableMedia = hasPlayableMedia
         self.temporaryPlaybackRate = temporaryPlaybackRate
+        self.presentation = presentation
     }
 }
 
@@ -385,7 +462,10 @@ private struct PlayerLoadingState: View {
 
 private struct PlayerFailureState: View {
     let failure: PlaybackFailure
+    @ObservedObject var playback: PlaybackCoordinator
     @ObservedObject var library: MediaLibraryCoordinator
+    @ObservedObject var playlists: CustomPlaylistController
+    let actions: PlayerActions
 
     var body: some View {
         VStack(spacing: MuralumeTheme.Spacing.large) {
@@ -398,24 +478,45 @@ private struct PlayerFailureState: View {
                 .foregroundStyle(MuralumeTheme.Colors.textPrimary)
                 .multilineTextAlignment(.center)
 
-            if !library.items.isEmpty {
-                Label(
-                    "media.error.choose.from.playlist",
-                    systemImage: "rectangle.stack.fill"
-                )
-                .font(.body)
-                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-            } else {
-                Text("library.empty.detail")
-                    .font(.body)
-                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-                    .multilineTextAlignment(.center)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: MuralumeTheme.Spacing.medium) { recoveryButtons }
+                    .fixedSize(horizontal: true, vertical: false)
+                VStack(spacing: MuralumeTheme.Spacing.medium) { recoveryButtons }
             }
+            .buttonStyle(.bordered)
         }
         .padding(MuralumeTheme.Spacing.xLarge)
         .muralumePanel(cornerRadius: MuralumeTheme.Radius.medium)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(MuralumeTheme.Colors.canvas)
+    }
+
+    @ViewBuilder
+    private var recoveryButtons: some View {
+        if let source = library.failedPlaybackLibrarySource {
+            Button("library.sourceAccess.reauthorize") { actions.reauthorizeMediaSource(source) }
+        } else if let entry = playlistEntryRequiringAuthorization,
+                  let target = library.failedPlaybackPlaylistEntry {
+            Button("library.sourceAccess.reauthorize") {
+                actions.reauthorizePlaylistEntry(target.playlistID, entry.id)
+            }
+        } else if playback.canRetryPlayerSurface || library.canRetryFailedPlayback
+                    || library.failedTemporaryVideoURL != nil {
+            Button("library.retry", action: actions.retryFailedPlayback)
+        }
+        if library.canSkipFailedPlayback {
+            Button("player.nextItem", action: library.skipFailedPlayback)
+        }
+        Button("media.error.openAnother", action: actions.chooseReplacementVideo)
+    }
+
+    private var playlistEntryRequiringAuthorization: CustomPlaylistEntry? {
+        guard let target = library.failedPlaybackPlaylistEntry,
+              let entry = playlists.collection.playlist(id: target.playlistID)?.entries.first(where: {
+                  $0.media.mediaItemID == target.itemID
+              }) else { return nil }
+        let issue = playlists.issue(for: entry)
+        return issue == .authorizationRequired || issue == .permissionDenied ? entry : nil
     }
 }
 

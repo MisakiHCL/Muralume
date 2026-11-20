@@ -280,6 +280,10 @@ enum MuralumeAccessibilityIdentifier {
     static let playlistSelectedCount = "muralume.playlist-selected-count"
     static let playlistEntryPrefix = "muralume.playlist-entry."
     static let openSettingsButton = "muralume.open-settings"
+    static let screenshotHistoryButton = "muralume.screenshot-history-button"
+    static let screenshotHistoryPopover = "muralume.screenshot-history-popover"
+    static let screenshotHistoryOpen = "muralume.screenshot-history-open"
+    static let screenshotHistoryReveal = "muralume.screenshot-history-reveal"
     static let videoInformationFilePath = "muralume.video-info.file-path"
     static let closeWindowButton = "muralume.window-close"
     static let minimizeWindowButton = "muralume.window-minimize"
@@ -310,6 +314,8 @@ enum MuralumeAccessibilityIdentifier {
         "muralume.settings-row.default-video-player"
     static let settingsQueueCrossfadeRow =
         "muralume.settings-row.queue-crossfade"
+    static let settingsScreenshotFolderRow =
+        "muralume.settings-row.screenshot-folder"
     static let settingsSmartPauseSection =
         "muralume.settings-section.smart-pause"
     static let settingsSmartPauseEnabledRow =

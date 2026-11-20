@@ -8,6 +8,8 @@
 "media.select.detail" = "Escolha um vídeo da biblioteca de mídia para iniciar uma fila de reprodução.";
 "media.error.unsupported" = "Esta versão do Muralume não pode reproduzir este vídeo.";
 "media.error.open" = "O Muralume não conseguiu abrir este vídeo.";
+"media.error.openAnother" = "Abrir outro vídeo…";
+"media.error.openAnother.prompt" = "Escolha um vídeo para reproduzir.";
 "media.error.surface" = "O vídeo não começou a ser reproduzido a tempo. O Muralume voltou ao reprodutor.";
 "desktop.error.statusMenu" = "O Muralume não conseguiu criar os controles da barra de menus e voltou ao reprodutor.";
 "media.error.choose.from.playlist" = "Escolha outro vídeo da biblioteca de mídia.";
@@ -85,7 +87,8 @@
 "desktop.layout.useDisplay" = "Usar Muralume nesta tela";
 "desktop.layout.video" = "Vídeo";
 "desktop.layout.currentVideo" = "Vídeo atual";
-"desktop.layout.chooseLibrary" = "Escolher na biblioteca de mídia…";
+"desktop.layout.chooseVideo" = "Escolher na biblioteca de mídia ou nas playlists…";
+"desktop.layout.validation.unavailableVideo" = "Escolha um vídeo disponível para pelo menos uma tela ativada.";
 "desktop.layout.noVideo" = "Nenhum vídeo selecionado";
 "desktop.layout.mainDisplay" = "Tela principal";
 "desktop.layout.search" = "Buscar vídeos";
@@ -354,6 +357,17 @@
 "menu.bringAllToFront" = "Trazer todas para a frente";
 "menu.showHelp" = "Ajuda do Muralume";
 "screenshot.menu" = "Salvar captura de tela…";
+"screenshot.contextMenu" = "Salvar captura de tela";
+"screenshot.folder.title" = "Pasta de capturas de tela";
+"screenshot.folder.downloads" = "Downloads";
+"screenshot.folder.choose" = "Escolher pasta…";
+"screenshot.folder.select" = "Escolher";
+"screenshot.history.title" = "Capturas salvas";
+"screenshot.history.open" = "Abrir imagem";
+"screenshot.history.reveal" = "Mostrar no Finder";
+"screenshot.history.accessError" = "Não foi possível acessar esta captura.";
+"screenshot.folder.selectionError" = "Não foi possível usar esta pasta.";
+"screenshot.folder.writeError" = "Confira a pasta de capturas de tela nos Ajustes e tente novamente.";
 "screenshot.save.title" = "Salvar captura de tela";
 "screenshot.save.message" = "Escolha onde salvar o quadro atual do vídeo.";
 "screenshot.save.prompt" = "Salvar";
@@ -419,3 +433,6 @@
 "menu.copy" = "Copiar";
 "menu.paste" = "Colar";
 "menu.selectAll" = "Selecionar Tudo";
+"queue.playNow" = "Reproduzir agora";
+"queue.playNext" = "Reproduzir a seguir";
+"queue.removeFromUpcoming" = "Remover da fila";

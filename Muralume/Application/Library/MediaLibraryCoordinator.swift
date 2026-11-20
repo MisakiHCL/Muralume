@@ -103,6 +103,12 @@ final class MediaLibraryCoordinator: ObservableObject {
         let task: Task<Void, Never>
     }
 
+    private struct FailedPlaybackSelection {
+        let itemID: LibraryMediaItem.ID
+        let membership: PlaybackQueueMembership
+        let temporaryURL: URL?
+    }
+
     private struct PlaybackProgressCheckpoint: Sendable {
         let itemID: LibraryMediaItem.ID
         let position: TimeInterval
@@ -268,6 +274,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         Set<LibraryMediaItem.ID> = []
     @Published private(set) var unavailableItemFailures:
         [LibraryMediaItem.ID: PlaybackFailure] = [:]
+    @Published private var failedPlaybackSelection: FailedPlaybackSelection?
     @Published var sourceRemovalPreservationFailed = false
     private(set) var unavailableItemsRevision: UInt64 = 0
     @Published private(set) var queueRevision: UInt64 = 0
@@ -378,6 +385,32 @@ final class MediaLibraryCoordinator: ObservableObject {
         }
     }
 
+    func canScheduleNext(_ item: LibraryMediaItem) -> Bool {
+        !isShutDown && !unavailableItemIDs.contains(item.id)
+            && queue?.canScheduleNext(item.id) == true
+            && matchesQueueItem(item)
+    }
+
+    func scheduleNext(_ item: LibraryMediaItem) {
+        guard canScheduleNext(item), var queue, queue.scheduleNext(item.id) else { return }
+        self.queue = queue
+        publishQueueChange()
+    }
+
+    func removeFromUpcoming(
+        _ item: LibraryMediaItem, occurrence: Int, expectedQueueRevision: UInt64
+    ) {
+        guard !isShutDown, expectedQueueRevision == queueRevision, matchesQueueItem(item),
+              var queue, queue.removeFromUpcoming(item.id, occurrence: occurrence) else { return }
+        self.queue = queue
+        publishQueueChange()
+    }
+
+    private func matchesQueueItem(_ item: LibraryMediaItem) -> Bool {
+        guard let queuedItem = queueItemsByID[item.id] else { return false }
+        return MediaBrowserItemIdentity(item) == MediaBrowserItemIdentity(queuedItem)
+    }
+
     var hasActiveQueue: Bool {
         queue != nil
     }
@@ -441,6 +474,88 @@ final class MediaLibraryCoordinator: ObservableObject {
 
     var canMoveToNext: Bool {
         queue?.canMoveToNext == true
+    }
+
+    var canRetryFailedPlayback: Bool {
+        guard case let .failed(failure) = playback.readiness,
+              failure != .unsupported, let selection = failedPlaybackSelection else { return false }
+        if queue != nil { return currentItemID == selection.itemID && currentItem != nil }
+        switch selection.membership {
+        case .mediaLibrary:
+            return visibleItemsByID[selection.itemID] != nil
+        case let .customPlaylist(id):
+            return customPlaylistItemsProvider?(id)?.contains { $0.id == selection.itemID } == true
+        case .fixed:
+            return mediaItem(forPersistedID: selection.itemID) != nil
+        case .external:
+            return false
+        }
+    }
+
+    var failedTemporaryVideoURL: URL? {
+        guard playback.readiness == .failed(.cannotOpen), queue == nil,
+              isExternalPlaybackContext else { return nil }
+        return failedPlaybackSelection?.temporaryURL
+    }
+
+    var failedPlaybackLibrarySource: UnavailableMediaSource? {
+        guard playback.readiness == .failed(.cannotOpen),
+              let selection = failedPlaybackSelection,
+              selection.membership == .mediaLibrary || selection.membership == .fixed else { return nil }
+        let rootID = MediaLibraryRoot.ID(standardizedPath: selection.itemID.rootPath)
+        if let root = sourceRoots.first(where: { $0.id == rootID }),
+           sourceHealth(for: root).issue == .permissionDenied {
+            return reauthorizationSource(for: root)
+        }
+        guard visibleItemsByID[selection.itemID] == nil else { return nil }
+        return unavailableSources.first { $0.lastKnownURL.standardizedFileURL.path == rootID.standardizedPath }
+    }
+
+    var failedPlaybackPlaylistEntry: (playlistID: CustomPlaylist.ID, itemID: LibraryMediaItem.ID)? {
+        guard playback.readiness == .failed(.cannotOpen), let selection = failedPlaybackSelection,
+              case let .customPlaylist(playlistID) = selection.membership else { return nil }
+        return (playlistID, selection.itemID)
+    }
+
+    var canSkipFailedPlayback: Bool {
+        guard case .failed = playback.readiness, let queue, let currentItemID else { return false }
+        return queue.items.contains { $0 != currentItemID && !unavailableItemIDs.contains($0) }
+    }
+
+    func retryFailedPlayback() {
+        guard !isShutDown, rootIDsPendingRemoval.isEmpty,
+              canRetryFailedPlayback, let selection = failedPlaybackSelection else { return }
+        if let queue {
+            playbackSelectionIntentRevision &+= 1
+            markItemAvailable(selection.itemID)
+            loadCurrentItem(attemptsRemaining: queue.count)
+            return
+        }
+        switch selection.membership {
+        case .mediaLibrary:
+            if let item = visibleItemsByID[selection.itemID] { playLibraryItem(item) }
+        case let .customPlaylist(id):
+            if let items = customPlaylistItemsProvider?(id),
+               let item = items.first(where: { $0.id == selection.itemID }) {
+                playCustomPlaylistItem(item, playlistID: id, playlistItems: items)
+            }
+        case .fixed:
+            if let item = mediaItem(forPersistedID: selection.itemID) {
+                playbackSelectionIntentRevision &+= 1
+                play(item, queueMembership: .fixed, collectionItems: [item])
+            }
+        case .external:
+            break
+        }
+    }
+
+    func skipFailedPlayback() {
+        guard !isShutDown, canSkipFailedPlayback, let currentItemID else { return }
+        if advanceAfterFailedLoad(
+            failedItemID: currentItemID, attemptsRemaining: queueCount, autoplay: true
+        ) {
+            playbackSelectionIntentRevision &+= 1
+        }
     }
 
     private let playback: PlaybackCoordinator
@@ -1484,7 +1599,9 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     @discardableResult
-    func openFilesTemporarily(_ urls: [URL]) async -> Bool {
+    func openFilesTemporarily(
+        _ urls: [URL], selectedFileAccess: MediaSourceAccessLease? = nil
+    ) async -> Bool {
         guard !isShutDown, !urls.isEmpty else {
             return false
         }
@@ -1497,7 +1614,8 @@ final class MediaLibraryCoordinator: ObservableObject {
             resolution = try await temporaryPlaybackSession.resolve(
                 urls,
                 librarySnapshot: itemsSnapshot.temporaryPlaybackSnapshot,
-                librarySourceURLs: activeSources.map(\.url)
+                librarySourceURLs: activeSources.map(\.url),
+                selectedFileAccess: selectedFileAccess
             )
         } catch is CancellationError {
             return false
@@ -1523,8 +1641,13 @@ final class MediaLibraryCoordinator: ObservableObject {
             : nil
 
         invalidateLoad()
-        let resolvedItemsByID = Self.mediaItemsByID(resolution.items)
-        let itemIDs = resolution.items.map(\.id)
+        var playbackItems = resolution.items
+        if let selectedFileAccess, urls.count == 1, playbackItems.count == 1,
+           resolution.temporaryItemIDs.contains(playbackItems[0].id) {
+            playbackItems[0].accessLease = selectedFileAccess
+        }
+        let resolvedItemsByID = Self.mediaItemsByID(playbackItems)
+        let itemIDs = playbackItems.map(\.id)
         isExternalPlaybackContext = true
         playbackQueueMembership = .external
         queueItemsByID = resolvedItemsByID
@@ -1539,6 +1662,10 @@ final class MediaLibraryCoordinator: ObservableObject {
         publishQueueChange()
         loadCurrentItem(attemptsRemaining: itemIDs.count)
         return true
+    }
+
+    func selectReplacementVideo() -> URL? {
+        sourceSelector.selectSources(for: .replacingPlaybackItem).first
     }
 
     func restorePlaybackContext(
@@ -2405,7 +2532,8 @@ final class MediaLibraryCoordinator: ObservableObject {
             case let .ready(value): prepared = value
             }
             var restoredQueue = prepared.queue
-            if snapshot.order == requestedOrder, requestedOrder == .shuffled {
+            if snapshot.order == requestedOrder, requestedOrder == .shuffled,
+               !restoredQueue.hasEditedUpcomingItems {
                 reshuffleRestoredQueue?(&restoredQueue)
             }
             guard let restoredItemID = restoredQueue.currentItem else {
@@ -3404,7 +3532,8 @@ final class MediaLibraryCoordinator: ObservableObject {
             remainingItems: snapshot.remainingItems.map(canonicalID),
             remainingIndex: snapshot.remainingIndex,
             history: snapshot.history.map(remap),
-            forwardHistory: snapshot.forwardHistory.map(remap)
+            forwardHistory: snapshot.forwardHistory.map(remap),
+            hasEditedUpcomingItems: snapshot.hasEditedUpcomingItems
         )
     }
 
@@ -3645,6 +3774,7 @@ final class MediaLibraryCoordinator: ObservableObject {
     private func invalidateLoad() {
         loadGeneration &+= 1
         cancelCurrentLoadTask()
+        failedPlaybackSelection = nil
     }
 
     private func loadCurrentItem(
@@ -3661,6 +3791,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         loadGeneration &+= 1
         let generation = loadGeneration
         cancelCurrentLoadTask()
+        failedPlaybackSelection = nil
         let outgoingProgress = playbackProgressCheckpoint()
         let transition = loadedItemID == nil || retainedPlaybackAccessItem != nil
             ? PlaybackItemTransition.immediate
@@ -3721,13 +3852,16 @@ final class MediaLibraryCoordinator: ObservableObject {
                     autoplay: autoplay
                 )
                 if !didAdvance {
+                    let selection = failureSelection(for: item)
                     if !shouldPreserveUnavailablePlaylistQueue() {
                         clearActiveQueue(preservingUnavailableItems: true)
                     }
+                    failedPlaybackSelection = selection
                     playback.finishQueue(with: failure)
                     loadedItemID = nil
                 }
             case .globalFailure:
+                failedPlaybackSelection = failureSelection(for: item)
                 loadedItemID = nil
             case .cancelled:
                 break
@@ -3834,6 +3968,7 @@ final class MediaLibraryCoordinator: ObservableObject {
                     return .cancelled
                 }
                 guard isUnavailablePermanently else {
+                    failedPlaybackSelection = failureSelection(for: item)
                     return .temporarilyUnavailable
                 }
 
@@ -3852,6 +3987,7 @@ final class MediaLibraryCoordinator: ObservableObject {
                 self.currentItemID = nextID
                 publishQueueChange()
             case .globalFailure:
+                failedPlaybackSelection = failureSelection(for: item)
                 loadedItemID = nil
                 return .temporarilyUnavailable
             case .cancelled:
@@ -3928,6 +4064,13 @@ final class MediaLibraryCoordinator: ObservableObject {
         return customPlaylistHasUnresolvedItemsProvider?(id) == true
     }
 
+    private func failureSelection(for item: LibraryMediaItem) -> FailedPlaybackSelection {
+        FailedPlaybackSelection(
+            itemID: item.id, membership: playbackQueueMembership,
+            temporaryURL: playbackQueueMembership == .external ? item.url : nil
+        )
+    }
+
     private func handleItemFailure(_ failure: PlaybackFailure) -> Bool {
         guard !isShutDown,
               let failedItemID = currentItemID,
@@ -3942,9 +4085,11 @@ final class MediaLibraryCoordinator: ObservableObject {
             maximumAdvances: queueCount,
             excluding: failedItemID
         ) else {
+            let selection = queueItemsByID[failedItemID].map { failureSelection(for: $0) }
             if !shouldPreserveUnavailablePlaylistQueue() {
                 clearActiveQueue(preservingUnavailableItems: true)
             }
+            failedPlaybackSelection = selection
             return false
         }
 

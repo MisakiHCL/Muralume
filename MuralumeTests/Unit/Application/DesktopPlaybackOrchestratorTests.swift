@@ -240,6 +240,67 @@ final class DesktopPlaybackOrchestratorTests: XCTestCase {
         )
     }
 
+    func testPlaylistGrantLossAndRecoveryRefreshOnlyAssignedDisplay() async throws {
+        var engines: [TestPlaybackEngine] = []
+        let orchestrator = DesktopPlaybackOrchestrator {
+            let engine = TestPlaybackEngine()
+            engines.append(engine)
+            return engine
+        }
+        let playlistDisplay = displayID("a-playlist")
+        let libraryDisplay = displayID("b-library")
+        let playlistItem = itemID("playlist.mp4")
+        let libraryItem = itemID("library.mp4")
+        let sourceWithoutLease = source(for: playlistItem)
+        let originalIdentity = MediaFileIdentity(volumeIdentifier: Data([1]), fileIdentifier: Data([2]))
+        var firstSource = sourceWithoutLease
+        firstSource.fileIdentity = originalIdentity
+        firstSource.accessLease = MediaSourceAccessLease(retaining: DesktopEngineDrainGate())
+        var playlistSource: ResolvedMediaSource? = firstSource
+
+        try await orchestrator.start(
+            assignments: [
+                DesktopDisplayAssignment(
+                    displayID: playlistDisplay, isEnabled: true, contentMode: .contain,
+                    mediaItemID: playlistItem, mediaFileIdentity: originalIdentity
+                ),
+                assignment(libraryDisplay, itemID: libraryItem)
+            ],
+            surfaces: [
+                playlistDisplay: TestPlaybackSurface(id: .desktop),
+                libraryDisplay: TestPlaybackSurface(id: .desktop)
+            ]
+        ) { id in
+            id == playlistItem ? playlistSource : self.source(for: id)
+        }
+        await waitUntil { engines.count == 2 && engines.allSatisfy(\.isPlaying) }
+        XCTAssertEqual(engines[0].loadedSources, [firstSource])
+
+        playlistSource = nil
+        orchestrator.refreshSources([playlistItem], authorized: [])
+        await waitUntil { orchestrator.displayFailures[playlistDisplay] == .cannotOpen }
+        XCTAssertFalse(engines[0].isPlaying)
+        XCTAssertTrue(engines[1].isPlaying)
+        XCTAssertNil(orchestrator.terminalFailure)
+
+        var restoredSource = firstSource
+        restoredSource.accessLease = MediaSourceAccessLease(retaining: DesktopEngineDrainGate())
+        var replacement = restoredSource
+        replacement.fileIdentity = MediaFileIdentity(volumeIdentifier: Data([1]), fileIdentifier: Data([3]))
+        playlistSource = replacement
+        orchestrator.refreshSources([playlistItem], authorized: [playlistItem])
+        XCTAssertEqual(orchestrator.displayFailures[playlistDisplay], .cannotOpen)
+        XCTAssertEqual(engines.count, 2)
+
+        playlistSource = restoredSource
+        orchestrator.refreshSources([playlistItem], authorized: [playlistItem])
+        await waitUntil { engines.count == 3 && engines[2].isPlaying }
+        XCTAssertEqual(engines[2].loadedSources, [restoredSource])
+        XCTAssertTrue(engines[1].isPlaying)
+        XCTAssertTrue(orchestrator.displayFailures.isEmpty)
+        await orchestrator.stopAndDrain()
+    }
+
     func testNodeEnablesSeamlessLoopingAndShutdownMakesCallbacksInert() async {
         let engine = TestPlaybackEngine()
         let display = displayID("loop")

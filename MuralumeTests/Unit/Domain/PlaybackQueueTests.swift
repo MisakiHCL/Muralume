@@ -77,6 +77,150 @@ final class PlaybackQueueTests: XCTestCase {
         XCTAssertEqual(queue.upNextItems, ["c", "d", "e"])
     }
 
+    func testQueueEditsKeepCollectionAndApplyOnlyToUpcomingRound() throws {
+        var queue = PlaybackQueue(items: ["a", "b", "c", "d"])
+
+        XCTAssertFalse(queue.scheduleNext("a"))
+        XCTAssertFalse(queue.scheduleNext("outside"))
+        XCTAssertFalse(queue.removeFromUpcoming("a"))
+        XCTAssertTrue(queue.scheduleNext("d"))
+        XCTAssertTrue(queue.removeFromUpcoming("b"))
+        XCTAssertFalse(queue.removeFromUpcoming("b"))
+        XCTAssertEqual(queue.currentItem, "a")
+        XCTAssertEqual(queue.upNextItems, ["d", "c"])
+        XCTAssertEqual(queue.items, ["a", "b", "c", "d"])
+
+        XCTAssertFalse(queue.synchronizeItems(queue.items, pendingOrderPolicy: .authoritative))
+        XCTAssertEqual(queue.upNextItems, ["d", "c"])
+        XCTAssertEqual(queue.moveToNext(), "d")
+        XCTAssertEqual(queue.moveToNext(), "c")
+        XCTAssertTrue(queue.isAtEndOfRound)
+        XCTAssertEqual(queue.moveToNext(), "a")
+        XCTAssertEqual(queue.upNextItems, ["b", "c", "d"])
+        XCTAssertFalse(try XCTUnwrap(queue.makeSnapshot()).hasEditedUpcomingItems)
+    }
+
+    func testPlayNextUsesActualUpcomingOrderAfterMovingBack() {
+        var queue = PlaybackQueue(items: ["a", "b", "c", "d", "e"])
+        _ = queue.moveToNext()
+        _ = queue.moveToNext()
+        _ = queue.moveToPrevious()
+
+        XCTAssertTrue(queue.scheduleNext("e"))
+        XCTAssertEqual(queue.upNextItems, ["e", "c", "d"])
+        XCTAssertEqual(queue.previousItemWithoutAdvancing, "a")
+        XCTAssertEqual(queue.moveToNext(), "e")
+        XCTAssertEqual(queue.moveToPrevious(), "b")
+        XCTAssertEqual(queue.moveToNext(), "e")
+        XCTAssertEqual(queue.moveToNext(), "c")
+        XCTAssertEqual(queue.moveToNext(), "d")
+    }
+
+    func testRemovingUpcomingOccurrenceAcrossRoundBoundaryKeepsOtherOccurrences() {
+        var queue = PlaybackQueue(items: ["a", "b", "c"])
+        _ = queue.moveToNext()
+        _ = queue.moveToNext()
+        _ = queue.moveToNext()
+        _ = queue.moveToPrevious()
+        _ = queue.moveToPrevious()
+        _ = queue.moveToPrevious()
+        XCTAssertEqual(queue.upNextItems, ["b", "c", "a", "b", "c"])
+
+        var removeLaterOccurrence = queue
+        XCTAssertTrue(removeLaterOccurrence.removeFromUpcoming("b", occurrence: 1))
+        XCTAssertEqual(removeLaterOccurrence.upNextItems, ["b", "c", "a", "c"])
+
+        XCTAssertTrue(queue.removeFromUpcoming("b", occurrence: 0))
+        XCTAssertEqual(queue.upNextItems, ["c", "a", "b", "c"])
+        XCTAssertFalse(queue.removeFromUpcoming("b", occurrence: 1))
+        XCTAssertTrue(queue.removeFromUpcoming("a"))
+        XCTAssertEqual(queue.currentItem, "a")
+        XCTAssertEqual(queue.upNextItems, ["c", "b", "c"])
+    }
+
+    func testPlayNextCanReplayAnEarlierMemberWithoutLosingTheOtherItems() {
+        var queue = PlaybackQueue(items: ["a", "b", "c", "d"], startingAt: "c")
+
+        XCTAssertTrue(queue.scheduleNext("a"))
+        XCTAssertEqual(queue.upNextItems, ["a", "d"])
+        XCTAssertTrue(queue.synchronizeItems(["a", "b", "c", "e", "d"]))
+        XCTAssertEqual(queue.upNextItems, ["a", "d", "e"])
+        XCTAssertEqual(queue.moveToNext(), "a")
+        XCTAssertEqual(queue.moveToPrevious(), "c")
+        XCTAssertEqual(queue.moveToNext(), "a")
+        XCTAssertEqual(queue.moveToNext(), "d")
+    }
+
+    func testChangingPlaybackOrderKeepsRemovalsAndUsesNewMode() {
+        var randomSource = SeededRandomNumberGenerator(seed: 42)
+        var queue = PlaybackQueue(
+            items: ["a", "b", "c", "d"], startingAt: "a",
+            order: .shuffled, using: &randomSource
+        )
+
+        XCTAssertTrue(queue.scheduleNext("d"))
+        XCTAssertTrue(queue.removeFromUpcoming("b"))
+        queue.setOrder(.ordered)
+
+        XCTAssertEqual(queue.upNextItems, ["c", "d"])
+        XCTAssertFalse(queue.hasEditedUpcomingItems)
+    }
+
+    func testShuffledQueueEditsSurviveRoundTripAndRestoredShuffle() throws {
+        var randomSource = SeededRandomNumberGenerator(seed: 42)
+        var queue = PlaybackQueue(
+            items: ["a", "b", "c", "d", "e"], startingAt: "a",
+            order: .shuffled, using: &randomSource
+        )
+        let oldUpcoming = queue.upNextItems
+        let next = try XCTUnwrap(oldUpcoming.last)
+        let removed = try XCTUnwrap(oldUpcoming.first)
+        XCTAssertTrue(queue.scheduleNext(next))
+        XCTAssertTrue(queue.removeFromUpcoming(removed))
+        let editedUpcoming = [next] + oldUpcoming.filter { $0 != next && $0 != removed }
+
+        let data = try JSONEncoder().encode(XCTUnwrap(queue.makeSnapshot()))
+        let snapshot = try JSONDecoder().decode(PlaybackQueueSnapshot<String>.self, from: data)
+        var restored = try XCTUnwrap(PlaybackQueue(snapshot: snapshot))
+        restored.reshufflePendingItems(using: &randomSource)
+
+        XCTAssertEqual(restored.upNextItems, editedUpcoming)
+        XCTAssertEqual(restored.moveToNext(using: &randomSource), next)
+        XCTAssertEqual(restored.items, queue.items)
+    }
+
+    func testRemoveOnlyRetainsRestOfUpcomingThroughSynchronizationAndRestore() throws {
+        for order in PlaybackOrder.allCases {
+            var randomSource = SeededRandomNumberGenerator(seed: 42)
+            var queue = PlaybackQueue(
+                items: ["a", "b", "c", "d"], startingAt: "a",
+                order: order, using: &randomSource
+            )
+            let expectedUpcoming = queue.upNextItems.filter { $0 != "c" }
+
+            XCTAssertTrue(queue.removeFromUpcoming("c"))
+            XCTAssertTrue(queue.synchronizeItems(["a", "d", "c", "b"], pendingOrderPolicy: .authoritative))
+            var restored = try XCTUnwrap(PlaybackQueue(snapshot: XCTUnwrap(queue.makeSnapshot())))
+            restored.reshufflePendingItems(using: &randomSource)
+
+            XCTAssertEqual(restored.upNextItems, expectedUpcoming)
+            XCTAssertTrue(restored.items.contains("c"))
+        }
+    }
+
+    func testQueueSnapshotDecodesWithoutNewMarker() throws {
+        let queue = PlaybackQueue(items: ["a", "b"])
+        let data = try JSONEncoder().encode(XCTUnwrap(queue.makeSnapshot()))
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        payload.removeValue(forKey: "hasEditedUpcomingItems")
+        let oldData = try JSONSerialization.data(withJSONObject: payload)
+
+        let decoded = try JSONDecoder().decode(PlaybackQueueSnapshot<String>.self, from: oldData)
+
+        XCTAssertFalse(decoded.hasEditedUpcomingItems)
+        XCTAssertEqual(decoded, queue.makeSnapshot())
+    }
+
     func testBoundedQueueProjectionsAvoidMaterializingTheWholeQueue() {
         var queue = PlaybackQueue(items: ["a", "b", "c", "d", "e"])
         _ = queue.moveToNext()

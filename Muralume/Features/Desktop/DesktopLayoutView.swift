@@ -1,7 +1,14 @@
 import SwiftUI
 
 struct DesktopLayoutView: View {
+    private struct MediaRevision: Equatable {
+        let library: UInt64
+        let playlistResolution: UInt64
+        let playlistCollection: UInt64
+    }
+
     @ObservedObject var desktopScene: DesktopSceneController
+    @ObservedObject var playlists: CustomPlaylistController
 
     let items: [LibraryMediaItem]
     let itemsRevision: UInt64
@@ -11,6 +18,8 @@ struct DesktopLayoutView: View {
     let cancel: () -> Void
     let apply: () -> Void
 
+    @State private var mediaChoices = DesktopMediaChoices()
+    @State private var mediaChoicesRevision: UInt64 = 0
     @EnvironmentObject private var localization: AppLocalizationController
 
     var body: some View {
@@ -25,7 +34,7 @@ struct DesktopLayoutView: View {
                         displays: desktopScene.connectedDisplays,
                         scene: desktopScene.scene,
                         currentItem: currentItem,
-                        itemsByID: itemsByID,
+                        mediaChoices: mediaChoices,
                         selectedDisplayID:
                             desktopScene.selectedDisplayID,
                         selectDisplay: desktopScene.select,
@@ -55,6 +64,21 @@ struct DesktopLayoutView: View {
         )
         .onAppear {
             desktopScene.beginEditing()
+        }
+        .onChange(
+            of: MediaRevision(
+                library: itemsRevision,
+                playlistResolution: playlists.resolutionRevision,
+                playlistCollection: playlists.collectionRevision
+            ),
+            initial: true
+        ) {
+            mediaChoices = DesktopMediaChoices(
+                libraryItems: items,
+                libraryItemsByID: itemsByID,
+                playlistItems: playlists.authorizedResolvedItems()
+            )
+            mediaChoicesRevision &+= 1
         }
         .onExitCommand(perform: cancel)
     }
@@ -184,16 +208,20 @@ struct DesktopLayoutView: View {
                             )
                     } else {
                         DesktopMediaSelectionControl(
-                            items: items,
-                            itemsRevision: itemsRevision,
-                            selectedItem: assignment.mediaItemID.flatMap {
-                                itemsByID[$0]
-                            },
+                            mediaChoices: mediaChoices,
+                            itemsRevision: mediaChoicesRevision,
+                            selectedItemID: assignment.mediaItemID,
+                            selectedItem: mediaChoices[assignment],
                             provider: mediaThumbnailProvider,
                             select: { item in
+                                guard let current = mediaChoices[item.id],
+                                      MediaBrowserItemIdentity(current) == MediaBrowserItemIdentity(item) else {
+                                    return
+                                }
                                 desktopScene.setMediaItem(
-                                    item.id,
-                                    for: display.id
+                                    current.id,
+                                    for: display.id,
+                                    fileIdentity: current.fileIdentity
                                 )
                             }
                         )
@@ -365,20 +393,18 @@ struct DesktopLayoutView: View {
         }
 
         let connectedIDs = Set(desktopScene.connectedDisplays.map(\.id))
-        let hasMissingVideo = desktopScene.scene.assignments.contains {
-            assignment in
-            guard assignment.isEnabled,
-                  connectedIDs.contains(assignment.displayID) else {
-                return false
-            }
-            guard let itemID = assignment.mediaItemID else {
-                return true
-            }
-            return itemsByID[itemID] == nil
+        let enabledAssignments = desktopScene.scene.assignments.filter {
+            $0.isEnabled && connectedIDs.contains($0.displayID)
         }
-        return hasMissingVideo
-            ? "desktop.layout.validation.noVideo"
-            : nil
+        if enabledAssignments.contains(where: { $0.mediaItemID == nil }) {
+            return "desktop.layout.validation.noVideo"
+        }
+        let hasAvailableVideo = enabledAssignments.contains { assignment in
+            mediaChoices[assignment] != nil
+        }
+        return hasAvailableVideo
+            ? nil
+            : "desktop.layout.validation.unavailableVideo"
     }
 
     private var persistenceFailureKey: String? {

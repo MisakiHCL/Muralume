@@ -176,11 +176,19 @@ private struct MuralumePlayerRootView: View {
                 coordinator.canRestoreDynamicDesktop,
             mediaThumbnailProvider: coordinator.mediaThumbnailProvider,
             videoInformationLoader: videoInformationLoader,
+            videoScreenshotFolder: coordinator.videoScreenshotFolder,
+            videoScreenshotHistory: coordinator.videoScreenshotHistory,
             isFullScreen: coordinator.isMainWindowFullScreen,
             chromeController: coordinator.playerChrome,
             actions: PlayerActions(
                 addMedia: {
                     coordinator.addMedia()
+                },
+                retryFailedPlayback: {
+                    coordinator.retryFailedPlayback()
+                },
+                chooseReplacementVideo: {
+                    coordinator.chooseReplacementVideo()
                 },
                 loadExternalSubtitle: {
                     coordinator.loadExternalSubtitle()
@@ -260,6 +268,9 @@ private struct MuralumePlayerRootView: View {
                 },
                 toggleFullScreen: {
                     coordinator.toggleFullScreen()
+                },
+                captureScreenshot: {
+                    coordinator.captureScreenshotInDefaultFolder()
                 }
             ),
             playerSurface: PlayerSurfaceRepresentable(

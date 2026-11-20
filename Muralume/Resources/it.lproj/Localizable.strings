@@ -8,6 +8,8 @@
 "media.select.detail" = "Scegli un video dalla libreria multimediale per avviare una coda di riproduzione.";
 "media.error.unsupported" = "Questa versione di Muralume non può riprodurre questo video.";
 "media.error.open" = "Muralume non ha potuto aprire questo video.";
+"media.error.openAnother" = "Apri un altro video…";
+"media.error.openAnother.prompt" = "Scegli un video da riprodurre.";
 "media.error.surface" = "La riproduzione del video non è iniziata in tempo. Muralume è tornato al lettore.";
 "desktop.error.statusMenu" = "Muralume non ha potuto creare i controlli nella barra dei menu ed è tornato al lettore.";
 "media.error.choose.from.playlist" = "Scegli un altro video dalla libreria multimediale.";
@@ -85,7 +87,8 @@
 "desktop.layout.useDisplay" = "Usa Muralume su questo schermo";
 "desktop.layout.video" = "Video";
 "desktop.layout.currentVideo" = "Video attuale";
-"desktop.layout.chooseLibrary" = "Scegli dalla libreria multimediale…";
+"desktop.layout.chooseVideo" = "Scegli dalla libreria o dalle playlist…";
+"desktop.layout.validation.unavailableVideo" = "Scegli un video disponibile per almeno uno schermo abilitato.";
 "desktop.layout.noVideo" = "Nessun video selezionato";
 "desktop.layout.mainDisplay" = "Schermo principale";
 "desktop.layout.search" = "Cerca video";
@@ -354,6 +357,17 @@
 "menu.bringAllToFront" = "Porta tutto in primo piano";
 "menu.showHelp" = "Aiuto Muralume";
 "screenshot.menu" = "Salva istantanea…";
+"screenshot.contextMenu" = "Salva istantanea";
+"screenshot.folder.title" = "Cartella delle istantanee";
+"screenshot.folder.downloads" = "Download";
+"screenshot.folder.choose" = "Scegli cartella…";
+"screenshot.folder.select" = "Scegli";
+"screenshot.history.title" = "Istantanee salvate";
+"screenshot.history.open" = "Apri immagine";
+"screenshot.history.reveal" = "Mostra nel Finder";
+"screenshot.history.accessError" = "Impossibile accedere a questa istantanea.";
+"screenshot.folder.selectionError" = "Impossibile utilizzare questa cartella.";
+"screenshot.folder.writeError" = "Controlla la cartella delle istantanee nelle impostazioni e riprova.";
 "screenshot.save.title" = "Salva istantanea";
 "screenshot.save.message" = "Scegli dove salvare il fotogramma attuale del video.";
 "screenshot.save.prompt" = "Salva";
@@ -419,3 +433,6 @@
 "menu.copy" = "Copia";
 "menu.paste" = "Incolla";
 "menu.selectAll" = "Seleziona tutto";
+"queue.playNow" = "Riproduci ora";
+"queue.playNext" = "Riproduci come prossimo";
+"queue.removeFromUpcoming" = "Rimuovi dalla coda";

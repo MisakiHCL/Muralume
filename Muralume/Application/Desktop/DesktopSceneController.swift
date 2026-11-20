@@ -171,10 +171,12 @@ final class DesktopSceneController: ObservableObject {
 
     func setMediaItem(
         _ mediaItemID: LibraryMediaItem.ID?,
-        for displayID: DesktopDisplayID
+        for displayID: DesktopDisplayID,
+        fileIdentity: MediaFileIdentity? = nil
     ) {
         updateAssignment(for: displayID) { assignment in
             assignment.mediaItemID = mediaItemID
+            assignment.mediaFileIdentity = mediaItemID == nil ? nil : fileIdentity
         }
     }
 

@@ -130,6 +130,7 @@ final class PlayerChromeController: ObservableObject {
     private var isFullScreen = false
     private var restoresPlaylistAfterFullScreen = false
     private var restoresPlaylistAfterSettings = false
+    private var isScreenshotHistoryPresented = false
 
     init(
         autoHideDelayNanoseconds: UInt64 = MuralumeTheme.Motion
@@ -150,6 +151,23 @@ final class PlayerChromeController: ObservableObject {
 
     func recordPointerActivity() {
         setVisible(true)
+        refreshAutoHideSchedule()
+    }
+
+    func hideFromVideoClick() {
+        guard playbackState.canHideChromeForPlayableMedia,
+              !isSettingsPresented, !isDesktopLayoutPresented else { return }
+        if isPlaylistPresented {
+            setPlaylistPresented(false)
+        }
+        setVisible(false)
+        autoHideScheduler.cancel()
+    }
+
+    func setScreenshotHistoryPresented(_ isPresented: Bool) {
+        guard isScreenshotHistoryPresented != isPresented else { return }
+        isScreenshotHistoryPresented = isPresented
+        if isPresented { setVisible(true) }
         refreshAutoHideSchedule()
     }
 
@@ -381,15 +399,19 @@ final class PlayerChromeController: ObservableObject {
         playbackState.canAutoHideChrome
             && presentedPanel == nil
             && !isDesktopLayoutPresented
+            && !isScreenshotHistoryPresented
     }
 }
 
 private extension PlayerChromePlaybackState {
-    var canAutoHideChrome: Bool {
+    var canHideChromeForPlayableMedia: Bool {
         !isPlayerWindowDismissed
             && readiness == .ready
             && hasPlayableMedia
-            && (isActuallyPlaying || !isPlaybackRequested)
+    }
+
+    var canAutoHideChrome: Bool {
+        canHideChromeForPlayableMedia && (isActuallyPlaying || !isPlaybackRequested)
     }
 
     var canAutoDismissPlaylist: Bool {

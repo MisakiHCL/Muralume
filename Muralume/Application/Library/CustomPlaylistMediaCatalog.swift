@@ -10,6 +10,22 @@ struct CustomPlaylistMediaCatalogSnapshot: Sendable {
     var availabilityRevision: UInt64 = 0
 }
 
+extension CustomPlaylistCollection {
+    /// Intersect resolution with the current entries so an asynchronously
+    /// resolved item cannot outlive the last reference that authorized it.
+    func authorizedResolvedItems(
+        using itemsByEntryID: [CustomPlaylistEntry.ID: LibraryMediaItem]
+    ) -> [LibraryMediaItem] {
+        guard !itemsByEntryID.isEmpty else { return [] }
+        return Array(playlists.lazy.flatMap(\.entries).compactMap { entry -> LibraryMediaItem? in
+            guard entry.accessGrantID != nil,
+                  let item = itemsByEntryID[entry.id],
+                  item.accessLease != nil else { return nil }
+            return item
+        })
+    }
+}
+
 /// Owns one resolver request and one latest pending collection. Cancelled
 /// native readers retain their own leases until their real work ends.
 @MainActor

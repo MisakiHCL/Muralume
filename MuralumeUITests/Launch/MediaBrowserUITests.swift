@@ -2,6 +2,114 @@ import XCTest
 
 final class MediaBrowserUITests: MediaBrowserUITestCase {
     @MainActor
+    func testVideoClickHidesControlsAndDoubleClickTogglesFullScreen() throws {
+        let application = try launchEmptyLibrary()
+        defer { if application.state != .notRunning { application.terminate() } }
+        try navigateToLibrary(application)
+        try importFixtureFolder(into: application)
+        try waitForLabel(
+            "3 videos, 1 media source", on: element(Identifier.librarySummary, in: application),
+            timeout: Timeout.media
+        )
+        try click(Identifier.libraryList, in: application)
+        try require(libraryItem(Fixture.landscape, in: application)).click()
+        try assertPlaybackAdvances(Fixture.landscape, in: application)
+
+        let window = try require(application.windows.firstMatch)
+        let viewport = try require(element("muralume.video-viewport", in: application))
+        let video = viewport.coordinate(withNormalizedOffset: CGVector(dx: 0.23, dy: 0.48))
+        let timeline = element(Identifier.playbackTimeline, in: application).sliders.firstMatch
+        let settings = application.buttons["muralume.open-settings"]
+        let sidebar = element("muralume.library-sidebar", in: application)
+        _ = try require(sidebar)
+        _ = try require(timeline)
+
+        let windowedFrame = NSValue(rect: window.frame)
+        video.doubleClick()
+        let enteredFullScreen = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "frame != %@", windowedFrame), object: window
+        )
+        _ = try XCTUnwrap(XCTWaiter.wait(for: [enteredFullScreen], timeout: Timeout.control) == .completed ? true : nil)
+        XCTAssertTrue(sidebar.waitForNonExistence(timeout: Timeout.control))
+
+        video.doubleClick()
+        let exitedFullScreen = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "frame == %@", windowedFrame), object: window
+        )
+        _ = try XCTUnwrap(XCTWaiter.wait(for: [exitedFullScreen], timeout: Timeout.control) == .completed ? true : nil)
+        _ = try require(sidebar)
+
+        // Keep the short video from advancing the queue while checking the controls.
+        try require(application.buttons["Pause"]).click()
+        _ = try require(application.buttons["Play"])
+        try waitUntilEnabled(timeline)
+        let visibleTimelineY = timeline.frame.minY
+
+        video.click()
+        let chromeHidden = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !timeline.exists || timeline.frame.minY > visibleTimelineY + 12
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [chromeHidden], timeout: 3), .completed)
+        XCTAssertTrue(sidebar.waitForNonExistence(timeout: Timeout.control))
+        viewport.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).hover()
+        _ = try require(timeline)
+        XCTAssertEqual(timeline.frame.minY, visibleTimelineY, accuracy: 1)
+        XCTAssertTrue(settings.isHittable)
+
+        video.rightClick()
+        _ = try require(application.menuItems["Save Screenshot"])
+        application.typeKey(.escape, modifierFlags: [])
+    }
+
+    @MainActor
+    func testPlaybackRecoveryOpensPickerOnFirstClickWithSidebarOpen() throws {
+        let application = try launchEmptyLibrary()
+        defer { if application.state != .notRunning { application.terminate() } }
+        try navigateToLibrary(application)
+        try withImportedIncompleteVideo(in: application) {
+            let replace = application.buttons["Open Another Video…"]
+            XCTAssertTrue(replace.waitForExistence(timeout: Timeout.media))
+            let sidebar = element("muralume.library-sidebar", in: application)
+            _ = try require(sidebar)
+            replace.click()
+            let replacementPicker = try require(application.dialogs.firstMatch)
+            XCTAssertTrue(sidebar.exists)
+            try require(replacementPicker.buttons["Cancel"]).click()
+        }
+    }
+
+    @MainActor
+    func testQueueContextMenuOrdersPlaybackActionsAndPlaysImmediately() throws {
+        let application = try launchEmptyLibrary()
+        defer { if application.state != .notRunning { application.terminate() } }
+        try navigateToLibrary(application)
+        try importFixtureFolder(into: application)
+        try waitForLabel(
+            "3 videos, 1 media source", on: element(Identifier.librarySummary, in: application),
+            timeout: Timeout.media
+        )
+        try click(Identifier.libraryList, in: application)
+        try require(libraryItem(Fixture.landscape, in: application)).click()
+        try assertPlaybackAdvances(Fixture.landscape, in: application)
+        try require(application.buttons["Pause"]).click()
+        _ = try require(application.buttons["Play"])
+
+        try click(Identifier.libraryTitle, in: application)
+        try require(application.menuItems["muralume.library-section.play-queue"]).click()
+        let queue = try require(element("muralume.playback-queue", in: application))
+        let nextVideo = try require(queue.buttons[Fixture.portrait])
+        nextVideo.rightClick()
+        let playNow = try require(application.menuItems["Play Now"])
+        let playNext = try require(application.menuItems["Play Next"])
+        let remove = try require(application.menuItems["Remove from Queue"])
+        XCTAssertLessThan(playNow.frame.minY, playNext.frame.minY)
+        XCTAssertLessThan(playNext.frame.minY, remove.frame.minY)
+
+        playNow.click()
+        try assertPlaybackAdvances(Fixture.portrait, in: application)
+    }
+
+    @MainActor
     func testGridSearchAndBatchPlaylistEditingPreserveLibraryMedia() throws {
         let application = try launchEmptyLibrary()
         let playlistName = "Browser UI \(UUID().uuidString.prefix(8))"

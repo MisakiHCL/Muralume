@@ -88,6 +88,7 @@ struct DesktopDisplayAssignment:
     var isEnabled: Bool
     var contentMode: DesktopVideoContentMode
     var mediaItemID: LibraryMediaItem.ID?
+    var mediaFileIdentity: MediaFileIdentity?
 
     var id: DesktopDisplayID {
         displayID
@@ -97,12 +98,18 @@ struct DesktopDisplayAssignment:
         displayID: DesktopDisplayID,
         isEnabled: Bool,
         contentMode: DesktopVideoContentMode,
-        mediaItemID: LibraryMediaItem.ID? = nil
+        mediaItemID: LibraryMediaItem.ID? = nil,
+        mediaFileIdentity: MediaFileIdentity? = nil
     ) {
         self.displayID = displayID
         self.isEnabled = isEnabled
         self.contentMode = contentMode
         self.mediaItemID = mediaItemID
+        self.mediaFileIdentity = mediaFileIdentity
+    }
+
+    func matchesMediaIdentity(_ identity: MediaFileIdentity?) -> Bool {
+        mediaFileIdentity.map { $0 == identity } ?? true
     }
 }
 
@@ -150,6 +157,7 @@ struct DesktopScene: Codable, Equatable, Sendable {
         var displayIDs: Set<DesktopDisplayID> = []
         for assignment in assignments {
             guard assignment.displayID.isValid,
+                  assignment.mediaFileIdentity?.isValid != false,
                   displayIDs.insert(assignment.displayID).inserted else {
                 return false
             }

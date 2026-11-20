@@ -136,6 +136,10 @@ final class CustomPlaylistController: ObservableObject {
     var availabilityRevision: UInt64 { currentMediaSnapshot.availabilityRevision }
     var authorizedRootIDs: Set<MediaLibraryRoot.ID> { currentMediaSnapshot.authorizedRootIDs }
 
+    func authorizedResolvedItems() -> [LibraryMediaItem] {
+        collection.authorizedResolvedItems(using: currentMediaSnapshot.itemsByEntryID)
+    }
+
     var resolutionPublisher: AnyPublisher<ResolutionPublication, Never> {
         let publisher = mediaCatalog.map { $0.$snapshot } ?? $legacyMediaSnapshot
         return publisher.map {

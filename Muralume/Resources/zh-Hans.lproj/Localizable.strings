@@ -8,6 +8,8 @@
 "media.select.detail" = "选择媒体库中的任意视频，即可从该视频开始建立播放队列。";
 "media.error.unsupported" = "当前版本的 Muralume 无法播放这个视频。";
 "media.error.open" = "Muralume 无法打开这个视频。";
+"media.error.openAnother" = "打开其他视频…";
+"media.error.openAnother.prompt" = "选择要播放的视频。";
 "media.error.surface" = "视频未能及时开始播放，已返回播放器。";
 "desktop.error.statusMenu" = "Muralume 无法创建菜单栏控制项，已返回播放器。";
 "media.error.choose.from.playlist" = "请从媒体库中选择其他视频。";
@@ -85,7 +87,8 @@
 "desktop.layout.useDisplay" = "在这台显示器上使用 Muralume";
 "desktop.layout.video" = "视频";
 "desktop.layout.currentVideo" = "当前视频";
-"desktop.layout.chooseLibrary" = "从媒体库选择…";
+"desktop.layout.chooseVideo" = "从媒体库或播放列表选择…";
+"desktop.layout.validation.unavailableVideo" = "请为至少一台已启用的显示器选择一个可用视频。";
 "desktop.layout.noVideo" = "未选择视频";
 "desktop.layout.mainDisplay" = "主显示器";
 "desktop.layout.search" = "搜索视频";
@@ -354,6 +357,17 @@
 "menu.bringAllToFront" = "前置全部窗口";
 "menu.showHelp" = "Muralume 帮助";
 "screenshot.menu" = "保存截图…";
+"screenshot.contextMenu" = "保存截图";
+"screenshot.folder.title" = "截图保存位置";
+"screenshot.folder.downloads" = "下载";
+"screenshot.folder.choose" = "选择文件夹…";
+"screenshot.folder.select" = "选择";
+"screenshot.history.title" = "已保存的截图";
+"screenshot.history.open" = "打开图片";
+"screenshot.history.reveal" = "在访达中显示";
+"screenshot.history.accessError" = "无法访问这张截图。";
+"screenshot.folder.selectionError" = "无法使用此文件夹。";
+"screenshot.folder.writeError" = "请在设置中检查截图保存位置，然后重试。";
 "screenshot.save.title" = "保存截图";
 "screenshot.save.message" = "选择当前视频画面的保存位置。";
 "screenshot.save.prompt" = "保存";
@@ -419,3 +433,6 @@
 "menu.copy" = "拷贝";
 "menu.paste" = "粘贴";
 "menu.selectAll" = "全选";
+"queue.playNow" = "立即播放";
+"queue.playNext" = "优先播放";
+"queue.removeFromUpcoming" = "移出队列";

@@ -95,7 +95,8 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         self.playlistVideoImporter = playlistVideoImporter
         customPlaylistPlaybackBridge = CustomPlaylistPlaybackBridge(
             playlists: playlists,
-            library: library
+            library: library,
+            desktopSession: desktopSession
         )
         automaticLibraryRefresh = MediaLibraryAutomaticRefreshController(
             monitor: mediaLibraryChangeMonitor,
@@ -169,7 +170,12 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             isMainWindowFullScreen = state
         }
         sourceAccessRecoveryMonitor.recoveryHandler = { [weak self] in
-            self?.recoverUnavailableSourceAccessAutomatically()
+            guard let self, !isShutDown else { return }
+            if self.desktopSession.activeScene?.mode == .perDisplay
+                || self.desktopScene?.committedScene.mode == .perDisplay {
+                self.playlists.retryResolution()
+            }
+            recoverUnavailableSourceAccessAutomatically()
         }
 
         library.$monitoredFolderURLs
@@ -339,6 +345,34 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
             return
         }
         playback.loadExternalSubtitle(subtitleURL)
+    }
+
+    func retryFailedPlayback() {
+        guard canImportMedia else { return }
+        if let url = library.failedTemporaryVideoURL {
+            openFiles([url], selectedFileAccess: playback.source?.accessLease)
+        } else if playback.canRetryPlayerSurface {
+            beginPresentationIntent()
+            playback.restorePlayerWindow()
+        } else if library.canRetryFailedPlayback {
+            beginPresentationIntent()
+            library.retryFailedPlayback()
+        }
+    }
+
+    func chooseReplacementVideo() {
+        guard canImportMedia, case .failed = playback.readiness else { return }
+        let presentationGeneration = presentationIntentGeneration
+        let playbackIntent = library.playbackSelectionIntentRevision
+        guard let url = library.selectReplacementVideo() else { return }
+        let pickerGrant = UserSelectedMediaImportExecutor.live.incomingLease(
+            for: url, policy: .sessionManaged
+        )
+        guard canImportMedia,
+              case .failed = playback.readiness,
+              presentationGeneration == presentationIntentGeneration,
+              playbackIntent == library.playbackSelectionIntentRevision else { return }
+        openFiles([url], selectedFileAccess: MediaSourceAccessLease(retaining: pickerGrant))
     }
 
     func reauthorizeMediaSources() {
@@ -678,6 +712,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     func dismissMainWindow() {
         beginPresentationIntent()
         cancelSourceAccessRetry()
+        videoScreenshotController?.cancel()
         if canRestoreDynamicDesktop {
             restoreDynamicDesktop()
             return
@@ -704,6 +739,10 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
     }
 
     func handleOpenFiles(_ urls: [URL]) {
+        openFiles(urls)
+    }
+
+    private func openFiles(_ urls: [URL], selectedFileAccess: MediaSourceAccessLease? = nil) {
         guard !urls.isEmpty, !isShutDown else {
             return
         }
@@ -809,7 +848,7 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
                 return
             }
 
-            let didOpen = await library.openFilesTemporarily(urls)
+            let didOpen = await library.openFilesTemporarily(urls, selectedFileAccess: selectedFileAccess)
             guard generation == externalOpenGeneration,
                   presentationGeneration == presentationIntentGeneration,
                   !Task.isCancelled, !isShutDown else {
@@ -1335,13 +1374,30 @@ extension AppCoordinator: MacMainMenuCommandHandling {
     }
 
     func captureScreenshotFromMenu() {
+        captureScreenshot(destination: .savePanel)
+    }
+
+    var videoScreenshotFolder: VideoScreenshotFolderController? {
+        videoScreenshotController?.folder
+    }
+
+    var videoScreenshotHistory: VideoScreenshotHistory? {
+        videoScreenshotController?.history
+    }
+
+    func captureScreenshotInDefaultFolder() {
+        captureScreenshot(destination: .defaultFolder)
+    }
+
+    private func captureScreenshot(destination: VideoScreenshotSaveDestination) {
         guard mainMenuCommandState.canControlPlayback,
               let source = playback.source else {
             return
         }
         videoScreenshotController?.capture(
             source: source,
-            at: playback.currentTime
+            at: playback.currentTime,
+            destination: destination
         )
     }
 

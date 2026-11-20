@@ -13,6 +13,7 @@ final class CustomPlaylistPlaybackBridge {
 
     private let playlists: CustomPlaylistController
     private weak var library: MediaLibraryCoordinator?
+    private weak var desktopSession: DesktopSessionCoordinator?
     private var cancellables: Set<AnyCancellable> = []
     private var latestLibraryItems: [LibraryMediaItem]
     private var latestLibraryItemsRevision: UInt64
@@ -23,6 +24,7 @@ final class CustomPlaylistPlaybackBridge {
     private var latestResolutionItems: [LibraryMediaItem]
     private var latestResolutionRevision: UInt64
     private var latestResolutionEntryItems: [CustomPlaylistEntry.ID: LibraryMediaItem] = [:]
+    private var desktopPlaylistItemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
     // Retain at most one active playlist. Names and timestamps are deliberately
     // excluded: only its media sequence and library availability affect playback.
     private var synchronizedQueueKey: QueueSynchronizationKey?
@@ -31,10 +33,12 @@ final class CustomPlaylistPlaybackBridge {
 
     init(
         playlists: CustomPlaylistController,
-        library: MediaLibraryCoordinator
+        library: MediaLibraryCoordinator,
+        desktopSession: DesktopSessionCoordinator? = nil
     ) {
         self.playlists = playlists
         self.library = library
+        self.desktopSession = desktopSession
         latestLibraryItems = library.items
         latestLibraryItemsRevision = library.itemsRevision
         latestLibraryContentRevision = library.itemsContentRevision
@@ -43,6 +47,19 @@ final class CustomPlaylistPlaybackBridge {
         latestCollection = playlists.collection
         latestResolutionItems = playlists.resolutionItems
         latestResolutionRevision = playlists.resolutionRevision
+
+        desktopSession?.independentSourceResolver = { [weak self, weak library] itemID in
+            guard let item = DesktopMediaChoices.playbackItem(
+                libraryItem: library?.libraryItemsByID[itemID],
+                playlistItem: self?.desktopPlaylistItemsByID[itemID]
+            ) else { return nil }
+            return ResolvedMediaSource(
+                url: item.url,
+                displayName: item.displayName,
+                accessLease: item.accessLease,
+                fileIdentity: item.fileIdentity
+            )
+        }
 
         library.customPlaylistItemsProvider = {
             [weak playlists] playlistID in
@@ -79,6 +96,7 @@ final class CustomPlaylistPlaybackBridge {
                 latestResolutionItems = snapshot.items
                 latestResolutionRevision = snapshot.revision
                 latestResolutionEntryItems = snapshot.itemsByEntryID
+                updateDesktopPlaylistItems()
                 self.library?.updatePlaylistThumbnailAccess(using: snapshot.items)
                 synchronizeActiveQueueIfReady()
             }
@@ -142,7 +160,25 @@ final class CustomPlaylistPlaybackBridge {
         latestResolutionIndex = nil
         latestResolutionItems.removeAll()
         latestResolutionEntryItems.removeAll()
+        desktopSession?.independentSourceResolver = nil
+        desktopPlaylistItemsByID.removeAll()
         await playlists.shutdown()
+    }
+
+    private func updateDesktopPlaylistItems() {
+        guard let desktopSession else { return }
+        let previous = desktopPlaylistItemsByID
+        let items = latestCollection.authorizedResolvedItems(using: latestResolutionEntryItems)
+        desktopPlaylistItemsByID = Dictionary(
+            items.lazy.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let assignedIDs = Set(desktopSession.activeScene?.assignments.compactMap(\.mediaItemID) ?? [])
+        let changed = assignedIDs.filter { previous[$0] != desktopPlaylistItemsByID[$0] }
+        desktopSession.refreshIndependentSources(
+            changed,
+            authorized: changed.filter { desktopPlaylistItemsByID[$0] != nil }
+        )
     }
 
     private func libraryItemsDidChange(
@@ -181,6 +217,7 @@ final class CustomPlaylistPlaybackBridge {
     ) {
         let previousCollection = latestCollection
         latestCollection = collection
+        updateDesktopPlaylistItems()
         guard playlists.isReady, let library else {
             return
         }

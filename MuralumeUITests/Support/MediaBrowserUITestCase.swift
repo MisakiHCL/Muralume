@@ -174,6 +174,42 @@ class MediaBrowserUITestCase: XCTestCase {
             Fixture.directory.appendingPathComponent($0 + ".mp4")
         } + [Fixture.directory]
         _ = try XCTUnwrap(allowed.contains(fixtureURL) ? true : nil, "Only synthetic fixtures may be selected")
+        try navigateToFixturePath(fixtureURL, in: application, inputSource: inputSource)
+    }
+
+    @MainActor
+    func withImportedIncompleteVideo(
+        in application: XCUIApplication,
+        perform operation: () throws -> Void
+    ) throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let brokenVideo = folder.appendingPathComponent("Incomplete.mp4")
+        // MP4 file type box with no movie data or tracks.
+        try Data([0, 0, 0, 20] + Array("ftypisom".utf8) + [0, 0, 0, 0] + Array("isom".utf8))
+            .write(to: brokenVideo)
+
+        try MuralumeUITestInputSource.withASCIILayout { inputSource in
+            try click(Identifier.addMedia, in: application)
+            let picker = try require(application.dialogs.firstMatch)
+            defer { dismissNativePickerIfPresent(in: application) }
+            try navigateToFixturePath(brokenVideo, in: application, inputSource: inputSource)
+            let confirm = try require(picker.buttons["OKButton"])
+            try waitUntilEnabled(confirm)
+            confirm.click()
+            XCTAssertTrue(picker.waitForNonExistence(timeout: Timeout.control))
+        }
+        try operation()
+    }
+
+    @MainActor
+    private func navigateToFixturePath(
+        _ fixtureURL: URL,
+        in application: XCUIApplication,
+        inputSource: MuralumeUITestInputSource.Selection
+    ) throws {
         application.typeKey("g", modifierFlags: [.command, .shift])
         let goToWindow = try require(application.sheets["GoToWindow"])
         let pathEntry: XCUIElement

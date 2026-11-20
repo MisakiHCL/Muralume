@@ -21,6 +21,7 @@ struct CustomPlaylistMediaRow: View {
     let toggleSelection: () -> Void
     let retry: () -> Void
     var reauthorize: (() -> Void)? = nil
+    var playNext: (() -> Void)? = nil
     var layout: MediaBrowserLayout = .list
     var artworkSize = CGSize(
         width: MuralumeTheme.Size.playlistArtworkWidth,
@@ -48,6 +49,7 @@ struct CustomPlaylistMediaRow: View {
                 Divider()
             }
             if item != nil {
+                if let playNext { Button("queue.playNext", action: playNext) }
                 Button("videoInfo.menu", action: showInformation)
                 Button("library.item.revealInFinder", action: revealInFinder)
             }
@@ -82,6 +84,9 @@ struct CustomPlaylistMediaRow: View {
             retry: retry,
             reauthorize: reauthorize
         )
+        .accessibilityActions {
+            if let playNext { Button("queue.playNext", action: playNext) }
+        }
     }
 
     @ViewBuilder

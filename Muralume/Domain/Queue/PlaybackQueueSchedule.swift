@@ -47,12 +47,21 @@ struct PlaybackQueueSchedule<Item: Hashable & Sendable>: Sendable {
     }
 
     mutating func remove(_ item: Item) {
-        guard let index = preparedItems.index(of: item),
-              removals?.contains(index, width: bitmapWidth) != true else { return }
+        guard let index = preparedItems.index(of: item) else { return }
+        if remove(at: index), index < physicalIndex { consumedCount -= 1 }
+    }
+
+    mutating func removePending(_ item: Item) -> Bool {
+        guard let index = preparedItems.index(of: item), index >= physicalIndex else { return false }
+        return remove(at: index)
+    }
+
+    private mutating func remove(at index: Int) -> Bool {
+        guard removals?.contains(index, width: bitmapWidth) != true else { return false }
         removals = PlaybackQueueRemovedPositions.inserting(
             index, width: bitmapWidth, into: removals
         )
-        if index < physicalIndex { consumedCount -= 1 }
+        return true
     }
 
     mutating func replacePending(with pendingItems: [Item]) {

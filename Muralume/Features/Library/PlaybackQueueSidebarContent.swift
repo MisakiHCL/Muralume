@@ -149,9 +149,10 @@ struct PlaybackQueueSidebarContent: View {
     }
 
     private func queueRow(_ entry: PlaybackQueueEntry) -> some View {
-        PlaybackQueueRow(
+        let queueRevision = library.queueRevision
+        return PlaybackQueueRow(
             item: entry.item,
-            isCurrent: library.currentItemID == entry.item.id,
+            isCurrent: entry.id.section == .nowPlaying,
             playbackState: playbackState,
             isTemporary: library.temporaryItemIDs.contains(entry.item.id),
             mediaThumbnailProvider: mediaThumbnailProvider,
@@ -164,7 +165,15 @@ struct PlaybackQueueSidebarContent: View {
             },
             showInformation: {
                 showVideoInformation(entry.item)
-            }
+            },
+            playNext: library.canScheduleNext(entry.item)
+                ? { library.scheduleNext(entry.item) } : nil,
+            removeFromUpcoming: entry.id.section == .upNext ? {
+                library.removeFromUpcoming(
+                    entry.item, occurrence: entry.id.occurrence,
+                    expectedQueueRevision: queueRevision
+                )
+            } : nil
         )
     }
 
@@ -202,6 +211,8 @@ private struct PlaybackQueueRow: View {
     let addToLibrary: () -> Void
     let revealInFinder: () -> Void
     let showInformation: () -> Void
+    let playNext: (() -> Void)?
+    let removeFromUpcoming: (() -> Void)?
 
     var body: some View {
         Button(action: play) {
@@ -270,6 +281,20 @@ private struct PlaybackQueueRow: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
+            Button(action: play) {
+                Label("queue.playNow", systemImage: "play.fill")
+            }
+            if let playNext {
+                Button(action: playNext) {
+                    Label("queue.playNext", systemImage: "text.insert")
+                }
+            }
+            if let removeFromUpcoming {
+                Button(action: removeFromUpcoming) {
+                    Label("queue.removeFromUpcoming", systemImage: "minus.circle")
+                }
+            }
+            Divider()
             if isCurrent, isTemporary {
                 Button(action: addToLibrary) {
                     Label("queue.addToLibrary", systemImage: "plus")
@@ -284,6 +309,12 @@ private struct PlaybackQueueRow: View {
         }
         .accessibilityLabel(Text(verbatim: item.displayName))
         .accessibilityValue(Text(verbatim: accessibilityValue))
+        .accessibilityActions {
+            if let playNext { Button("queue.playNext", action: playNext) }
+            if let removeFromUpcoming {
+                Button("queue.removeFromUpcoming", action: removeFromUpcoming)
+            }
+        }
     }
 
     private var accessibilityValue: String {

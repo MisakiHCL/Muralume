@@ -381,6 +381,14 @@ final class DesktopSessionCoordinator: ObservableObject {
         await independentPlayback?.stopAndDrain(itemIDs: itemIDs)
     }
 
+    func refreshIndependentSources(
+        _ changedIDs: Set<LibraryMediaItem.ID>,
+        authorized authorizedIDs: Set<LibraryMediaItem.ID>
+    ) {
+        guard !isShutDown, activeScene?.mode == .perDisplay else { return }
+        independentPlayback?.refreshSources(changedIDs, authorized: authorizedIDs)
+    }
+
     func dismissTransientFailure() {
         transientFailure = nil
     }

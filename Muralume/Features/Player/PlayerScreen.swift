@@ -14,6 +14,8 @@ struct PlayerScreen<PlayerSurface: View>: View {
     let canRestoreDynamicDesktop: Bool
     let mediaThumbnailProvider: any MediaThumbnailProviding
     let videoInformationLoader: any VideoInformationLoading
+    let videoScreenshotFolder: VideoScreenshotFolderController?
+    let videoScreenshotHistory: VideoScreenshotHistory?
     let isFullScreen: Bool
     @ObservedObject var chromeController: PlayerChromeController
     let actions: PlayerActions
@@ -34,22 +36,15 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 VideoViewport(
                     playback: playback,
                     library: library,
+                    playlists: playlists,
+                    chromeController: chromeController,
+                    actions: actions,
+                    canCaptureScreenshot: videoScreenshotFolder != nil,
+                    showVideoInformation: { videoInformationItem = $0 },
                     playerSurface: playerSurface
                 )
-                .contextMenu {
-                    if let currentItem = library.currentItem {
-                        Button {
-                            videoInformationItem = currentItem
-                        } label: {
-                            Label(
-                                "videoInfo.menu",
-                                systemImage: "info.circle"
-                            )
-                        }
-                    }
-                }
 
-                if chromeController.presentedPanel != nil {
+                if chromeController.isSettingsPresented {
                     Color.clear
                         .contentShape(Rectangle())
                         .onTapGesture {
@@ -59,7 +54,11 @@ struct PlayerScreen<PlayerSurface: View>: View {
                         .zIndex(PlayerLayer.panelDismiss)
                 }
 
-                PointerActivityReader {
+                PointerActivityReader(
+                    hidesIdleCursor: isFullScreen && !chromeController.isVisible
+                        && !chromeController.isDesktopLayoutPresented && playlistNameEditor == nil
+                        && videoInformationItem == nil
+                ) {
                     chromeController.recordPointerActivity()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -176,6 +175,9 @@ struct PlayerScreen<PlayerSurface: View>: View {
         .onReceive(chromePlaybackStatePublisher) { state in
             chromeController.updatePlaybackState(state)
         }
+        .onReceive(screenshotHistoryPublisher) { records in
+            if !records.isEmpty { chromeController.recordPointerActivity() }
+        }
         .onChange(of: isFullScreen) {
             chromeController.updateFullScreen(isFullScreen)
         }
@@ -228,6 +230,7 @@ struct PlayerScreen<PlayerSurface: View>: View {
 
             DesktopLayoutView(
                 desktopScene: desktopScene,
+                playlists: playlists,
                 items: library.items,
                 itemsRevision: library.itemsRevision,
                 itemsByID: library.libraryItemsByID,
@@ -361,6 +364,8 @@ struct PlayerScreen<PlayerSurface: View>: View {
             playback: playback,
             isFullScreen: isFullScreen,
             isSettingsPresented: chromeController.isSettingsPresented,
+            videoScreenshotHistory: videoScreenshotHistory,
+            screenshotHistoryPresentationChanged: chromeController.setScreenshotHistoryPresented,
             actions: actions
         )
         .offset(
@@ -446,7 +451,8 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 dynamicDesktopStartup: dynamicDesktopStartup,
                 defaultVideoPlayer: defaultVideoPlayer,
                 smartPause: smartPause,
-                subtitleAppearance: playback.subtitleAppearance
+                subtitleAppearance: playback.subtitleAppearance,
+                videoScreenshotFolder: videoScreenshotFolder
             ) {
                 chromeController.setSettingsPresented(false)
             }
@@ -460,6 +466,11 @@ struct PlayerScreen<PlayerSurface: View>: View {
         case .settings:
             MuralumeTheme.Size.settingsPanelWidth
         }
+    }
+
+    private var screenshotHistoryPublisher: AnyPublisher<[VideoScreenshotRecord], Never> {
+        videoScreenshotHistory?.$records.dropFirst().eraseToAnyPublisher()
+            ?? Empty().eraseToAnyPublisher()
     }
 
     private var chromePlaybackStatePublisher:

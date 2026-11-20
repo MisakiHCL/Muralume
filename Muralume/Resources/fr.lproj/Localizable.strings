@@ -8,6 +8,8 @@
 "media.select.detail" = "Choisissez une vidéo dans la bibliothèque multimédia pour lancer une file d’attente de lecture.";
 "media.error.unsupported" = "Cette version de Muralume ne peut pas lire cette vidéo.";
 "media.error.open" = "Muralume n’a pas pu ouvrir cette vidéo.";
+"media.error.openAnother" = "Ouvrir une autre vidéo…";
+"media.error.openAnother.prompt" = "Choisissez une vidéo à lire.";
 "media.error.surface" = "La vidéo n’a pas démarré à temps. Muralume est revenu au lecteur.";
 "desktop.error.statusMenu" = "Muralume n’a pas pu créer les commandes de la barre des menus et est revenu au lecteur.";
 "media.error.choose.from.playlist" = "Choisissez une autre vidéo dans la bibliothèque multimédia.";
@@ -85,7 +87,8 @@
 "desktop.layout.useDisplay" = "Utiliser Muralume sur cet écran";
 "desktop.layout.video" = "Vidéo";
 "desktop.layout.currentVideo" = "Vidéo actuelle";
-"desktop.layout.chooseLibrary" = "Choisir dans la bibliothèque multimédia…";
+"desktop.layout.chooseVideo" = "Choisir dans la bibliothèque ou les listes de lecture…";
+"desktop.layout.validation.unavailableVideo" = "Choisissez une vidéo disponible pour au moins un écran activé.";
 "desktop.layout.noVideo" = "Aucune vidéo sélectionnée";
 "desktop.layout.mainDisplay" = "Écran principal";
 "desktop.layout.search" = "Rechercher des vidéos";
@@ -354,6 +357,17 @@
 "menu.bringAllToFront" = "Tout ramener au premier plan";
 "menu.showHelp" = "Aide Muralume";
 "screenshot.menu" = "Enregistrer une capture…";
+"screenshot.contextMenu" = "Enregistrer une capture";
+"screenshot.folder.title" = "Dossier des captures";
+"screenshot.folder.downloads" = "Téléchargements";
+"screenshot.folder.choose" = "Choisir un dossier…";
+"screenshot.folder.select" = "Choisir";
+"screenshot.history.title" = "Captures enregistrées";
+"screenshot.history.open" = "Ouvrir l’image";
+"screenshot.history.reveal" = "Afficher dans le Finder";
+"screenshot.history.accessError" = "Impossible d’accéder à cette capture.";
+"screenshot.folder.selectionError" = "Impossible d’utiliser ce dossier.";
+"screenshot.folder.writeError" = "Vérifiez le dossier des captures dans les réglages, puis réessayez.";
 "screenshot.save.title" = "Enregistrer une capture";
 "screenshot.save.message" = "Choisissez où enregistrer l’image actuelle de la vidéo.";
 "screenshot.save.prompt" = "Enregistrer";
@@ -419,3 +433,6 @@
 "menu.copy" = "Copier";
 "menu.paste" = "Coller";
 "menu.selectAll" = "Tout sélectionner";
+"queue.playNow" = "Lire maintenant";
+"queue.playNext" = "Lire ensuite";
+"queue.removeFromUpcoming" = "Retirer de la file d’attente";

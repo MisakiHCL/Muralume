@@ -113,16 +113,6 @@ enum AppCompositionRoot {
         let defaultVideoPlayer = DefaultVideoPlayerController(
             service: MacDefaultVideoPlayerService()
         )
-        desktopSession.independentSourceResolver = { [weak library] itemID in
-            guard let item = library?.mediaItem(forPersistedID: itemID) else {
-                return nil
-            }
-            return ResolvedMediaSource(
-                url: item.url,
-                displayName: item.displayName,
-                accessLease: item.accessLease
-            )
-        }
         library.mediaItemsWillBeRemovedHandler = {
             [weak desktopSession] itemIDs in
             await desktopSession?.drainMediaItems(itemIDs)

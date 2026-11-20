@@ -1375,6 +1375,39 @@ final class AppCoordinatorTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
+    func testPlaybackFailureReplacementCancelsOrPlaysWithoutImporting() async {
+        let replacementURL = URL(fileURLWithPath: "/tmp/AppCoordinatorTests/Replacement.mp4")
+        let fixture = makeFixture(launchStatus: .disabled, selectedSources: [[], [replacementURL]])
+        fixture.coordinator.start(source: .interactive)
+        await waitUntil { fixture.window.isVisible }
+        await prepareActiveQueue(in: fixture)
+        let replacement = LibraryMediaItem(
+            rootURL: replacementURL, rootName: "Replacement.mp4", kind: .file,
+            url: replacementURL, displayName: "Replacement", relativePath: "",
+            relativeDirectory: "", creationDate: nil, fileSize: 1
+        )
+        fixture.scanner.replaceSnapshot(MediaLibrarySnapshot(
+            roots: fixture.library.roots + [
+                MediaLibraryRoot(url: replacementURL, displayName: "Replacement.mp4", kind: .file)
+            ],
+            items: [fixture.item, replacement]
+        ))
+        fixture.engine.failureHandler?(.cannotOpen)
+        XCTAssertEqual(fixture.playback.readiness, .failed(.cannotOpen))
+
+        fixture.coordinator.chooseReplacementVideo()
+        XCTAssertEqual(fixture.playback.readiness, .failed(.cannotOpen))
+
+        fixture.coordinator.chooseReplacementVideo()
+        await waitUntil { fixture.playback.source?.url == replacementURL && fixture.playback.readiness == .ready }
+
+        XCTAssertEqual(fixture.sourceSelector.intents, [.replacingPlaybackItem, .replacingPlaybackItem])
+        XCTAssertEqual(fixture.library.items, [fixture.item])
+        XCTAssertTrue(fixture.library.currentItemIsTemporary)
+        XCTAssertNotNil(fixture.playback.source?.accessLease)
+        await fixture.coordinator.shutdown()
+    }
+
     func testFinderOpeningFileAtLaunchLoadsMediaLibrary() async {
         let fixture = makeFixture(launchStatus: .disabled)
         let chrome = fixture.coordinator.playerChrome

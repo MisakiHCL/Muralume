@@ -8,6 +8,8 @@
 "media.select.detail" = "미디어 보관함의 동영상을 선택하면 재생 대기열이 만들어집니다.";
 "media.error.unsupported" = "이 버전의 Muralume에서는 이 동영상을 재생할 수 없습니다.";
 "media.error.open" = "동영상을 열 수 없습니다.";
+"media.error.openAnother" = "다른 동영상 열기…";
+"media.error.openAnother.prompt" = "재생할 동영상을 선택하세요.";
 "media.error.surface" = "동영상 재생이 제시간에 시작되지 않아 플레이어로 돌아왔습니다.";
 "desktop.error.statusMenu" = "메뉴 막대의 제어 항목을 만들 수 없어 플레이어로 돌아왔습니다.";
 "media.error.choose.from.playlist" = "미디어 보관함에서 다른 동영상을 선택하세요.";
@@ -85,7 +87,8 @@
 "desktop.layout.useDisplay" = "이 디스플레이에서 Muralume 사용";
 "desktop.layout.video" = "동영상";
 "desktop.layout.currentVideo" = "현재 동영상";
-"desktop.layout.chooseLibrary" = "미디어 보관함에서 선택…";
+"desktop.layout.chooseVideo" = "미디어 보관함 또는 재생목록에서 선택…";
+"desktop.layout.validation.unavailableVideo" = "활성화된 디스플레이를 하나 이상 선택해 재생 가능한 동영상을 지정하세요.";
 "desktop.layout.noVideo" = "선택한 동영상 없음";
 "desktop.layout.mainDisplay" = "주 디스플레이";
 "desktop.layout.search" = "동영상 검색";
@@ -354,6 +357,17 @@
 "menu.bringAllToFront" = "모두 앞으로 가져오기";
 "menu.showHelp" = "Muralume 도움말";
 "screenshot.menu" = "스크린샷 저장…";
+"screenshot.contextMenu" = "스크린샷 저장";
+"screenshot.folder.title" = "스크린샷 저장 위치";
+"screenshot.folder.downloads" = "다운로드";
+"screenshot.folder.choose" = "폴더 선택…";
+"screenshot.folder.select" = "선택";
+"screenshot.history.title" = "저장된 스크린샷";
+"screenshot.history.open" = "이미지 열기";
+"screenshot.history.reveal" = "Finder에서 보기";
+"screenshot.history.accessError" = "이 스크린샷에 접근할 수 없습니다.";
+"screenshot.folder.selectionError" = "이 폴더를 사용할 수 없습니다.";
+"screenshot.folder.writeError" = "설정에서 스크린샷 저장 위치를 확인한 후 다시 시도하세요.";
 "screenshot.save.title" = "스크린샷 저장";
 "screenshot.save.message" = "현재 동영상 프레임을 저장할 위치를 선택하세요.";
 "screenshot.save.prompt" = "저장";
@@ -419,3 +433,6 @@
 "menu.copy" = "복사하기";
 "menu.paste" = "붙여넣기";
 "menu.selectAll" = "전체 선택";
+"queue.playNow" = "지금 재생";
+"queue.playNext" = "다음에 재생";
+"queue.removeFromUpcoming" = "대기열에서 제거";

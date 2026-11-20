@@ -1,5 +1,53 @@
 import Foundation
 
+struct DesktopMediaChoices {
+    let items: [LibraryMediaItem]
+    let libraryItemsByID: [LibraryMediaItem.ID: LibraryMediaItem]
+    let playlistItemsByID: [LibraryMediaItem.ID: LibraryMediaItem]
+
+    init(
+        libraryItems: [LibraryMediaItem] = [],
+        libraryItemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:],
+        playlistItems: [LibraryMediaItem] = []
+    ) {
+        self.libraryItemsByID = libraryItemsByID
+        var additionalItems: [LibraryMediaItem] = []
+        var additionalItemsByID: [LibraryMediaItem.ID: LibraryMediaItem] = [:]
+        for item in playlistItems where item.accessLease != nil {
+            guard libraryItemsByID[item.id] == nil,
+                  additionalItemsByID[item.id] == nil else { continue }
+            additionalItemsByID[item.id] = item
+            additionalItems.append(item)
+        }
+        items = additionalItems.isEmpty ? libraryItems : libraryItems + additionalItems
+        playlistItemsByID = additionalItemsByID
+    }
+
+    subscript(id: LibraryMediaItem.ID) -> LibraryMediaItem? {
+        libraryItemsByID[id] ?? playlistItemsByID[id]
+    }
+
+    subscript(assignment: DesktopDisplayAssignment) -> LibraryMediaItem? {
+        guard let itemID = assignment.mediaItemID,
+              let item = self[itemID],
+              assignment.matchesMediaIdentity(item.fileIdentity) else { return nil }
+        return item
+    }
+
+    static func playbackItem(
+        libraryItem: LibraryMediaItem?, playlistItem: LibraryMediaItem?
+    ) -> LibraryMediaItem? {
+        // The playlist resolver can still describe the old file after a
+        // library scan detects a same-path substitution. Use the identity
+        // visible in the picker while the playlist catches up.
+        if let libraryItem, let identity = libraryItem.fileIdentity,
+           playlistItem?.fileIdentity != identity {
+            return libraryItem
+        }
+        return playlistItem ?? libraryItem
+    }
+}
+
 /// The desktop picker searches three visible fields. Keep this distinct from
 /// library search, which also matches the complete relative media filename.
 struct DesktopMediaSearch: Sendable {

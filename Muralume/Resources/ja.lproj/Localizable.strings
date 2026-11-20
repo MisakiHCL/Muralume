@@ -8,6 +8,8 @@
 "media.select.detail" = "メディアライブラリの動画を選択すると、再生キューが作成されます。";
 "media.error.unsupported" = "このバージョンのMuralumeでは、この動画を再生できません。";
 "media.error.open" = "この動画を開けませんでした。";
+"media.error.openAnother" = "別の動画を開く…";
+"media.error.openAnother.prompt" = "再生する動画を選択してください。";
 "media.error.surface" = "動画の再生を時間内に開始できなかったため、プレーヤーに戻りました。";
 "desktop.error.statusMenu" = "メニューバーのコントロールを作成できなかったため、プレーヤーに戻りました。";
 "media.error.choose.from.playlist" = "メディアライブラリから別の動画を選択してください。";
@@ -85,7 +87,8 @@
 "desktop.layout.useDisplay" = "このディスプレイでMuralumeを使用";
 "desktop.layout.video" = "動画";
 "desktop.layout.currentVideo" = "現在の動画";
-"desktop.layout.chooseLibrary" = "メディアライブラリから選択…";
+"desktop.layout.chooseVideo" = "メディアライブラリまたはプレイリストから選択…";
+"desktop.layout.validation.unavailableVideo" = "有効なディスプレイを少なくとも1台選び、再生可能な動画を割り当ててください。";
 "desktop.layout.noVideo" = "動画が未選択";
 "desktop.layout.mainDisplay" = "メインディスプレイ";
 "desktop.layout.search" = "動画を検索";
@@ -354,6 +357,17 @@
 "menu.bringAllToFront" = "すべてを手前に移動";
 "menu.showHelp" = "Muralumeヘルプ";
 "screenshot.menu" = "スクリーンショットを保存…";
+"screenshot.contextMenu" = "スクリーンショットを保存";
+"screenshot.folder.title" = "スクリーンショットの保存先";
+"screenshot.folder.downloads" = "ダウンロード";
+"screenshot.folder.choose" = "フォルダを選択…";
+"screenshot.folder.select" = "選択";
+"screenshot.history.title" = "保存したスクリーンショット";
+"screenshot.history.open" = "画像を開く";
+"screenshot.history.reveal" = "Finderに表示";
+"screenshot.history.accessError" = "このスクリーンショットにアクセスできませんでした。";
+"screenshot.folder.selectionError" = "このフォルダは使用できません。";
+"screenshot.folder.writeError" = "設定でスクリーンショットの保存先を確認し、もう一度お試しください。";
 "screenshot.save.title" = "スクリーンショットを保存";
 "screenshot.save.message" = "現在の動画フレームの保存先を選択してください。";
 "screenshot.save.prompt" = "保存";
@@ -419,3 +433,6 @@
 "menu.copy" = "コピー";
 "menu.paste" = "ペースト";
 "menu.selectAll" = "すべてを選択";
+"queue.playNow" = "今すぐ再生";
+"queue.playNext" = "次に再生";
+"queue.removeFromUpcoming" = "キューから外す";

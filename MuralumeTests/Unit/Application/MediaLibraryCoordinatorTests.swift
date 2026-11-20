@@ -3250,6 +3250,45 @@ final class MediaLibraryCoordinatorTests: XCTestCase {
             fixture.engine.loadedSources.map(\.displayName),
             ["First"]
         )
+        XCTAssertTrue(fixture.coordinator.canRetryFailedPlayback)
+        XCTAssertTrue(fixture.coordinator.canSkipFailedPlayback)
+
+        fixture.coordinator.skipFailedPlayback()
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+
+        XCTAssertEqual(fixture.coordinator.currentItemID, second.id)
+        XCTAssertEqual(fixture.engine.loadedSources.map(\.displayName), ["First", "Second"])
+        XCTAssertFalse(fixture.coordinator.canRetryFailedPlayback)
+        XCTAssertFalse(fixture.coordinator.canSkipFailedPlayback)
+    }
+
+    func testTransientTerminalFailureCanRetryTheClearedLibrarySelection() async {
+        let url = URL(fileURLWithPath: "/tmp/Recoverable.mov")
+        let item = makeFileItem(url: url)
+        let fixture = makeFixture(
+            selectedURLs: [url],
+            snapshot: MediaLibrarySnapshot(
+                roots: [MediaLibraryRoot(url: url, displayName: "Recoverable", kind: .file)],
+                items: [item]
+            )
+        )
+        fixture.engine.loadErrorsByURL[url] = .cannotOpen
+        fixture.coordinator.addMedia()
+        await waitForFailure(fixture.playback)
+
+        XCTAssertFalse(fixture.coordinator.hasActiveQueue)
+        XCTAssertTrue(fixture.coordinator.canRetryFailedPlayback)
+        XCTAssertFalse(fixture.coordinator.canSkipFailedPlayback)
+
+        fixture.engine.loadErrorsByURL[url] = nil
+        fixture.coordinator.retryFailedPlayback()
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+
+        XCTAssertEqual(fixture.coordinator.currentItemID, item.id)
+        XCTAssertFalse(fixture.coordinator.unavailableItemIDs.contains(item.id))
+        XCTAssertFalse(fixture.coordinator.canRetryFailedPlayback)
     }
 
     func testRestoredFileKindReachesTypedScannerEntryPoint() async {

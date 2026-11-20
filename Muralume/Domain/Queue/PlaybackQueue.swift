@@ -29,6 +29,7 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
     private(set) var currentItem: Item?
     private(set) var roundNumber: Int
     private(set) var currentRoundPosition: Int?
+    private(set) var hasEditedUpcomingItems = false
 
     var history: [Item] {
         historyBuffer.elements.map(\.item)
@@ -244,6 +245,7 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
         }
 
         self.order = order
+        hasEditedUpcomingItems = false
         var pendingItems = schedule.pendingItems()
 
         switch order {
@@ -268,13 +270,59 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
     >(
         using randomSource: inout RandomSource
     ) {
-        guard order == .shuffled else {
+        guard order == .shuffled, !hasEditedUpcomingItems else {
             return
         }
 
         var pendingItems = schedule.pendingItems()
         pendingItems.shuffle(using: &randomSource)
         schedule.replacePending(with: pendingItems)
+    }
+
+    func canScheduleNext(_ item: Item) -> Bool {
+        currentItem != item && membership.index(of: item) != nil
+    }
+
+    @discardableResult
+    mutating func scheduleNext(_ item: Item) -> Bool {
+        guard let currentItem, canScheduleNext(item) else { return false }
+        if nextItemWithoutAdvancing == item, !isAtEndOfRound {
+            guard !hasEditedUpcomingItems else { return false }
+            hasEditedUpcomingItems = true
+            return true
+        }
+
+        // An explicit upcoming order starts a new forward branch. Retain the
+        // rest of the visible upcoming order, even when it includes redo items.
+        var seen: Set<Item> = [currentItem, item]
+        var upcoming = [item]
+        upcoming.append(contentsOf: upNextItems.filter { seen.insert($0).inserted })
+        seen.remove(currentItem)
+        let consumed = schedule.items.prefix(schedule.consumedCount)
+            .filter { !seen.contains($0) }
+        schedule = PlaybackQueueSchedule(
+            items: consumed + upcoming, consumedCount: consumed.count
+        )
+        forwardHistory.removeAll()
+        hasEditedUpcomingItems = true
+        return true
+    }
+
+    @discardableResult
+    mutating func removeFromUpcoming(_ item: Item, occurrence: Int = 0) -> Bool {
+        guard occurrence >= 0 else { return false }
+        var remainingOccurrence = occurrence
+        for index in forwardHistory.indices.reversed() where forwardHistory[index].item == item {
+            if remainingOccurrence == 0 {
+                forwardHistory.remove(at: index)
+                hasEditedUpcomingItems = true
+                return true
+            }
+            remainingOccurrence -= 1
+        }
+        guard remainingOccurrence == 0, schedule.removePending(item) else { return false }
+        hasEditedUpcomingItems = true
+        return true
     }
 
     @discardableResult
@@ -309,6 +357,7 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
 
         recordInHistory(currentLocation)
         roundNumber += 1
+        hasEditedUpcomingItems = false
 
         var nextRound = items
         if order == .shuffled {
@@ -436,9 +485,10 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
         using randomSource: inout RandomSource
     ) -> Bool {
         let uniqueItems = preparedItems.items
+        let shouldReorderPending = pendingOrderPolicy == .authoritative
+            && order == .ordered && !hasEditedUpcomingItems
         let needsAuthoritativePendingReorder =
-            pendingOrderPolicy == .authoritative
-                && order == .ordered
+            shouldReorderPending
                 && authoritativePendingItems(from: uniqueItems)
                     != schedule.pendingItems()
         guard uniqueItems != items || needsAuthoritativePendingReorder else {
@@ -483,7 +533,7 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
                 addedItems,
                 authoritativeItems: uniqueItems
             )
-            if pendingOrderPolicy == .authoritative {
+            if shouldReorderPending {
                 schedule.replacePending(with: authoritativePendingItems(from: uniqueItems))
             }
         case .shuffled:
@@ -616,6 +666,7 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
             currentItem = nil
             currentRoundPosition = nil
             roundNumber = 0
+            hasEditedUpcomingItems = false
             schedule = PlaybackQueueSchedule(items: [])
             forwardHistory.removeAll()
             return nil
@@ -653,6 +704,7 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
         }
 
         roundNumber = max(roundNumber + 1, 1)
+        hasEditedUpcomingItems = false
         var nextRound = items
         if order == .shuffled {
             nextRound.shuffle(using: &randomSource)
@@ -731,6 +783,10 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
                 return (addedItem, position)
             }
         let pendingItems = schedule.pendingItems()
+        if hasEditedUpcomingItems {
+            schedule.replacePending(with: pendingItems + positionedAdditions.map(\.item))
+            return
+        }
         var mergedPendingItems: [Item] = []
         mergedPendingItems.reserveCapacity(
             pendingItems.count + positionedAdditions.count
@@ -769,6 +825,10 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
         let pendingItems = schedule.pendingItems()
         var randomizedAdditions = addedItems
         randomizedAdditions.shuffle(using: &randomSource)
+        if hasEditedUpcomingItems {
+            schedule.replacePending(with: pendingItems + randomizedAdditions)
+            return
+        }
         var additionsByGap = Array(
             repeating: [Item](),
             count: pendingItems.count + 1
@@ -855,7 +915,8 @@ extension PlaybackQueue where Item: Codable {
                     roundNumber: $0.roundNumber,
                     position: $0.position
                 )
-            }
+            },
+            hasEditedUpcomingItems: hasEditedUpcomingItems
         )
     }
 
@@ -889,6 +950,7 @@ extension PlaybackQueue where Item: Codable {
         currentItem = snapshot.currentItem
         roundNumber = snapshot.roundNumber
         currentRoundPosition = snapshot.currentRoundPosition
+        hasEditedUpcomingItems = snapshot.hasEditedUpcomingItems
         schedule = PlaybackQueueSchedule(
             items: snapshot.remainingItems, consumedCount: snapshot.remainingIndex
         )

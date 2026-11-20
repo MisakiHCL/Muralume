@@ -72,7 +72,8 @@ final class VideoScreenshotTests: XCTestCase {
         let destination = directory.appendingPathComponent("capture.jpg")
         let writer = FileVideoScreenshotWriter()
         let data = Data([0xFF, 0xD8, 0xFF, 0xD9])
-        try await writer.write(data, to: destination)
+        let saved = try await writer.write(data, to: destination)
+        XCTAssertEqual(saved.url, destination)
         XCTAssertEqual(try Data(contentsOf: destination), data)
         let cancelledDestination = directory.appendingPathComponent("cancelled.jpg")
         let cancelled = Task {
@@ -99,5 +100,96 @@ final class VideoScreenshotTests: XCTestCase {
             ),
             "Travel-Day-One-01-01-01.jpg"
         )
+    }
+
+    func testAutomaticScreenshotWritesReserveUniqueNamesAcrossWriters() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let existing = directory.appendingPathComponent("frame.jpg")
+        let original = Data([1])
+        let first = Data([2])
+        let second = Data([3])
+        try original.write(to: existing)
+
+        let firstWriter = FileVideoScreenshotWriter()
+        let secondWriter = FileVideoScreenshotWriter()
+        async let firstResult = firstWriter.write(first, named: "frame.jpg", in: directory, customFolder: nil)
+        async let secondResult = secondWriter.write(second, named: "frame.jpg", in: directory, customFolder: nil)
+        let (firstWrite, secondWrite) = try await (firstResult, secondResult)
+        XCTAssertEqual(Set([firstWrite.record.url.lastPathComponent, secondWrite.record.url.lastPathComponent]),
+                       Set(["frame-2.jpg", "frame-3.jpg"]))
+
+        XCTAssertEqual(try Data(contentsOf: existing), original)
+        let added = try ["frame-2.jpg", "frame-3.jpg"].map {
+            try Data(contentsOf: directory.appendingPathComponent($0))
+        }
+        XCTAssertEqual(Set(added), Set([first, second]))
+    }
+
+    @MainActor
+    func testScreenshotFolderPersistsAndUsesTheDownloadsLabelForThatDirectory() async throws {
+        let suiteName = "muralume.screenshot-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let folder = VideoScreenshotFolder(path: "/chosen", bookmark: Data([1]))
+        let selector = ScreenshotFolderSelectorStub(selection: folder)
+        let settings = VideoScreenshotFolderController(selector: selector, defaults: defaults)
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+
+        XCTAssertEqual(settings.directoryURL, downloads)
+        XCTAssertTrue(settings.usesDownloadsName)
+        await settings.chooseFolder()
+        let restored = VideoScreenshotFolderController(selector: selector, defaults: defaults)
+        XCTAssertEqual(restored.customFolder, folder)
+        XCTAssertEqual(restored.directoryURL, folder.url)
+        XCTAssertFalse(restored.usesDownloadsName)
+
+        selector.selection = nil
+        await restored.chooseFolder()
+        XCTAssertEqual(restored.customFolder, folder)
+
+        let selectedDownloads = VideoScreenshotFolder(path: try XCTUnwrap(downloads).path, bookmark: Data([2]))
+        selector.selection = selectedDownloads
+        await restored.chooseFolder()
+        XCTAssertEqual(restored.customFolder, selectedDownloads)
+        XCTAssertEqual(restored.directoryURL, downloads)
+        XCTAssertTrue(restored.usesDownloadsName)
+    }
+
+    @MainActor
+    func testScreenshotHistoryKeepsRecentUniqueFilesAndInvalidatesClearedActions() {
+        var opened: [VideoScreenshotRecord] = []
+        let history = VideoScreenshotHistory { record, _ in opened.append(record) }
+        for index in 0..<25 {
+            history.record(VideoScreenshotRecord(url: URL(fileURLWithPath: "/tmp/frame-\(index).jpg")))
+        }
+        XCTAssertEqual(history.records.count, 20)
+        XCTAssertEqual(history.records.last?.url.lastPathComponent, "frame-5.jpg")
+
+        let file = URL(fileURLWithPath: "/tmp/frame-12.jpg")
+        let overwritten = VideoScreenshotRecord(url: file)
+        history.record(overwritten)
+        XCTAssertEqual(history.records.first, overwritten)
+        XCTAssertEqual(history.records.filter { $0.url == file }.count, 1)
+
+        history.perform(.open, on: overwritten)
+        history.clear()
+        history.perform(.open, on: overwritten)
+        XCTAssertTrue(history.records.isEmpty)
+        XCTAssertEqual(opened, [overwritten])
+    }
+}
+
+@MainActor
+private final class ScreenshotFolderSelectorStub: VideoScreenshotFolderSelecting {
+    var selection: VideoScreenshotFolder?
+
+    init(selection: VideoScreenshotFolder?) {
+        self.selection = selection
+    }
+
+    func chooseFolder(startingAt directory: URL?) async throws -> VideoScreenshotFolder? {
+        selection
     }
 }

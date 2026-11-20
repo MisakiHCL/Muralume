@@ -3,8 +3,9 @@ import CoreGraphics
 import SwiftUI
 
 struct DesktopMediaSelectionControl: View {
-    let items: [LibraryMediaItem]
+    let mediaChoices: DesktopMediaChoices
     let itemsRevision: UInt64
+    let selectedItemID: LibraryMediaItem.ID?
     let selectedItem: LibraryMediaItem?
     let provider: any MediaThumbnailProviding
     let select: (LibraryMediaItem) -> Void
@@ -32,7 +33,7 @@ struct DesktopMediaSelectionControl: View {
             )
             .popover(isPresented: $isPickerPresented, arrowEdge: .trailing) {
                 DesktopMediaLibraryPicker(
-                    items: items,
+                    mediaChoices: mediaChoices,
                     itemsRevision: itemsRevision,
                     selectedItemID: selectedItem?.id,
                     provider: provider,
@@ -58,10 +59,18 @@ struct DesktopMediaSelectionControl: View {
                 )
             }
 
-            Text(verbatim: selectionTitle)
-                .font(.callout.weight(.medium))
-                .foregroundStyle(selectionForegroundStyle)
-                .lineLimit(2)
+            VStack(alignment: .leading, spacing: MuralumeTheme.Spacing.xSmall) {
+                Text(verbatim: selectionTitle)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(selectionForegroundStyle)
+                    .lineLimit(2)
+
+                if selectedItemID != nil && selectedItem == nil {
+                    Label("library.source.health.unavailable", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(MuralumeTheme.Colors.warning)
+                }
+            }
 
             Spacer(minLength: MuralumeTheme.Spacing.small)
 
@@ -94,7 +103,8 @@ struct DesktopMediaSelectionControl: View {
 
     private var selectionTitle: String {
         selectedItem?.displayName
-            ?? localization.localized("desktop.layout.chooseLibrary")
+            ?? selectedItemID.map { URL(fileURLWithPath: $0.standardizedMediaPath).lastPathComponent }
+            ?? localization.localized("desktop.layout.chooseVideo")
     }
 
     private var selectionForegroundStyle: Color {
@@ -110,7 +120,7 @@ struct DesktopMediaSelectionControl: View {
 }
 
 private struct DesktopMediaLibraryPicker: View {
-    let items: [LibraryMediaItem]
+    let mediaChoices: DesktopMediaChoices
     let itemsRevision: UInt64
     let selectedItemID: LibraryMediaItem.ID?
     let provider: any MediaThumbnailProviding
@@ -130,11 +140,11 @@ private struct DesktopMediaLibraryPicker: View {
             localeIdentifier: locale.identifier,
             systemLocaleIdentifier: systemLocaleIdentifier
         )
-        let requestedItems = items
+        let requestedItems = mediaChoices.items
         // Both the rows and empty state consume this one completed projection.
         // An unfinished search must not announce an empty result.
         let displayedItems = search.query.isEmpty
-            ? items
+            ? requestedItems
             : searchProjection.result(for: requestID)
         return VStack(spacing: MuralumeTheme.Spacing.medium) {
             TextField("desktop.layout.search", text: $query)
@@ -197,7 +207,7 @@ private struct DesktopMediaLibraryPicker: View {
                         .font(.callout.weight(.medium))
                         .lineLimit(1)
 
-                    Text(verbatim: item.rootName)
+                    sourceLabel(for: item)
                         .font(.caption)
                         .foregroundStyle(
                             MuralumeTheme.Colors.textSecondary
@@ -218,6 +228,13 @@ private struct DesktopMediaLibraryPicker: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private func sourceLabel(for item: LibraryMediaItem) -> Text {
+        if mediaChoices.playlistItemsByID[item.id] != nil {
+            return Text("playlists.title")
+        }
+        return Text(verbatim: item.rootName)
     }
 }
 

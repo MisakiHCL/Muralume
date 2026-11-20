@@ -1236,6 +1236,7 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertFalse(engine.isPlaying)
         XCTAssertEqual(engine.stopCount, 0)
         XCTAssertEqual(reportedFailures, [.surfaceTimeout])
+        XCTAssertTrue(coordinator.canRetryPlayerSurface)
 
         engine.attachmentErrorsBySurfaceID[.player] = nil
         coordinator.restorePlayerWindow()
@@ -1250,6 +1251,7 @@ final class PlaybackCoordinatorTests: XCTestCase {
         XCTAssertTrue(engine.isPlaying)
         XCTAssertEqual(engine.attachedSurfaceID, .player)
         XCTAssertEqual(engine.stopCount, 0)
+        XCTAssertFalse(coordinator.canRetryPlayerSurface)
     }
 
     func testReopenDuringSupersededLoadAttachmentRetriesCurrentSurface()

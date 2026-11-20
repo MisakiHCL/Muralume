@@ -2,6 +2,8 @@ import Foundation
 
 struct PlayerActions {
     let addMedia: () -> Void
+    let retryFailedPlayback: () -> Void
+    let chooseReplacementVideo: () -> Void
     let loadExternalSubtitle: () -> Void
     let retryUnavailableSourceAccess: () -> Void
     let reauthorizeMediaSources: () -> Void
@@ -28,4 +30,5 @@ struct PlayerActions {
     let closeWindow: () -> Void
     let minimizeWindow: () -> Void
     let toggleFullScreen: () -> Void
+    let captureScreenshot: () -> Void
 }

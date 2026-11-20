@@ -8,6 +8,8 @@
 "media.select.detail" = "Wählen Sie ein Video in der Mediathek aus, um damit eine Warteschlange zu starten.";
 "media.error.unsupported" = "Diese Version von Muralume kann dieses Video nicht abspielen.";
 "media.error.open" = "Muralume konnte dieses Video nicht öffnen.";
+"media.error.openAnother" = "Anderes Video öffnen …";
+"media.error.openAnother.prompt" = "Wähle ein Video zur Wiedergabe aus.";
 "media.error.surface" = "Das Video wurde nicht rechtzeitig gestartet. Muralume ist zum Player zurückgekehrt.";
 "desktop.error.statusMenu" = "Muralume konnte die Steuerung in der Menüleiste nicht erstellen und ist zum Player zurückgekehrt.";
 "media.error.choose.from.playlist" = "Wählen Sie ein anderes Video aus der Mediathek.";
@@ -85,7 +87,8 @@
 "desktop.layout.useDisplay" = "Muralume auf diesem Display verwenden";
 "desktop.layout.video" = "Video";
 "desktop.layout.currentVideo" = "Aktuelles Video";
-"desktop.layout.chooseLibrary" = "Aus Mediathek auswählen…";
+"desktop.layout.chooseVideo" = "Aus Mediathek oder Playlists auswählen…";
+"desktop.layout.validation.unavailableVideo" = "Wählen Sie für mindestens ein aktiviertes Display ein verfügbares Video aus.";
 "desktop.layout.noVideo" = "Kein Video ausgewählt";
 "desktop.layout.mainDisplay" = "Hauptdisplay";
 "desktop.layout.search" = "Videos suchen";
@@ -354,6 +357,17 @@
 "menu.bringAllToFront" = "Alle nach vorne bringen";
 "menu.showHelp" = "Muralume-Hilfe";
 "screenshot.menu" = "Bildschirmfoto sichern…";
+"screenshot.contextMenu" = "Bildschirmfoto sichern";
+"screenshot.folder.title" = "Ordner für Bildschirmfotos";
+"screenshot.folder.downloads" = "Downloads";
+"screenshot.folder.choose" = "Ordner auswählen…";
+"screenshot.folder.select" = "Auswählen";
+"screenshot.history.title" = "Gespeicherte Bildschirmfotos";
+"screenshot.history.open" = "Bild öffnen";
+"screenshot.history.reveal" = "Im Finder zeigen";
+"screenshot.history.accessError" = "Auf dieses Bildschirmfoto konnte nicht zugegriffen werden.";
+"screenshot.folder.selectionError" = "Dieser Ordner konnte nicht verwendet werden.";
+"screenshot.folder.writeError" = "Prüfe den Ordner für Bildschirmfotos in den Einstellungen und versuche es erneut.";
 "screenshot.save.title" = "Bildschirmfoto sichern";
 "screenshot.save.message" = "Wählen Sie einen Speicherort für das aktuelle Videobild.";
 "screenshot.save.prompt" = "Sichern";
@@ -419,3 +433,6 @@
 "menu.copy" = "Kopieren";
 "menu.paste" = "Einsetzen";
 "menu.selectAll" = "Alles auswählen";
+"queue.playNow" = "Jetzt abspielen";
+"queue.playNext" = "Als Nächstes abspielen";
+"queue.removeFromUpcoming" = "Aus Warteschlange entfernen";

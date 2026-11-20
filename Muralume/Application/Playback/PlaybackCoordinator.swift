@@ -51,6 +51,13 @@ final class PlaybackCoordinator: ObservableObject {
             && presentation == .player
     }
 
+    var canRetryPlayerSurface: Bool {
+        readiness == .failed(.surfaceTimeout)
+            && presentation == .player
+            && hasPlayableMedia && source != nil && playerSurface != nil
+            && !isPlayerWindowDismissed
+    }
+
     private let engine: any PlaybackEngine
     private let preferencesStore: (any AppPreferencesStoring)?
     private let audioPreferencesPersistenceDelay: Duration

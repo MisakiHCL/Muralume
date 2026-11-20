@@ -351,6 +351,7 @@ if [[ "${is_entitlements_display}" -eq 1 ]]; then
         '<plist version="1.0"><dict>' \
         '<key>com.apple.security.app-sandbox</key><true/>' \
         '<key>com.apple.security.files.user-selected.read-write</key><true/>' \
+        '<key>com.apple.security.files.downloads.read-write</key><true/>' \
         "${bookmark_entry}" \
         '</dict></plist>'
     exit 0

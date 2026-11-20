@@ -165,6 +165,8 @@ struct LibraryMediaBrowser: View {
             createPlaylist: {
                 createPlaylist(using: [item])
             },
+            playNext: !selection.isSelecting && library.canScheduleNext(item)
+                ? { library.scheduleNext(item) } : nil,
             layout: layout,
             artworkSize: itemSize,
             isSelecting: selection.isSelecting,
@@ -190,6 +192,7 @@ struct LibraryMediaBrowser: View {
                     LibraryPlaylistMenuEntryRevision(id: $0.id, name: $0.name)
                 }
             ),
+            queueStructureRevision: library.queueStructureRevision,
             selectionRevision: selection.revision,
             isSearching: isSearching
         )
@@ -235,6 +238,7 @@ struct LibraryMediaBrowser: View {
 
 private struct MediaBrowserRowContentRevision: Hashable {
     let library: LibraryPlaylistRowContentRevision
+    let queueStructureRevision: UInt64
     let selectionRevision: UInt64
     let isSearching: Bool
 }

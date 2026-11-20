@@ -338,6 +338,24 @@ final class PlayerChromeControllerTests: XCTestCase {
         XCTAssertFalse(scheduler.hasScheduledAction)
     }
 
+    func testVideoClickHidesControlsWithOpenPlaylistUntilPointerMoves() {
+        let scheduler = ControlledPlayerChromeAutoHideScheduler()
+        let controller = makeController(scheduler: scheduler)
+        controller.updatePlaybackState(.playing)
+
+        controller.hideFromVideoClick()
+
+        XCTAssertNil(controller.presentedPanel)
+        XCTAssertFalse(controller.isVisible)
+        XCTAssertFalse(scheduler.hasScheduledAction)
+        controller.hideFromVideoClick()
+        XCTAssertFalse(controller.isVisible)
+
+        controller.recordPointerActivity()
+        XCTAssertTrue(controller.isVisible)
+        XCTAssertTrue(scheduler.hasScheduledAction)
+    }
+
     func testSettingsReplacesPlaylistAndRestoresItWhenClosed() {
         let controller = PlayerChromeController()
 

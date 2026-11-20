@@ -115,7 +115,8 @@ struct DefaultMediaLibraryQueueRestorationPreparer:
             currentItem: canonical(snapshot.currentItem), roundNumber: snapshot.roundNumber,
             currentRoundPosition: snapshot.currentRoundPosition,
             remainingItems: snapshot.remainingItems.map(canonical), remainingIndex: snapshot.remainingIndex,
-            history: snapshot.history.map(location), forwardHistory: snapshot.forwardHistory.map(location)
+            history: snapshot.history.map(location), forwardHistory: snapshot.forwardHistory.map(location),
+            hasEditedUpcomingItems: snapshot.hasEditedUpcomingItems
         )
     }
 }

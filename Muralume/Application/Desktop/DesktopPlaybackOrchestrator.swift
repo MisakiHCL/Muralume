@@ -70,6 +70,7 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
     private struct ActiveNode {
         let itemID: LibraryMediaItem.ID
         let surfaceIdentity: ObjectIdentifier
+        let source: ResolvedMediaSource
         let node: DesktopLoopPlaybackNode
     }
 
@@ -164,6 +165,19 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
             return
         }
         reconcilePlaybackNodes()
+    }
+
+    func refreshSources(
+        _ changedIDs: Set<LibraryMediaItem.ID>,
+        authorized authorizedIDs: Set<LibraryMediaItem.ID>
+    ) {
+        guard isStarted, !isShutDown, !changedIDs.isEmpty else { return }
+        suppressedMediaItemIDs.subtract(authorizedIDs)
+        for assignment in assignmentsByDisplayID.values {
+            guard let itemID = assignment.mediaItemID,
+                  changedIDs.contains(itemID) else { continue }
+            reconcilePlaybackNode(for: assignment.displayID)
+        }
     }
 
     func addSurface(
@@ -342,10 +356,14 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
             return
         }
 
+        let source = sourceResolver?(itemID).flatMap {
+            assignment.matchesMediaIdentity($0.fileIdentity) ? $0 : nil
+        }
         let surfaceIdentity = ObjectIdentifier(surface)
         if let activeNode = nodes[displayID],
            activeNode.itemID == itemID,
-           activeNode.surfaceIdentity == surfaceIdentity {
+           activeNode.surfaceIdentity == surfaceIdentity,
+           activeNode.source == source {
             if case .failed = activeNode.node.state {
                 // Explicit reconciliation is also the retry mechanism after
                 // an offline or temporarily unreadable source returns.
@@ -362,7 +380,7 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
             return
         }
 
-        guard let source = sourceResolver?(itemID) else {
+        guard let source else {
             publish(.failed(.cannotOpen), for: displayID)
             return
         }
@@ -389,6 +407,7 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
         nodes[displayID] = ActiveNode(
             itemID: itemID,
             surfaceIdentity: surfaceIdentity,
+            source: source,
             node: node
         )
         publish(.loading, for: displayID)
@@ -532,7 +551,9 @@ final class DesktopPlaybackOrchestrator: ObservableObject {
         nextDrainID &+= 1
         let drainID = nextDrainID
         let node = activeNode.node
-        let drainTask = Task { @MainActor [weak self, node] in
+        let lease = activeNode.source.accessLease
+        let drainTask = Task { @MainActor [weak self, node, lease] in
+            defer { withExtendedLifetime(lease) {} }
             await node.stopAndDrain()
             guard let self else { return }
             pendingDrains[drainID] = nil

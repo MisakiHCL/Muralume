@@ -43,7 +43,7 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
         switch intent {
         case .addingMedia, .addingPlaylistVideos, .reauthorizingSources:
             true
-        case .reauthorizingSource:
+        case .reauthorizingSource, .replacingPlaybackItem:
             false
         }
     }
@@ -54,7 +54,7 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
         switch intent {
         case .addingMedia, .reauthorizingSources:
             [.folder] + supportedVideoContentTypes
-        case .addingPlaylistVideos:
+        case .addingPlaylistVideos, .replacingPlaybackItem:
             supportedVideoContentTypes
         case let .reauthorizingSource(source):
             source.kind == .folder ? [.folder] : supportedVideoContentTypes
@@ -67,7 +67,7 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
         switch intent {
         case .addingMedia, .reauthorizingSources:
             true
-        case .addingPlaylistVideos:
+        case .addingPlaylistVideos, .replacingPlaybackItem:
             false
         case let .reauthorizingSource(source):
             source.kind == .folder
@@ -76,7 +76,7 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
 
     private func canChooseFiles(for intent: MediaSourceSelectionIntent) -> Bool {
         switch intent {
-        case .addingMedia, .addingPlaylistVideos, .reauthorizingSources:
+        case .addingMedia, .addingPlaylistVideos, .replacingPlaybackItem, .reauthorizingSources:
             true
         case let .reauthorizingSource(source):
             source.kind == .file
@@ -85,7 +85,7 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
 
     private func message(for intent: MediaSourceSelectionIntent) -> String {
         switch intent {
-        case .addingMedia, .addingPlaylistVideos, .reauthorizingSources:
+        case .addingMedia, .addingPlaylistVideos, .replacingPlaybackItem, .reauthorizingSources:
             localized(messageKey(for: intent))
         case let .reauthorizingSource(source):
             localization.localizedFormat(
@@ -103,6 +103,8 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
             "library.media.picker.message"
         case .addingPlaylistVideos:
             "playlists.media.picker.message"
+        case .replacingPlaybackItem:
+            "media.error.openAnother.prompt"
         case .reauthorizingSources, .reauthorizingSource:
             "library.media.picker.reauthorize.message"
         }
@@ -112,6 +114,8 @@ final class MacMediaSourcePicker: MediaSourceSelecting {
         switch intent {
         case .addingMedia, .addingPlaylistVideos:
             "library.media.picker.prompt"
+        case .replacingPlaybackItem:
+            "player.play"
         case .reauthorizingSources, .reauthorizingSource:
             "library.media.picker.reauthorize.prompt"
         }

@@ -19,6 +19,7 @@ struct ResolvedMediaSource: Equatable, Sendable {
     let url: URL
     let displayName: String
     var accessLease: MediaSourceAccessLease? = nil
+    var fileIdentity: MediaFileIdentity? = nil
 }
 
 enum MediaPlaybackCompatibilityPolicy {

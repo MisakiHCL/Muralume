@@ -3,6 +3,7 @@ import SwiftUI
 enum SettingsCategory: String, CaseIterable, Identifiable {
     case general
     case subtitles
+    case smartPause
 
     var id: Self {
         self
@@ -14,6 +15,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
             "settings.general"
         case .subtitles:
             "settings.subtitles.title"
+        case .smartPause:
+            "settings.smartPause.title"
         }
     }
 
@@ -23,6 +26,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
             "gearshape"
         case .subtitles:
             "captions.bubble"
+        case .smartPause:
+            "pause.circle"
         }
     }
 }
@@ -39,6 +44,7 @@ struct SettingsView: View {
     @ObservedObject var defaultVideoPlayer: DefaultVideoPlayerController
     @ObservedObject var smartPause: SmartPauseController
     @ObservedObject var subtitleAppearance: SubtitleAppearanceController
+    let videoScreenshotFolder: VideoScreenshotFolderController?
 
     let dismiss: () -> Void
 
@@ -189,14 +195,18 @@ struct SettingsView: View {
                             .queueCrossfadeCheckbox
                     )
                 }
+                if let videoScreenshotFolder {
+                    ScreenshotFolderSettings(folder: videoScreenshotFolder)
+                }
             }
 
-            smartPauseSection
         case .subtitles:
             SubtitleAppearanceSettingsView(
                 appearance: subtitleAppearance,
                 availableFontFamilies: subtitleFontFamilies
             )
+        case .smartPause:
+            smartPauseSection
         }
     }
 
@@ -656,6 +666,46 @@ struct SettingsSection<Content: View>: View {
         .padding(.vertical, MuralumeTheme.Spacing.xSmall)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(accessibilityIdentifier)
+    }
+}
+
+private struct ScreenshotFolderSettings: View {
+    @ObservedObject var folder: VideoScreenshotFolderController
+
+    var body: some View {
+        SettingsRow(
+            title: "screenshot.folder.title",
+            accessibilityIdentifier: MuralumeAccessibilityIdentifier.settingsScreenshotFolderRow
+        ) {
+            VStack(alignment: .trailing, spacing: MuralumeTheme.Spacing.xSmall) {
+                Button {
+                    Task { await folder.chooseFolder() }
+                } label: {
+                    folderLabel.lineLimit(1).truncationMode(.middle)
+                }
+                .buttonStyle(.borderless)
+                .fixedSize(horizontal: false, vertical: true)
+                .disabled(folder.isChoosingFolder)
+                .accessibilityLabel(Text("screenshot.folder.title"))
+                .accessibilityValue(folderLabel)
+                .accessibilityHint(Text("screenshot.folder.choose"))
+                .help(folder.customFolder.map { Text(verbatim: $0.path) } ?? folderLabel)
+
+                if folder.selectionFailed {
+                    Text("screenshot.folder.selectionError")
+                        .font(.caption)
+                        .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+        }
+    }
+
+    private var folderLabel: Text {
+        guard !folder.usesDownloadsName, let custom = folder.customFolder else {
+            return Text("screenshot.folder.downloads")
+        }
+        return Text(verbatim: custom.displayName ?? custom.url.lastPathComponent)
     }
 }
 

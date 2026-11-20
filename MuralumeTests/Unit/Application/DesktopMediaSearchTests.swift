@@ -3,6 +3,39 @@ import XCTest
 @testable import Muralume
 
 final class DesktopMediaSearchTests: XCTestCase {
+    func testDesktopChoicesIncludeOnlyAdditionalAuthorizedPlaylistItems() {
+        let lease = MediaSourceAccessLease(retaining: DesktopSearchGate())
+        let library = makeItem(name: "Library video", path: "Shared.mov")
+        let shared = makeItem(name: "Same video in playlist", path: "Shared.mov", accessLease: lease)
+        let playlist = makeItem(name: "Playlist-only video", path: "Only.mov", accessLease: lease)
+        let unavailable = makeItem(name: "Missing grant", path: "Unavailable.mov")
+
+        let choices = DesktopMediaChoices(
+            libraryItems: [library],
+            libraryItemsByID: [library.id: library],
+            playlistItems: [unavailable, shared, playlist, playlist]
+        )
+
+        XCTAssertEqual(choices.items, [library, playlist])
+        XCTAssertEqual(choices[shared.id], library)
+        XCTAssertEqual(choices[playlist.id]?.accessLease, lease)
+        XCTAssertNil(choices[unavailable.id])
+    }
+
+    func testDesktopPlaybackUsesRefreshedLibraryIdentityAndKeepsMatchingPlaylistAccess() {
+        let lease = MediaSourceAccessLease(retaining: DesktopSearchGate())
+        let oldIdentity = MediaFileIdentity(volumeIdentifier: Data([1]), fileIdentifier: Data([2]))
+        let newIdentity = MediaFileIdentity(volumeIdentifier: Data([1]), fileIdentifier: Data([3]))
+        let replaced = makeItem(name: "Replacement", path: "Shared.mov", fileIdentity: newIdentity)
+        let stale = makeItem(name: "Previous", path: "Shared.mov", fileIdentity: oldIdentity, accessLease: lease)
+        let refreshed = makeItem(name: "Replacement", path: "Shared.mov", fileIdentity: newIdentity, accessLease: lease)
+
+        XCTAssertEqual(replaced.id, stale.id)
+        XCTAssertEqual(DesktopMediaChoices.playbackItem(libraryItem: replaced, playlistItem: stale), replaced)
+        XCTAssertEqual(DesktopMediaChoices.playbackItem(libraryItem: replaced, playlistItem: refreshed), refreshed)
+        XCTAssertEqual(DesktopMediaChoices.playbackItem(libraryItem: nil, playlistItem: refreshed), refreshed)
+    }
+
     func testSearchPreservesThreeDesktopFieldsAndLocalizedMatching() throws {
         let name = makeItem(
             name: "Résumé 02", path: "CV.mov", rootName: "Archive"
@@ -235,7 +268,9 @@ final class DesktopMediaSearchTests: XCTestCase {
     private func makeItem(
         name: String,
         path: String,
-        rootName: String = "Library"
+        rootName: String = "Library",
+        fileIdentity: MediaFileIdentity? = nil,
+        accessLease: MediaSourceAccessLease? = nil
     ) -> LibraryMediaItem {
         let root = URL(fileURLWithPath: "/Library")
         return LibraryMediaItem(
@@ -246,7 +281,9 @@ final class DesktopMediaSearchTests: XCTestCase {
             relativePath: path,
             relativeDirectory: (path as NSString).deletingLastPathComponent,
             creationDate: nil,
-            fileSize: 1
+            fileSize: 1,
+            fileIdentity: fileIdentity,
+            accessLease: accessLease
         )
     }
 }

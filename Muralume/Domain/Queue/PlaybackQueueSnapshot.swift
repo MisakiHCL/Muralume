@@ -20,6 +20,7 @@ where Item: Codable & Hashable & Sendable {
     let remainingIndex: Int
     let history: [PlaybackQueueSnapshotLocation<Item>]
     let forwardHistory: [PlaybackQueueSnapshotLocation<Item>]
+    let hasEditedUpcomingItems: Bool
 
     private enum CodingKeys: String, CodingKey {
         case items
@@ -31,6 +32,7 @@ where Item: Codable & Hashable & Sendable {
         case remainingIndex
         case history
         case forwardHistory
+        case hasEditedUpcomingItems
     }
 
     init(
@@ -42,7 +44,8 @@ where Item: Codable & Hashable & Sendable {
         remainingItems: [Item],
         remainingIndex: Int,
         history: [PlaybackQueueSnapshotLocation<Item>],
-        forwardHistory: [PlaybackQueueSnapshotLocation<Item>]
+        forwardHistory: [PlaybackQueueSnapshotLocation<Item>],
+        hasEditedUpcomingItems: Bool = false
     ) {
         self.items = items
         self.order = order
@@ -53,6 +56,7 @@ where Item: Codable & Hashable & Sendable {
         self.remainingIndex = remainingIndex
         self.history = history
         self.forwardHistory = forwardHistory
+        self.hasEditedUpcomingItems = hasEditedUpcomingItems
     }
 
     init(from decoder: Decoder) throws {
@@ -139,6 +143,9 @@ where Item: Codable & Hashable & Sendable {
         remainingIndex = decodedRemainingIndex
         history = decodedHistory
         forwardHistory = decodedForwardHistory
+        hasEditedUpcomingItems = try container.decodeIfPresent(
+            Bool.self, forKey: .hasEditedUpcomingItems
+        ) ?? false
     }
 
     var isWithinPersistenceLimits: Bool {

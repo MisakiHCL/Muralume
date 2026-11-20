@@ -459,7 +459,8 @@ struct DefaultMediaLibrarySnapshotPreparer:
             remainingItems: snapshot.remainingItems.map(canonicalID),
             remainingIndex: snapshot.remainingIndex,
             history: snapshot.history.map(remap),
-            forwardHistory: snapshot.forwardHistory.map(remap)
+            forwardHistory: snapshot.forwardHistory.map(remap),
+            hasEditedUpcomingItems: snapshot.hasEditedUpcomingItems
         )
     }
 
@@ -474,6 +475,7 @@ struct DefaultMediaLibrarySnapshotPreparer:
               lhs.currentRoundPosition == rhs.currentRoundPosition,
               idsMatch(lhs.remainingItems, rhs.remainingItems),
               lhs.remainingIndex == rhs.remainingIndex,
+              lhs.hasEditedUpcomingItems == rhs.hasEditedUpcomingItems,
               locationsMatch(lhs.history, rhs.history),
               locationsMatch(lhs.forwardHistory, rhs.forwardHistory) else {
             return false

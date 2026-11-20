@@ -38,7 +38,8 @@ struct CustomPlaylistMediaBrowser: View {
                 selectionRevision: selection.revision,
                 isSearching: isSearching,
                 availabilityRevision: playlists.availabilityRevision,
-                unavailableItemsRevision: library.unavailableItemsRevision
+                unavailableItemsRevision: library.unavailableItemsRevision,
+                queueStructureRevision: library.queueStructureRevision
             )),
             scrollTargetID: projection.search.isEmpty
                 ? projection.entryID(for: library.currentItemID) : nil,
@@ -88,6 +89,7 @@ struct CustomPlaylistMediaBrowser: View {
             reauthorize: reauthorize.map { action in
                 { action(playlist.id, entry.id) }
             },
+            playNext: playNextAction(for: item),
             layout: layout,
             artworkSize: artworkSize,
             rowHeight: rowHeight,
@@ -104,6 +106,11 @@ struct CustomPlaylistMediaBrowser: View {
         )
         // Virtualized AppKit cells each host a separate SwiftUI root.
         .environmentObject(localization)
+    }
+
+    private func playNextAction(for item: LibraryMediaItem?) -> (() -> Void)? {
+        guard let item, !selection.isSelecting, library.canScheduleNext(item) else { return nil }
+        return { library.scheduleNext(item) }
     }
 
     private func issue(
@@ -170,6 +177,7 @@ private struct CustomPlaylistRowContentRevision: Hashable {
     let isSearching: Bool
     let availabilityRevision: UInt64
     let unavailableItemsRevision: UInt64
+    let queueStructureRevision: UInt64
 }
 
 private enum CustomPlaylistDropPlacement {

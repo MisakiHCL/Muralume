@@ -38,6 +38,7 @@ struct LibraryMediaRow: View {
     let customPlaylists: [CustomPlaylist]
     let addToPlaylist: (CustomPlaylist.ID) -> Void
     let createPlaylist: () -> Void
+    var playNext: (() -> Void)? = nil
     var layout: MediaBrowserLayout = .list
     var artworkSize = CGSize(
         width: MuralumeTheme.Size.playlistArtworkWidth,
@@ -64,6 +65,9 @@ struct LibraryMediaRow: View {
         .accessibilityLabel(Text(verbatim: metadata.accessibilityLabel))
         .accessibilityValue(Text(verbatim: accessibilityValue))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityActions {
+            if let playNext { Button("queue.playNext", action: playNext) }
+        }
         .accessibilityIdentifier(
             MuralumeAccessibilityIdentifier.libraryItemPrefix
                 + item.id.standardizedMediaPath
@@ -92,6 +96,12 @@ struct LibraryMediaRow: View {
             }
 
             Divider()
+        }
+
+        if let playNext {
+            Button(action: playNext) {
+                Label("queue.playNext", systemImage: "text.insert")
+            }
         }
 
         Button(action: showInformation) {

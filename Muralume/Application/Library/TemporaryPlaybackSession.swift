@@ -193,18 +193,20 @@ final class TemporaryPlaybackSession {
     func resolve(
         _ requestedURLs: [URL],
         librarySnapshot: TemporaryPlaybackLibrarySnapshot,
-        librarySourceURLs: [URL] = []
+        librarySourceURLs: [URL] = [],
+        selectedFileAccess: MediaSourceAccessLease? = nil
     ) async throws -> TemporaryPlaybackResolution {
         try await resolve(
             requestedURLs, library: .snapshot(librarySnapshot),
-            librarySourceURLs: librarySourceURLs
+            librarySourceURLs: librarySourceURLs, selectedFileAccess: selectedFileAccess
         )
     }
 
     private func resolve(
         _ requestedURLs: [URL],
         library: TemporaryPlaybackLibrary,
-        librarySourceURLs: [URL]
+        librarySourceURLs: [URL],
+        selectedFileAccess: MediaSourceAccessLease? = nil
     ) async throws -> TemporaryPlaybackResolution {
         resolutionGeneration &+= 1
         let generation = resolutionGeneration
@@ -219,7 +221,8 @@ final class TemporaryPlaybackSession {
         // blocked filesystem operation keeps the running slot and its scopes.
         let task = Task {
             try await pool.run {
-                try await Self.prepareResolution(
+                defer { withExtendedLifetime(selectedFileAccess) {} }
+                return try await Self.prepareResolution(
                     requestedURLs: requestedURLs,
                     library: library,
                     librarySourceURLs: librarySourceURLs,

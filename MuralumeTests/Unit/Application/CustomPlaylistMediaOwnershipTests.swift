@@ -52,6 +52,24 @@ final class CustomPlaylistMediaOwnershipTests: XCTestCase {
         XCTAssertTrue(collection.accessGrants.isEmpty)
     }
 
+    func testDesktopProjectionDropsLastPlaylistReferenceBeforeResolutionCompletes() throws {
+        let leasedItem = item("Only", accessLease: MediaSourceAccessLease(retaining: OwnershipAccessOwner()))
+        let grant = grant()
+        var collection = CustomPlaylistCollection.empty
+        let firstID = try collection.createPlaylist(named: "First")
+        let secondID = try collection.createPlaylist(named: "Second")
+        let grants = [leasedItem.id: grant]
+        try collection.add(items: [leasedItem], to: firstID, grantsByItemID: grants)
+        try collection.add(items: [leasedItem], to: secondID, grantsByItemID: grants)
+        let resolution = Dictionary(uniqueKeysWithValues: collection.allEntries.map { ($0.id, leasedItem) })
+
+        XCTAssertTrue(collection.removePlaylist(id: firstID))
+        XCTAssertEqual(collection.authorizedResolvedItems(using: resolution), [leasedItem])
+
+        XCTAssertTrue(collection.removePlaylist(id: secondID))
+        XCTAssertTrue(collection.authorizedResolvedItems(using: resolution).isEmpty)
+    }
+
     func testGrantLimitsAndInvalidReferencesNeverReplacePersistedData() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

@@ -4,6 +4,8 @@ final class SubtitleSettingsUITests: XCTestCase {
     private enum Identifier {
         static let openSettings = "muralume.open-settings"
         static let categories = "muralume.settings-category-menu"
+        static let smartPauseSection = "muralume.settings-section.smart-pause"
+        static let smartPauseEnabled = "muralume.smart-pause.enabled"
         static let fontPicker = "muralume.settings.subtitles.font-picker"
         static let preview = "muralume.settings.subtitles.preview"
         static let restoreDefaults = "muralume.settings.subtitles.restore-defaults"
@@ -28,8 +30,16 @@ final class SubtitleSettingsUITests: XCTestCase {
             let categories = try require(element(Identifier.categories, in: application))
             let generalTitle = language == "en" ? "General" : "通用"
             let subtitleTitle = language == "en" ? "Subtitle Style" : "字幕样式"
+            let smartPauseTitle = language == "en" ? "Smart Pause" : "智能暂停"
             let systemTitle = language == "en" ? "System Font" : "系统字体"
             let fontLabel = language == "en" ? "Font" : "字体"
+            let smartPauseSection = element(Identifier.smartPauseSection, in: application)
+            XCTAssertFalse(smartPauseSection.exists)
+            try require(category(smartPauseTitle, in: categories)).click()
+            _ = try require(smartPauseSection)
+            XCTAssertTrue(try require(element(Identifier.smartPauseEnabled, in: application)).isEnabled)
+            try require(category(generalTitle, in: categories)).click()
+
             for _ in 0..<3 {
                 try require(category(subtitleTitle, in: categories)).click()
                 _ = try require(element(Identifier.preview, in: application))

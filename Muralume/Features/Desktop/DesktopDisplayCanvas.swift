@@ -87,7 +87,7 @@ struct DesktopDisplayCanvas: View {
     let displays: [DesktopDisplayDescriptor]
     let scene: DesktopScene
     let currentItem: LibraryMediaItem?
-    let itemsByID: [LibraryMediaItem.ID: LibraryMediaItem]
+    let mediaChoices: DesktopMediaChoices
     let selectedDisplayID: DesktopDisplayID?
     let selectDisplay: (DesktopDisplayID) -> Void
     let identifyDisplays: () -> Void
@@ -309,11 +309,11 @@ struct DesktopDisplayCanvas: View {
             return currentItem?.displayName
                 ?? localization.localized("desktop.layout.noVideo")
         case .perDisplay:
-            guard let itemID = assignment?.mediaItemID else {
+            guard let assignment, assignment.mediaItemID != nil else {
                 return localization.localized("desktop.layout.noVideo")
             }
-            return itemsByID[itemID]?.displayName
-                ?? localization.localized("desktop.layout.noVideo")
+            return mediaChoices[assignment]?.displayName
+                ?? localization.localized("library.source.health.unavailable")
         }
     }
 
