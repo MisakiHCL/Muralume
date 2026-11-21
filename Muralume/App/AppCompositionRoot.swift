@@ -56,6 +56,8 @@ enum AppCompositionRoot {
             independentPlayback: independentDesktopPlayback,
             smartPausePreferences: smartPause.preferences
         )
+        desktopSession.setDesktopInteractionEffect(initialPreferences.desktopInteractionEffect)
+        desktopSession.desktopInteractionEffectDidChangeHandler = preferencesStore.saveDesktopInteractionEffect
         smartPause.preferencesDidChangeHandler = {
             [weak desktopSession] preferences in
             desktopSession?.updateSmartPausePreferences(preferences)

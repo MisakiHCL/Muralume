@@ -451,6 +451,10 @@ struct PlayerScreen<PlayerSurface: View>: View {
                 dynamicDesktopStartup: dynamicDesktopStartup,
                 defaultVideoPlayer: defaultVideoPlayer,
                 smartPause: smartPause,
+                desktopInteractionEffect: Binding(
+                    get: { desktopSession.desktopInteractionEffect },
+                    set: { desktopSession.setDesktopInteractionEffect($0) }
+                ),
                 subtitleAppearance: playback.subtitleAppearance,
                 videoScreenshotFolder: videoScreenshotFolder
             ) {

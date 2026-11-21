@@ -1223,6 +1223,52 @@ final class AppCoordinatorTests: XCTestCase {
         await fixture.coordinator.shutdown()
     }
 
+    func testDesktopStatusQueueSwitchesCollectionsWithoutReturningToPlayer() async throws {
+        let fixture = makeFixture(launchStatus: .disabled, attachWindow: false)
+        let playlists = fixture.coordinator.playlists
+        playlists.start()
+        await prepareActiveQueue(in: fixture)
+        let second = await addSecondItemToLibrary(in: fixture)
+        await waitUntil { playlists.isReady }
+        let night = try playlists.createPlaylist(named: "Night", items: [second])
+        let empty = try playlists.createPlaylist(named: "Empty")
+        await waitUntil { playlists.resolvedItems(in: night).first?.id == second.id }
+
+        let entered = await fixture.desktopSession.enterDesktopAndWait()
+        XCTAssertTrue(entered)
+        let state = try XCTUnwrap(fixture.statusMenu.stateProvider?().queueMenu)
+        XCTAssertTrue(state.isLibraryPlayable)
+        XCTAssertEqual(state.selection, .mediaLibrary)
+        XCTAssertEqual(state.playlists.map(\.id), [night, empty])
+        XCTAssertEqual(state.playlists.map(\.isPlayable), [true, false])
+
+        let select = try XCTUnwrap(fixture.statusMenu.selectQueueHandler)
+        select(.customPlaylist(night))
+        await waitUntil { fixture.playback.source?.url == second.url && fixture.playback.readiness == .ready }
+        XCTAssertEqual(fixture.library.makeQueueSnapshot()?.items, [second.id])
+        XCTAssertEqual(fixture.statusMenu.stateProvider?().queueMenu.selection, .customPlaylist(night))
+        XCTAssertEqual(fixture.playback.presentation, .desktop)
+
+        let revision = fixture.library.playbackSelectionIntentRevision
+        let loads = fixture.engine.loadedSources.count
+        select(.customPlaylist(night))
+        select(.customPlaylist(empty))
+        try playlists.removePlaylist(id: empty)
+        select(.customPlaylist(empty))
+        XCTAssertEqual(fixture.library.playbackSelectionIntentRevision, revision)
+        XCTAssertEqual(fixture.engine.loadedSources.count, loads)
+        XCTAssertEqual(fixture.statusMenu.stateProvider?().queueMenu.playlists.map(\.id), [night])
+
+        select(.mediaLibrary)
+        await waitUntil { fixture.library.activePlaybackCollection == .mediaLibrary && fixture.playback.readiness == .ready }
+        XCTAssertEqual(fixture.library.queueCount, 2)
+        XCTAssertEqual(fixture.statusMenu.stateProvider?().queueMenu.selection, .mediaLibrary)
+        XCTAssertEqual(fixture.playback.presentation, .desktop)
+        XCTAssertEqual(fixture.library.playbackMode, .ordered)
+        XCTAssertTrue(fixture.desktopSession.isActive)
+        await fixture.coordinator.shutdown()
+    }
+
     func testMenuDesktopActionRestoresSoftClosedPlayerBeforeTransition() async {
         let fixture = makeFixture(launchStatus: .disabled)
         fixture.coordinator.start(source: .interactive)
@@ -2161,6 +2207,7 @@ final class AppCoordinatorTests: XCTestCase {
 
     private func makeFixture(
         launchStatus: LaunchAtLoginStatus,
+        attachWindow: Bool = true,
         blockPresetLoad: Bool = false,
         blockDesktopAttachment: Bool = false,
         blockSessionLoad: Bool = false,
@@ -2342,13 +2389,13 @@ final class AppCoordinatorTests: XCTestCase {
             desktopScene: desktopScene,
             playlistVideoImporter: playlistVideoImporter
         )
-        let window = NSWindow(
+        let window = attachWindow ? NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
-        )
-        coordinator.attachMainWindow(window)
+        ) : nil
+        if let window { coordinator.attachMainWindow(window) }
 
         return AppCoordinatorFixture(
             coordinator: coordinator,
@@ -2369,7 +2416,7 @@ final class AppCoordinatorTests: XCTestCase {
             engine: engine,
             playerSurface: playerSurface,
             item: item,
-            window: window,
+            attachedWindow: window,
             desktopScene: desktopScene
         )
     }
@@ -2461,7 +2508,11 @@ private struct AppCoordinatorFixture {
     let engine: AppCoordinatorPlaybackEngine
     let playerSurface: TestPlaybackSurface
     let item: LibraryMediaItem
-    let window: NSWindow
+    let attachedWindow: NSWindow?
+    var window: NSWindow {
+        guard let attachedWindow else { preconditionFailure("This fixture has no main window") }
+        return attachedWindow
+    }
     let desktopScene: DesktopSceneController?
 }
 

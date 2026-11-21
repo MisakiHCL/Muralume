@@ -16,12 +16,16 @@ final class DesktopSessionCoordinator: ObservableObject {
     @Published private(set) var transientFailure: DesktopSessionFailure?
     @Published private(set) var videoContentMode: DesktopVideoContentMode
     @Published private(set) var activeScene: DesktopScene?
+    @Published private(set) var desktopInteractionEffect: DesktopInteractionEffect = .off
 
+    var desktopInteractionEffectDidChangeHandler: ((DesktopInteractionEffect) -> Void)?
     var didStopPlaybackHandler: (() -> Void)?
     var didEnterDesktopHandler: (() -> Void)?
     var didReturnToPlayerHandler: (() -> Void)?
     var canPlayNextProvider: (() -> Bool)?
     var playNextHandler: (() -> Void)?
+    var queueMenuProvider: (() -> DesktopQueueMenuState)?
+    var selectQueueHandler: ((PlaybackCollection) -> Void)?
     var playbackOrderProvider: (() -> PlaybackOrder)?
     var playbackModeProvider: (() -> PlaybackMode)?
     var canSetPlaybackOrderProvider: (() -> Bool)?
@@ -54,6 +58,7 @@ final class DesktopSessionCoordinator: ObservableObject {
     private var transitionTask: Task<Void, Never>?
     private var transitionGeneration: UInt64 = 0
     private var areDesktopEffectsConstrained = false
+    private var interactionPlaybackObservation: AnyCancellable?
     private var smartPausePreferences: SmartPausePreferences
     private var currentEnergyConstraints: Set<SystemEnergyConstraintReason> = []
     private var appliedConfigurableSuspensionReasons:
@@ -393,6 +398,45 @@ final class DesktopSessionCoordinator: ObservableObject {
         transientFailure = nil
     }
 
+    func setDesktopInteractionEffect(_ effect: DesktopInteractionEffect) {
+        guard !isShutDown, desktopInteractionEffect != effect else { return }
+        desktopInteractionEffect = effect
+        desktopInteractionEffectDidChangeHandler?(effect)
+        interactionPlaybackObservation = nil
+        updateInteractionMonitoring()
+    }
+
+    private func updateInteractionMonitoring() {
+        // Ordinary battery power still permits desktop interaction.
+        let effect = desktopInteractionEffect
+        guard effect != .off, isDesktopMonitoringEnabled,
+              currentEnergyConstraints.isSubset(of: [.limitedPowerSource]) else {
+            interactionPlaybackObservation = nil
+            desktopHost.setDesktopInteractionEffect(.off)
+            return
+        }
+        guard interactionPlaybackObservation == nil else { return }
+        let hasPlayingDesktop: AnyPublisher<Bool, Never>
+        if activeScene?.mode == .perDisplay, let independentPlayback {
+            // In this mode each screen can pause while the shared player keeps its intent.
+            hasPlayingDesktop = independentPlayback.$displayStates
+                .map { $0.values.contains(.playing) }
+                .eraseToAnyPublisher()
+        } else {
+            hasPlayingDesktop = playback.$isPlaybackRequested
+                .combineLatest(playback.$isSystemSuspended)
+                .map { requested, suspended in requested && !suspended }
+                .eraseToAnyPublisher()
+        }
+        interactionPlaybackObservation = hasPlayingDesktop
+            .combineLatest(playback.$presentation)
+            .map { playing, presentation in
+                playing && presentation == .desktop ? effect : .off
+            }
+            .removeDuplicates()
+            .sink { [weak self] in self?.desktopHost.setDesktopInteractionEffect($0) }
+    }
+
     func updateSmartPausePreferences(
         _ preferences: SmartPausePreferences
     ) {
@@ -477,6 +521,8 @@ final class DesktopSessionCoordinator: ObservableObject {
                             ?? (canSetPlaybackOrderProvider?() == true)),
                 playbackRate: playback.settings.rate,
                 videoContentMode: videoContentMode,
+                desktopInteractionEffect: desktopInteractionEffect,
+                queueMenu: isIndependent ? .empty : queueMenuProvider?() ?? .empty,
                 sceneMode: activeScene?.mode ?? .synchronized,
                 enabledDisplayCount: activeScene.map {
                     enabledConnectedDisplayCount(in: $0)
@@ -493,6 +539,11 @@ final class DesktopSessionCoordinator: ObservableObject {
         statusMenu.playNextHandler = { [weak self] in
             self?.playNext()
         }
+        statusMenu.selectQueueHandler = { [weak self] collection in
+            guard let self, isActive, !isShutDown, !isTransitioning,
+                  activeScene?.mode == .synchronized else { return }
+            selectQueueHandler?(collection)
+        }
         statusMenu.setPlaybackOrderHandler = { [weak self] order in
             self?.setPlaybackOrder(order)
         }
@@ -507,6 +558,9 @@ final class DesktopSessionCoordinator: ObservableObject {
         }
         statusMenu.setVideoContentModeHandler = { [weak self] contentMode in
             self?.setVideoContentMode(contentMode)
+        }
+        statusMenu.setDesktopInteractionEffectHandler = { [weak self] effect in
+            self?.setDesktopInteractionEffect(effect)
         }
         statusMenu.quitHandler = { [weak self] in
             self?.quitHandler?()
@@ -602,6 +656,7 @@ final class DesktopSessionCoordinator: ObservableObject {
             return
         }
         currentEnergyConstraints = constraints
+        updateInteractionMonitoring()
         let shouldConstrainEffects = !constraints.isEmpty
         if areDesktopEffectsConstrained != shouldConstrainEffects {
             areDesktopEffectsConstrained = shouldConstrainEffects
@@ -803,6 +858,7 @@ final class DesktopSessionCoordinator: ObservableObject {
             return
         }
         isDesktopMonitoringEnabled = shouldMonitorDesktop
+        updateInteractionMonitoring()
         lifecycleMonitor.setDesktopMonitoringActive(shouldMonitorDesktop)
     }
 

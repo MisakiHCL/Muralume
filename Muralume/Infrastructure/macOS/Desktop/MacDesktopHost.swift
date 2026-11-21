@@ -1,46 +1,12 @@
 import AppKit
 import CoreGraphics
 
-private enum DesktopScreenKey {
-    static let screenNumber = NSDeviceDescriptionKey("NSScreenNumber")
-}
-
 private enum DesktopDisplayTopologyPolicy {
     static let emptyTopologyGracePeriodNanoseconds: UInt64 = 500_000_000
     static let initialDeferredRevealPollIntervalNanoseconds: UInt64 =
         250_000_000
     static let maximumDeferredRevealPollIntervalNanoseconds: UInt64 =
         4_000_000_000
-}
-
-struct MacDesktopDisplayID: Hashable, Comparable {
-    let rawValue: CGDirectDisplayID
-
-    static func < (
-        lhs: MacDesktopDisplayID,
-        rhs: MacDesktopDisplayID
-    ) -> Bool {
-        lhs.rawValue < rhs.rawValue
-    }
-}
-
-struct MacDesktopDisplay {
-    let id: MacDesktopDisplayID
-    let frame: NSRect
-    let visibleFrame: NSRect
-    let screen: NSScreen?
-
-    init(
-        id: CGDirectDisplayID,
-        frame: NSRect,
-        visibleFrame: NSRect? = nil,
-        screen: NSScreen? = nil
-    ) {
-        self.id = MacDesktopDisplayID(rawValue: id)
-        self.frame = frame
-        self.visibleFrame = visibleFrame ?? frame
-        self.screen = screen
-    }
 }
 
 final class UserDefaultsDesktopVideoContentModeStore:
@@ -168,6 +134,17 @@ final class MacDesktopHost: DesktopHosting {
     private var visibilityRefreshTask: Task<Void, Never>?
     private var screenObserver: NSObjectProtocol?
     private var workspaceObservers: [NSObjectProtocol] = []
+    private var desktopInteractionEffect: DesktopInteractionEffect = .off
+    private lazy var interactions = MacDesktopInteractions(workspaceCenter: workspaceCenter) { [weak self] in
+        guard let self else { return [] }
+        return hostedDisplays.values.map { display in
+            MacDesktopInteractions.Display(
+                surface: display.surface, window: display.window,
+                isVisible: display.window.alphaValue >= DesktopOcclusionPolicy.revealedWindowAlphaThreshold
+                    && desktopVisibilityStates[display.stableID] != .occluded
+            )
+        }
+    }
     private var windowOcclusionObservers: [
         MacDesktopDisplayID: [NSObjectProtocol]
     ] = [:]
@@ -185,7 +162,7 @@ final class MacDesktopHost: DesktopHosting {
         workspaceCenter: NotificationCenter = NSWorkspace.shared
             .notificationCenter,
         displaysProvider: @escaping () -> [MacDesktopDisplay] = {
-            MacDesktopHost.currentDisplays
+            MacDesktopDisplay.current
         },
         isSurfaceReady: @escaping (
             DesktopPlayerLayerSurfaceView
@@ -277,12 +254,20 @@ final class MacDesktopHost: DesktopHosting {
         surface?.setEnergyConstrained(isEnergyConstrained)
     }
 
+    func setDesktopInteractionEffect(_ effect: DesktopInteractionEffect) {
+        guard desktopInteractionEffect != effect else { return }
+        desktopInteractionEffect = effect
+        interactions.setEffect(isRevealed ? effect : .off)
+    }
+
     func reveal() {
         guard surface != nil else {
             return
         }
+        let shouldStartInteraction = !isRevealed && desktopInteractionEffect != .off
         isRevealed = true
         reassertDesktopPlacement()
+        if shouldStartInteraction { interactions.setEffect(desktopInteractionEffect) }
         updateDesktopVisibilityMonitoring()
     }
 
@@ -306,6 +291,7 @@ final class MacDesktopHost: DesktopHosting {
     }
 
     func close() {
+        setDesktopInteractionEffect(.off)
         if let screenObserver {
             notificationCenter.removeObserver(screenObserver)
             self.screenObserver = nil
@@ -356,6 +342,7 @@ final class MacDesktopHost: DesktopHosting {
             ) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     self?.refreshDesktopVisibilityStates()
+                    self?.interactions.refreshPointerPosition()
                 }
             }
         }
@@ -470,6 +457,7 @@ final class MacDesktopHost: DesktopHosting {
             contentMode: displayContentMode
         )
         surface.setEnergyConstrained(isEnergyConstrained)
+        interactions.configureHover(on: surface)
         surface.frame = NSRect(origin: .zero, size: display.frame.size)
         surface.autoresizingMask = [.width, .height]
 
@@ -580,6 +568,7 @@ final class MacDesktopHost: DesktopHosting {
         if isSurfaceReady(surface) {
             hostedDisplays[displayID]?.window.alphaValue = 1
             refreshDesktopVisibilityStates()
+            interactions.refreshPointerPosition()
             return
         }
 
@@ -599,6 +588,7 @@ final class MacDesktopHost: DesktopHosting {
                         self.hostedDisplays[displayID]?.window.alphaValue = 1
                         self.displayRevealTasks[displayID] = nil
                         self.refreshDesktopVisibilityStates()
+                        self.interactions.refreshPointerPosition()
                         return false
                     }
                     return true
@@ -860,6 +850,11 @@ final class MacDesktopHost: DesktopHosting {
             return
         }
         desktopVisibilityStates[displayID] = state
+        if state == .occluded,
+           let display = hostedDisplays.values.first(where: { $0.stableID == displayID }) {
+            display.surface.clearDesktopEffects()
+        }
+        interactions.refreshPointerPosition()
         publishDesktopVisibilitySnapshot()
     }
 
@@ -961,26 +956,5 @@ final class MacDesktopHost: DesktopHosting {
         let levelAboveWallpaper = desktopLevel + 1
         let levelBelowIcons = desktopIconLevel - 1
         return NSWindow.Level(rawValue: min(levelAboveWallpaper, levelBelowIcons))
-    }
-
-    private static var currentDisplays: [MacDesktopDisplay] {
-        NSScreen.screens.compactMap { screen in
-            guard let screenNumber = screen.deviceDescription[DesktopScreenKey.screenNumber]
-                as? NSNumber else {
-                return nil
-            }
-            let displayID = screenNumber.uint32Value
-            // The mirror primary already supplies the drawable desktop for
-            // the whole mirror set; a second window would duplicate work.
-            guard CGDisplayMirrorsDisplay(displayID) == kCGNullDirectDisplay else {
-                return nil
-            }
-            return MacDesktopDisplay(
-                id: displayID,
-                frame: screen.frame,
-                visibleFrame: screen.visibleFrame,
-                screen: screen
-            )
-        }
     }
 }

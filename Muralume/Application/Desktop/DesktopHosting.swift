@@ -88,6 +88,7 @@ protocol DesktopHosting: AnyObject {
         _ handler: ((DesktopDisplaySurfaceEvent) -> Void)?
     )
     func setEnergyConstrained(_ isEnergyConstrained: Bool)
+    func setDesktopInteractionEffect(_ effect: DesktopInteractionEffect)
     func reveal()
     func reassertDesktopPlacement()
     func close()

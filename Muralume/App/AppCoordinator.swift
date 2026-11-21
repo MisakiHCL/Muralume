@@ -120,6 +120,12 @@ final class AppCoordinator: ObservableObject, AppLifecycleCoordinating {
         desktopSession.playNextHandler = { [weak self] in
             self?.library.playNext()
         }
+        desktopSession.queueMenuProvider = { [weak self] in
+            self?.desktopQueueMenuState ?? .empty
+        }
+        desktopSession.selectQueueHandler = { [weak self] collection in
+            self?.selectDesktopQueue(collection)
+        }
         desktopSession.playbackOrderProvider = { [weak self] in
             self?.library.playbackOrder
                 ?? AppPreferences.defaultValue.playbackOrder

@@ -15,6 +15,30 @@ final class MacDesktopHostEnergyTests: XCTestCase {
         static let eventPropagationNanoseconds: UInt64 = 500_000_000
     }
 
+    func testDesktopInteractionsPreserveClickThroughAndDesktopIconWindowOrder() throws {
+        let host = makeHost(
+            notificationCenter: NotificationCenter(),
+            workspaceCenter: NotificationCenter(),
+            visibility: TestDesktopWindowVisibility()
+        )
+        let prepared = host.prepare(scene: .legacy(contentMode: .cover))
+        defer { host.close() }
+        host.reveal()
+
+        XCTAssertEqual(prepared.displaySurfaces.count, 2)
+        for effect in DesktopInteractionEffect.allCases {
+            host.setDesktopInteractionEffect(effect)
+            host.reassertDesktopPlacement()
+            for surface in prepared.displaySurfaces.values {
+                let window = try XCTUnwrap((surface as? DesktopPlayerLayerSurfaceView)?.window)
+                XCTAssertTrue(window.ignoresMouseEvents)
+                XCTAssertFalse(window.canBecomeKey)
+                XCTAssertFalse(window.canBecomeMain)
+                XCTAssertLessThan(window.level.rawValue, Int(CGWindowLevelForKey(.desktopIconWindow)))
+            }
+        }
+    }
+
     func testAllDisplaysMustBeOccludedBeforePublishingSuspension()
         async throws {
         let notificationCenter = NotificationCenter()
@@ -60,7 +84,10 @@ final class MacDesktopHostEnergyTests: XCTestCase {
             workspaceCenter: NotificationCenter(),
             visibility: visibility
         )
-        host.desktopOcclusionHandler = { _ in }
+        let occlusionPublished = expectation(description: "Both displays published sustained occlusion")
+        host.desktopOcclusionHandler = { occluded in
+            if occluded { occlusionPublished.fulfill() }
+        }
         _ = host.prepare(contentMode: .contain)
         host.reveal()
         defer { host.close() }
@@ -79,7 +106,7 @@ final class MacDesktopHostEnergyTests: XCTestCase {
             to: notificationCenter
         )
 
-        try await waitForEventPropagation()
+        await fulfillment(of: [occlusionPublished], timeout: 3)
         XCTAssertTrue(host.isDesktopOccluded)
     }
 

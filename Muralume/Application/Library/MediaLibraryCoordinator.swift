@@ -101,6 +101,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         let itemID: LibraryMediaItem.ID
         let autoplay: Bool
         let task: Task<Void, Never>
+        var isWaitingToReplaceItem = true
     }
 
     private struct FailedPlaybackSelection {
@@ -417,6 +418,13 @@ final class MediaLibraryCoordinator: ObservableObject {
 
     var activePlaybackCollection: PlaybackCollection {
         playbackQueueMembership.playbackCollection
+    }
+
+    func canStartQueue(with item: LibraryMediaItem, in collection: PlaybackCollection) -> Bool {
+        guard !isShutDown, !unavailableItemIDs.contains(item.id) else { return false }
+        if case .customPlaylist = collection, item.accessLease != nil { return true }
+        guard collection != .fixed, let libraryItem = visibleItemsByID[item.id] else { return false }
+        return !rootIDsPendingRemoval.contains(MediaLibraryRoot.ID(standardizedPath: libraryItem.id.rootPath))
     }
 
     var activeQueueMediaReferences: [MediaReference] {
@@ -1454,7 +1462,8 @@ final class MediaLibraryCoordinator: ObservableObject {
 
     func playLibraryItem(
         _ item: LibraryMediaItem,
-        preservingExternalContext: Bool = false
+        preservingExternalContext: Bool = false,
+        startingNewQueue: Bool = false
     ) {
         guard let libraryItem = visibleItemsByID[item.id] else {
             return
@@ -1475,7 +1484,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         play(
             libraryItem,
             queueMembership: .mediaLibrary,
-            collectionItems: items
+            collectionItems: items,
+            startingNewQueue: startingNewQueue
         )
         if endedExternalPlaybackContext {
             publishQueueChange(.cursor)
@@ -1485,7 +1495,8 @@ final class MediaLibraryCoordinator: ObservableObject {
     func playCustomPlaylistItem(
         _ item: LibraryMediaItem,
         playlistID: CustomPlaylist.ID,
-        playlistItems: [LibraryMediaItem]
+        playlistItems: [LibraryMediaItem],
+        startingNewQueue: Bool = false
     ) {
         guard playlistItems.contains(where: { $0.id == item.id }),
               visibleItemsByID[item.id] != nil || item.accessLease != nil else {
@@ -1500,7 +1511,8 @@ final class MediaLibraryCoordinator: ObservableObject {
         play(
             item,
             queueMembership: .customPlaylist(playlistID),
-            collectionItems: playlistItems
+            collectionItems: playlistItems,
+            startingNewQueue: startingNewQueue
         )
     }
 
@@ -2076,7 +2088,8 @@ final class MediaLibraryCoordinator: ObservableObject {
     private func play(
         _ item: LibraryMediaItem,
         queueMembership: PlaybackQueueMembership,
-        collectionItems: [LibraryMediaItem]
+        collectionItems: [LibraryMediaItem],
+        startingNewQueue: Bool = false
     ) {
         let hasIndependentPlaylistAccess = item.accessLease != nil
             && queueMembership != .mediaLibrary
@@ -2093,7 +2106,7 @@ final class MediaLibraryCoordinator: ObservableObject {
         }
 
         let selectionItemsRevision = itemsRevision
-        if var activeQueue = queue {
+        if !startingNewQueue, var activeQueue = queue {
             let currentItemBeforeSynchronization = activeQueue.currentItem
             let structureChanged: Bool
             if queueMembership == .mediaLibrary {
@@ -2185,7 +2198,11 @@ final class MediaLibraryCoordinator: ObservableObject {
             installedQueueState: installedQueueState
         )
         markItemAvailable(item.id)
-        loadCurrentItem(attemptsRemaining: playbackItems.count)
+        if startingNewQueue, loadedItemID == item.id {
+            playback.setPlaybackIntent(.playing)
+        } else {
+            loadCurrentItem(attemptsRemaining: playbackItems.count)
+        }
     }
 
     private func rememberLibraryQueueSynchronization(
@@ -3819,6 +3836,7 @@ final class MediaLibraryCoordinator: ObservableObject {
             guard generation == loadGeneration, !isShutDown else {
                 return
             }
+            loadTasks[taskID]?.isWaitingToReplaceItem = false
             let result = await playback.load(
                 source,
                 autoplay: autoplay,
@@ -4050,6 +4068,9 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     private func handleItemEnded() -> PlaybackItemEndDisposition {
+        // Selection moves before the progress checkpoint and engine load.
+        // The outgoing item's completion must not advance the new selection.
+        if currentLoadTaskRecord?.isWaitingToReplaceItem == true { return .advanced }
         guard let queue, !isShutDown else {
             return .unhandled
         }
@@ -4072,6 +4093,7 @@ final class MediaLibraryCoordinator: ObservableObject {
     }
 
     private func handleItemFailure(_ failure: PlaybackFailure) -> Bool {
+        if currentLoadTaskRecord?.isWaitingToReplaceItem == true { return true }
         guard !isShutDown,
               let failedItemID = currentItemID,
               var queue else {

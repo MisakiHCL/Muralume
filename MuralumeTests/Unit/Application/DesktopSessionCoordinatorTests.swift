@@ -561,6 +561,15 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             .playing
         )
 
+        session.setDesktopInteractionEffect(.hoverLens)
+        XCTAssertEqual(desktopHost.desktopInteractionEffect, .hoverLens)
+        desktopHost.emitDesktopVisibility([displayID: .occluded])
+        XCTAssertTrue(playback.isPlaybackRequested)
+        XCTAssertEqual(independentPlayback.displayStates[displayID], .paused)
+        XCTAssertEqual(desktopHost.desktopInteractionEffect, .off)
+        desktopHost.emitDesktopVisibility([displayID: .visible])
+        XCTAssertEqual(desktopHost.desktopInteractionEffect, .hoverLens)
+
         independentEngine.emitFailure(.cannotOpen)
         await session.waitForTransitionToSettle()
 
@@ -613,6 +622,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
 
         localization.selectLanguage(.simplifiedChinese)
         XCTAssertEqual(menu.items.first?.title, "1 / 2 台显示器可用")
+        XCTAssertEqual(menu.item(withTitle: "播放队列")?.isHidden, true)
     }
 
     func testStatusMenuShowsLocalizedSmartPauseReasonAndPartialCount()
@@ -1089,6 +1099,9 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         controller.setVideoContentModeHandler = {
             selectedContentMode = $0
         }
+        controller.setDesktopInteractionEffectHandler = {
+            statusState.desktopInteractionEffect = $0
+        }
 
         let image = try XCTUnwrap(controller.makeMenuBarImage())
         XCTAssertTrue(image.isTemplate)
@@ -1097,13 +1110,13 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         let menu = controller.makeMenu()
         controller.menuNeedsUpdate(menu)
 
-        XCTAssertEqual(menu.items.count, 10)
+        XCTAssertEqual(menu.items.count, 12)
         XCTAssertTrue(menu.items[1].isHidden)
         XCTAssertEqual(actionName(menu.items[2]), "togglePlayback")
         XCTAssertEqual(actionName(menu.items[3]), "playNext")
-        XCTAssertEqual(actionName(menu.items[7]), "returnToPlayer")
-        XCTAssertTrue(menu.items[8].isSeparatorItem)
-        XCTAssertEqual(actionName(menu.items[9]), "quitApplication")
+        XCTAssertEqual(actionName(menu.items[9]), "returnToPlayer")
+        XCTAssertTrue(menu.items[10].isSeparatorItem)
+        XCTAssertEqual(actionName(menu.items[11]), "quitApplication")
         XCTAssertFalse(
             menu.items.compactMap(\.action).map(NSStringFromSelector).contains {
                 $0.localizedCaseInsensitiveContains("stop")
@@ -1125,7 +1138,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         )
         controller.menuNeedsUpdate(menu)
         XCTAssertFalse(menu.items[3].isEnabled)
-        XCTAssertFalse(menu.items[4].isEnabled)
+        XCTAssertFalse(menu.items[5].isEnabled)
 
         statusState = DesktopStatusState(
             sourceName: "Example",
@@ -1139,8 +1152,8 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         )
         controller.menuNeedsUpdate(menu)
         XCTAssertFalse(menu.items[3].isEnabled)
-        XCTAssertFalse(menu.items[4].isEnabled)
         XCTAssertFalse(menu.items[5].isEnabled)
+        XCTAssertFalse(menu.items[6].isEnabled)
 
         statusState = DesktopStatusState(
             sourceName: "Example",
@@ -1153,7 +1166,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             videoContentMode: .contain
         )
         controller.menuNeedsUpdate(menu)
-        let playbackModeItems = try XCTUnwrap(menu.items[4].submenu?.items)
+        let playbackModeItems = try XCTUnwrap(menu.items[5].submenu?.items)
         XCTAssertEqual(
             playbackModeItems.compactMap { $0.representedObject as? String },
             PlaybackMode.allCases.map(\.rawValue)
@@ -1168,7 +1181,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
         )
         XCTAssertEqual(playbackModeItems.map(\.state), [.on, .off, .off])
 
-        let playbackRateItems = try XCTUnwrap(menu.items[5].submenu?.items)
+        let playbackRateItems = try XCTUnwrap(menu.items[6].submenu?.items)
         XCTAssertEqual(
             playbackRateItems.compactMap {
                 ($0.representedObject as? NSNumber)?.floatValue
@@ -1180,7 +1193,7 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
             [.off, .off, .off, .off, .on, .off]
         )
 
-        let contentModeItems = try XCTUnwrap(menu.items[6].submenu?.items)
+        let contentModeItems = try XCTUnwrap(menu.items[7].submenu?.items)
         XCTAssertEqual(
             contentModeItems.compactMap { $0.representedObject as? String },
             [
@@ -1216,28 +1229,118 @@ final class DesktopSessionCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(menu.items[2].title, "暂停")
         XCTAssertEqual(menu.items[3].title, "播放下一个")
-        XCTAssertEqual(menu.items[4].title, "播放模式")
-        XCTAssertEqual(menu.items[5].title, "播放速度")
-        XCTAssertEqual(menu.items[6].title, "桌面适配")
-        XCTAssertEqual(menu.items[7].title, "返回播放器")
-        XCTAssertEqual(menu.items[9].title, "退出 Muralume")
+        XCTAssertEqual(menu.items[4].title, "播放队列")
+        XCTAssertEqual(menu.items[5].title, "播放模式")
+        XCTAssertEqual(menu.items[6].title, "播放速度")
+        XCTAssertEqual(menu.items[7].title, "桌面适配")
+        XCTAssertEqual(menu.items[8].title, "桌面交互")
+        XCTAssertEqual(menu.items[9].title, "返回播放器")
+        XCTAssertEqual(menu.items[11].title, "退出 Muralume")
+        let effectsMenu = try XCTUnwrap(menu.items[8].submenu)
+        XCTAssertEqual(effectsMenu.items.compactMap { $0.representedObject as? String },
+                       DesktopInteractionEffect.allCases.map(\.rawValue))
+        XCTAssertEqual(effectsMenu.items.map(\.title), [
+            "关闭", "互动水面", "指针透镜", "暗部探照", "取色聚焦", "框选留帧"
+        ])
+        for (index, effect) in DesktopInteractionEffect.allCases.enumerated() {
+            effectsMenu.performActionForItem(at: index)
+            XCTAssertEqual(statusState.desktopInteractionEffect, effect)
+            XCTAssertEqual(effectsMenu.items.filter { $0.state == .on }, [effectsMenu.items[index]])
+        }
         XCTAssertEqual(
-            menu.items[4].submenu?.items.map(\.title),
+            menu.items[5].submenu?.items.map(\.title),
             ["顺序循环", "随机循环", "循环当前视频"]
         )
         XCTAssertEqual(
-            menu.items[6].submenu?.items.map(\.title),
+            menu.items[7].submenu?.items.map(\.title),
             ["模糊背景", "填满屏幕", "完整显示"]
         )
 
-        menu.items[4].submenu?.performActionForItem(at: 2)
+        menu.items[5].submenu?.performActionForItem(at: 2)
         XCTAssertEqual(selectedPlaybackMode, .repeatCurrent)
 
-        menu.items[5].submenu?.performActionForItem(at: 5)
+        menu.items[6].submenu?.performActionForItem(at: 5)
         XCTAssertEqual(selectedPlaybackRate, PlaybackRate(rawValue: 2))
 
-        menu.items[6].submenu?.performActionForItem(at: 0)
+        menu.items[7].submenu?.performActionForItem(at: 0)
         XCTAssertEqual(selectedContentMode, .blurredBackground)
+    }
+
+    func testStatusMenuListsPlayableQueuesAndResolvesActionsByIdentity() throws {
+        let localization = AppLocalizationController(initialLanguage: .simplifiedChinese)
+        let controller = DesktopStatusMenuController(localization: localization)
+        let first = CustomPlaylist.ID()
+        let second = CustomPlaylist.ID()
+        var state = DesktopStatusState(
+            sourceName: "Example", isPlaying: true, isTransitioning: false,
+            canPlayNext: true, playbackOrder: .ordered, canSetPlaybackOrder: true,
+            playbackRate: PlaybackPolicy.defaultRate, videoContentMode: .cover
+        )
+        state.queueMenu = DesktopQueueMenuState(isLibraryPlayable: true, playlists: [
+            .init(id: first, name: "Night", isPlayable: true),
+            .init(id: second, name: "Empty", isPlayable: false)
+        ], selection: .mediaLibrary)
+        var queueRequests = 0
+        controller.stateProvider = {
+            queueRequests += 1
+            return state
+        }
+        localization.selectLanguage(.english)
+        localization.selectLanguage(.simplifiedChinese)
+        XCTAssertEqual(queueRequests, 0)
+        var selections: [PlaybackCollection] = []
+        controller.selectQueueHandler = { selections.append($0) }
+
+        let menu = controller.makeMenu()
+        controller.menuNeedsUpdate(menu)
+        let queues = try XCTUnwrap(menu.item(withTitle: "播放队列")?.submenu)
+        func choose(_ title: String) throws {
+            let item = try XCTUnwrap(queues.item(withTitle: title))
+            let target = try XCTUnwrap(item.target as? NSObject)
+            let action = try XCTUnwrap(item.action)
+            XCTAssertTrue(item.isEnabled)
+            XCTAssertTrue(target.responds(to: action))
+            _ = target.perform(action, with: item)
+        }
+        XCTAssertEqual(queues.items.map { $0.isSeparatorItem ? nil : $0.title },
+                       ["媒体库", nil, "Night", "Empty"])
+        XCTAssertEqual(queues.item(withTitle: "媒体库")?.state, .on)
+        XCTAssertFalse(try XCTUnwrap(queues.item(withTitle: "Empty")).isEnabled)
+        try choose("Night")
+        XCTAssertEqual(selections, [.customPlaylist(first)])
+
+        state.queueMenu = DesktopQueueMenuState(isLibraryPlayable: true, playlists: [
+            .init(id: second, name: "Night", isPlayable: true)
+        ], selection: .customPlaylist(second))
+        // The visible row still names the deleted playlist. Reusing its title
+        // for another playlist must not redirect a pending selection.
+        try choose("Night")
+        XCTAssertEqual(selections, [.customPlaylist(first)])
+        controller.menuNeedsUpdate(queues)
+        XCTAssertEqual(queues.item(withTitle: "Night")?.state, .on)
+        try choose("媒体库")
+        XCTAssertEqual(selections.last, .mediaLibrary)
+
+        state.queueMenu = DesktopQueueMenuState(isLibraryPlayable: false, playlists: [], selection: nil)
+        controller.menuNeedsUpdate(queues)
+        XCTAssertFalse(try XCTUnwrap(queues.item(withTitle: "媒体库")).isEnabled)
+        XCTAssertFalse(try XCTUnwrap(queues.item(withTitle: "还没有播放列表")).isEnabled)
+        XCTAssertFalse(queues.items.contains { $0.state == .on })
+    }
+
+    func testStatusMenuCommandDInvokesReturnToPlayer() throws {
+        let controller = DesktopStatusMenuController(localization: AppLocalizationController())
+        var returnCount = 0
+        controller.returnToPlayerHandler = { returnCount += 1 }
+        let menu = controller.makeMenu()
+        let shortcuts = menu.items.filter { $0.keyEquivalent == "d" && $0.keyEquivalentModifierMask == .command }
+        XCTAssertEqual(shortcuts.count, 1)
+        let item = try XCTUnwrap(shortcuts.first)
+        let target = try XCTUnwrap(item.target as? NSObject)
+        let action = try XCTUnwrap(item.action)
+        XCTAssertEqual(NSStringFromSelector(action), "returnToPlayer")
+        _ = target.perform(action)
+        XCTAssertEqual(returnCount, 1)
     }
 
     func testStatusMenuShowCreatesUsableIdempotentEntry() {

@@ -93,6 +93,7 @@ final class TestPlaybackEngine: PlaybackEngine {
     var loadErrorsByURL: [URL: PlaybackEngineError] = [:]
     var attachmentErrorsBySurfaceID: [PlaybackSurfaceID: PlaybackEngineError] = [:]
     var pendingWorkDrainer: (@MainActor () async -> Void)?
+    var beforePlaybackSeekCompletion: (@MainActor () async -> Void)?
     var shouldBlockLoads = false
     var shouldBlockAttachments = false
     var blockedAttachmentError: PlaybackEngineError?
@@ -198,6 +199,11 @@ final class TestPlaybackEngine: PlaybackEngine {
         soughtTimes.append(seconds)
         seekModes.append(mode)
         playbackEvents.append(.seek(seconds))
+    }
+
+    func seekBeforePlayback(to seconds: TimeInterval) async {
+        seek(to: seconds, mode: .exact)
+        await beforePlaybackSeekCompletion?()
     }
 
     func resetPlaybackEvents() {
@@ -342,6 +348,7 @@ final class TestAppPreferencesStore: AppPreferencesStoring {
     private(set) var savedSubtitleAppearances:
         [SubtitleAppearancePreferences] = []
     private(set) var savedSmartPausePreferences: [SmartPausePreferences] = []
+    private(set) var savedDesktopInteractionEffects: [DesktopInteractionEffect] = []
 
     init(preferences: AppPreferences = .defaultValue) {
         self.preferences = preferences
@@ -394,6 +401,10 @@ final class TestAppPreferencesStore: AppPreferencesStoring {
 
     func saveSmartPause(_ preferences: SmartPausePreferences) {
         savedSmartPausePreferences.append(preferences)
+    }
+
+    func saveDesktopInteractionEffect(_ effect: DesktopInteractionEffect) {
+        savedDesktopInteractionEffects.append(effect)
     }
 }
 
@@ -491,6 +502,7 @@ final class TestDesktopHost: DesktopHosting {
     private(set) var preparedContentModes: [DesktopVideoContentMode] = []
     private(set) var appliedContentModes: [DesktopVideoContentMode] = []
     private(set) var appliedEnergyConstraints: [Bool] = []
+    private(set) var desktopInteractionEffect: DesktopInteractionEffect = .off
     private(set) var revealCount = 0
     private(set) var reassertCount = 0
     private(set) var closeCount = 0
@@ -531,6 +543,10 @@ final class TestDesktopHost: DesktopHosting {
         appliedEnergyConstraints.append(isEnergyConstrained)
     }
 
+    func setDesktopInteractionEffect(_ effect: DesktopInteractionEffect) {
+        desktopInteractionEffect = effect
+    }
+
     func reveal() {
         revealCount += 1
         revealHandler?()
@@ -568,11 +584,13 @@ final class TestDesktopStatusPresenter: DesktopStatusPresenting {
     var stateProvider: (() -> DesktopStatusState)?
     var togglePlaybackHandler: (() -> Void)?
     var playNextHandler: (() -> Void)?
+    var selectQueueHandler: ((PlaybackCollection) -> Void)?
     var setPlaybackOrderHandler: ((PlaybackOrder) -> Void)?
     var setPlaybackModeHandler: ((PlaybackMode) -> Void)?
     var setPlaybackRateHandler: ((PlaybackRate) -> Void)?
     var returnToPlayerHandler: (() -> Void)?
     var setVideoContentModeHandler: ((DesktopVideoContentMode) -> Void)?
+    var setDesktopInteractionEffectHandler: ((DesktopInteractionEffect) -> Void)?
     var quitHandler: (() -> Void)?
     var showHandler: (() -> Void)?
     var showResult = true

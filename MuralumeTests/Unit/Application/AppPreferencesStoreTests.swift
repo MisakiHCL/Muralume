@@ -15,6 +15,7 @@ final class AppPreferencesStoreTests: XCTestCase {
             XCTAssertEqual(preferences.playbackOrder, .shuffled)
             XCTAssertEqual(preferences.playbackRepeatBehavior, .queue)
             XCTAssertEqual(preferences.queueTransitionStyle, .crossfade)
+            XCTAssertEqual(preferences.desktopInteractionEffect, .off)
             XCTAssertEqual(preferences.libraryBrowserLayout, .list)
         }
     }
@@ -64,6 +65,7 @@ final class AppPreferencesStoreTests: XCTestCase {
             store.saveLanguage(.simplifiedChinese)
             store.saveSubtitleAppearance(subtitleAppearance)
             store.saveSmartPause(smartPause)
+            store.saveDesktopInteractionEffect(.waterRipple)
 
             let restored = UserDefaultsAppPreferencesStore(
                 userDefaults: defaults
@@ -88,12 +90,39 @@ final class AppPreferencesStoreTests: XCTestCase {
                 subtitleAppearance
             )
             XCTAssertEqual(restored.smartPause, smartPause)
+            XCTAssertEqual(restored.desktopInteractionEffect, .waterRipple)
             XCTAssertEqual(
                 defaults.string(
                     forKey: AppPreferencesStorageKey.language
                 ),
                 "zh-Hans"
             )
+        }
+    }
+
+    func testDesktopInteractionRemembersEachChoiceAfterMigratingLegacyRipple() throws {
+        try withStore { store, defaults in
+            defaults.set(false, forKey: AppPreferencesStorageKey.clickRippleEnabled)
+            XCTAssertEqual(store.load().desktopInteractionEffect, .off)
+            defaults.set(true, forKey: AppPreferencesStorageKey.clickRippleEnabled)
+            XCTAssertEqual(store.load().desktopInteractionEffect, .waterRipple)
+
+            let effectKey = AppPreferencesStorageKey.desktopInteractionEffect
+            defaults.set("pointerWake", forKey: effectKey)
+            XCTAssertEqual(store.load().desktopInteractionEffect, .waterRipple)
+            for removed in ["parallax", "glow", "fireflies", "flowBend", "pixelScatter", "longExposure"] {
+                defaults.set(removed, forKey: effectKey)
+                XCTAssertEqual(store.load().desktopInteractionEffect, .off)
+            }
+
+            for effect in DesktopInteractionEffect.allCases {
+                store.saveDesktopInteractionEffect(effect)
+                let restarted = UserDefaultsAppPreferencesStore(userDefaults: defaults)
+                XCTAssertEqual(restarted.load().desktopInteractionEffect, effect)
+            }
+
+            defaults.set("unrecognized", forKey: AppPreferencesStorageKey.desktopInteractionEffect)
+            XCTAssertEqual(store.load().desktopInteractionEffect, .off)
         }
     }
 
@@ -194,6 +223,7 @@ final class AppPreferencesStoreTests: XCTestCase {
                 "invalid",
                 forKey: AppPreferencesStorageKey.smartPauseEnabled
             )
+            defaults.set("true", forKey: AppPreferencesStorageKey.clickRippleEnabled)
             defaults.set(
                 false,
                 forKey: AppPreferencesStorageKey.smartPauseDesktopHidden
@@ -221,6 +251,7 @@ final class AppPreferencesStoreTests: XCTestCase {
                 .defaultValue
             )
             XCTAssertTrue(restored.smartPause.isEnabled)
+            XCTAssertEqual(restored.desktopInteractionEffect, .off)
             XCTAssertFalse(restored.smartPause.pauseWhenDesktopHidden)
             XCTAssertTrue(restored.smartPause.pauseInLowPowerMode)
             XCTAssertTrue(restored.smartPause.pauseOnLimitedPowerSource)

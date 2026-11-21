@@ -412,6 +412,64 @@ private final class ProgressJournalIOProbe: @unchecked Sendable {
 
 @MainActor
 final class PlaybackProgressIntegrationTests: XCTestCase {
+    func testNaturallyCompletedDesktopItemDoesNotResumeItsLastProgressSample() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/Desktop Queue")
+        let first = makeItem(rootURL: rootURL, name: "A", path: "A.mov")
+        let second = makeItem(rootURL: rootURL, name: "B", path: "B.mov")
+        let store = MemoryPlaybackProgressStore()
+        let fixture = makeProgressFixture(rootURL: rootURL, items: [first, second], store: store)
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        fixture.engine.shouldBlockLoads = true
+        fixture.coordinator.play(first)
+        await waitForLoads(fixture.engine, count: 1)
+        fixture.engine.finishBlockedLoad(duration: 18)
+        fixture.engine.shouldBlockLoads = false
+        await waitForReady(fixture.playback)
+        try await fixture.playback.transitionToDesktop(TestPlaybackSurface(id: .desktop))
+
+        XCTAssertEqual(fixture.engine.progressCadence, .background)
+        fixture.engine.progressHandler?(15)
+        fixture.engine.emitItemEnded()
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+        fixture.engine.emitItemEnded()
+        await waitForLoads(fixture.engine, count: 3)
+        await waitForReady(fixture.playback)
+
+        XCTAssertEqual(fixture.engine.loadedSources.map(\.url), [first.url, second.url, first.url])
+        XCTAssertEqual(fixture.playback.currentTime, 0)
+        let storedPosition = await store.position(for: first.id)
+        XCTAssertNil(storedPosition)
+    }
+
+    func testOutgoingDesktopItemEventsCannotAdvanceNewQueueSelection() async throws {
+        let rootURL = URL(fileURLWithPath: "/tmp/Changing Desktop Queue")
+        let first = makeItem(rootURL: rootURL, name: "A", path: "A.mov")
+        let second = makeItem(rootURL: rootURL, name: "B", path: "B.mov")
+        let fixture = makeProgressFixture(
+            rootURL: rootURL, items: [first, second], store: MemoryPlaybackProgressStore()
+        )
+        fixture.coordinator.addMedia()
+        await waitForScan(fixture.coordinator)
+        fixture.coordinator.play(first)
+        await waitForLoads(fixture.engine, count: 1)
+        await waitForReady(fixture.playback)
+        try await fixture.playback.transitionToDesktop(TestPlaybackSurface(id: .desktop))
+
+        XCTAssertTrue(fixture.coordinator.playNext())
+        // The next item is selected synchronously. The engine still owns the
+        // outgoing item until the asynchronous progress checkpoint completes.
+        fixture.engine.emitItemEnded()
+        XCTAssertEqual(fixture.coordinator.currentItemID, second.id)
+        fixture.engine.emitFailure(.cannotOpen)
+        XCTAssertEqual(fixture.coordinator.currentItemID, second.id)
+        await waitForLoads(fixture.engine, count: 2)
+        await waitForReady(fixture.playback)
+        XCTAssertEqual(fixture.engine.loadedSources.map(\.url), [first.url, second.url])
+        XCTAssertTrue(fixture.coordinator.unavailableItemIDs.isEmpty)
+    }
+
     func testSwitchingResumesEachVideoFromItsIndependentPosition() async {
         let rootURL = URL(fileURLWithPath: "/tmp/Progress Library")
         let first = makeItem(
@@ -527,6 +585,23 @@ final class PlaybackProgressIntegrationTests: XCTestCase {
             Array(fixture.engine.playbackEvents.prefix(2)),
             [.seek(48), .play]
         )
+    }
+
+    func testSupersededResumeSeekCannotStartTheReplacementItem() async {
+        let engine = TestPlaybackEngine()
+        let playback = PlaybackCoordinator(engine: engine)
+        let first = ResolvedMediaSource(url: URL(fileURLWithPath: "/tmp/A.mov"), displayName: "A")
+        let second = ResolvedMediaSource(url: URL(fileURLWithPath: "/tmp/B.mov"), displayName: "B")
+        engine.beforePlaybackSeekCompletion = { [weak playback] in
+            _ = await playback?.load(second, autoplay: false)
+        }
+
+        let result = await playback.load(first, initialPosition: 12)
+
+        XCTAssertEqual(result, .cancelled)
+        XCTAssertEqual(playback.source?.url, second.url)
+        XCTAssertFalse(playback.isPlaybackRequested)
+        XCTAssertFalse(engine.isPlaying)
     }
 
     func testRemovingRootClearsAllProgressForItsVideos() async throws {

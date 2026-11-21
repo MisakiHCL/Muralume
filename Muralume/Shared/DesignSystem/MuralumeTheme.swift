@@ -316,6 +316,8 @@ enum MuralumeAccessibilityIdentifier {
         "muralume.settings-row.queue-crossfade"
     static let settingsScreenshotFolderRow =
         "muralume.settings-row.screenshot-folder"
+    static let settingsDesktopInteractionRow = "muralume.settings-row.desktop-interaction"
+    static let desktopInteractionPicker = "muralume.desktop-interaction-picker"
     static let settingsSmartPauseSection =
         "muralume.settings-section.smart-pause"
     static let settingsSmartPauseEnabledRow =

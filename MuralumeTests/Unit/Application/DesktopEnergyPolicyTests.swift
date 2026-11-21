@@ -58,6 +58,45 @@ final class DesktopEnergyPolicyTests: XCTestCase {
         )
     }
 
+    func testSelectedInteractionFollowsDesktopPlaybackPowerAndUserPreference() async {
+        let fixture = makeFixture()
+        defer { fixture.session.shutdown() }
+        let playerSurface = TestPlaybackSurface(id: .player)
+        fixture.playback.registerPlayerSurface(playerSurface)
+        await fixture.playback.load(
+            ResolvedMediaSource(url: URL(fileURLWithPath: "/tmp/ripple.mp4"), displayName: "Ripple")
+        )
+        XCTAssertEqual(fixture.session.desktopInteractionEffect, .off)
+        let enteredDesktop = await fixture.session.enterDesktopAndWait()
+        XCTAssertTrue(enteredDesktop)
+        XCTAssertEqual(fixture.host.desktopInteractionEffect, .off)
+
+        fixture.session.setDesktopInteractionEffect(.waterRipple)
+        XCTAssertEqual(fixture.host.desktopInteractionEffect, .waterRipple)
+        fixture.session.setDesktopInteractionEffect(.off)
+        XCTAssertEqual(fixture.host.desktopInteractionEffect, .off)
+        fixture.session.setDesktopInteractionEffect(.waterRipple)
+        fixture.lifecycle.emitEnergyConstraints([.limitedPowerSource])
+        XCTAssertEqual(fixture.host.desktopInteractionEffect, .waterRipple)
+        fixture.lifecycle.emitEnergyConstraints([.limitedPowerSource, .thermalPressure])
+        XCTAssertEqual(fixture.host.desktopInteractionEffect, .off)
+        fixture.lifecycle.emitEnergyConstraints([])
+        XCTAssertEqual(fixture.host.desktopInteractionEffect, .waterRipple)
+
+        fixture.playback.setPlaybackIntent(.paused)
+        fixture.lifecycle.emit(.screenLocked, suspended: true)
+        fixture.playback.setPlaybackIntent(.playing)
+        XCTAssertEqual(fixture.host.desktopInteractionEffect, .off)
+        fixture.lifecycle.emit(.screenLocked, suspended: false)
+        XCTAssertEqual(fixture.host.desktopInteractionEffect, .waterRipple)
+
+        fixture.session.returnToPlayer()
+        await fixture.session.waitForTransitionToSettle()
+        XCTAssertEqual(fixture.host.desktopInteractionEffect, .off)
+        XCTAssertEqual(fixture.session.desktopInteractionEffect, .waterRipple)
+        withExtendedLifetime(playerSurface) {}
+    }
+
     func testDesktopOcclusionPausesAndRestoresOriginalIntent() async {
         let fixture = makeFixture()
         defer { fixture.session.shutdown() }

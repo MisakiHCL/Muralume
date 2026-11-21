@@ -43,6 +43,7 @@ struct SettingsView: View {
         DynamicDesktopStartupController
     @ObservedObject var defaultVideoPlayer: DefaultVideoPlayerController
     @ObservedObject var smartPause: SmartPauseController
+    @Binding var desktopInteractionEffect: DesktopInteractionEffect
     @ObservedObject var subtitleAppearance: SubtitleAppearanceController
     let videoScreenshotFolder: VideoScreenshotFolderController?
 
@@ -151,6 +152,8 @@ struct SettingsView: View {
                     languageMenu
                 }
 
+                desktopInteractionRow
+
                 SettingsRow(
                     title: "settings.launchAtLogin",
                     accessibilityIdentifier:
@@ -207,6 +210,34 @@ struct SettingsView: View {
             )
         case .smartPause:
             smartPauseSection
+        }
+    }
+
+    private var desktopInteractionRow: some View {
+        SettingsRow(
+            title: "settings.desktopInteraction",
+            accessibilityIdentifier: MuralumeAccessibilityIdentifier.settingsDesktopInteractionRow
+        ) {
+            VStack(alignment: .trailing, spacing: MuralumeTheme.Spacing.xSmall) {
+                Picker("settings.desktopInteraction", selection: $desktopInteractionEffect) {
+                    ForEach(DesktopInteractionEffect.allCases, id: \.self) { effect in
+                        Text(LocalizedStringKey(effect.localizedKey))
+                            .tag(effect)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .fixedSize()
+                .accessibilityIdentifier(MuralumeAccessibilityIdentifier.desktopInteractionPicker)
+
+                if let hintKey = desktopInteractionEffect.hintKey {
+                    Text(LocalizedStringKey(hintKey))
+                        .font(.caption)
+                        .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
     }
 

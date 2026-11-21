@@ -277,6 +277,9 @@ final class PlaybackCoordinator: ObservableObject {
            ) {
             currentTime = resumePosition
             await engine.seekBeforePlayback(to: resumePosition)
+            guard !Task.isCancelled, loadGeneration == mediaLoadGeneration else {
+                return .cancelled
+            }
         }
         let canBeginNewPlayback =
             canAutoplayWhenLoaded
@@ -887,6 +890,9 @@ final class PlaybackCoordinator: ObservableObject {
             return
         }
         hasHandledCurrentItemEnd = true
+        // A desktop progress tick can precede the actual end by several
+        // seconds. Queue advancement checkpoints this position synchronously.
+        currentTime = duration
 
         let disposition = itemEndedHandler?() ?? .unhandled
         if disposition == .advanced {

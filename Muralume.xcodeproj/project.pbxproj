@@ -28,6 +28,8 @@
 		2CC637A1BABB9D96CD6D1A53 /* DesktopMediaSelectionControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFBC0F3C13B2B9BDBAE873F5 /* DesktopMediaSelectionControl.swift */; };
 		353A5218136446D38C6974E8 /* PlayerActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C68D1172DDA349E29EDAE7B2 /* PlayerActions.swift */; };
 		38DAF1886E669E9AD8629B01 /* MacDesktopHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EADC3367C34613B9AB4302 /* MacDesktopHost.swift */; };
+		F81000000000000000000011 /* MacDesktopClickMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F81000000000000000000001 /* MacDesktopClickMonitor.swift */; };
+		F82000000000000000000011 /* MacDesktopInteractions.swift in Sources */ = {isa = PBXBuildFile; fileRef = F82000000000000000000001 /* MacDesktopInteractions.swift */; };
 		F16000000000000000000001 /* DesktopOcclusionMonitoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = F16000000000000000000002 /* DesktopOcclusionMonitoring.swift */; };
 		F17000000000000000000011 /* VideoScreenshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17000000000000000000001 /* VideoScreenshot.swift */; };
 		F17000000000000000000012 /* MacVideoScreenshotController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17000000000000000000002 /* MacVideoScreenshotController.swift */; };
@@ -80,6 +82,9 @@
 		9B888A4D2CB5C8F8E2A50769 /* CustomPlaylistPlaybackBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 471C98C4F220B62102E8728B /* CustomPlaylistPlaybackBridge.swift */; };
 		9D80EF3DD4AC4552A41321D7 /* PlayerFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5053B5F0E3334478B49B2E6A /* PlayerFormatting.swift */; };
 		9DDE2F09B8C64CF4AB689811 /* RealAVPlayerLayerRoundTripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEAFFBCADB9C4DDF8A43DB08 /* RealAVPlayerLayerRoundTripTests.swift */; };
+		F81000000000000000000014 /* DesktopClickRippleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F81000000000000000000004 /* DesktopClickRippleTests.swift */; };
+		F81000000000000000000019 /* DesktopFocusEffectsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F81000000000000000000009 /* DesktopFocusEffectsTests.swift */; };
+		F84000000000000000000019 /* DesktopColorEffectsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F84000000000000000000009 /* DesktopColorEffectsTests.swift */; };
 		A1824F202FA1473D90ECDD65 /* ResolvedMediaSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31A7E6B1E1B0450EA9D35735 /* ResolvedMediaSource.swift */; };
 		A186D3FFF7A9C71D332000F2 /* AppCoordinator+CustomPlaylists.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC763685EE09B43425EC07CD /* AppCoordinator+CustomPlaylists.swift */; };
 		A4D6BA374089486495FAEF0B /* PlaybackTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4FE718E54F942A296B9CED2 /* PlaybackTimeline.swift */; };
@@ -167,6 +172,10 @@
 		D3960CCE4EC0080866C68C02 /* DesktopDisplayTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = 316C2C8A7AD4F6E0E4D49462 /* DesktopDisplayTopology.swift */; };
 		D411CD1097024403912B986C /* PlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82C43CDEEC83437E807E0533 /* PlaybackEngine.swift */; };
 		D60000000000000000000011 /* DesktopPlayerLayerSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */; };
+		F81000000000000000000012 /* DesktopClickRipple.swift in Sources */ = {isa = PBXBuildFile; fileRef = F81000000000000000000002 /* DesktopClickRipple.swift */; };
+		F81000000000000000000017 /* DesktopFocusEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = F81000000000000000000007 /* DesktopFocusEffects.swift */; };
+		F84000000000000000000017 /* DesktopColorEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = F84000000000000000000007 /* DesktopColorEffects.swift */; };
+		F81000000000000000000015 /* DesktopWaterField.swift in Sources */ = {isa = PBXBuildFile; fileRef = F81000000000000000000005 /* DesktopWaterField.swift */; };
 		D70000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D70000000000000000000001 /* PrivacyInfo.xcprivacy */; };
 		D7A2E5C01A2B3C4D5E6F7001 /* UserSelectedMediaRestoreExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A2E5C01A2B3C4D5E6F7002 /* UserSelectedMediaRestoreExecutor.swift */; };
 		D98FAF7E0A423C85393A76DE /* CustomPlaylistController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 369E39088771FE07E72F36EC /* CustomPlaylistController.swift */; };
@@ -180,6 +189,7 @@
 		E80000000000000000000002 /* SystemLifecycleMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E80000000000000000000001 /* SystemLifecycleMonitorTests.swift */; };
 		E81000000000000000000011 /* PlaybackEnergyPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000000000000000000001 /* PlaybackEnergyPolicyTests.swift */; };
 		E82000000000000000000011 /* DesktopEnergyPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82000000000000000000001 /* DesktopEnergyPolicyTests.swift */; };
+		F81000000000000000000013 /* MacDesktopClickMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F81000000000000000000003 /* MacDesktopClickMonitorTests.swift */; };
 		E83000000000000000000011 /* MacDesktopHostEnergyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83000000000000000000001 /* MacDesktopHostEnergyTests.swift */; };
 		E970F932ED084EA2B4F95281 /* MuralumeTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F8A5E9E12614B138608DC0E /* MuralumeTheme.swift */; };
 		E90000000000000000000011 /* PlaybackMediaSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90000000000000000000001 /* PlaybackMediaSelection.swift */; };
@@ -330,6 +340,8 @@
 		531DB9F7981DA319BAC09428 /* MuralumeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MuralumeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		57303ACF6F0F43E7804B20A3 /* DesktopSessionCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopSessionCoordinator.swift; sourceTree = "<group>"; };
 		62EADC3367C34613B9AB4302 /* MacDesktopHost.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopHost.swift; sourceTree = "<group>"; };
+		F81000000000000000000001 /* MacDesktopClickMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopClickMonitor.swift; sourceTree = "<group>"; };
+		F82000000000000000000001 /* MacDesktopInteractions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopInteractions.swift; sourceTree = "<group>"; };
 		F16000000000000000000002 /* DesktopOcclusionMonitoring.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopOcclusionMonitoring.swift; sourceTree = "<group>"; };
 		F17000000000000000000001 /* VideoScreenshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoScreenshot.swift; sourceTree = "<group>"; };
 		F17000000000000000000002 /* MacVideoScreenshotController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacVideoScreenshotController.swift; sourceTree = "<group>"; };
@@ -394,6 +406,9 @@
 		AD0000000000000000000002 /* MacApplicationPresenceController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacApplicationPresenceController.swift; sourceTree = "<group>"; };
 		AE0000000000000000000001 /* AppDelegateTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
 		AEAFFBCADB9C4DDF8A43DB08 /* RealAVPlayerLayerRoundTripTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RealAVPlayerLayerRoundTripTests.swift; sourceTree = "<group>"; };
+		F81000000000000000000004 /* DesktopClickRippleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopClickRippleTests.swift; sourceTree = "<group>"; };
+		F81000000000000000000009 /* DesktopFocusEffectsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopFocusEffectsTests.swift; sourceTree = "<group>"; };
+		F84000000000000000000009 /* DesktopColorEffectsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopColorEffectsTests.swift; sourceTree = "<group>"; };
 		AF1000000000000000000001 /* MediaThumbnailProviding.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaThumbnailProviding.swift; sourceTree = "<group>"; };
 		AF1000000000000000000002 /* QuickLookMediaThumbnailProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuickLookMediaThumbnailProvider.swift; sourceTree = "<group>"; };
 		69291B097F4E37B51899DCBA /* MediaThumbnailMemoryCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaThumbnailMemoryCache.swift; sourceTree = "<group>"; };
@@ -448,6 +463,10 @@
 		D382901D037C4949AA2E1090 /* VideoViewport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoViewport.swift; sourceTree = "<group>"; };
 		D3F2E5966FB709EA70C9D0D3 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 		D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopPlayerLayerSurfaceView.swift; sourceTree = "<group>"; };
+		F81000000000000000000002 /* DesktopClickRipple.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopClickRipple.swift; sourceTree = "<group>"; };
+		F81000000000000000000007 /* DesktopFocusEffects.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopFocusEffects.swift; sourceTree = "<group>"; };
+		F84000000000000000000007 /* DesktopColorEffects.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopColorEffects.swift; sourceTree = "<group>"; };
+		F81000000000000000000005 /* DesktopWaterField.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopWaterField.swift; sourceTree = "<group>"; };
 		D70000000000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		D7A2E5C01A2B3C4D5E6F7002 /* UserSelectedMediaRestoreExecutor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserSelectedMediaRestoreExecutor.swift; sourceTree = "<group>"; };
 		D8F8D8CCD2D9D7C7DD18F764 /* CustomPlaylistSidebarContent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CustomPlaylistSidebarContent.swift; sourceTree = "<group>"; };
@@ -465,6 +484,7 @@
 		E80000000000000000000001 /* SystemLifecycleMonitorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemLifecycleMonitorTests.swift; sourceTree = "<group>"; };
 		E81000000000000000000001 /* PlaybackEnergyPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackEnergyPolicyTests.swift; sourceTree = "<group>"; };
 		E82000000000000000000001 /* DesktopEnergyPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopEnergyPolicyTests.swift; sourceTree = "<group>"; };
+		F81000000000000000000003 /* MacDesktopClickMonitorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopClickMonitorTests.swift; sourceTree = "<group>"; };
 		E83000000000000000000001 /* MacDesktopHostEnergyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacDesktopHostEnergyTests.swift; sourceTree = "<group>"; };
 		E9EDF0C412B646C199C77E26 /* AppCompositionRoot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppCompositionRoot.swift; sourceTree = "<group>"; };
 		E90000000000000000000001 /* PlaybackMediaSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlaybackMediaSelection.swift; sourceTree = "<group>"; };
@@ -673,6 +693,10 @@
 				92C6CEB31B0C4DC2A49B61C3 /* EmbeddedSubtitlePlaybackController.swift */,
 				F17000000000000000000002 /* MacVideoScreenshotController.swift */,
 				D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */,
+				F81000000000000000000002 /* DesktopClickRipple.swift */,
+				F81000000000000000000007 /* DesktopFocusEffects.swift */,
+				F84000000000000000000007 /* DesktopColorEffects.swift */,
+				F81000000000000000000005 /* DesktopWaterField.swift */,
 				D40000000000000000000002 /* FilePlaybackProgressStore.swift */,
 				C30000000000000000000004 /* FilePlaybackSessionStore.swift */,
 				EB1000000000000000000006 /* MacExternalSubtitlePicker.swift */,
@@ -828,6 +852,7 @@
 				EB1000000000000000000007 /* ExternalSubtitleTests.swift */,
 				E81000000000000000000001 /* PlaybackEnergyPolicyTests.swift */,
 				E82000000000000000000001 /* DesktopEnergyPolicyTests.swift */,
+				F81000000000000000000003 /* MacDesktopClickMonitorTests.swift */,
 				D40000000000000000000003 /* PlaybackProgressTests.swift */,
 				C30000000000000000000005 /* PlaybackSessionControllerTests.swift */,
 				848B492C1513ACCE6930D647 /* LaunchAtLoginControllerTests.swift */,
@@ -889,6 +914,8 @@
 			children = (
 				F16000000000000000000002 /* DesktopOcclusionMonitoring.swift */,
 				62EADC3367C34613B9AB4302 /* MacDesktopHost.swift */,
+				F81000000000000000000001 /* MacDesktopClickMonitor.swift */,
+				F82000000000000000000001 /* MacDesktopInteractions.swift */,
 				D2E5FCCB7B72B4DD3AFAF836 /* FileDesktopPresetStore.swift */,
 				0D6AF9AFA22C8D3E35AA6282 /* MacDesktopDisplayTopology.swift */,
 				01DB0FAF81A93CECE0E5C819 /* UserDefaultsDesktopSceneStore.swift */,
@@ -1218,6 +1245,9 @@
 				F19000000000000000000004 /* VideoInformationTests.swift */,
 				F17000000000000000000003 /* VideoScreenshotTests.swift */,
 				AEAFFBCADB9C4DDF8A43DB08 /* RealAVPlayerLayerRoundTripTests.swift */,
+				F81000000000000000000004 /* DesktopClickRippleTests.swift */,
+				F81000000000000000000009 /* DesktopFocusEffectsTests.swift */,
+				F84000000000000000000009 /* DesktopColorEffectsTests.swift */,
 			);
 			name = Playback;
 			path = Playback;
@@ -1572,6 +1602,8 @@
 				A4D6BA374089486495FAEF0B /* PlaybackTimeline.swift in Sources */,
 				91DA9116CF36487AAF9244F6 /* VideoViewport.swift in Sources */,
 				38DAF1886E669E9AD8629B01 /* MacDesktopHost.swift in Sources */,
+				F81000000000000000000011 /* MacDesktopClickMonitor.swift in Sources */,
+				F82000000000000000000011 /* MacDesktopInteractions.swift in Sources */,
 				F16000000000000000000001 /* DesktopOcclusionMonitoring.swift in Sources */,
 				61F9D4963CFD4D2B81DF24E5 /* MacMediaSourcePicker.swift in Sources */,
 				8F7926D5B52F4A7CAB3DE72A /* BoundedMediaWorkPool.swift in Sources */,
@@ -1597,6 +1629,10 @@
 				EB1000000000000000000015 /* UserDefaultsExternalSubtitleAssociationStore.swift in Sources */,
 				EB1000000000000000000016 /* MacExternalSubtitlePicker.swift in Sources */,
 				D60000000000000000000011 /* DesktopPlayerLayerSurfaceView.swift in Sources */,
+				F81000000000000000000012 /* DesktopClickRipple.swift in Sources */,
+				F81000000000000000000017 /* DesktopFocusEffects.swift in Sources */,
+				F84000000000000000000017 /* DesktopColorEffects.swift in Sources */,
+				F81000000000000000000015 /* DesktopWaterField.swift in Sources */,
 				D40000000000000000000012 /* FilePlaybackProgressStore.swift in Sources */,
 				C30000000000000000000014 /* FilePlaybackSessionStore.swift in Sources */,
 				A68650D9162A708D93F5F453 /* PlayerLayerSurfaceView.swift in Sources */,
@@ -1711,6 +1747,7 @@
 				EB1000000000000000000017 /* ExternalSubtitleTests.swift in Sources */,
 				E81000000000000000000011 /* PlaybackEnergyPolicyTests.swift in Sources */,
 				E82000000000000000000011 /* DesktopEnergyPolicyTests.swift in Sources */,
+				F81000000000000000000013 /* MacDesktopClickMonitorTests.swift in Sources */,
 				D40000000000000000000013 /* PlaybackProgressTests.swift in Sources */,
 				C30000000000000000000015 /* PlaybackSessionControllerTests.swift in Sources */,
 				628DEF8A0A9BCE74862C63C4 /* PlaybackGateTests.swift in Sources */,
@@ -1730,6 +1767,9 @@
 				F19000000000000000000014 /* VideoInformationTests.swift in Sources */,
 				F17000000000000000000013 /* VideoScreenshotTests.swift in Sources */,
 				9DDE2F09B8C64CF4AB689811 /* RealAVPlayerLayerRoundTripTests.swift in Sources */,
+				F81000000000000000000014 /* DesktopClickRippleTests.swift in Sources */,
+				F81000000000000000000019 /* DesktopFocusEffectsTests.swift in Sources */,
+				F84000000000000000000019 /* DesktopColorEffectsTests.swift in Sources */,
 				AC0000000000000000000016 /* MacMainWindowPresenterTests.swift in Sources */,
 				E83000000000000000000011 /* MacDesktopHostEnergyTests.swift in Sources */,
 				E80000000000000000000002 /* SystemLifecycleMonitorTests.swift in Sources */,

@@ -27,6 +27,8 @@ enum AppPreferencesStorageKey {
         "settings.smart-pause.limited-power-source"
     static let smartPauseSustainedSystemLoad =
         "settings.smart-pause.sustained-system-load"
+    static let clickRippleEnabled = "settings.desktop.click-ripple"
+    static let desktopInteractionEffect = "settings.desktop.interaction-effect"
 }
 
 private struct UserDefaultsAppPreferencesDTO {
@@ -50,6 +52,7 @@ private struct UserDefaultsAppPreferencesDTO {
     let smartPauseLowPowerMode: Bool?
     let smartPauseLimitedPowerSource: Bool?
     let smartPauseSustainedSystemLoad: Bool?
+    let desktopInteractionEffect: DesktopInteractionEffect
 
     init(userDefaults: UserDefaults) {
         volume = Self.float(
@@ -122,6 +125,14 @@ private struct UserDefaultsAppPreferencesDTO {
             userDefaults,
             forKey: AppPreferencesStorageKey.smartPauseSustainedSystemLoad
         )
+        if let selection = userDefaults.object(forKey: AppPreferencesStorageKey.desktopInteractionEffect) {
+            let storedEffect = selection as? String
+            desktopInteractionEffect = storedEffect == "pointerWake" ? .waterRipple
+                : storedEffect.flatMap(DesktopInteractionEffect.init(rawValue:)) ?? .off
+        } else {
+            let legacyRipple = Self.bool(userDefaults, forKey: AppPreferencesStorageKey.clickRippleEnabled)
+            desktopInteractionEffect = legacyRipple == true ? .waterRipple : .off
+        }
     }
 
     private static func float(
@@ -253,7 +264,8 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
                 pauseUnderSustainedSystemLoad:
                     stored.smartPauseSustainedSystemLoad
                     ?? defaults.smartPause.pauseUnderSustainedSystemLoad
-            )
+            ),
+            desktopInteractionEffect: stored.desktopInteractionEffect
         )
     }
 
@@ -352,6 +364,10 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
             preferences.shadowColor.storageValue,
             forKey: AppPreferencesStorageKey.subtitleShadowColor
         )
+    }
+
+    func saveDesktopInteractionEffect(_ effect: DesktopInteractionEffect) {
+        userDefaults.set(effect.rawValue, forKey: AppPreferencesStorageKey.desktopInteractionEffect)
     }
 
     func saveSmartPause(_ preferences: SmartPausePreferences) {

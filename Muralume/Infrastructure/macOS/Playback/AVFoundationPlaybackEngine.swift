@@ -93,6 +93,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         let outgoingPlayer = player
         let transitionSurface = attachedSurface
             as? any AVPlayerTransitionSurface
+        let transitionSurfaceGeneration = surfaceGeneration
         let transitionDuration = crossfadeDuration(
             for: transition,
             surface: transitionSurface,
@@ -154,7 +155,8 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
                     incomingPlayer: incomingPlayer,
                     sourceLease: sourceLease,
                     duration: transitionDuration,
-                    generation: generation
+                    generation: generation,
+                    preparedSurfaceGeneration: transitionSurfaceGeneration
                 )
             } else {
                 compatibilityLease?.invalidate()
@@ -281,30 +283,52 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         incomingPlayer: AVPlayer,
         sourceLease: MediaPlaybackURLLease,
         duration: TimeInterval,
-        generation: UInt64
+        generation: UInt64,
+        preparedSurfaceGeneration: UInt64
     ) async throws {
-        surface.prepareTransition(to: incomingPlayer)
-        incomingPlayer.preroll(atRate: requestedRate?.rawValue
-            ?? PlaybackPolicy.defaultRate.rawValue) { _ in }
+        if preparedSurfaceGeneration == surfaceGeneration {
+            surface.prepareTransition(to: incomingPlayer)
+            incomingPlayer.preroll(atRate: requestedRate?.rawValue
+                ?? PlaybackPolicy.defaultRate.rawValue) { _ in }
+        }
         do {
             try await waitUntilReady(
                 surface,
-                generation: surfaceGeneration
+                generation: preparedSurfaceGeneration
             )
             try Task.checkCancellation()
             guard generation == loadGeneration else {
                 throw PlaybackEngineError.superseded
             }
         } catch {
-            surface.cancelPreparedTransition()
+            // A newer load can already be prerolling on this same surface.
+            if generation == loadGeneration, preparedSurfaceGeneration == surfaceGeneration {
+                surface.cancelPreparedTransition()
+            }
             incomingPlayer.cancelPendingPrerolls()
             incomingPlayer.replaceCurrentItem(with: nil)
             throw error
         }
 
-        let outgoingLease = compatibilityLease
+        // A new surface or cadence can reinstall observers while preroll is
+        // suspended. AVPlayer requires removal on the player that added them.
+        removeProgressObserver()
+        removeSubtitleTimeObserver()
+        removeTimeControlObservation()
+        retiringPlayer = outgoingPlayer
+        retiringCompatibilityLease = compatibilityLease
         player = incomingPlayer
         compatibilityLease = sourceLease
+        // Changing presentation supersedes the fade, but the selected media
+        // still belongs on the current surface, including a deferred reattach.
+        if preparedSurfaceGeneration != surfaceGeneration {
+            incomingPlayer.cancelPendingPrerolls()
+            attachedSurface?.connect(to: incomingPlayer)
+            configureDisplaySleepPrevention(for: attachedSurface)
+            finishActiveTransition()
+            if let requestedRate { play(at: requestedRate) }
+            return
+        }
         incomingPlayer.volume = 0
         if let requestedRate {
             incomingPlayer.playImmediately(atRate: requestedRate.rawValue)
@@ -312,7 +336,6 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         surface.commitPreparedTransition(duration: duration)
         beginCrossfadeCleanup(
             outgoingPlayer: outgoingPlayer,
-            outgoingLease: outgoingLease,
             incomingPlayer: incomingPlayer,
             duration: duration,
             generation: generation
@@ -321,13 +344,10 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
 
     private func beginCrossfadeCleanup(
         outgoingPlayer: AVPlayer,
-        outgoingLease: MediaPlaybackURLLease?,
         incomingPlayer: AVPlayer,
         duration: TimeInterval,
         generation: UInt64
     ) {
-        retiringPlayer = outgoingPlayer
-        retiringCompatibilityLease = outgoingLease
         isSurfaceTransitionActive = true
         transitionTask?.cancel()
         let stepCount = max(PlaybackPolicy.queueCrossfadeAudioStepCount, 1)
@@ -934,11 +954,10 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
     ) async throws {
         var elapsedNanoseconds: UInt64 = 0
 
-        while !surface.isReadyForDisplay {
+        // Callers decide whether an attachment change cancels their operation
+        // or just requires presenting an already-loaded item without a fade.
+        while generation == surfaceGeneration && !surface.isReadyForDisplay {
             try Task.checkCancellation()
-            guard generation == surfaceGeneration else {
-                throw PlaybackEngineError.superseded
-            }
             guard elapsedNanoseconds < PlaybackPolicy.surfaceReadyTimeoutNanoseconds else {
                 throw PlaybackEngineError.surfaceTimeout
             }

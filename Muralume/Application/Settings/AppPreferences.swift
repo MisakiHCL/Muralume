@@ -1,6 +1,25 @@
 import Combine
 import Foundation
 
+enum DesktopInteractionEffect: String, CaseIterable, Sendable {
+    case off
+    case waterRipple
+    case hoverLens
+    case shadowLight
+    case colorFocus
+    case localFreeze
+
+    var localizedKey: String { "settings.desktopInteraction." + rawValue }
+
+    var hintKey: String? {
+        switch self {
+        case .off: nil
+        case .waterRipple: "settings.desktopInteraction.waterHint"
+        case .localFreeze, .hoverLens, .colorFocus, .shadowLight: localizedKey + "Hint"
+        }
+    }
+}
+
 struct SmartPausePreferences: Equatable, Sendable {
     static let defaultValue = SmartPausePreferences(
         isEnabled: true,
@@ -70,6 +89,7 @@ struct AppPreferences: Equatable, Sendable {
     let language: AppLanguage
     let subtitleAppearance: SubtitleAppearancePreferences
     let smartPause: SmartPausePreferences
+    let desktopInteractionEffect: DesktopInteractionEffect
 
     init(
         audio: PlaybackAudioPreferences,
@@ -81,7 +101,8 @@ struct AppPreferences: Equatable, Sendable {
         libraryBrowserLayout: MediaBrowserLayout = .list,
         language: AppLanguage,
         subtitleAppearance: SubtitleAppearancePreferences = .defaultValue,
-        smartPause: SmartPausePreferences = .defaultValue
+        smartPause: SmartPausePreferences = .defaultValue,
+        desktopInteractionEffect: DesktopInteractionEffect = .off
     ) {
         self.audio = audio
         self.playbackRate = playbackRate
@@ -93,6 +114,7 @@ struct AppPreferences: Equatable, Sendable {
         self.language = language
         self.subtitleAppearance = subtitleAppearance
         self.smartPause = smartPause
+        self.desktopInteractionEffect = desktopInteractionEffect
     }
 }
 
@@ -109,6 +131,7 @@ protocol AppPreferencesStoring: AnyObject {
     func saveLanguage(_ language: AppLanguage)
     func saveSubtitleAppearance(_ preferences: SubtitleAppearancePreferences)
     func saveSmartPause(_ preferences: SmartPausePreferences)
+    func saveDesktopInteractionEffect(_ effect: DesktopInteractionEffect)
 }
 
 @MainActor

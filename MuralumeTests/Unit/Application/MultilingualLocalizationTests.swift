@@ -78,6 +78,13 @@ final class MultilingualLocalizationTests: XCTestCase {
             XCTAssertEqual(Set(strings.keys), Set(english.keys), locale)
             XCTAssertFalse(strings.values.contains(""), locale)
             XCTAssertEqual(Set(plurals.keys), Set(englishPlurals.keys), locale)
+            for effect in DesktopInteractionEffect.allCases {
+                XCTAssertNotNil(strings[effect.localizedKey], "\(locale): \(effect)")
+                if effect != .off {
+                    let hintKey = try XCTUnwrap(effect.hintKey)
+                    XCTAssertNotNil(strings[hintKey], "\(locale): \(hintKey)")
+                }
+            }
             let controller = AppLocalizationController(initialLanguage: try XCTUnwrap(AppLanguage(rawValue: locale)))
             for key in plurals.keys {
                 for count in [0, 1, 2] {

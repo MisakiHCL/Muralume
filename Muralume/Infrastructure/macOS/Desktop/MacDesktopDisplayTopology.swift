@@ -6,6 +6,60 @@ private enum DesktopTopologyScreenKey {
     static let screenNumber = NSDeviceDescriptionKey("NSScreenNumber")
 }
 
+struct MacDesktopDisplayID: Hashable, Comparable {
+    let rawValue: CGDirectDisplayID
+
+    static func < (
+        lhs: MacDesktopDisplayID,
+        rhs: MacDesktopDisplayID
+    ) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
+struct MacDesktopDisplay {
+    let id: MacDesktopDisplayID
+    let frame: NSRect
+    let visibleFrame: NSRect
+    let screen: NSScreen?
+
+    init(
+        id: CGDirectDisplayID,
+        frame: NSRect,
+        visibleFrame: NSRect? = nil,
+        screen: NSScreen? = nil
+    ) {
+        self.id = MacDesktopDisplayID(rawValue: id)
+        self.frame = frame
+        self.visibleFrame = visibleFrame ?? frame
+        self.screen = screen
+    }
+}
+
+extension MacDesktopDisplay {
+    @MainActor
+    static var current: [MacDesktopDisplay] {
+        NSScreen.screens.compactMap { screen in
+            guard let screenNumber = screen.deviceDescription[DesktopTopologyScreenKey.screenNumber]
+                as? NSNumber else {
+                return nil
+            }
+            let displayID = screenNumber.uint32Value
+            // The mirror primary already supplies the drawable desktop for
+            // the whole mirror set; a second window would duplicate work.
+            guard CGDisplayMirrorsDisplay(displayID) == kCGNullDirectDisplay else {
+                return nil
+            }
+            return MacDesktopDisplay(
+                id: displayID,
+                frame: screen.frame,
+                visibleFrame: screen.visibleFrame,
+                screen: screen
+            )
+        }
+    }
+}
+
 private enum DesktopIdentificationOverlayPolicy {
     static let width: CGFloat = 160
     static let height: CGFloat = 112

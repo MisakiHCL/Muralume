@@ -56,11 +56,13 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
     var stateProvider: (() -> DesktopStatusState)?
     var togglePlaybackHandler: (() -> Void)?
     var playNextHandler: (() -> Void)?
+    var selectQueueHandler: ((PlaybackCollection) -> Void)?
     var setPlaybackOrderHandler: ((PlaybackOrder) -> Void)?
     var setPlaybackModeHandler: ((PlaybackMode) -> Void)?
     var setPlaybackRateHandler: ((PlaybackRate) -> Void)?
     var returnToPlayerHandler: (() -> Void)?
     var setVideoContentModeHandler: ((DesktopVideoContentMode) -> Void)?
+    var setDesktopInteractionEffectHandler: ((DesktopInteractionEffect) -> Void)?
     var quitHandler: (() -> Void)?
 
     private var statusItem: NSStatusItem?
@@ -68,9 +70,12 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
     private weak var smartPauseItem: NSMenuItem?
     private weak var togglePlaybackItem: NSMenuItem?
     private weak var playNextItem: NSMenuItem?
+    private weak var queueItem: NSMenuItem?
+    private var displayedQueue: DesktopQueueMenuState?
     private weak var playbackModeItem: NSMenuItem?
     private weak var playbackRateItem: NSMenuItem?
     private weak var videoContentModeItem: NSMenuItem?
+    private weak var interactionItem: NSMenuItem?
     private weak var returnItem: NSMenuItem?
     private weak var quitItem: NSMenuItem?
     private var playbackModeItems: [PlaybackMode: NSMenuItem] = [:]
@@ -84,6 +89,7 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         super.init()
         localizationCancellable = localization.localizationDidChange.sink {
             [weak self] in
+            self?.displayedQueue = nil
             self?.updateMenu()
         }
     }
@@ -178,6 +184,15 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         playNextItem.target = self
         menu.addItem(playNextItem)
 
+        let queueItem = NSMenuItem(title: localized("queue.title"), action: nil, keyEquivalent: "")
+        let queueMenu = NSMenu(title: queueItem.title)
+        queueMenu.autoenablesItems = false
+        queueMenu.delegate = self
+        queueItem.submenu = queueMenu
+        menu.addItem(queueItem)
+        self.queueItem = queueItem
+        displayedQueue = nil
+
         let playbackModeItem = makePlaybackModeItem()
         menu.addItem(playbackModeItem)
 
@@ -187,11 +202,16 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         let videoContentModeItem = makeVideoContentModeItem()
         menu.addItem(videoContentModeItem)
 
+        let interactionItem = makeInteractionItem()
+        menu.addItem(interactionItem)
+        self.interactionItem = interactionItem
+
         let returnItem = NSMenuItem(
             title: localized("desktop.return"),
             action: #selector(returnToPlayer),
-            keyEquivalent: ""
+            keyEquivalent: "d"
         )
+        returnItem.keyEquivalentModifierMask = [.command]
         returnItem.target = self
         menu.addItem(returnItem)
 
@@ -226,12 +246,15 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
         smartPauseItem = nil
         togglePlaybackItem = nil
         playNextItem = nil
+        queueItem = nil
+        displayedQueue = nil
         playbackModeItem = nil
         playbackModeItems.removeAll()
         playbackRateItem = nil
         playbackRateItems.removeAll()
         videoContentModeItem = nil
         videoContentModeItems.removeAll()
+        interactionItem = nil
         returnItem = nil
         quitItem = nil
     }
@@ -249,6 +272,23 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
     @objc
     private func playNext() {
         playNextHandler?()
+        updateMenu()
+    }
+
+    @objc
+    private func selectQueue(_ sender: NSMenuItem) {
+        guard let collection = sender.representedObject as? PlaybackCollection,
+              let state = stateProvider?(), state.sceneMode == .synchronized,
+              !state.isTransitioning, state.queueMenu.isPlayable(collection) else { return }
+        selectQueueHandler?(collection)
+        updateMenu()
+    }
+
+    @objc
+    private func selectInteraction(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let effect = DesktopInteractionEffect(rawValue: rawValue) else { return }
+        setDesktopInteractionEffectHandler?(effect)
         updateMenu()
     }
 
@@ -305,7 +345,9 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
     }
 
     private func updateMenu() {
+        guard currentItem != nil else { return }
         let state = stateProvider?()
+        updateQueueMenu(state)
         if let state {
             let fullCurrentTitle: String
             if state.sceneMode == .perDisplay {
@@ -365,6 +407,7 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
             playbackRateItem?.isEnabled = !state.isTransitioning
             videoContentModeItem?.isHidden = state.sceneMode == .perDisplay
             videoContentModeItem?.isEnabled = !state.isTransitioning
+            interactionItem?.isEnabled = !state.isTransitioning
             returnItem?.isEnabled = !state.isTransitioning
         }
 
@@ -395,10 +438,46 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
                 item.state = contentMode == state.videoContentMode ? .on : .off
             }
         }
+        let interactionTitle = localized("settings.desktopInteraction")
+        interactionItem?.title = interactionTitle
+        interactionItem?.submenu?.title = interactionTitle
+        for (effect, item) in zip(DesktopInteractionEffect.allCases, interactionItem?.submenu?.items ?? []) {
+            item.title = localized(effect.localizedKey)
+            item.state = effect == state?.desktopInteractionEffect ? .on : .off
+        }
         returnItem?.title = localized("desktop.return")
         quitItem?.title = localized("desktop.quit")
         statusItem?.button?.toolTip = localized("app.name")
         statusItem?.button?.setAccessibilityLabel(localized("app.name"))
+    }
+
+    private func updateQueueMenu(_ state: DesktopStatusState?) {
+        guard let queueItem, let menu = queueItem.submenu else { return }
+        queueItem.title = localized("queue.title")
+        menu.title = queueItem.title
+        queueItem.isHidden = state?.sceneMode == .perDisplay
+        queueItem.isEnabled = state?.isTransitioning == false
+        let queue = state?.queueMenu ?? .empty
+        guard !queueItem.isHidden, displayedQueue != queue else { return }
+        displayedQueue = queue
+        menu.removeAllItems()
+
+        func addQueue(_ collection: PlaybackCollection, title: String, isPlayable: Bool) {
+            let item = menu.addItem(withTitle: title, action: #selector(selectQueue(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = collection
+            item.isEnabled = isPlayable
+            item.state = queue.selection == collection ? .on : .off
+        }
+
+        addQueue(.mediaLibrary, title: localized("library.playlist"), isPlayable: queue.isLibraryPlayable)
+        menu.addItem(.separator())
+        if queue.playlists.isEmpty {
+            menu.addItem(withTitle: localized("playlists.empty"), action: nil, keyEquivalent: "").isEnabled = false
+        }
+        for playlist in queue.playlists {
+            addQueue(.customPlaylist(playlist.id), title: playlist.name, isPlayable: playlist.isPlayable)
+        }
     }
 
     private func updateSmartPauseItem(
@@ -579,6 +658,23 @@ final class DesktopStatusMenuController: NSObject, NSMenuDelegate, DesktopStatus
             videoContentModeItems[contentMode] = contentModeItem
         }
 
+        item.submenu = submenu
+        return item
+    }
+
+    private func makeInteractionItem() -> NSMenuItem {
+        let title = localized("settings.desktopInteraction")
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: title)
+        for effect in DesktopInteractionEffect.allCases {
+            let option = submenu.addItem(
+                withTitle: localized(effect.localizedKey),
+                action: #selector(selectInteraction(_:)),
+                keyEquivalent: ""
+            )
+            option.target = self
+            option.representedObject = effect.rawValue
+        }
         item.submenu = submenu
         return item
     }

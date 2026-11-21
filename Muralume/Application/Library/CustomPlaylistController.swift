@@ -169,6 +169,16 @@ final class CustomPlaylistController: ObservableObject {
 
     func waitForMediaResolution() async { await mediaCatalog?.waitForResolution() }
 
+    func containsResolvedItem(in playlist: CustomPlaylist, where predicate: (LibraryMediaItem) -> Bool) -> Bool {
+        if let mediaCatalog {
+            let resolved = mediaCatalog.snapshot.itemsByEntryID
+            return playlist.entries.contains { entry in
+                resolved[entry.id].map(predicate) == true
+            }
+        }
+        return resolvedItems(in: playlist.id).contains(where: predicate)
+    }
+
     func resolvedItems(
         in playlistID: CustomPlaylist.ID,
         collection requestedCollection: CustomPlaylistCollection? = nil

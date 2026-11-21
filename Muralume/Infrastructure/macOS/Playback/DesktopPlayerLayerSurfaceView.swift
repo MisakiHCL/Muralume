@@ -51,43 +51,37 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
     let id: PlaybackSurfaceID
 
     var isReadyForDisplay: Bool {
-        if preparedTransitionPlayer != nil {
-            return transitionForegroundPlayerLayer.isReadyForDisplay
-                && (
-                    transitionBackgroundPlayerLayer.isHidden
-                        || transitionBackgroundPlayerLayer.isReadyForDisplay
-                )
-        }
-        return foregroundPlayerLayer.isReadyForDisplay
-            && (!isBackgroundVisible || backgroundPlayerLayer.isReadyForDisplay)
+        let layers = preparedTransitionPlayer == nil ? activeLayers : spareLayers
+        return layers.foreground.isReadyForDisplay
+            && (layers.background.isHidden || layers.background.isReadyForDisplay)
     }
 
     var connectedPlayerIdentity: ObjectIdentifier? {
-        foregroundPlayerLayer.player.map(ObjectIdentifier.init)
+        activeLayers.foreground.player.map(ObjectIdentifier.init)
     }
 
     var backgroundConnectedPlayerIdentity: ObjectIdentifier? {
-        backgroundPlayerLayer.player.map(ObjectIdentifier.init)
+        activeLayers.background.player.map(ObjectIdentifier.init)
     }
 
     var isBackgroundVisible: Bool {
-        !backgroundPlayerLayer.isHidden
+        !activeLayers.background.isHidden
     }
 
     var foregroundVideoGravity: AVLayerVideoGravity {
-        foregroundPlayerLayer.videoGravity
+        activeLayers.foreground.videoGravity
     }
 
     var foregroundDisplayedVideoRect: CGRect {
-        foregroundPlayerLayer.videoRect
+        activeLayers.foreground.videoRect
     }
 
     var backgroundVideoGravity: AVLayerVideoGravity {
-        backgroundPlayerLayer.videoGravity
+        activeLayers.background.videoGravity
     }
 
     var backgroundRenderSize: CGSize {
-        backgroundPlayerLayer.bounds.size
+        activeLayers.background.bounds.size
     }
 
     var isObservingPlayerItemChanges: Bool {
@@ -101,13 +95,26 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
     private(set) var contentMode: DesktopVideoContentMode
     private(set) var isEnergyConstrained = false
 
-    private let backgroundPlayerLayer = AVPlayerLayer()
-    private let backgroundShadeLayer = CALayer()
-    private let foregroundPlayerLayer = AVPlayerLayer()
-    private let transitionContainerLayer = CALayer()
-    private let transitionBackgroundPlayerLayer = AVPlayerLayer()
-    private let transitionBackgroundShadeLayer = CALayer()
-    private let transitionForegroundPlayerLayer = AVPlayerLayer()
+    private var clickRipple: DesktopClickRipple?
+    private var focusEffects: DesktopFocusEffects?
+    private var colorEffects: DesktopColorEffects?
+    private var isPickingColor = false
+    var refreshPointerPosition: (() -> Void)? {
+        didSet { observeHoverReadiness() }
+    }
+    private var hoverPlaybackObservation: NSKeyValueObservation?
+    private var hoverLayerObservation: NSKeyValueObservation?
+
+    private final class VideoLayers {
+        let container = CALayer()
+        let background = AVPlayerLayer()
+        let shade = CALayer()
+        let foreground = AVPlayerLayer()
+    }
+
+    private let videoContainer = CALayer()
+    private var activeLayers = VideoLayers()
+    private var spareLayers = VideoLayers()
     private weak var connectedPlayer: AVPlayer?
     private weak var preparedTransitionPlayer: AVPlayer?
     private var transitionCleanupWorkItem: DispatchWorkItem?
@@ -139,41 +146,166 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
 
     override func layout() {
         super.layout()
+        let didResize = videoContainer.frame != bounds
+        if didResize { clearDesktopEffects() }
         updateLayerGeometry()
+        if didResize { refreshHoverWhenReady() }
     }
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        clearDesktopEffects()
         updateLayerGeometry()
+        refreshHoverWhenReady()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil { clearDesktopEffects() }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    private var interactivePlayer: AVPlayer? {
+        guard preparedTransitionPlayer == nil, transitionCleanupWorkItem == nil,
+              activeLayers.foreground.isReadyForDisplay,
+              let connectedPlayer, connectedPlayer.timeControlStatus == .playing else { return nil }
+        return connectedPlayer
+    }
+
+    func handleDesktopInteraction(
+        _ effect: DesktopInteractionEffect, input: DesktopPointerInput, at point: CGPoint
+    ) {
+        guard let layer, let player = interactivePlayer else {
+            clearDesktopEffects()
+            return
+        }
+        let visible = bounds.intersection(activeLayers.foreground.videoRect)
+        guard visible.contains(point) else {
+            desktopPointerDidLeave()
+            return
+        }
+        switch (effect, input) {
+        case (.waterRipple, .click), (.waterRipple, .movement):
+            if clickRipple == nil { clickRipple = DesktopClickRipple() }
+            let pulse: DesktopWaterInput = input == .click ? .click : .movement
+            clickRipple?.show(pulse, at: point, in: visible, on: layer, player: player)
+        case (.colorFocus, .pressBegan), (.colorFocus, .pressMoved):
+            if isPickingColor, input == .pressMoved {
+                colorEffects?.movePick(to: point)
+            } else {
+                if colorEffects == nil { colorEffects = DesktopColorEffects() }
+                isPickingColor = true
+                colorEffects?.beginPicking(at: point, in: visible, displayedRect: activeLayers.foreground.videoRect,
+                                           on: layer, player: player)
+            }
+        case (.shadowLight, .movement), (.shadowLight, .pressBegan), (.shadowLight, .pressMoved):
+            if colorEffects == nil { colorEffects = DesktopColorEffects() }
+            colorEffects?.illuminate(at: point, in: visible, on: layer, pressed: input != .movement)
+        case (.hoverLens, .movement), (.hoverLens, .pressBegan), (.hoverLens, .pressMoved):
+            if focusEffects == nil { focusEffects = DesktopFocusEffects() }
+            focusEffects?.hover(at: point, in: visible, on: layer, pressed: input != .movement)
+        default:
+            break
+        }
+    }
+
+    func freezeDesktopSelection(_ selection: CGRect) {
+        guard let layer, let player = interactivePlayer else { return }
+        let displayed = activeLayers.foreground.videoRect
+        let region = bounds.intersection(displayed).intersection(selection)
+        guard !region.isEmpty else { return }
+        if focusEffects == nil { focusEffects = DesktopFocusEffects() }
+        focusEffects?.freeze(in: region, displayedRect: displayed, on: layer, player: player)
+    }
+
+    func dimDesktopVideo() {
+        guard let layer, interactivePlayer != nil else { return }
+        let visible = bounds.intersection(activeLayers.foreground.videoRect)
+        guard !visible.isEmpty else { return }
+        if colorEffects == nil { colorEffects = DesktopColorEffects() }
+        colorEffects?.dim(in: visible, on: layer)
+    }
+
+    func endDesktopColorPick() {
+        isPickingColor = false
+        colorEffects?.endPicking()
+    }
+
+    func desktopPointerDidLeave() {
+        focusEffects?.leave()
+        if isPickingColor {
+            colorEffects?.stop()
+            isPickingColor = false
+        } else {
+            colorEffects?.leave()
+        }
+    }
+
+    private func observeHoverReadiness() {
+        hoverPlaybackObservation = nil
+        hoverLayerObservation = nil
+        guard refreshPointerPosition != nil, let connectedPlayer else { return }
+        // Keep a still pointer attached to live video across pause, resume and item changes.
+        hoverPlaybackObservation = connectedPlayer.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in self?.refreshHoverWhenReady() }
+        }
+        hoverLayerObservation = activeLayers.foreground.observe(\.isReadyForDisplay, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in self?.refreshHoverWhenReady() }
+        }
+    }
+
+    private func refreshHoverWhenReady() {
+        guard let refreshPointerPosition else { return }
+        if interactivePlayer != nil {
+            refreshPointerPosition()
+        } else {
+            clearDesktopEffects()
+        }
+    }
+
+    func clearDesktopEffects() {
+        clickRipple?.stop()
+        clickRipple = nil
+        focusEffects?.stop()
+        focusEffects = nil
+        colorEffects?.stop()
+        colorEffects = nil
+        isPickingColor = false
     }
 
     func connect(to player: AVPlayer?) {
+        clearDesktopEffects()
         cancelPreparedTransition()
-        connectActiveLayers(to: player)
+        bind(player, to: activeLayers)
+        observeActivePlayer(player)
+        refreshHoverWhenReady()
     }
 
-    private func connectActiveLayers(to player: AVPlayer?) {
-        let didChangePlayer = connectedPlayer !== player
-        if didChangePlayer {
+    private func bind(_ player: AVPlayer?, to layers: VideoLayers) {
+        updateBackground(in: layers, for: player)
+        if layers.foreground.player !== player {
+            layers.foreground.player = player
+        }
+    }
+
+    private func observeActivePlayer(_ player: AVPlayer?) {
+        if connectedPlayer !== player {
             stopObservingPlayerChanges()
         }
         connectedPlayer = player
+        observeHoverReadiness()
         refreshPlayerObservations()
-        updateBackgroundPresentation()
-        // Keep the clear foreground as the most recently associated layer.
-        // Older AVFoundation implementations prioritized that layer when a
-        // player was connected to more than one presentation surface.
-        foregroundPlayerLayer.player = player
     }
 
     func setContentMode(_ contentMode: DesktopVideoContentMode) {
         guard self.contentMode != contentMode else {
             return
         }
+        clearDesktopEffects()
         self.contentMode = contentMode
         refreshPlayerObservations()
         applyContentMode()
         updateLayerGeometry()
+        refreshHoverWhenReady()
     }
 
     func setEnergyConstrained(_ isEnergyConstrained: Bool) {
@@ -182,8 +314,7 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
         }
         self.isEnergyConstrained = isEnergyConstrained
         refreshPlayerObservations()
-        updateBackgroundPresentation()
-        updateTransitionBackgroundPresentation()
+        updateBackgrounds()
     }
 
     private func configureLayers() {
@@ -197,59 +328,35 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
         rootLayer.masksToBounds = true
         disableImplicitAnimations(for: rootLayer)
 
-        backgroundPlayerLayer.videoGravity = .resizeAspectFill
-        backgroundPlayerLayer.backgroundColor = NSColor.black.cgColor
-        backgroundPlayerLayer.contentsScale = 1
-        backgroundPlayerLayer.magnificationFilter = .linear
-        backgroundPlayerLayer.minificationFilter = .linear
-        backgroundPlayerLayer.filters = [makeBlurFilter()]
-        disableImplicitAnimations(for: backgroundPlayerLayer)
+        disableImplicitAnimations(for: videoContainer)
+        rootLayer.addSublayer(videoContainer)
+        for layers in [activeLayers, spareLayers] {
+            layers.container.backgroundColor = NSColor.black.cgColor
+            disableImplicitAnimations(for: layers.container)
 
-        backgroundShadeLayer.backgroundColor = NSColor.black.cgColor
-        backgroundShadeLayer.opacity = DesktopBlurRenderingPolicy.shadeOpacity
-        disableImplicitAnimations(for: backgroundShadeLayer)
+            layers.background.videoGravity = .resizeAspectFill
+            layers.background.backgroundColor = NSColor.black.cgColor
+            layers.background.contentsScale = 1
+            layers.background.magnificationFilter = .linear
+            layers.background.minificationFilter = .linear
+            layers.background.filters = [makeBlurFilter()]
+            disableImplicitAnimations(for: layers.background)
 
-        foregroundPlayerLayer.backgroundColor = NSColor.clear.cgColor
-        foregroundPlayerLayer.masksToBounds = true
-        disableImplicitAnimations(for: foregroundPlayerLayer)
+            layers.shade.backgroundColor = NSColor.black.cgColor
+            layers.shade.opacity = DesktopBlurRenderingPolicy.shadeOpacity
+            disableImplicitAnimations(for: layers.shade)
 
-        transitionContainerLayer.opacity = 0
-        disableImplicitAnimations(for: transitionContainerLayer)
+            layers.foreground.backgroundColor = NSColor.clear.cgColor
+            layers.foreground.masksToBounds = true
+            disableImplicitAnimations(for: layers.foreground)
 
-        transitionBackgroundPlayerLayer.videoGravity = .resizeAspectFill
-        transitionBackgroundPlayerLayer.backgroundColor =
-            NSColor.black.cgColor
-        transitionBackgroundPlayerLayer.contentsScale = 1
-        transitionBackgroundPlayerLayer.magnificationFilter = .linear
-        transitionBackgroundPlayerLayer.minificationFilter = .linear
-        transitionBackgroundPlayerLayer.filters = [makeBlurFilter()]
-        disableImplicitAnimations(for: transitionBackgroundPlayerLayer)
-
-        transitionBackgroundShadeLayer.backgroundColor =
-            NSColor.black.cgColor
-        transitionBackgroundShadeLayer.opacity =
-            DesktopBlurRenderingPolicy.shadeOpacity
-        disableImplicitAnimations(for: transitionBackgroundShadeLayer)
-
-        transitionForegroundPlayerLayer.backgroundColor =
-            NSColor.clear.cgColor
-        transitionForegroundPlayerLayer.masksToBounds = true
-        disableImplicitAnimations(for: transitionForegroundPlayerLayer)
-
-        transitionContainerLayer.addSublayer(
-            transitionBackgroundPlayerLayer
-        )
-        transitionContainerLayer.addSublayer(
-            transitionBackgroundShadeLayer
-        )
-        transitionContainerLayer.addSublayer(
-            transitionForegroundPlayerLayer
-        )
-
-        rootLayer.addSublayer(backgroundPlayerLayer)
-        rootLayer.addSublayer(backgroundShadeLayer)
-        rootLayer.addSublayer(foregroundPlayerLayer)
-        rootLayer.addSublayer(transitionContainerLayer)
+            layers.container.addSublayer(layers.background)
+            layers.container.addSublayer(layers.shade)
+            layers.container.addSublayer(layers.foreground)
+            videoContainer.addSublayer(layers.container)
+        }
+        activeLayers.container.zPosition = 1
+        spareLayers.container.opacity = 0
         updateLayerGeometry()
     }
 
@@ -265,58 +372,32 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
     }
 
     private func applyContentMode() {
-        switch contentMode {
-        case .blurredBackground:
-            foregroundPlayerLayer.videoGravity = .resizeAspect
-            transitionForegroundPlayerLayer.videoGravity = .resizeAspect
-        case .cover:
-            foregroundPlayerLayer.videoGravity = .resizeAspectFill
-            transitionForegroundPlayerLayer.videoGravity = .resizeAspectFill
-        case .contain:
-            foregroundPlayerLayer.videoGravity = .resizeAspect
-            transitionForegroundPlayerLayer.videoGravity = .resizeAspect
-        }
-        updateBackgroundPresentation()
-        updateTransitionBackgroundPresentation()
-        if contentMode == .blurredBackground {
-            foregroundPlayerLayer.player = connectedPlayer
+        let gravity: AVLayerVideoGravity = contentMode == .cover
+            ? .resizeAspectFill : .resizeAspect
+        activeLayers.foreground.videoGravity = gravity
+        spareLayers.foreground.videoGravity = gravity
+        updateBackgrounds()
+    }
+
+    private func updateBackgrounds() {
+        for layers in [activeLayers, spareLayers] {
+            updateBackground(in: layers, for: layers.foreground.player)
         }
     }
 
-    private func updateBackgroundPresentation() {
-        let shouldRenderBackground = contentMode == .blurredBackground
+    private func updateBackground(in layers: VideoLayers, for player: AVPlayer?) {
+        let shouldRender = contentMode == .blurredBackground
             && DesktopBlurBackgroundPolicy.shouldRender(
-                videoSize: connectedPlayer?.currentItem?.presentationSize
-                    ?? .zero,
+                videoSize: player?.currentItem?.presentationSize ?? .zero,
                 containerSize: bounds.size,
                 isEnergyConstrained: isEnergyConstrained
             )
-        let isBackgroundHidden = !shouldRenderBackground
-        if backgroundPlayerLayer.isHidden != isBackgroundHidden {
-            backgroundPlayerLayer.isHidden = isBackgroundHidden
-            backgroundShadeLayer.isHidden = isBackgroundHidden
+        layers.background.isHidden = !shouldRender
+        layers.shade.isHidden = !shouldRender
+        let backgroundPlayer = shouldRender ? player : nil
+        if layers.background.player !== backgroundPlayer {
+            layers.background.player = backgroundPlayer
         }
-        let desiredBackgroundPlayer = shouldRenderBackground
-            ? connectedPlayer
-            : nil
-        if backgroundPlayerLayer.player !== desiredBackgroundPlayer {
-            backgroundPlayerLayer.player = desiredBackgroundPlayer
-        }
-    }
-
-    private func updateTransitionBackgroundPresentation() {
-        let shouldRenderBackground = contentMode == .blurredBackground
-            && DesktopBlurBackgroundPolicy.shouldRender(
-                videoSize: preparedTransitionPlayer?.currentItem?
-                    .presentationSize ?? .zero,
-                containerSize: bounds.size,
-                isEnergyConstrained: isEnergyConstrained
-            )
-        transitionBackgroundPlayerLayer.isHidden = !shouldRenderBackground
-        transitionBackgroundShadeLayer.isHidden = !shouldRenderBackground
-        transitionBackgroundPlayerLayer.player = shouldRenderBackground
-            ? preparedTransitionPlayer
-            : nil
     }
 
     private func observeCurrentItemChanges(in player: AVPlayer?) {
@@ -345,7 +426,7 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
         presentationSizeObservation = nil
 
         guard let item else {
-            updateBackgroundPresentation()
+            updateBackground(in: activeLayers, for: connectedPlayer)
             return
         }
         presentationSizeObservation = item.observe(
@@ -357,10 +438,10 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
                       self.connectedPlayer?.currentItem === item else {
                     return
                 }
-                self.updateBackgroundPresentation()
+                self.updateBackground(in: self.activeLayers, for: self.connectedPlayer)
             }
         }
-        updateBackgroundPresentation()
+        updateBackground(in: activeLayers, for: connectedPlayer)
     }
 
     private func refreshPlayerObservations() {
@@ -384,8 +465,7 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
     }
 
     private func updateLayerGeometry() {
-        updateBackgroundPresentation()
-        updateTransitionBackgroundPresentation()
+        updateBackgrounds()
         guard !bounds.isEmpty else {
             return
         }
@@ -394,38 +474,23 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
             ?? NSScreen.main?.backingScaleFactor
             ?? 1
         layer?.contentsScale = backingScale
-        foregroundPlayerLayer.contentsScale = backingScale
-        foregroundPlayerLayer.frame = bounds
-        backgroundShadeLayer.frame = bounds
-        transitionContainerLayer.frame = bounds
-        transitionForegroundPlayerLayer.contentsScale = backingScale
-        transitionForegroundPlayerLayer.frame = bounds
-        transitionBackgroundShadeLayer.frame = bounds
-
-        let workSize = backgroundWorkSize(for: bounds.size)
-        backgroundPlayerLayer.bounds = CGRect(
-            origin: .zero,
-            size: workSize
-        )
-        backgroundPlayerLayer.position = CGPoint(
-            x: bounds.midX,
-            y: bounds.midY
-        )
-        backgroundPlayerLayer.transform = CATransform3DMakeScale(
-            bounds.width / workSize.width
-                * DesktopBlurRenderingPolicy.overscanScale,
-            bounds.height / workSize.height
-                * DesktopBlurRenderingPolicy.overscanScale,
+        videoContainer.frame = bounds
+        let area = videoContainer.bounds
+        let workSize = backgroundWorkSize(for: area.size)
+        let transform = CATransform3DMakeScale(
+            area.width / workSize.width * DesktopBlurRenderingPolicy.overscanScale,
+            area.height / workSize.height * DesktopBlurRenderingPolicy.overscanScale,
             1
         )
-        transitionBackgroundPlayerLayer.contentsScale = 1
-        transitionBackgroundPlayerLayer.bounds = backgroundPlayerLayer.bounds
-        transitionBackgroundPlayerLayer.position = CGPoint(
-            x: bounds.midX,
-            y: bounds.midY
-        )
-        transitionBackgroundPlayerLayer.transform =
-            backgroundPlayerLayer.transform
+        for layers in [activeLayers, spareLayers] {
+            layers.container.frame = area
+            layers.foreground.contentsScale = backingScale
+            layers.foreground.frame = area
+            layers.shade.frame = area
+            layers.background.bounds = CGRect(origin: .zero, size: workSize)
+            layers.background.position = CGPoint(x: area.midX, y: area.midY)
+            layers.background.transform = transform
+        }
     }
 
     private func backgroundWorkSize(for targetSize: CGSize) -> CGSize {
@@ -452,67 +517,73 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
             "position": NSNull(),
             "sublayers": NSNull(),
             "transform": NSNull(),
-            "videoGravity": NSNull()
+            "videoGravity": NSNull(),
+            "zPosition": NSNull()
         ]
     }
 }
 
 extension DesktopPlayerLayerSurfaceView: AVPlayerTransitionSurface {
     func prepareTransition(to player: AVPlayer) {
+        clearDesktopEffects()
         cancelPreparedTransition()
         preparedTransitionPlayer = player
-        transitionContainerLayer.opacity = 0
-        transitionForegroundPlayerLayer.player = player
-        updateTransitionBackgroundPresentation()
+        bind(player, to: spareLayers)
     }
 
     func commitPreparedTransition(duration: TimeInterval) {
-        guard let incomingPlayer = preparedTransitionPlayer else {
+        guard let incomingPlayer = preparedTransitionPlayer else { return }
+        preparedTransitionPlayer = nil
+
+        // Keep the exact layers that passed the first-frame check on screen.
+        // Rebinding their player at fade completion resets display readiness.
+        let outgoing = activeLayers
+        activeLayers = spareLayers
+        spareLayers = outgoing
+        activeLayers.container.zPosition = 1
+        outgoing.container.zPosition = 0
+        activeLayers.container.opacity = 1
+        observeActivePlayer(incomingPlayer)
+
+        guard duration > 0 else {
+            retireSpareLayers()
+            refreshHoverWhenReady()
             return
         }
-        preparedTransitionPlayer = nil
-        transitionCleanupWorkItem?.cancel()
-        transitionContainerLayer.opacity = 1
-
         let animation = CABasicAnimation(keyPath: "opacity")
         animation.fromValue = Float.zero
         animation.toValue = Float(1)
-        animation.duration = max(duration, 0)
-        animation.timingFunction = CAMediaTimingFunction(
-            name: .easeInEaseOut
-        )
-        transitionContainerLayer.add(
+        animation.duration = duration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        activeLayers.container.add(
             animation,
             forKey: PlaybackSurfaceTransitionAnimationKey.incomingOpacity
         )
 
-        let cleanup = DispatchWorkItem { [weak self, weak incomingPlayer] in
-            guard let self, let incomingPlayer else {
-                return
-            }
-            connectActiveLayers(to: incomingPlayer)
-            resetTransitionLayers()
+        let cleanup = DispatchWorkItem { [weak self, weak outgoing] in
+            guard let self, spareLayers === outgoing else { return }
+            retireSpareLayers()
             transitionCleanupWorkItem = nil
+            refreshHoverWhenReady()
         }
         transitionCleanupWorkItem = cleanup
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + max(duration, 0),
-            execute: cleanup
-        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: cleanup)
     }
 
     func cancelPreparedTransition() {
         transitionCleanupWorkItem?.cancel()
         transitionCleanupWorkItem = nil
         preparedTransitionPlayer = nil
-        resetTransitionLayers()
+        activeLayers.container.removeAnimation(
+            forKey: PlaybackSurfaceTransitionAnimationKey.incomingOpacity
+        )
+        retireSpareLayers()
     }
 
-    private func resetTransitionLayers() {
-        transitionContainerLayer.removeAllAnimations()
-        transitionContainerLayer.opacity = 0
-        transitionBackgroundPlayerLayer.player = nil
-        transitionForegroundPlayerLayer.player = nil
+    private func retireSpareLayers() {
+        spareLayers.container.opacity = 0
+        spareLayers.foreground.player = nil
+        spareLayers.background.player = nil
     }
 }
 

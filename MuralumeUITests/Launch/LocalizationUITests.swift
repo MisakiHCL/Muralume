@@ -6,6 +6,7 @@ final class LocalizationUITests: XCTestCase {
         static let settingsView = "muralume.settings-view"
         static let closeSettings = "muralume.settings-close"
         static let languagePicker = "muralume.language-picker"
+        static let desktopInteractionPicker = "muralume.desktop-interaction-picker"
     }
 
     private enum Timeout {
@@ -75,6 +76,33 @@ final class LocalizationUITests: XCTestCase {
 
         try selectLanguage(LanguageExpectation.english.autonym, in: application)
         try assertSettings(.english, in: application)
+    }
+
+    @MainActor
+    func testDesktopInteractionSelectionFollowsLanguageChanges() throws {
+        let application = try MuralumeUITestSession.makeApplication(for: Self.self)
+        application.launchArguments += [
+            "-ApplePersistenceIgnoreState", "YES",
+            "-settings.app-language", "en",
+            "-settings.desktop.interaction-effect", "off"
+        ]
+        defer { restoreEnglishAndTerminate(application) }
+        try MuralumeUITestSession.launch(application, for: Self.self)
+        application.activate()
+        try require(element(Identifier.openSettings, in: application)).click()
+        let picker = try require(element(Identifier.desktopInteractionPicker, in: application))
+        try waitForValue("Off", on: picker)
+        XCTAssertEqual(picker.label, "Desktop interaction")
+        picker.click()
+        try require(picker.menuItems["Shadow Light"]).click()
+        try waitForValue("Shadow Light", on: picker)
+
+        try selectLanguage("简体中文", in: application)
+        try waitForValue("暗部探照", on: picker)
+        XCTAssertEqual(picker.label, "桌面交互")
+        picker.click()
+        try require(picker.menuItems["关闭"]).click()
+        try waitForValue("关闭", on: picker)
     }
 
     @MainActor
@@ -191,7 +219,7 @@ final class LocalizationUITests: XCTestCase {
         )
         _ = try XCTUnwrap(
             XCTWaiter.wait(for: [expected], timeout: Timeout.control) == .completed ? true : nil,
-            "The language picker must show its selected autonym: \(value)"
+            "The picker must show its selected value: \(value)"
         )
     }
 }
