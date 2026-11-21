@@ -128,8 +128,8 @@ final class SeamlessPlaybackTransitionTests: XCTestCase {
         XCTAssertNotEqual(surface.connectedPlayerIdentity, outgoingIdentity)
         XCTAssertNotNil(outgoingPlayer.currentItem)
 
-        try await Task.sleep(for: .milliseconds(120))
-        XCTAssertNil(outgoingPlayer.currentItem)
+        let retired = try await waitUntil { outgoingPlayer.currentItem == nil }
+        XCTAssertTrue(retired, "The outgoing player should release its item after the crossfade")
     }
 
     func testDesktopCrossfadePreparesTheSavedPositionBeforePresentingTheIncomingVideo() async throws {
