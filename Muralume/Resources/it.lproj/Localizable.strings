@@ -349,7 +349,6 @@
 "settings.smartPause.accessibilityHint" = "La modifica è immediata e rispetta la riproduzione o la pausa manuale.";
 "menu.actions" = "Azioni";
 "menu.window" = "Finestra";
-"menu.help" = "Aiuto";
 "menu.about" = "Informazioni su Muralume";
 "about.website" = "Sito ufficiale";
 "about.privacyPolicy" = "Informativa sulla privacy";
@@ -364,7 +363,6 @@
 "menu.minimizeWindow" = "Contrai";
 "menu.zoomWindow" = "Ridimensiona";
 "menu.bringAllToFront" = "Porta tutto in primo piano";
-"menu.showHelp" = "Aiuto Muralume";
 "screenshot.menu" = "Salva istantanea…";
 "screenshot.contextMenu" = "Salva istantanea";
 "screenshot.folder.title" = "Cartella delle istantanee";
@@ -434,7 +432,6 @@
 "playlists.import.failed.title" = "Impossibile aggiungere i video";
 "playlists.import.limit" = "Seleziona al massimo %d video alla volta. Nessun video è stato aggiunto.";
 "playlists.media.picker.message" = "Scegli i video da aggiungere a questa playlist.";
-"menu.edit" = "Modifica";
 "menu.undo" = "Annulla";
 "menu.redo" = "Ripristina";
 "menu.cut" = "Taglia";

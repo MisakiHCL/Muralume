@@ -195,18 +195,14 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
 
     private let rootMenu = NSMenu()
     private let applicationMenu = NSMenu()
-    private let editMenu = NSMenu()
     private let actionsMenu = NSMenu()
     private let windowMenu = NSMenu()
-    private let helpMenu = NSMenu()
     private let servicesMenu = NSMenu()
     private let dockMenu = NSMenu()
 
     private let applicationMenuItem = NSMenuItem()
-    private let editMenuItem = NSMenuItem()
     private let actionsMenuItem = NSMenuItem()
     private let windowMenuItem = NSMenuItem()
-    private let helpMenuItem = NSMenuItem()
 
     private let aboutItem = NSMenuItem()
     private let settingsItem = NSMenuItem()
@@ -243,7 +239,6 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
     private let minimizeWindowItem = NSMenuItem()
     private let zoomWindowItem = NSMenuItem()
     private let bringAllToFrontItem = NSMenuItem()
-    private let showHelpItem = NSMenuItem()
 
     init(
         application: NSApplication,
@@ -286,7 +281,8 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
 
         application.servicesMenu = servicesMenu
         application.windowsMenu = windowMenu
-        application.helpMenu = helpMenu
+        // An off-bar Help menu keeps AppKit from adding Help search to a visible menu.
+        application.helpMenu = NSMenu()
         application.mainMenu = rootMenu
         startObserving()
         refresh()
@@ -370,29 +366,23 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
 
     private func configureMenuStructure() {
         rootMenu.autoenablesItems = false
-        editMenu.autoenablesItems = true
         actionsMenu.autoenablesItems = false
         windowMenu.autoenablesItems = false
         actionsMenu.delegate = self
         windowMenu.delegate = self
 
         attach(applicationMenu, to: applicationMenuItem)
-        attach(editMenu, to: editMenuItem)
         attach(actionsMenu, to: actionsMenuItem)
         attach(windowMenu, to: windowMenuItem)
-        attach(helpMenu, to: helpMenuItem)
 
         rootMenu.addItem(applicationMenuItem)
-        rootMenu.addItem(editMenuItem)
         rootMenu.addItem(actionsMenuItem)
         rootMenu.addItem(windowMenuItem)
-        rootMenu.addItem(helpMenuItem)
 
         configureApplicationMenu()
-        configureEditMenu()
+        configureEditingShortcuts()
         configureActionsMenu()
         configureWindowMenu()
-        configureHelpMenu()
     }
 
     private func configureDockMenu() {
@@ -453,7 +443,7 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         applicationMenu.addItem(quitApplicationItem)
     }
 
-    private func configureEditMenu() {
+    private func configureEditingShortcuts() {
         let commands: [(NSMenuItem, Selector, String, NSEvent.ModifierFlags)] = [
             (undoItem, Selector(("undo:")), Shortcut.undo, [.command]),
             (redoItem, Selector(("redo:")), Shortcut.redo, [.command, .shift]),
@@ -463,21 +453,15 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
             (selectAllItem, #selector(NSResponder.selectAll(_:)), Shortcut.selectAll, [.command])
         ]
         for (item, action, key, modifiers) in commands {
-            // Standard editing belongs to the current responder, including
-            // system panels and field editors, rather than the player window.
+            // Keep native responder-chain shortcuts available in field editors and system panels.
             item.target = nil
             item.action = action
             item.keyEquivalent = key
             item.keyEquivalentModifierMask = modifiers
+            item.isHidden = true
+            item.allowsKeyEquivalentWhenHidden = true
+            applicationMenu.addItem(item)
         }
-        editMenu.addItem(undoItem)
-        editMenu.addItem(redoItem)
-        editMenu.addItem(.separator())
-        editMenu.addItem(cutItem)
-        editMenu.addItem(copyItem)
-        editMenu.addItem(pasteItem)
-        editMenu.addItem(.separator())
-        editMenu.addItem(selectAllItem)
     }
 
     private func configureActionsMenu() {
@@ -603,14 +587,6 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         windowMenu.addItem(bringAllToFrontItem)
     }
 
-    private func configureHelpMenu() {
-        configure(
-            showHelpItem,
-            action: #selector(showHelp(_:))
-        )
-        helpMenu.addItem(showHelpItem)
-    }
-
     private func configure(
         _ item: NSMenuItem,
         action: Selector,
@@ -674,8 +650,6 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         let appName = localization.localized("app.name")
         applicationMenuItem.title = appName
         applicationMenu.title = appName
-        editMenuItem.title = localization.localized("menu.edit")
-        editMenu.title = editMenuItem.title
         undoItem.title = localization.localized("menu.undo")
         redoItem.title = localization.localized("menu.redo")
         cutItem.title = localization.localized("menu.cut")
@@ -686,8 +660,6 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         actionsMenu.title = actionsMenuItem.title
         windowMenuItem.title = localization.localized("menu.window")
         windowMenu.title = windowMenuItem.title
-        helpMenuItem.title = localization.localized("menu.help")
-        helpMenu.title = helpMenuItem.title
 
         aboutItem.title = localization.localized("menu.about")
         settingsItem.title = localization.localized("menu.settings")
@@ -736,7 +708,6 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         bringAllToFrontItem.title = localization.localized(
             "menu.bringAllToFront"
         )
-        showHelpItem.title = localization.localized("menu.showHelp")
     }
 
     private func disablePlayerCommands() {
@@ -1030,10 +1001,5 @@ final class MacMainMenuController: NSObject, NSMenuDelegate {
         if !visibleWindows.isEmpty {
             application.activate(ignoringOtherApps: true)
         }
-    }
-
-    @objc
-    private func showHelp(_ sender: Any?) {
-        application?.showHelp(sender)
     }
 }

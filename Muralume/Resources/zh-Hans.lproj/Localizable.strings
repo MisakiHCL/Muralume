@@ -349,7 +349,6 @@
 "settings.smartPause.accessibilityHint" = "设置即时生效，保留手动播放或暂停状态。";
 "menu.actions" = "操作";
 "menu.window" = "窗口";
-"menu.help" = "帮助";
 "menu.about" = "关于 Muralume";
 "about.website" = "官方网站";
 "about.privacyPolicy" = "隐私政策";
@@ -364,7 +363,6 @@
 "menu.minimizeWindow" = "最小化";
 "menu.zoomWindow" = "缩放";
 "menu.bringAllToFront" = "前置全部窗口";
-"menu.showHelp" = "Muralume 帮助";
 "screenshot.menu" = "保存截图…";
 "screenshot.contextMenu" = "保存截图";
 "screenshot.folder.title" = "截图保存位置";
@@ -434,7 +432,6 @@
 "playlists.import.failed.title" = "未能添加视频";
 "playlists.import.limit" = "每次最多选择 %d 个视频。本次未添加任何视频。";
 "playlists.media.picker.message" = "选择要加入此播放列表的视频。";
-"menu.edit" = "编辑";
 "menu.undo" = "撤销";
 "menu.redo" = "重做";
 "menu.cut" = "剪切";

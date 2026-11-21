@@ -349,7 +349,6 @@
 "settings.smartPause.accessibilityHint" = "Changes apply immediately and preserve manual playback choices.";
 "menu.actions" = "Actions";
 "menu.window" = "Window";
-"menu.help" = "Help";
 "menu.about" = "About Muralume";
 "about.website" = "Official Website";
 "about.privacyPolicy" = "Privacy Policy";
@@ -364,7 +363,6 @@
 "menu.minimizeWindow" = "Minimize";
 "menu.zoomWindow" = "Zoom";
 "menu.bringAllToFront" = "Bring All to Front";
-"menu.showHelp" = "Muralume Help";
 "screenshot.menu" = "Save Screenshot…";
 "screenshot.contextMenu" = "Save Screenshot";
 "screenshot.folder.title" = "Screenshot Folder";
@@ -434,7 +432,6 @@
 "playlists.import.failed.title" = "Couldn’t Add Videos";
 "playlists.import.limit" = "Choose up to %d videos at a time. No videos were added.";
 "playlists.media.picker.message" = "Choose videos to add to this playlist.";
-"menu.edit" = "Edit";
 "menu.undo" = "Undo";
 "menu.redo" = "Redo";
 "menu.cut" = "Cut";

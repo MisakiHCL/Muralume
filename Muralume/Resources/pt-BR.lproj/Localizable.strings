@@ -349,7 +349,6 @@
 "settings.smartPause.accessibilityHint" = "A mudança é imediata e respeita a reprodução ou pausa manual.";
 "menu.actions" = "Ações";
 "menu.window" = "Janela";
-"menu.help" = "Ajuda";
 "menu.about" = "Sobre o Muralume";
 "about.website" = "Site oficial";
 "about.privacyPolicy" = "Política de privacidade";
@@ -364,7 +363,6 @@
 "menu.minimizeWindow" = "Minimizar";
 "menu.zoomWindow" = "Zoom";
 "menu.bringAllToFront" = "Trazer todas para a frente";
-"menu.showHelp" = "Ajuda do Muralume";
 "screenshot.menu" = "Salvar captura de tela…";
 "screenshot.contextMenu" = "Salvar captura de tela";
 "screenshot.folder.title" = "Pasta de capturas de tela";
@@ -434,7 +432,6 @@
 "playlists.import.failed.title" = "Não foi possível adicionar os vídeos";
 "playlists.import.limit" = "Selecione até %d vídeos por vez. Nenhum vídeo foi adicionado.";
 "playlists.media.picker.message" = "Escolha os vídeos para adicionar a esta playlist.";
-"menu.edit" = "Editar";
 "menu.undo" = "Desfazer";
 "menu.redo" = "Refazer";
 "menu.cut" = "Cortar";

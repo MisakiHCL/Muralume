@@ -1445,13 +1445,19 @@ final class MuralumeLaunchTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
+        let appMenu = application.menuBars.menuBarItems["Muralume"]
+        XCTAssertTrue(
+            appMenu.waitForExistence(timeout: 5),
+            file: file,
+            line: line
+        )
         XCTAssertFalse(
             application.menuBars.menuBarItems["File"].exists,
             file: file,
             line: line
         )
-        XCTAssertTrue(
-            application.menuBars.menuBarItems["Edit"].waitForExistence(timeout: 5),
+        XCTAssertFalse(
+            application.menuBars.menuBarItems["Edit"].exists,
             file: file,
             line: line
         )
@@ -1466,12 +1472,6 @@ final class MuralumeLaunchTests: XCTestCase {
             line: line
         )
 
-        let appMenu = application.menuBars.menuBarItems["Muralume"]
-        XCTAssertTrue(
-            appMenu.waitForExistence(timeout: 5),
-            file: file,
-            line: line
-        )
         let actionsMenu = application.menuBars.menuBarItems["Actions"]
         XCTAssertTrue(
             actionsMenu.waitForExistence(timeout: 5),
@@ -1485,8 +1485,8 @@ final class MuralumeLaunchTests: XCTestCase {
             line: line
         )
         let helpMenu = application.menuBars.menuBarItems["Help"]
-        XCTAssertTrue(
-            helpMenu.waitForExistence(timeout: 5),
+        XCTAssertFalse(
+            helpMenu.exists,
             file: file,
             line: line
         )
