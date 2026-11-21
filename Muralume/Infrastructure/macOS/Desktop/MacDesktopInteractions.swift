@@ -26,7 +26,8 @@ final class MacDesktopInteractions {
         monitor.stop()
     }
 
-    func setEffect(_ effect: DesktopInteractionEffect) {
+    func setEffect(_ effect: DesktopInteractionEffect, fadingPrevious: Bool = false) {
+        let previous = self.effect
         self.effect = effect
         if effect == .off, let motionObserver {
             workspaceCenter.removeObserver(motionObserver)
@@ -39,16 +40,21 @@ final class MacDesktopInteractions {
                 Task { @MainActor [weak self] in self?.updateMonitoring() }
             }
         }
-        updateMonitoring()
+        updateMonitoring(fading: fadingPrevious ? previous : nil)
     }
 
-    private func updateMonitoring() {
+    private func updateMonitoring(fading previous: DesktopInteractionEffect? = nil) {
         monitor.stop()
-        leaveDesktop()
-        let enabled = effect != .off && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        pointerSurface = nil
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let enabled = effect != .off && !reduceMotion
         hoverEnabled = enabled && effect.followsHeldPointer
         for display in displays() {
-            display.surface.clearDesktopEffects()
+            if let previous, display.isVisible, !reduceMotion {
+                display.surface.dismissDesktopInteraction(previous)
+            } else {
+                display.surface.clearDesktopEffects()
+            }
             configureHover(on: display.surface)
         }
         guard enabled else { return }

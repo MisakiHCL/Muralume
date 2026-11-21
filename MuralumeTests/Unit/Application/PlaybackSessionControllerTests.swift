@@ -1259,8 +1259,16 @@ private final class SessionPlaybackEngine: PlaybackEngine {
     private var playerAttachmentContinuation:
         CheckedContinuation<Void, Never>?
 
-    func load(_ source: ResolvedMediaSource) async throws -> TimeInterval {
-        120
+    func prepare(
+        _: ResolvedMediaSource,
+        transition _: PlaybackItemTransition,
+        initialPosition: TimeInterval?
+    ) async throws -> PreparedPlaybackItem {
+        let prepared = PreparedPlaybackItem(duration: 120, initialPosition: initialPosition)
+        if prepared.startTime > 0 {
+            seek(to: prepared.startTime)
+        }
+        return prepared
     }
 
     func attach(to surface: any PlaybackRenderSurface) async throws {

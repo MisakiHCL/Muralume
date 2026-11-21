@@ -31,7 +31,7 @@ private enum VideoScreenshotFolderError: Error {
     case filenameUnavailable
 }
 
-private final class SavedVideoScreenshotAccess: Sendable {
+final class SavedVideoScreenshotAccess: Sendable {
     let url: URL
     private let scope: URL?
 
@@ -45,9 +45,19 @@ private final class SavedVideoScreenshotAccess: Sendable {
     }
 }
 
-private actor SavedVideoScreenshotResolver {
+actor SavedVideoScreenshotResolver {
     func resolve(_ record: VideoScreenshotRecord) throws -> SavedVideoScreenshotAccess {
         try Task.checkCancellation()
+        let access = try acquireAccess(to: record)
+        var url = access.url
+        url.removeCachedResourceValue(forKey: .isRegularFileKey)
+        guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
+            throw VideoScreenshotFolderError.accessUnavailable
+        }
+        return access
+    }
+
+    private func acquireAccess(to record: VideoScreenshotRecord) throws -> SavedVideoScreenshotAccess {
         let bookmark: Data
         let isFolder: Bool
         switch record.access {
@@ -533,7 +543,6 @@ final class MacVideoScreenshotController: VideoScreenshotControlling {
         panel.isExtensionHidden = false
         panel.nameFieldStringValue = suggestedFilename
         panel.title = localization.localized("screenshot.save.title")
-        panel.message = localization.localized("screenshot.save.message")
         panel.prompt = localization.localized("screenshot.save.prompt")
         activeSavePanel = panel
         defer {

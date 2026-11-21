@@ -238,11 +238,12 @@ final class PlaybackCoordinator: ObservableObject {
         currentTime = 0
         duration = 0
 
-        let loadedDuration: TimeInterval
+        let prepared: PreparedPlaybackItem
         do {
-            loadedDuration = try await engine.load(
+            prepared = try await engine.prepare(
                 source,
-                transition: transition
+                transition: transition,
+                initialPosition: initialPosition
             )
             try Task.checkCancellation()
         } catch let error as PlaybackEngineError {
@@ -269,18 +270,8 @@ final class PlaybackCoordinator: ObservableObject {
             mediaSelection.suppressSubtitlesForDesktop()
         }
 
-        duration = loadedDuration
-        if let initialPosition,
-           let resumePosition = PlaybackProgressPolicy.resumablePosition(
-               position: initialPosition,
-               duration: loadedDuration
-           ) {
-            currentTime = resumePosition
-            await engine.seekBeforePlayback(to: resumePosition)
-            guard !Task.isCancelled, loadGeneration == mediaLoadGeneration else {
-                return .cancelled
-            }
-        }
+        duration = prepared.duration
+        currentTime = prepared.startTime
         let canBeginNewPlayback =
             canAutoplayWhenLoaded
             && presentationGeneration == transitionGeneration

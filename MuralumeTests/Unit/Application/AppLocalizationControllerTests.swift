@@ -107,16 +107,13 @@ final class AppLocalizationControllerTests: XCTestCase {
             controller.localized(
                 "library.import.folderContainsActiveFolder"
             ),
-            "A selected folder contains one or more subfolders already added "
-                + "separately. Remove those subfolders from the library, "
-                + "then try again."
+            "Remove the existing subfolders from the library before adding this folder."
         )
         XCTAssertEqual(
             controller.localized(
                 "library.import.folderCoveredByActiveFolder"
             ),
-            "The selected folder is already included in a folder in the "
-                + "library, so it does not need to be added again."
+            "A folder in your library already includes this folder."
         )
 
         controller.selectLanguage(.simplifiedChinese)
@@ -133,14 +130,13 @@ final class AppLocalizationControllerTests: XCTestCase {
             controller.localized(
                 "library.import.folderContainsActiveFolder"
             ),
-            "所选文件夹包含一个或多个已单独添加的子文件夹。"
-                + "请先从媒体库移除这些子文件夹，然后重试。"
+            "先从媒体库移除已添加的子文件夹，再添加此文件夹。"
         )
         XCTAssertEqual(
             controller.localized(
                 "library.import.folderCoveredByActiveFolder"
             ),
-            "所选文件夹已位于媒体库的现有文件夹内，无需重复添加。"
+            "此文件夹已随上级文件夹加入媒体库。"
         )
     }
 
@@ -547,8 +543,6 @@ final class AppLocalizationControllerTests: XCTestCase {
             "desktop.configure": "Customize Displays…",
             "desktop.return": "Return to Player",
             "desktop.layout.title": "Desktop Layout",
-            "desktop.layout.detail":
-                "Choose what plays on each display and how it appears.",
             "desktop.layout.close": "Close Desktop Layout",
             "desktop.layout.mode": "Playback Across Displays",
             "desktop.layout.mode.synchronized": "Play in Sync",
@@ -558,7 +552,7 @@ final class AppLocalizationControllerTests: XCTestCase {
                 "Shows a number briefly on each connected display.",
             "desktop.layout.identify.announcement":
                 "Display numbers are now visible.",
-            "desktop.layout.useDisplay": "Use Muralume on This Display",
+            "desktop.layout.useDisplay": "Play on This Display",
             "desktop.layout.video": "Video",
             "desktop.layout.currentVideo": "Current Video",
             "desktop.layout.chooseVideo": "Choose from the Media Library or Playlists…",
@@ -643,7 +637,6 @@ final class AppLocalizationControllerTests: XCTestCase {
             "desktop.configure": "自定义显示器…",
             "desktop.return": "返回播放器",
             "desktop.layout.title": "桌面布局",
-            "desktop.layout.detail": "选择每台显示器播放的内容和显示方式。",
             "desktop.layout.close": "关闭桌面布局",
             "desktop.layout.mode": "多屏播放方式",
             "desktop.layout.mode.synchronized": "同步播放",
@@ -652,8 +645,7 @@ final class AppLocalizationControllerTests: XCTestCase {
             "desktop.layout.identify.hint":
                 "在每台已连接的显示器上短暂显示编号。",
             "desktop.layout.identify.announcement": "显示器编号已显示。",
-            "desktop.layout.useDisplay":
-                "在这台显示器上使用 Muralume",
+            "desktop.layout.useDisplay": "在此屏幕播放",
             "desktop.layout.video": "视频",
             "desktop.layout.currentVideo": "当前视频",
             "desktop.layout.chooseVideo": "从媒体库或播放列表选择…",

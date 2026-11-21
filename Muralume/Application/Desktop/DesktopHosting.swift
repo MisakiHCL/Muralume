@@ -88,13 +88,17 @@ protocol DesktopHosting: AnyObject {
         _ handler: ((DesktopDisplaySurfaceEvent) -> Void)?
     )
     func setEnergyConstrained(_ isEnergyConstrained: Bool)
-    func setDesktopInteractionEffect(_ effect: DesktopInteractionEffect)
+    func setDesktopInteractionEffect(_ effect: DesktopInteractionEffect, fadingPrevious: Bool)
     func reveal()
     func reassertDesktopPlacement()
     func close()
 }
 
 extension DesktopHosting {
+    func setDesktopInteractionEffect(_ effect: DesktopInteractionEffect) {
+        setDesktopInteractionEffect(effect, fadingPrevious: false)
+    }
+
     func prepare(scene: DesktopScene) -> DesktopHostPreparation {
         DesktopHostPreparation(
             synchronizedSurface: prepare(

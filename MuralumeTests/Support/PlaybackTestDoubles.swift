@@ -19,6 +19,7 @@ final class TestAVPlayerSurface: AVPlayerTransitionSurface {
     private(set) var isConnected = false
     private(set) var connectedPlayerIdentity: ObjectIdentifier?
     private(set) var preparedTransitionCount = 0
+    private(set) var preparedPlayerTime: TimeInterval?
     private(set) var committedTransitionDurations: [TimeInterval] = []
     private weak var preparedPlayer: AVPlayer?
 
@@ -34,6 +35,7 @@ final class TestAVPlayerSurface: AVPlayerTransitionSurface {
 
     func prepareTransition(to player: AVPlayer) {
         preparedTransitionCount += 1
+        preparedPlayerTime = player.currentTime().seconds
         preparedPlayer = player
     }
 
@@ -102,7 +104,7 @@ final class TestPlaybackEngine: PlaybackEngine {
     private var blockedLoadContinuation:
         CheckedContinuation<TimeInterval, any Error>?
 
-    func load(_ source: ResolvedMediaSource) async throws -> TimeInterval {
+    private func loadDuration(_ source: ResolvedMediaSource) async throws -> TimeInterval {
         loadedSources.append(source)
         if let error = loadErrorsByURL[source.url] {
             throw error
@@ -122,12 +124,19 @@ final class TestPlaybackEngine: PlaybackEngine {
         return 120
     }
 
-    func load(
+    func prepare(
         _ source: ResolvedMediaSource,
-        transition: PlaybackItemTransition
-    ) async throws -> TimeInterval {
+        transition: PlaybackItemTransition,
+        initialPosition: TimeInterval?
+    ) async throws -> PreparedPlaybackItem {
         loadedTransitions.append(transition)
-        return try await load(source)
+        let duration = try await loadDuration(source)
+        try Task.checkCancellation()
+        let prepared = PreparedPlaybackItem(duration: duration, initialPosition: initialPosition)
+        if prepared.startTime > 0 {
+            await seekBeforePlayback(to: prepared.startTime)
+        }
+        return prepared
     }
 
     func drainPendingWork() async {
@@ -503,6 +512,7 @@ final class TestDesktopHost: DesktopHosting {
     private(set) var appliedContentModes: [DesktopVideoContentMode] = []
     private(set) var appliedEnergyConstraints: [Bool] = []
     private(set) var desktopInteractionEffect: DesktopInteractionEffect = .off
+    private(set) var fadesPreviousInteraction = false
     private(set) var revealCount = 0
     private(set) var reassertCount = 0
     private(set) var closeCount = 0
@@ -543,8 +553,9 @@ final class TestDesktopHost: DesktopHosting {
         appliedEnergyConstraints.append(isEnergyConstrained)
     }
 
-    func setDesktopInteractionEffect(_ effect: DesktopInteractionEffect) {
+    func setDesktopInteractionEffect(_ effect: DesktopInteractionEffect, fadingPrevious: Bool) {
         desktopInteractionEffect = effect
+        fadesPreviousInteraction = fadingPrevious
     }
 
     func reveal() {

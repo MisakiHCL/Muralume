@@ -15,6 +15,7 @@ struct DesktopEntryControl: View {
     }
 
     var body: some View {
+        let outline = RoundedRectangle(cornerRadius: MuralumeTheme.Radius.medium, style: .continuous)
         HStack(spacing: 0) {
             Button(action: enterDesktop) {
                 Image(systemName: "display")
@@ -34,15 +35,6 @@ struct DesktopEntryControl: View {
             .disabled(!isEnabled)
 
             if showsOptions {
-                Rectangle()
-                    .fill(Color.white.opacity(0.18))
-                    .frame(
-                        width: 1,
-                        height: MuralumeTheme.Size.iconLarge
-                    )
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-
                 Menu {
                     Button(action: enterDesktopSynchronized) {
                         Label(
@@ -69,8 +61,16 @@ struct DesktopEntryControl: View {
                         )
                         .contentShape(Rectangle())
                 }
-                .menuStyle(.borderlessButton)
+                .menuStyle(.button)
+                .buttonStyle(.plain)
                 .menuIndicator(.hidden)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.18))
+                        .frame(width: 1, height: MuralumeTheme.Size.iconLarge)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
                 .fixedSize()
                 .help(Text("player.desktop.options"))
                 .accessibilityLabel(Text("player.desktop.options"))
@@ -81,19 +81,12 @@ struct DesktopEntryControl: View {
             }
         }
         .background(MuralumeTheme.brandGradient)
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: MuralumeTheme.Radius.medium,
-                style: .continuous
-            )
-        )
+        .clipShape(outline)
+        .contentShape(outline)
         .overlay {
-            RoundedRectangle(
-                cornerRadius: MuralumeTheme.Radius.medium,
-                style: .continuous
-            )
-            .stroke(Color.white.opacity(0.18), lineWidth: 1)
-            .allowsHitTesting(false)
+            outline
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                .allowsHitTesting(false)
         }
         .opacity(isEnabled ? 1 : 0.34)
         .fixedSize()
@@ -118,5 +111,6 @@ private struct DesktopEntrySegmentButtonStyle: ButtonStyle {
                 Color.white.opacity(configuration.isPressed ? 0.12 : 0)
             )
             .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .contentShape(Rectangle())
     }
 }

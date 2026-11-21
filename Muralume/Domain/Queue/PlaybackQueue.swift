@@ -284,43 +284,68 @@ struct PlaybackQueue<Item: Hashable & Sendable>: Sendable {
     }
 
     @discardableResult
-    mutating func scheduleNext(_ item: Item) -> Bool {
-        guard let currentItem, canScheduleNext(item) else { return false }
-        if nextItemWithoutAdvancing == item, !isAtEndOfRound {
+    mutating func scheduleNext(_ item: Item, occurrence: Int = 0) -> Bool {
+        guard let currentLocation, occurrence >= 0, canScheduleNext(item) else { return false }
+        if occurrence == 0, nextItemWithoutAdvancing == item, !isAtEndOfRound {
             guard !hasEditedUpcomingItems else { return false }
             hasEditedUpcomingItems = true
             return true
         }
 
-        // An explicit upcoming order starts a new forward branch. Retain the
-        // rest of the visible upcoming order, even when it includes redo items.
-        var seen: Set<Item> = [currentItem, item]
-        var upcoming = [item]
-        upcoming.append(contentsOf: upNextItems.filter { seen.insert($0).inserted })
-        seen.remove(currentItem)
-        let consumed = schedule.items.prefix(schedule.consumedCount)
-            .filter { !seen.contains($0) }
-        schedule = PlaybackQueueSchedule(
-            items: consumed + upcoming, consumedCount: consumed.count
-        )
-        forwardHistory.removeAll()
+        guard let target = upcomingSlot(for: item, occurrence: occurrence) else { return false }
+        switch target {
+        case .schedule where forwardHistory.isEmpty:
+            guard occurrence == 0 else { return false }
+            schedule.remove(item)
+            let consumed = schedule.consumedCount
+            var items = schedule.items
+            items.insert(item, at: consumed)
+            schedule = PlaybackQueueSchedule(items: items, consumedCount: consumed)
+        case .forwardHistory(let index):
+            // Move just the first visible occurrence. Each slot keeps its
+            // round and position, including when redo spans several rounds.
+            var promoted = item
+            for slot in forwardHistory.indices[index...].reversed() {
+                swap(&forwardHistory[slot].item, &promoted)
+            }
+        case .schedule:
+            let wasPending = schedule.removePending(item)
+            guard wasPending || occurrence == 0 else { return false }
+            for slot in forwardHistory.indices.reversed() {
+                guard forwardHistory[slot].roundNumber == currentLocation.roundNumber else { break }
+                forwardHistory[slot].position = min(forwardHistory[slot].position, count - 1) + 1
+            }
+            forwardHistory.append(PlaybackQueueLocation(
+                item: item, roundNumber: currentLocation.roundNumber,
+                position: min(currentLocation.position + 1, count)
+            ))
+        }
         hasEditedUpcomingItems = true
         return true
     }
 
-    @discardableResult
-    mutating func removeFromUpcoming(_ item: Item, occurrence: Int = 0) -> Bool {
-        guard occurrence >= 0 else { return false }
+    private enum UpcomingSlot {
+        case forwardHistory(Int)
+        case schedule
+    }
+
+    private func upcomingSlot(for item: Item, occurrence: Int) -> UpcomingSlot? {
+        guard occurrence >= 0 else { return nil }
         var remainingOccurrence = occurrence
         for index in forwardHistory.indices.reversed() where forwardHistory[index].item == item {
-            if remainingOccurrence == 0 {
-                forwardHistory.remove(at: index)
-                hasEditedUpcomingItems = true
-                return true
-            }
+            if remainingOccurrence == 0 { return .forwardHistory(index) }
             remainingOccurrence -= 1
         }
-        guard remainingOccurrence == 0, schedule.removePending(item) else { return false }
+        return remainingOccurrence == 0 ? .schedule : nil
+    }
+
+    @discardableResult
+    mutating func removeFromUpcoming(_ item: Item, occurrence: Int = 0) -> Bool {
+        guard let target = upcomingSlot(for: item, occurrence: occurrence) else { return false }
+        switch target {
+        case .forwardHistory(let index): forwardHistory.remove(at: index)
+        case .schedule: guard schedule.removePending(item) else { return false }
+        }
         hasEditedUpcomingItems = true
         return true
     }

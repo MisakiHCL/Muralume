@@ -36,7 +36,7 @@ final class DesktopColorEffectsTests: XCTestCase {
         XCTAssertGreaterThan(green.min(), 0.54)
     }
 
-    func testWideSpotlightProtectsHighlightsAndRetainsTheDimBackgroundOnLeave() throws {
+    func testWideSpotlightProtectsHighlightsAndRetainsTheDimBackgroundOnLeave() async throws {
         let effects = DesktopColorEffects()
         defer { effects.stop() }
         let parent = CALayer()
@@ -44,8 +44,7 @@ final class DesktopColorEffectsTests: XCTestCase {
         effects.dim(in: visible, on: parent)
         let shade = try XCTUnwrap(parent.sublayers?.first)
         XCTAssertEqual(shade.frame, visible)
-        XCTAssertGreaterThan(shade.opacity, 0)
-        XCTAssertLessThan(shade.opacity, 0.3)
+        XCTAssertEqual(shade.opacity, 0.23, accuracy: 0.001)
         effects.illuminate(at: CGPoint(x: 17, y: 25), in: visible, on: parent)
         let patch = try XCTUnwrap(parent.sublayers?.first)
         let filter = try XCTUnwrap(patch.backgroundFilters?.first as? CIFilter)
@@ -62,6 +61,9 @@ final class DesktopColorEffectsTests: XCTestCase {
         XCTAssertGreaterThan(patch.frame.width, visible.height * 0.8)
         XCTAssertNotNil(shade.mask)
         effects.leave()
+        XCTAssertEqual(mask.opacity, 0)
+        XCTAssertTrue(patch.superlayer === parent)
+        try await Task.sleep(for: .milliseconds(320))
         XCTAssertEqual(parent.sublayers, [shade])
         XCTAssertNil(shade.mask)
         effects.stop()
@@ -142,7 +144,7 @@ final class DesktopColorEffectsTests: XCTestCase {
         XCTAssertTrue(player.currentItem?.outputs.isEmpty == true)
     }
 
-    func testSpotlightBoostFollowsHeldPointerAndClearsOnReleaseOrExit() throws {
+    func testSpotlightBoostFollowsHeldPointerAndClearsOnReleaseOrExit() async throws {
         let effects = DesktopColorEffects()
         defer { effects.stop() }
         let parent = CALayer()
@@ -168,19 +170,115 @@ final class DesktopColorEffectsTests: XCTestCase {
         effects.illuminate(at: moved, in: area, on: parent, pressed: true)
         XCTAssertEqual(core.frame.midX, moved.x, accuracy: 0.1)
         XCTAssertEqual(parent.sublayers, layers)
-        XCTAssertTrue(core.mask?.animationKeys()?.isEmpty ?? true)
         effects.illuminate(at: moved, in: area, on: parent, pressed: false)
-        XCTAssertEqual(parent.sublayers, ordinary)
+        XCTAssertEqual(core.mask?.opacity, 0)
+        XCTAssertTrue(core.superlayer === parent)
         effects.illuminate(at: moved, in: area, on: parent, pressed: true)
-        effects.leave()
-        XCTAssertEqual(parent.sublayers, [ordinary[1]])
+        try await Task.sleep(for: .milliseconds(320))
+        XCTAssertEqual(parent.sublayers, layers)
+        effects.fadeOutSpotlight()
+        effects.illuminate(at: center, in: area, on: parent)
+        try await Task.sleep(for: .milliseconds(320))
+        XCTAssertEqual(parent.sublayers, ordinary)
+        effects.fadeOutSpotlight()
+        effects.stop()
+        XCTAssertTrue(parent.sublayers?.isEmpty ?? true)
     }
 
-    func testCompositedSpotlightBoostIsSustainedUntilReleaseAndPreservesTheOuterSpot() throws {
+    func testCompositedSpotlightEasesFromAmbientThroughHeldLightAndBack() async throws {
+        let (root, sample) = try offscreenSurface(size: 256, background: CGColor(gray: 0.12, alpha: 1))
+        let area = root.bounds
+        let effects = DesktopColorEffects()
+        defer { effects.stop() }
+        let center = CGPoint(x: area.midX, y: area.midY)
+        let plain = try sample(CACurrentMediaTime())
+        effects.dim(in: area, on: root)
+        let dimStart = CACurrentMediaTime()
+        let dimming = try sample(dimStart + 0.1)
+        let dim = try sample(dimStart + 0.32)
+        XCTAssertGreaterThan(plain.outside, dimming.outside)
+        XCTAssertGreaterThan(dimming.outside, dim.outside)
+
+        effects.illuminate(at: center, in: area, on: root)
+        let entrance = CACurrentMediaTime()
+        let opening = try sample(entrance + 0.1)
+        let lit = try sample(entrance + 0.32)
+        XCTAssertGreaterThan(opening.center, dim.center)
+        XCTAssertLessThan(opening.center, lit.center)
+        XCTAssertEqual(lit.outside, dim.outside)
+
+        effects.illuminate(at: center, in: area, on: root, pressed: true)
+        let press = CACurrentMediaTime()
+        let rising = try sample(press + 0.1)
+        let held = try sample(press + 2)
+        XCTAssertGreaterThan(rising.center, lit.center)
+        XCTAssertGreaterThan(held.center, rising.center)
+        XCTAssertGreaterThan(Int(held.center) - Int(lit.center), 16)
+        XCTAssertEqual(held.outside, dim.outside)
+        // Interruption starts at the current compositor value, which follows real time.
+        try await Task.sleep(for: .milliseconds(300))
+        _ = try sample(CACurrentMediaTime())
+        effects.illuminate(at: center, in: area, on: root, pressed: false)
+        let release = CACurrentMediaTime()
+        let falling = try sample(release + 0.1)
+        XCTAssertLessThan(falling.center, held.center)
+        XCTAssertGreaterThan(falling.center, lit.center)
+        XCTAssertEqual(try sample(release + 0.32).center, lit.center)
+
+        effects.leave()
+        let exit = CACurrentMediaTime()
+        let leaving = try sample(exit + 0.1)
+        XCTAssertLessThan(leaving.center, lit.center)
+        XCTAssertGreaterThan(leaving.center, dim.center)
+        XCTAssertEqual(try sample(exit + 0.32).center, dim.center)
+
+        effects.fadeOutSpotlight()
+        let disable = CACurrentMediaTime()
+        let undimming = try sample(disable + 0.1)
+        XCTAssertGreaterThan(undimming.outside, dim.outside)
+        XCTAssertLessThan(undimming.outside, plain.outside)
+        XCTAssertEqual(try sample(disable + 0.32).outside, plain.outside)
+        try await Task.sleep(for: .milliseconds(320))
+        XCTAssertTrue(root.sublayers?.isEmpty ?? true)
+    }
+
+    func testCompositedColorFocusRestoresUnselectedHuesGraduallyOnRelease() async throws {
+        let green = CGColor(srgbRed: 0.05, green: 0.9, blue: 0.05, alpha: 1)
+        let (root, sample) = try offscreenSurface(size: 256, background: green)
+        let player = AVPlayer(url: try TestMediaFixture.h264URL(for: Self.self))
+        let effects = DesktopColorEffects()
+        defer { effects.stop(); player.pause() }
+        player.isMuted = true
+        player.play()
+        let startup = ContinuousClock.now + .seconds(3)
+        while player.timeControlStatus != .playing, ContinuousClock.now < startup {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let natural = try sample(CACurrentMediaTime()).center
+        let visible = CGRect(x: 0, y: 0, width: 320, height: 180)
+        effects.beginPicking(at: CGPoint(x: 32, y: 40), in: visible, displayedRect: visible,
+                             on: root, player: player)
+        let deadline = ContinuousClock.now + .seconds(3)
+        while root.sublayers?.first == nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(12))
+        }
+        let held = try sample(CACurrentMediaTime()).center
+        XCTAssertGreaterThan(Int(held) - Int(natural), 40)
+        effects.endPicking()
+        let release = CACurrentMediaTime()
+        let middle = try sample(release + 0.11).center
+        XCTAssertLessThan(middle, held)
+        XCTAssertGreaterThan(middle, natural)
+        XCTAssertEqual(try sample(release + 0.24).center, natural)
+    }
+
+    // Read the blue channel at the center and edge of the middle scanline.
+    private func offscreenSurface(
+        size: Int, background: CGColor
+    ) throws -> (CALayer, (CFTimeInterval) throws -> (center: UInt8, outside: UInt8)) {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
             throw XCTSkip("Offscreen compositing requires a Metal device")
         }
-        let size = 256
         let area = CGRect(x: 0, y: 0, width: size, height: size)
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .bgra8Unorm, width: size, height: size, mipmapped: false
@@ -191,11 +289,9 @@ final class DesktopColorEffectsTests: XCTestCase {
         let renderer = CARenderer(mtlTexture: texture, options: [kCARendererMetalCommandQueue: queue])
         let root = CALayer()
         root.frame = area
-        root.backgroundColor = CGColor(gray: 0.12, alpha: 1)
+        root.backgroundColor = background
         renderer.layer = root
         renderer.bounds = area
-        let effects = DesktopColorEffects()
-        defer { effects.stop() }
         func sample(at time: CFTimeInterval) throws -> (center: UInt8, outside: UInt8) {
             CATransaction.flush()
             renderer.beginFrame(atTime: time, timeStamp: nil)
@@ -210,19 +306,7 @@ final class DesktopColorEffectsTests: XCTestCase {
                              mipmapLevel: 0)
             return (row[(size / 2) * 4], row[4 * 4])
         }
-        let center = CGPoint(x: area.midX, y: area.midY)
-        effects.illuminate(at: center, in: area, on: root)
-        let initial = try sample(at: CACurrentMediaTime())
-        effects.illuminate(at: center, in: area, on: root, pressed: true)
-        let start = CACurrentMediaTime()
-        let pressed = try sample(at: start)
-        let held = try sample(at: start + 2)
-        effects.illuminate(at: center, in: area, on: root, pressed: false)
-        let restored = try sample(at: start + 2.1)
-        XCTAssertGreaterThan(Int(pressed.center) - Int(initial.center), 16)
-        XCTAssertEqual(held.center, pressed.center)
-        XCTAssertEqual(restored.center, initial.center)
-        XCTAssertEqual(held.outside, initial.outside)
+        return (root, sample)
     }
 
     private func rgb(_ value: SIMD3<Float>, through filter: CIFilter) throws -> SIMD3<Float> {

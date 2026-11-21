@@ -69,10 +69,10 @@ struct VideoInformationPanel: View {
                         width: MuralumeTheme.Size.compactControl,
                         height: MuralumeTheme.Size.compactControl
                     )
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-            .contentShape(Rectangle())
             .help(Text("action.close"))
             .accessibilityLabel(Text("action.close"))
         }

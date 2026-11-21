@@ -586,10 +586,6 @@ struct CustomPlaylistSidebarContent: View {
                 .foregroundStyle(MuralumeTheme.Colors.controlAccent)
             Text("playlists.items.empty")
                 .font(.body.weight(.semibold))
-            Text("playlists.items.empty.detail")
-                .font(.caption)
-                .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-                .multilineTextAlignment(.center)
             Button("playlists.addVideos") {
                 addVideosToPlaylist(playlistID)
             }

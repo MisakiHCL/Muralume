@@ -162,9 +162,9 @@ struct LibraryRootEditor: View {
             Image(systemName: symbol)
                 .font(.system(size: MuralumeTheme.Size.icon))
                 .frame(width: MuralumeTheme.Size.control, height: MuralumeTheme.Size.control)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contentShape(Rectangle())
         .help(Text(LocalizedStringKey(labelKey)))
         .accessibilityLabel(Text(LocalizedStringKey(labelKey)))
     }

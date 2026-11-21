@@ -79,6 +79,17 @@ final class DesktopColorEffects {
     private var dimmed: CALayer?
     private var illuminated: CALayer?
     private var spotlightBoost: CALayer?
+    private var spotlightRemoval: Task<Void, Never>?
+
+    @MainActor private enum Spotlight {
+        static let ambientOpacity: Float = 0.23
+        static let fade: CFTimeInterval = 0.24
+        static let follow: CFTimeInterval = 0.12
+        static let timing = CAMediaTimingFunction(name: .easeOut)
+        static let alphas: [CGFloat] = [1, 0.96, 0.73, 0.37, 0.10, 0]
+        static let opening = alphas.map { CGColor(gray: 1, alpha: 1 - $0) }
+        static let closed = alphas.map { _ in CGColor(gray: 1, alpha: 1) }
+    }
 
     isolated deinit { stop() }
 
@@ -133,12 +144,16 @@ final class DesktopColorEffects {
         guard removal == nil, let patch = focused else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        patch.opacity = 0
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = Float(1)
-        fade.toValue = Float(0)
-        fade.duration = Self.releaseDuration
-        patch.add(fade, forKey: "focusRelease")
+        // The backdrop samples the video beneath the layer. Its mask controls
+        // the blend with the original colors during release.
+        let mask = CALayer()
+        mask.frame = patch.bounds
+        mask.backgroundColor = CGColor(gray: 1, alpha: 1)
+        patch.mask = mask
+        mask.animateDesktopEffect(
+            "opacity", to: NSNumber(value: 0), duration: Self.releaseDuration,
+            timing: CAMediaTimingFunction(name: .easeOut)
+        )
         CATransaction.commit()
         removal = Task { @MainActor [weak self] in
             do { try await Task.sleep(for: .seconds(Self.releaseDuration)) } catch { return }
@@ -148,15 +163,21 @@ final class DesktopColorEffects {
 
     func dim(in visible: CGRect, on parent: CALayer) {
         guard !visible.isEmpty else { return }
-        let shade = dimmed ?? CALayer()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        let shade: CALayer
+        if let dimmed {
+            shade = dimmed
+        } else {
+            shade = CALayer()
+            shade.backgroundColor = CGColor(gray: 0, alpha: 1)
+            shade.opacity = 0
+            dimmed = shade
+        }
         shade.frame = visible
-        shade.backgroundColor = CGColor(gray: 0, alpha: 1)
-        shade.opacity = 0.18
         if shade.superlayer !== parent { parent.addSublayer(shade) }
+        Self.transition("opacity", on: shade, to: NSNumber(value: Spotlight.ambientOpacity))
         CATransaction.commit()
-        dimmed = shade
     }
 
     func illuminate(at point: CGPoint, in visible: CGRect, on parent: CALayer, pressed: Bool = false) {
@@ -173,64 +194,134 @@ final class DesktopColorEffects {
                 patch = CALayer()
                 patch.masksToBounds = true
                 patch.backgroundFilters = [Self.shadowFilter()]
-                patch.mask = Self.gradient(inverse: false)
+                let mask = Self.gradient()
+                mask.opacity = 0
+                patch.mask = mask
             }
             let disc = CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)
             let frame = disc.intersection(visible)
-            patch.frame = frame
+            Self.place(patch, in: frame, tracking: existing != nil)
             patch.contentsScale = parent.contentsScale
-            patch.mask?.frame = disc.offsetBy(dx: -frame.minX, dy: -frame.minY)
+            if let mask = patch.mask {
+                Self.place(mask, in: disc.offsetBy(dx: -frame.minX, dy: -frame.minY), tracking: existing != nil)
+                // Backdrop filters take their strength from the mask, not the layer's own opacity.
+                Self.transition("opacity", on: mask, to: NSNumber(value: 1))
+            }
             if patch.superlayer !== parent { parent.insertSublayer(patch, below: dimmed) }
             return patch
         }
+        let isEntering = illuminated?.mask?.opacity != 1
         illuminated = place(illuminated, radius: radius)
         if pressed {
-            // The smaller second pass further lifts shadows while preserving highlights.
             spotlightBoost = place(spotlightBoost, radius: radius * 0.5)
-        } else {
-            clearSpotlightBoost()
+        } else if let core = spotlightBoost?.mask, core.opacity != 0 {
+            Self.transition("opacity", on: core, to: NSNumber(value: 0))
+            scheduleSpotlightRemoval()
         }
-        // The shade above the corrected image has a matching soft opening.
-        let opening = (dimmed.mask as? CAGradientLayer) ?? Self.gradient(inverse: true)
+
+        let existing = dimmed.mask as? CAGradientLayer
+        let opening = existing ?? Self.gradient()
+        if existing == nil {
+            opening.colors = Spotlight.closed
+            dimmed.mask = opening
+        }
         opening.frame = dimmed.bounds
         let center = CGPoint(x: (point.x - visible.minX) / visible.width, y: (point.y - visible.minY) / visible.height)
-        opening.startPoint = center
-        opening.endPoint = CGPoint(x: center.x + radius / visible.width, y: center.y + radius / visible.height)
-        dimmed.mask = opening
+        let end = CGPoint(x: center.x + radius / visible.width, y: center.y + radius / visible.height)
+        if existing == nil {
+            opening.startPoint = center
+            opening.endPoint = end
+        } else {
+            Self.transition("startPoint", on: opening, to: NSValue(point: center), duration: Spotlight.follow)
+            Self.transition("endPoint", on: opening, to: NSValue(point: end), duration: Spotlight.follow)
+        }
+        if isEntering { Self.transition("colors", on: opening, to: Spotlight.opening as NSArray) }
         CATransaction.commit()
     }
 
-    private func clearSpotlightBoost() {
-        spotlightBoost?.removeFromSuperlayer()
-        spotlightBoost = nil
+    // Move the clipped filter patch and its feathered mask together. At the edge of a
+    // letterboxed video, the effect must stay inside the image throughout the move.
+    private static func place(_ layer: CALayer, in frame: CGRect, tracking: Bool) {
+        guard frame != layer.frame else { return }
+        guard tracking else { layer.frame = frame; return }
+        transition("position", on: layer, to: NSValue(point: CGPoint(x: frame.midX, y: frame.midY)), duration: Spotlight.follow)
+        transition("bounds", on: layer, to: NSValue(rect: CGRect(origin: .zero, size: frame.size)), duration: Spotlight.follow)
     }
 
-    private static func gradient(inverse: Bool) -> CAGradientLayer {
+    private static func transition(_ key: String, on layer: CALayer, to value: NSObject,
+                                   duration: CFTimeInterval = Spotlight.fade) {
+        layer.animateDesktopEffect(key, to: value, duration: duration, timing: Spotlight.timing)
+    }
+
+    private static func gradient() -> CAGradientLayer {
         let mask = CAGradientLayer()
         mask.type = .radial
         mask.startPoint = CGPoint(x: 0.5, y: 0.5)
         mask.endPoint = CGPoint(x: 1, y: 1)
-        mask.colors = [1, 0.96, 0.73, 0.37, 0.10, 0].map { (alpha: CGFloat) in
-            CGColor(gray: 1, alpha: inverse ? 1 - alpha : alpha)
-        }
+        mask.colors = Spotlight.alphas.map { CGColor(gray: 1, alpha: $0) }
         mask.locations = [0, 0.12, 0.38, 0.64, 0.85, 1]
         return mask
     }
 
     func leave() {
         endPicking()
-        clearSpotlightBoost()
+        fadeSpotlightPatches()
+    }
+
+    private func fadeSpotlightPatches() {
+        guard let mask = illuminated?.mask, mask.opacity != 0 else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        illuminated?.removeFromSuperlayer()
-        illuminated = nil
-        dimmed?.mask = nil
+        Self.transition("opacity", on: mask, to: NSNumber(value: 0))
+        if let core = spotlightBoost?.mask { Self.transition("opacity", on: core, to: NSNumber(value: 0)) }
+        if let opening = dimmed?.mask {
+            Self.transition("colors", on: opening, to: Spotlight.closed as NSArray)
+        }
         CATransaction.commit()
+        scheduleSpotlightRemoval()
+    }
+
+    func fadeOutSpotlight() {
+        guard let dimmed, dimmed.opacity != 0 else { return }
+        fadeSpotlightPatches()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        Self.transition("opacity", on: dimmed, to: NSNumber(value: 0))
+        CATransaction.commit()
+        scheduleSpotlightRemoval()
+    }
+
+    private func scheduleSpotlightRemoval() {
+        spotlightRemoval?.cancel()
+        spotlightRemoval = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(Spotlight.fade)) } catch { return }
+            guard let self else { return }
+            // An interrupted fade can reactivate one or both patches. Only retire idle layers.
+            if spotlightBoost?.mask?.opacity == 0 {
+                spotlightBoost?.removeFromSuperlayer()
+                spotlightBoost = nil
+            }
+            if illuminated?.mask?.opacity == 0 {
+                illuminated?.removeFromSuperlayer()
+                illuminated = nil
+                dimmed?.mask = nil
+            }
+            if dimmed?.opacity == 0 {
+                dimmed?.removeFromSuperlayer()
+                dimmed = nil
+            }
+            spotlightRemoval = nil
+        }
     }
 
     func stop() {
-        leave()
         clearFocus()
+        spotlightRemoval?.cancel()
+        spotlightRemoval = nil
+        spotlightBoost?.removeFromSuperlayer()
+        spotlightBoost = nil
+        illuminated?.removeFromSuperlayer()
+        illuminated = nil
         dimmed?.removeFromSuperlayer()
         dimmed = nil
     }

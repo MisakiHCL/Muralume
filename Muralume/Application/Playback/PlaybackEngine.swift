@@ -24,6 +24,18 @@ enum PlaybackItemTransition: Equatable, Sendable {
     case crossfade(duration: TimeInterval)
 }
 
+struct PreparedPlaybackItem: Equatable, Sendable {
+    let duration: TimeInterval
+    let startTime: TimeInterval
+
+    init(duration: TimeInterval, initialPosition: TimeInterval?) {
+        self.duration = duration.isFinite && duration > 0 ? duration : 0
+        startTime = initialPosition.flatMap {
+            PlaybackProgressPolicy.resumablePosition(position: $0, duration: duration)
+        } ?? 0
+    }
+}
+
 enum PlaybackSurfaceReadinessPolicy: Equatable, Sendable {
     /// Attaching is not complete until the surface has rendered a frame.
     case required
@@ -39,11 +51,12 @@ protocol PlaybackEngine: AnyObject {
     var failureHandler: ((PlaybackEngineError) -> Void)? { get set }
     var playbackActivityHandler: ((Bool) -> Void)? { get set }
 
-    func load(_ source: ResolvedMediaSource) async throws -> TimeInterval
-    func load(
+    /// Positions the incoming video before presenting or playing it.
+    func prepare(
         _ source: ResolvedMediaSource,
-        transition: PlaybackItemTransition
-    ) async throws -> TimeInterval
+        transition: PlaybackItemTransition,
+        initialPosition: TimeInterval?
+    ) async throws -> PreparedPlaybackItem
     func attach(to surface: any PlaybackRenderSurface) async throws
     func attach(
         to surface: any PlaybackRenderSurface,
@@ -79,9 +92,9 @@ extension PlaybackEngine {
 
     func load(
         _ source: ResolvedMediaSource,
-        transition _: PlaybackItemTransition
+        transition: PlaybackItemTransition = .immediate
     ) async throws -> TimeInterval {
-        try await load(source)
+        try await prepare(source, transition: transition, initialPosition: nil).duration
     }
 
     func attach(

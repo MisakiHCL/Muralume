@@ -403,16 +403,16 @@ final class DesktopSessionCoordinator: ObservableObject {
         desktopInteractionEffect = effect
         desktopInteractionEffectDidChangeHandler?(effect)
         interactionPlaybackObservation = nil
-        updateInteractionMonitoring()
+        updateInteractionMonitoring(fadingPrevious: effect == .off)
     }
 
-    private func updateInteractionMonitoring() {
+    private func updateInteractionMonitoring(fadingPrevious: Bool = false) {
         // Ordinary battery power still permits desktop interaction.
         let effect = desktopInteractionEffect
         guard effect != .off, isDesktopMonitoringEnabled,
               currentEnergyConstraints.isSubset(of: [.limitedPowerSource]) else {
             interactionPlaybackObservation = nil
-            desktopHost.setDesktopInteractionEffect(.off)
+            desktopHost.setDesktopInteractionEffect(.off, fadingPrevious: fadingPrevious)
             return
         }
         guard interactionPlaybackObservation == nil else { return }

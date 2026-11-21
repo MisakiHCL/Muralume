@@ -254,10 +254,13 @@ final class MacDesktopHost: DesktopHosting {
         surface?.setEnergyConstrained(isEnergyConstrained)
     }
 
-    func setDesktopInteractionEffect(_ effect: DesktopInteractionEffect) {
+    func setDesktopInteractionEffect(_ effect: DesktopInteractionEffect, fadingPrevious: Bool) {
         guard desktopInteractionEffect != effect else { return }
         desktopInteractionEffect = effect
-        interactions.setEffect(isRevealed ? effect : .off)
+        interactions.setEffect(
+            isRevealed ? effect : .off,
+            fadingPrevious: isRevealed && (fadingPrevious || effect != .off)
+        )
     }
 
     func reveal() {

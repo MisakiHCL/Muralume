@@ -2597,9 +2597,13 @@ private final class AppCoordinatorPlaybackEngine: PlaybackEngine {
         self.blocksDesktopAttachment = blocksDesktopAttachment
     }
 
-    func load(_ source: ResolvedMediaSource) async throws -> TimeInterval {
+    func prepare(
+        _ source: ResolvedMediaSource,
+        transition _: PlaybackItemTransition,
+        initialPosition: TimeInterval?
+    ) async throws -> PreparedPlaybackItem {
         loadedSources.append(source)
-        return 120
+        return PreparedPlaybackItem(duration: 120, initialPosition: initialPosition)
     }
 
     func attach(to surface: any PlaybackRenderSurface) async throws {

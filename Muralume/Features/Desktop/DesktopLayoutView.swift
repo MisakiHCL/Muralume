@@ -84,19 +84,10 @@ struct DesktopLayoutView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: MuralumeTheme.Spacing.large) {
-            VStack(
-                alignment: .leading,
-                spacing: MuralumeTheme.Spacing.xSmall
-            ) {
-                Text("desktop.layout.title")
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(MuralumeTheme.Colors.textPrimary)
-
-                Text("desktop.layout.detail")
-                    .font(.callout)
-                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-            }
+        HStack(spacing: MuralumeTheme.Spacing.large) {
+            Text("desktop.layout.title")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(MuralumeTheme.Colors.textPrimary)
 
             Spacer(minLength: MuralumeTheme.Spacing.large)
 

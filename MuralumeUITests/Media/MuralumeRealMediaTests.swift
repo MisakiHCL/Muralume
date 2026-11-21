@@ -280,7 +280,8 @@ final class MuralumeRealMediaTests: XCTestCase {
         ) else {
             return false
         }
-        enterDesktopButton.click()
+        // The visible leading edge must trigger the same action as the display symbol.
+        enterDesktopButton.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)).click()
 
         guard application.windows.firstMatch.waitForNonExistence(
             timeout: Expectation.desktopTransitionTimeout

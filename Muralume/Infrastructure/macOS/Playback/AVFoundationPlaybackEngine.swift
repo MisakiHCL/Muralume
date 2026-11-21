@@ -79,14 +79,11 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         player.appliesMediaSelectionCriteriaAutomatically = false
     }
 
-    func load(_ source: ResolvedMediaSource) async throws -> TimeInterval {
-        try await load(source, transition: .immediate)
-    }
-
-    func load(
+    func prepare(
         _ source: ResolvedMediaSource,
-        transition: PlaybackItemTransition
-    ) async throws -> TimeInterval {
+        transition: PlaybackItemTransition,
+        initialPosition: TimeInterval?
+    ) async throws -> PreparedPlaybackItem {
         guard !Task.isCancelled else { throw PlaybackEngineError.superseded }
         cancelActiveTransition(reconnectActivePlayer: true)
         seekCoalescer.invalidate()
@@ -148,6 +145,17 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
                 playbackItem,
                 generation: generation
             )
+            let prepared = PreparedPlaybackItem(
+                duration: metadata.duration.seconds,
+                initialPosition: initialPosition
+            )
+            if prepared.startTime > 0 {
+                await seekBeforePlayback(on: incomingPlayer, to: prepared.startTime)
+                try Task.checkCancellation()
+                guard generation == loadGeneration else {
+                    throw PlaybackEngineError.superseded
+                }
+            }
             if let transitionSurface, let transitionDuration {
                 try await prepareCrossfade(
                     surface: transitionSurface,
@@ -177,8 +185,7 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
                 installTimeControlObservation()
             }
 
-            let seconds = metadata.duration.seconds
-            return seconds.isFinite && seconds > 0 ? seconds : 0
+            return prepared
         } catch let error as PlaybackEngineError {
             throw error
         } catch is CancellationError {
@@ -294,7 +301,8 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         do {
             try await waitUntilReady(
                 surface,
-                generation: preparedSurfaceGeneration
+                generation: preparedSurfaceGeneration,
+                expectedLoad: generation
             )
             try Task.checkCancellation()
             guard generation == loadGeneration else {
@@ -544,6 +552,10 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
 
     func seekBeforePlayback(to seconds: TimeInterval) async {
         seekCoalescer.invalidate()
+        await seekBeforePlayback(on: player, to: seconds)
+    }
+
+    private func seekBeforePlayback(on player: AVPlayer, to seconds: TimeInterval) async {
         player.currentItem?.cancelPendingSeeks()
         let target = CMTime(
             seconds: max(seconds, 0),
@@ -950,7 +962,8 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
 
     private func waitUntilReady(
         _ surface: any PlaybackRenderSurface,
-        generation: UInt64
+        generation: UInt64,
+        expectedLoad: UInt64? = nil
     ) async throws {
         var elapsedNanoseconds: UInt64 = 0
 
@@ -958,6 +971,9 @@ final class AVFoundationPlaybackEngine: PlaybackEngine {
         // or just requires presenting an already-loaded item without a fade.
         while generation == surfaceGeneration && !surface.isReadyForDisplay {
             try Task.checkCancellation()
+            if let expectedLoad, expectedLoad != loadGeneration {
+                throw PlaybackEngineError.superseded
+            }
             guard elapsedNanoseconds < PlaybackPolicy.surfaceReadyTimeoutNanoseconds else {
                 throw PlaybackEngineError.surfaceTimeout
             }

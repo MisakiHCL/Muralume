@@ -12,7 +12,8 @@ final class DesktopFocusEffects {
         static let maximumImageSide: CGFloat = 3072
     }
 
-    private var lens: CALayer?
+    // Oldest first. A distant jump can overlap at most two local footprints.
+    private var lenses: [Lens] = []
 
     private var frameGenerator: AVAssetImageGenerator?
     private var frameRequest: UUID?
@@ -26,43 +27,127 @@ final class DesktopFocusEffects {
     func hover(at point: CGPoint, in videoRect: CGRect, on parent: CALayer, pressed: Bool = false) {
         guard videoRect.contains(point) else { leave(); return }
         let radius = Self.radius(in: videoRect)
-        let area = Self.neighborhood(at: point, radius: radius)
-        let frame = area.intersection(videoRect)
-        // Both profiles use the same footprint. Only the center magnification
-        // increases on a press, with both distortions easing out at their edges.
-        func refraction(radius: CGFloat, strength: Float) -> CIFilter {
-            let filter = CIFilter.bumpDistortion()
-            filter.center = point
-            filter.radius = Float(radius)
-            filter.scale = strength
-            return filter
-        }
-
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let patch: CALayer
-        if let lens {
-            patch = lens
+        defer { CATransaction.commit() }
+
+        let next: Lens
+        if let index = lenses.lastIndex(where: { $0.canFollow(point, radius: radius, on: parent) }) {
+            next = lenses[index]
+            if next.expiry != nil {
+                // A quick reversal resumes the outgoing refraction from its visible strength.
+                next.expiry?.cancel()
+                next.expiry = nil
+                lenses.remove(at: index)
+                lenses.append(next)
+            }
         } else {
-            patch = CALayer()
-            patch.masksToBounds = true
-            patch.mask = Self.makeLensMask()
-            lens = patch
+            if lenses.count == 2 { remove(lenses[0]) }
+            next = Lens(at: point, radius: radius, in: videoRect, on: parent)
+            lenses.append(next)
         }
-        patch.frame = frame
-        patch.contentsScale = parent.contentsScale
-        patch.mask?.frame = area.offsetBy(dx: -frame.minX, dy: -frame.minY)
-        patch.backgroundFilters = [
-            refraction(radius: radius, strength: pressed ? 0.35 : 0.23),
-            refraction(radius: radius * 0.56, strength: pressed ? 0.415 : 0.28)
-        ]
-        if patch.superlayer !== parent { parent.addSublayer(patch) }
-        CATransaction.commit()
+        if let previous = lenses.first, previous !== next { retire(previous) }
+        next.move(to: point, in: videoRect)
+        next.setStrength(pressed: pressed)
     }
 
     func leave() {
-        lens?.removeFromSuperlayer()
-        lens = nil
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for lens in lenses { retire(lens) }
+        CATransaction.commit()
+    }
+
+    private func retire(_ lens: Lens) {
+        guard lens.expiry == nil else { return }
+        lens.setStrength(pressed: nil)
+        lens.expiry = Task { @MainActor [weak self, weak lens] in
+            do { try await Task.sleep(for: .seconds(Lens.strengthDuration)) } catch { return }
+            if let lens { self?.remove(lens) }
+        }
+    }
+
+    private func remove(_ lens: Lens) {
+        lens.expiry?.cancel()
+        lens.expiry = nil
+        lens.layer.removeFromSuperlayer()
+        lenses.removeAll { $0 === lens }
+    }
+
+    @MainActor
+    private final class Lens {
+        static let strengthDuration = 0.20
+        private static let followDuration = 0.12
+        private static let followCurve = CAMediaTimingFunction(controlPoints: 0.15, 0.75, 0.3, 1)
+        private static let strengthCurve = CAMediaTimingFunction(name: .easeInEaseOut)
+        private static let outer = "outerLens"
+        private static let inner = "innerLens"
+
+        let layer = CALayer()
+        var expiry: Task<Void, Never>?
+        private let mask = DesktopFocusEffects.makeLensMask()
+        private let radius: CGFloat
+        private var center: CGPoint
+        private var isPressed: Bool?
+
+        init(at point: CGPoint, radius: CGFloat, in videoRect: CGRect, on parent: CALayer) {
+            self.radius = radius
+            center = point
+            let area = DesktopFocusEffects.neighborhood(at: point, radius: radius)
+            let frame = area.intersection(videoRect)
+            layer.frame = frame
+            layer.contentsScale = parent.contentsScale
+            layer.masksToBounds = true
+            mask.frame = area.offsetBy(dx: -frame.minX, dy: -frame.minY)
+            layer.mask = mask
+
+            func refraction(name: String, radius: CGFloat) -> CIFilter {
+                let filter = CIFilter.bumpDistortion()
+                filter.name = name
+                filter.center = point
+                filter.radius = Float(radius)
+                filter.scale = 0
+                return filter
+            }
+            layer.backgroundFilters = [refraction(name: Self.outer, radius: radius),
+                                       refraction(name: Self.inner, radius: radius * 0.56)]
+            parent.addSublayer(layer)
+        }
+
+        func canFollow(_ point: CGPoint, radius: CGFloat, on parent: CALayer) -> Bool {
+            layer.superlayer === parent && self.radius == radius
+                && hypot(point.x - center.x, point.y - center.y) <= radius
+        }
+
+        func move(to point: CGPoint, in videoRect: CGRect) {
+            guard point != center else { return }
+            center = point
+            let area = DesktopFocusEffects.neighborhood(at: point, radius: radius)
+            let frame = area.intersection(videoRect)
+            let maskCenter = CGPoint(x: point.x - frame.minX, y: point.y - frame.minY)
+            let position = CGPoint(x: frame.midX, y: frame.midY)
+            let bounds = CGRect(origin: .zero, size: frame.size)
+            func follow(_ target: CALayer, _ key: String, _ value: NSObject) {
+                target.animateDesktopEffect(key, to: value, duration: Self.followDuration, timing: Self.followCurve)
+            }
+            follow(layer, "position", NSValue(point: position))
+            follow(layer, "bounds", NSValue(rect: bounds))
+            follow(mask, "position", NSValue(point: maskCenter))
+            for name in [Self.outer, Self.inner] {
+                follow(layer, "backgroundFilters.\(name).inputCenter", CIVector(cgPoint: point))
+            }
+        }
+
+        func setStrength(pressed: Bool?) {
+            guard isPressed != pressed else { return }
+            isPressed = pressed
+            let outer: Float = pressed.map { $0 ? 0.35 : 0.23 } ?? 0
+            let inner: Float = pressed.map { $0 ? 0.415 : 0.28 } ?? 0
+            for (name, strength) in [(Self.outer, outer), (Self.inner, inner)] {
+                layer.animateDesktopEffect("backgroundFilters.\(name).inputScale", to: NSNumber(value: strength),
+                                           duration: Self.strengthDuration, timing: Self.strengthCurve)
+            }
+        }
     }
 
     func freeze(
@@ -150,7 +235,7 @@ final class DesktopFocusEffects {
     }
 
     func stop() {
-        leave()
+        for lens in lenses { remove(lens) }
         clearFreeze()
     }
 

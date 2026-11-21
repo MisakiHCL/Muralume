@@ -138,6 +138,28 @@ final class PlaybackQueueTests: XCTestCase {
         XCTAssertEqual(queue.upNextItems, ["c", "b", "c"])
     }
 
+    func testPlayNextRetainsOtherOccurrencesAndRoundBoundariesAfterGoingBack() throws {
+        var queue = PlaybackQueue(items: ["a", "b", "c"])
+        for _ in 0..<3 { _ = queue.moveToNext() }
+        for _ in 0..<3 { _ = queue.moveToPrevious() }
+
+        XCTAssertEqual(queue.upNextItems, ["b", "c", "a", "b", "c"])
+        XCTAssertFalse(queue.scheduleNext("c", occurrence: 2))
+        var laterOccurrence = queue
+        XCTAssertTrue(laterOccurrence.scheduleNext("c", occurrence: 1))
+        XCTAssertEqual(laterOccurrence.upNextItems, ["c", "b", "c", "a", "b"])
+
+        XCTAssertTrue(queue.scheduleNext("c"))
+        var restored = try XCTUnwrap(PlaybackQueue(snapshot: XCTUnwrap(queue.makeSnapshot())))
+        XCTAssertEqual(restored.upNextItems, ["c", "b", "a", "b", "c"])
+        XCTAssertEqual(restored.moveToNext(), "c")
+        XCTAssertEqual(restored.currentRoundPosition, 2)
+        XCTAssertEqual(restored.moveToNext(), "b")
+        XCTAssertEqual(restored.roundNumber, 1)
+        XCTAssertEqual(restored.moveToNext(), "a")
+        XCTAssertEqual(restored.roundNumber, 2)
+    }
+
     func testPlayNextCanReplayAnEarlierMemberWithoutLosingTheOtherItems() {
         var queue = PlaybackQueue(items: ["a", "b", "c", "d"], startingAt: "c")
 

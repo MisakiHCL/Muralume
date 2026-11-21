@@ -37,7 +37,7 @@ struct SettingsView: View {
     @State private var selectedCategory = SettingsCategory.general
     // One font-directory snapshot per settings presentation. Closing settings
     // releases it; reopening picks up installed/removed fonts without a global cache.
-    @State private var subtitleFontFamilies: [String] = []
+    @State private var subtitleFontFamilies: [String]?
     @ObservedObject var playback: PlaybackCoordinator
     @ObservedObject var dynamicDesktopStartup:
         DynamicDesktopStartupController
@@ -75,11 +75,6 @@ struct SettingsView: View {
         .onAppear {
             dynamicDesktopStartup.refresh()
             defaultVideoPlayer.refresh()
-        }
-        .task {
-            if let families = await SubtitleFontFamilyLoader.load() {
-                subtitleFontFamilies = families
-            }
         }
     }
 
@@ -206,8 +201,14 @@ struct SettingsView: View {
         case .subtitles:
             SubtitleAppearanceSettingsView(
                 appearance: subtitleAppearance,
-                availableFontFamilies: subtitleFontFamilies
+                availableFontFamilies: subtitleFontFamilies ?? []
             )
+            .task {
+                guard subtitleFontFamilies == nil else { return }
+                if let families = await SubtitleFontFamilyLoader.load(), !Task.isCancelled {
+                    subtitleFontFamilies = families
+                }
+            }
         case .smartPause:
             smartPauseSection
         }

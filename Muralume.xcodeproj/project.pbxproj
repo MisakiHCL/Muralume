@@ -174,6 +174,7 @@
 		D60000000000000000000011 /* DesktopPlayerLayerSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */; };
 		F81000000000000000000012 /* DesktopClickRipple.swift in Sources */ = {isa = PBXBuildFile; fileRef = F81000000000000000000002 /* DesktopClickRipple.swift */; };
 		F81000000000000000000017 /* DesktopFocusEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = F81000000000000000000007 /* DesktopFocusEffects.swift */; };
+		F86000000000000000000018 /* DesktopEffectAnimation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F86000000000000000000008 /* DesktopEffectAnimation.swift */; };
 		F84000000000000000000017 /* DesktopColorEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = F84000000000000000000007 /* DesktopColorEffects.swift */; };
 		F81000000000000000000015 /* DesktopWaterField.swift in Sources */ = {isa = PBXBuildFile; fileRef = F81000000000000000000005 /* DesktopWaterField.swift */; };
 		D70000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D70000000000000000000001 /* PrivacyInfo.xcprivacy */; };
@@ -465,6 +466,7 @@
 		D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopPlayerLayerSurfaceView.swift; sourceTree = "<group>"; };
 		F81000000000000000000002 /* DesktopClickRipple.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopClickRipple.swift; sourceTree = "<group>"; };
 		F81000000000000000000007 /* DesktopFocusEffects.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopFocusEffects.swift; sourceTree = "<group>"; };
+		F86000000000000000000008 /* DesktopEffectAnimation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopEffectAnimation.swift; sourceTree = "<group>"; };
 		F84000000000000000000007 /* DesktopColorEffects.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopColorEffects.swift; sourceTree = "<group>"; };
 		F81000000000000000000005 /* DesktopWaterField.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DesktopWaterField.swift; sourceTree = "<group>"; };
 		D70000000000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -695,6 +697,7 @@
 				D60000000000000000000001 /* DesktopPlayerLayerSurfaceView.swift */,
 				F81000000000000000000002 /* DesktopClickRipple.swift */,
 				F81000000000000000000007 /* DesktopFocusEffects.swift */,
+				F86000000000000000000008 /* DesktopEffectAnimation.swift */,
 				F84000000000000000000007 /* DesktopColorEffects.swift */,
 				F81000000000000000000005 /* DesktopWaterField.swift */,
 				D40000000000000000000002 /* FilePlaybackProgressStore.swift */,
@@ -1631,6 +1634,7 @@
 				D60000000000000000000011 /* DesktopPlayerLayerSurfaceView.swift in Sources */,
 				F81000000000000000000012 /* DesktopClickRipple.swift in Sources */,
 				F81000000000000000000017 /* DesktopFocusEffects.swift in Sources */,
+				F86000000000000000000018 /* DesktopEffectAnimation.swift in Sources */,
 				F84000000000000000000017 /* DesktopColorEffects.swift in Sources */,
 				F81000000000000000000015 /* DesktopWaterField.swift in Sources */,
 				D40000000000000000000012 /* FilePlaybackProgressStore.swift in Sources */,

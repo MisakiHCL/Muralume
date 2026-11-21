@@ -33,11 +33,10 @@
   >
 </p>
 
-Set the videos you love loose across every display. Muralume pairs native macOS
-video playback with a refined interface: translucent controls, a searchable
-library, and a desktop that keeps moving behind your files and widgets. Keep
-every screen in sync or give each its own loop. Small on disk, free to use, and
-entirely local. No accounts. No uploads. No ads. No tracking.
+Muralume is a small, native Mac app that turns the videos you love into live
+wallpapers. They play behind your files and widgets, with a different view on
+each display if you like. Your videos stay on your Mac. Muralume has no accounts,
+ads, or trackers, and never sends crash reports automatically.
 
 ## See it in motion
 
@@ -48,57 +47,44 @@ https://github.com/user-attachments/assets/9a6f92f6-ec13-476c-a863-55134aa03f3a
 
 ## Features
 
-This page describes the current source tree. See
-[GitHub Releases](https://github.com/MisakiHCL/Muralume/releases) for the features
-available in each published version.
+### Interactive wallpapers
 
-- **Compact on disk:** A small, native Mac app that works directly with your own
-  video files and folders.
-- **Native video playback:** Built on macOS's AVFoundation media engine for local
-  playback and seamless independent loops on each display.
-- **A refined Mac interface:** Translucent playback controls, a searchable media
-  library, and a consistent layout keep your videos in focus.
-- **In your language:** English, Simplified and Traditional Chinese, Japanese,
-  Korean, French, German, Spanish, Brazilian Portuguese, and Italian. Follow your
-  system language or switch instantly in Settings.
-- **One Mac. Every display:** Place video behind desktop files and widgets, use one
-  synchronized collection across displays, or assign an independent, seamless
-  loop to each display.
-- **Pause when the desktop is out of sight:** Optional Smart Pause reacts to desktop
-  visibility and selected power or system conditions while preserving manual intent.
-- **Your videos. No catalog:** Add individual videos, folders, or both. Muralume keeps
-  source files in place and accesses only the items you choose.
-- **More familiar formats, still read-only:** In addition to the standard macOS video
-  containers, Muralume recognizes common F4V, VOB, MOD, TOD, M2P, MP2V, MPV,
-  MPEG4, MPG4, DivX, and Xvid filename variants without renaming or converting
-  the source file.
-- **A library that keeps up:** Browse a list or thumbnail grid, remember your preferred
-  layout, sort your collection, search by name or location, and automatically discover
-  folder changes while the app is open.
-- **Know how each source is doing:** Check source status and the latest successful
-  refresh in the current app session, retry incomplete scans, or choose a source again
-  when access needs attention.
-- **Playlists, your way:** Add videos directly from your Mac or select them from the
-  Media Library. Browse in list or grid view, remove entries in batches, reorder videos,
-  search within a playlist, and pick up where you left off after relaunch. Playlists
-  retain access to their original local files when a Media Library source is removed.
-- **See exactly what plays next:** Use ordered playback, shuffle, Repeat Current Video,
-  seeking, volume, speed, fullscreen, and a separate Play Queue. An optional short
-  crossfade smooths queue changes after the incoming first frame is ready.
-- **Hear and read the track you want:** Switch embedded audio and subtitle tracks,
-  load local SRT or WebVTT subtitles, and adjust subtitle size and appearance.
-- **Speed up only when you mean to:** Press and hold the video for temporary 2×
-  playback, then release to return to your chosen speed.
-- **Keep the frame, not the player:** Save the current video frame as a compact JPEG
-  from the Actions menu or with `⇧⌘S`. Screenshots preserve the video's orientation
-  and aspect ratio without player controls or letterboxing. A video information panel
-  shows a selectable full file path, file size, and available format, codec,
-  resolution, frame rate, color, audio, and subtitle details.
-- **Private means private:** Local processing, read-only media access, no account,
-  no uploads, no product telemetry, and no automatic crash reporting.
-- **Pick up where you left off:** Every video remembers its own position until it is
-  nearly finished. Reopen Muralume to restore the current session; enable Launch at
-  Login to restore the Dynamic Desktop after signing in.
+With Interactive Water, moving the pointer sends ripples through the
+picture. A click sends a larger wave. Other effects let you magnify a detail,
+light up shadows, pick out a color, or drag a selection to hold part of a frame
+while the rest keeps playing. Desktop icons still respond to clicks and drags.
+
+Displays can share a queue or loop different videos. When they play in sync,
+the menu bar lets you switch between your library and playlists. With Smart
+Pause, playback can pause when the desktop is hidden or Low Power Mode is on,
+and resume when those conditions clear.
+
+### Library and play queue
+
+Muralume has read-only access to the videos and folders you choose. It picks
+up folder changes while open and shows each source’s last successful refresh
+for the session. Browse by list or thumbnail, search by name or location, and
+build playlists from your library or Finder. Playlists keep access to their
+videos even after you remove a source from the library.
+
+Play in order, shuffle, or loop a single video. The queue shows what’s coming
+up and lets you move a video to the front or take it out of the queue. An
+optional crossfade eases the transition between videos. Unfinished videos
+remember your place. Launch at Login can restore your desktop after sign-in.
+
+### Playback and still frames
+
+Translucent controls tuck away while you watch. Holding the video switches
+playback to 2× until you let go. You can switch audio and subtitle tracks, load
+SRT or WebVTT subtitles, and adjust their appearance.
+
+Save a frame as a JPEG with its original orientation and aspect ratio. The
+player lets you open recent shots from this session or reveal them in Finder.
+Video Information shows the file location, resolution, codecs, and tracks.
+
+The app follows your system language or lets you choose English, Simplified or
+Traditional Chinese, Japanese, Korean, French, German, Spanish, Brazilian
+Portuguese, or Italian.
 
 ## Get started
 
@@ -129,7 +115,7 @@ For the GitHub version, open the DMG and drag Muralume into Applications.
 | Add videos or folders | `⌘O` |
 | Search videos | `⌘F` |
 | Save current video frame as JPEG | `⇧⌘S` |
-| Set as Dynamic Desktop | `⌘D` |
+| Set as Dynamic Desktop / return to the player from the desktop menu | `⌘D` |
 | Customize display layout | `⇧⌘D` |
 | Play / pause | `Space` |
 | Back / forward 10 seconds | `←` / `→` |

@@ -87,6 +87,29 @@ final class VideoScreenshotTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: cancelledDestination.path))
     }
 
+    func testHistoryRechecksWhetherTheSavedScreenshotStillExists() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("capture.jpg")
+        try Data([0xFF, 0xD8]).write(to: url)
+        let record = VideoScreenshotRecord(url: url)
+        let resolver = SavedVideoScreenshotResolver()
+        let existing = try await resolver.resolve(record)
+        XCTAssertEqual(existing.url, url)
+
+        try FileManager.default.removeItem(at: url)
+        do {
+            _ = try await resolver.resolve(record)
+            XCTFail("Missing screenshots should report an access error")
+        } catch {}
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+        do {
+            _ = try await resolver.resolve(record)
+            XCTFail("A directory should not open as a saved screenshot")
+        } catch {}
+    }
+
     func testSuggestedFilenameSanitizesSourceNameAndIncludesVideoTime() {
         let source = ResolvedMediaSource(
             url: URL(fileURLWithPath: "/tmp/ignored.mp4"),

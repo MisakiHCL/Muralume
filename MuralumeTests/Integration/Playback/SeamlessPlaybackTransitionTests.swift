@@ -132,6 +132,25 @@ final class SeamlessPlaybackTransitionTests: XCTestCase {
         XCTAssertNil(outgoingPlayer.currentItem)
     }
 
+    func testDesktopCrossfadePreparesTheSavedPositionBeforePresentingTheIncomingVideo() async throws {
+        let playback = PlaybackCoordinator(engine: AVFoundationPlaybackEngine(player: AVPlayer()))
+        let desktop = TestAVPlayerSurface(id: .desktop)
+        let url = try TestMediaFixture.h264URL(for: Self.self)
+        let source = ResolvedMediaSource(url: url, displayName: url.lastPathComponent)
+        defer { playback.shutdown() }
+
+        let initial = await playback.load(source)
+        XCTAssertEqual(initial, .loaded)
+        try await playback.transitionToDesktop(desktop)
+
+        let resumePosition = playback.duration / 2
+        XCTAssertGreaterThan(resumePosition, 0)
+        let next = await playback.load(source, initialPosition: resumePosition, transition: .crossfade(duration: 0.08))
+        XCTAssertEqual(next, .loaded)
+        XCTAssertEqual(try XCTUnwrap(desktop.preparedPlayerTime), resumePosition, accuracy: 0.05)
+        XCTAssertEqual(desktop.committedTransitionDurations, [0.08])
+    }
+
     func testSupersededDesktopCrossfadeCannotCancelTheNewestPreparedPlayer() async throws {
         let outgoing = AVPlayer()
         let engine = AVFoundationPlaybackEngine(player: outgoing)
@@ -152,7 +171,6 @@ final class SeamlessPlaybackTransitionTests: XCTestCase {
         defer { latest.cancel() }
         let latestPrepared = try await waitUntil { surface.preparedTransitionCount == 2 }
         XCTAssertTrue(latestPrepared)
-        first.cancel()
         do {
             _ = try await first.value
             XCTFail("The superseded load completed")

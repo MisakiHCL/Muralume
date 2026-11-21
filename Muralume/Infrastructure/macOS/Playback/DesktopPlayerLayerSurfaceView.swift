@@ -240,6 +240,17 @@ final class DesktopPlayerLayerSurfaceView: NSView, AVPlayerRenderSurface {
         }
     }
 
+    /// A menu choice may ease out over live video. Pausing, changing media and
+    /// tearing down a display always discard the effects immediately.
+    func dismissDesktopInteraction(_ previous: DesktopInteractionEffect) {
+        switch previous {
+        case .hoverLens: focusEffects?.leave()
+        case .shadowLight: colorEffects?.fadeOutSpotlight()
+        case .off: break // An earlier fade can finish or reverse on re-entry.
+        case .localFreeze, .waterRipple, .colorFocus: clearDesktopEffects()
+        }
+    }
+
     private func observeHoverReadiness() {
         hoverPlaybackObservation = nil
         hoverLayerObservation = nil

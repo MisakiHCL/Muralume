@@ -75,11 +75,13 @@ final class DesktopEnergyPolicyTests: XCTestCase {
         XCTAssertEqual(fixture.host.desktopInteractionEffect, .waterRipple)
         fixture.session.setDesktopInteractionEffect(.off)
         XCTAssertEqual(fixture.host.desktopInteractionEffect, .off)
+        XCTAssertTrue(fixture.host.fadesPreviousInteraction)
         fixture.session.setDesktopInteractionEffect(.waterRipple)
         fixture.lifecycle.emitEnergyConstraints([.limitedPowerSource])
         XCTAssertEqual(fixture.host.desktopInteractionEffect, .waterRipple)
         fixture.lifecycle.emitEnergyConstraints([.limitedPowerSource, .thermalPressure])
         XCTAssertEqual(fixture.host.desktopInteractionEffect, .off)
+        XCTAssertFalse(fixture.host.fadesPreviousInteraction)
         fixture.lifecycle.emitEnergyConstraints([])
         XCTAssertEqual(fixture.host.desktopInteractionEffect, .waterRipple)
 

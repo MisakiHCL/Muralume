@@ -1,7 +1,7 @@
 struct PlaybackQueueLocation<Item: Sendable>: Sendable {
-    let item: Item
+    var item: Item
     let roundNumber: Int
-    let position: Int
+    var position: Int
 }
 
 struct PlaybackQueueHistoryBuffer<Element: Sendable>: Sendable {

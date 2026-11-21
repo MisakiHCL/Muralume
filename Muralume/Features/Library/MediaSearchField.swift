@@ -15,6 +15,7 @@ struct MediaSearchField: View {
         HStack(spacing: MuralumeTheme.Spacing.small) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(MuralumeTheme.Colors.textTertiary)
+                .allowsHitTesting(false)
                 .accessibilityHidden(true)
 
             TextField("library.search.placeholder", text: $query)
@@ -41,23 +42,31 @@ struct MediaSearchField: View {
         .padding(.horizontal, MuralumeTheme.Spacing.small)
         .frame(height: MuralumeTheme.Size.searchFieldHeight)
         .background {
-            RoundedRectangle(
-                cornerRadius: MuralumeTheme.Radius.medium,
-                style: .continuous
-            )
-            .fill(MuralumeTheme.Colors.controlFill.opacity(0.72))
-            .overlay {
+            Button {
+                shouldSuppressInitialAutomaticFocus = false
+                isFocused = true
+            } label: {
                 RoundedRectangle(
                     cornerRadius: MuralumeTheme.Radius.medium,
                     style: .continuous
                 )
-                .stroke(
-                    isFocused
-                        ? MuralumeTheme.Colors.borderStrong
-                        : MuralumeTheme.Colors.border,
-                    lineWidth: 1
-                )
+                .fill(MuralumeTheme.Colors.controlFill.opacity(0.72))
+                .overlay {
+                    RoundedRectangle(
+                        cornerRadius: MuralumeTheme.Radius.medium,
+                        style: .continuous
+                    )
+                    .stroke(
+                        isFocused
+                            ? MuralumeTheme.Colors.borderStrong
+                            : MuralumeTheme.Colors.border,
+                        lineWidth: 1
+                    )
+                }
             }
+            .buttonStyle(.plain)
+            .focusable(false)
+            .accessibilityHidden(true)
         }
         .task(id: focusRequest) {
             // Cmd-F can change the route and create this field in the same

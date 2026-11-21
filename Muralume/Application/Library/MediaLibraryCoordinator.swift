@@ -392,8 +392,12 @@ final class MediaLibraryCoordinator: ObservableObject {
             && matchesQueueItem(item)
     }
 
-    func scheduleNext(_ item: LibraryMediaItem) {
-        guard canScheduleNext(item), var queue, queue.scheduleNext(item.id) else { return }
+    func scheduleNext(
+        _ item: LibraryMediaItem, occurrence: Int = 0, expectedQueueRevision: UInt64? = nil
+    ) {
+        guard expectedQueueRevision.map({ $0 == queueRevision }) ?? true,
+              canScheduleNext(item), var queue,
+              queue.scheduleNext(item.id, occurrence: occurrence) else { return }
         self.queue = queue
         publishQueueChange()
     }

@@ -166,8 +166,12 @@ struct PlaybackQueueSidebarContent: View {
             showInformation: {
                 showVideoInformation(entry.item)
             },
-            playNext: library.canScheduleNext(entry.item)
-                ? { library.scheduleNext(entry.item) } : nil,
+            playNext: library.canScheduleNext(entry.item) ? {
+                library.scheduleNext(
+                    entry.item, occurrence: entry.id.section == .upNext ? entry.id.occurrence : 0,
+                    expectedQueueRevision: queueRevision
+                )
+            } : nil,
             removeFromUpcoming: entry.id.section == .upNext ? {
                 library.removeFromUpcoming(
                     entry.item, occurrence: entry.id.occurrence,

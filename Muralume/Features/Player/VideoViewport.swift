@@ -377,11 +377,13 @@ private struct PlayerEmptyState: View {
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(MuralumeTheme.Colors.textPrimary)
 
-                Text(LocalizedStringKey(detailKey))
-                    .font(.body)
-                    .foregroundStyle(MuralumeTheme.Colors.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 480)
+                if let detailKey {
+                    Text(LocalizedStringKey(detailKey))
+                        .font(.body)
+                        .foregroundStyle(MuralumeTheme.Colors.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 480)
+                }
             }
             .frame(minHeight: messageMinimumHeight)
         }
@@ -420,9 +422,9 @@ private struct PlayerEmptyState: View {
         return "media.select.title"
     }
 
-    private var detailKey: String {
+    private var detailKey: String? {
         if library.scanState == .scanning {
-            return "library.scanning.detail"
+            return nil
         }
         switch library.sourceAccessState {
         case .temporarilyUnavailable:

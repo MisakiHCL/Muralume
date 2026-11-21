@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreImage.CIFilterBuiltins
+import Metal
 import QuartzCore
 import XCTest
 
@@ -23,7 +24,8 @@ final class DesktopFocusEffectsTests: XCTestCase {
         func sourceX(at point: CGPoint, through lens: CALayer) throws -> CGFloat {
             var image = try XCTUnwrap(ramp.outputImage?.cropped(to: video))
             let filters = try XCTUnwrap(lens.backgroundFilters as? [CIFilter])
-            for filter in filters {
+            for model in filters {
+                let filter = try XCTUnwrap(model.copy() as? CIFilter)
                 filter.setValue(image, forKey: kCIInputImageKey)
                 image = try XCTUnwrap(filter.outputImage)
             }
@@ -33,15 +35,14 @@ final class DesktopFocusEffectsTests: XCTestCase {
             return CGFloat(rgba[0]) * 512
         }
         effects.hover(at: first, in: video, on: parent)
-        let lens = try XCTUnwrap(parent.sublayers?.first)
-        let mask = try XCTUnwrap(lens.mask)
-        XCTAssertEqual(lens.opacity, 1)
-        XCTAssertTrue(video.contains(lens.frame))
+        let firstLens = try XCTUnwrap(parent.sublayers?.first)
+        XCTAssertTrue(video.contains(firstLens.frame))
         let firstDetail = CGPoint(x: first.x + 6, y: first.y)
-        XCTAssertEqual(6 / (try sourceX(at: firstDetail, through: lens) - first.x), 1.8, accuracy: 0.06)
+        XCTAssertEqual(6 / (try sourceX(at: firstDetail, through: firstLens) - first.x), 1.8, accuracy: 0.06)
         effects.hover(at: next, in: video, on: parent)
-        XCTAssertTrue(parent.sublayers?.first === lens)
-        XCTAssertTrue(lens.mask === mask)
+        let lens = try XCTUnwrap(parent.sublayers?.last)
+        XCTAssertFalse(firstLens === lens)
+        XCTAssertEqual(parent.sublayers?.count, 2)
         XCTAssertEqual(lens.frame.midX, next.x)
         XCTAssertEqual(lens.frame.midY, next.y)
         XCTAssertEqual(try sourceX(at: firstDetail, through: lens), firstDetail.x, accuracy: 0.04)
@@ -50,7 +51,7 @@ final class DesktopFocusEffectsTests: XCTestCase {
         let hoverFrame = lens.frame
         for pressed in [false, true, false] {
             effects.hover(at: next, in: video, on: parent, pressed: pressed)
-            XCTAssertTrue(parent.sublayers?.first === lens)
+            XCTAssertTrue(parent.sublayers?.last === lens)
             XCTAssertEqual(lens.frame, hoverFrame)
             let centerDetail = CGPoint(x: next.x + 6, y: next.y)
             let centerScale = 6 / (try sourceX(at: centerDetail, through: lens) - next.x)
@@ -68,6 +69,83 @@ final class DesktopFocusEffectsTests: XCTestCase {
         XCTAssertTrue(parent.sublayers?.first === lens)
         XCTAssertEqual(6 / (try sourceX(at: nextDetail, through: lens) - next.x), 1.8, accuracy: 0.06)
         effects.leave()
+        XCTAssertEqual(try sourceX(at: nextDetail, through: lens), nextDetail.x, accuracy: 0.04)
+        XCTAssertTrue(lens.superlayer === parent)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertNil(lens.superlayer)
+    }
+
+    func testMagnifierEasesPositionAndReusesTheDepartingLensOnAQuickReversal() throws {
+        let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
+        let queue = try XCTUnwrap(device.makeCommandQueue())
+        let width = 512, height = 128
+        let video = CGRect(x: 0, y: 0, width: width, height: height)
+        let a = CGPoint(x: 100.5, y: 64.5)
+        let b = CGPoint(x: 410.5, y: 64.5)
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false
+        )
+        descriptor.usage = [.renderTarget, .shaderRead, .shaderWrite]
+        descriptor.storageMode = .shared
+        let texture = try XCTUnwrap(device.makeTexture(descriptor: descriptor))
+        let renderer = CARenderer(mtlTexture: texture, options: [kCARendererMetalCommandQueue: queue])
+        let parent = CALayer()
+        parent.frame = video
+        let ramp = CIFilter.linearGradient()
+        ramp.point0 = a
+        ramp.point1 = CGPoint(x: a.x + 24, y: a.y)
+        ramp.color0 = CIColor(red: 0, green: 0, blue: 0)
+        ramp.color1 = CIColor(red: 1, green: 1, blue: 1)
+        parent.contents = try XCTUnwrap(CIContext().createCGImage(try XCTUnwrap(ramp.outputImage), from: video))
+        renderer.layer = parent
+        renderer.bounds = video
+        func sample(at time: CFTimeInterval) throws -> UInt8 {
+            CATransaction.flush()
+            renderer.beginFrame(atTime: time, timeStamp: nil)
+            renderer.addUpdate(video)
+            renderer.render()
+            renderer.endFrame()
+            let barrier = try XCTUnwrap(queue.makeCommandBuffer())
+            barrier.commit()
+            barrier.waitUntilCompleted()
+            var pixel = [UInt8](repeating: 0, count: 4)
+            texture.getBytes(&pixel, bytesPerRow: 4, from: MTLRegionMake2D(112, 64, 1, 1), mipmapLevel: 0)
+            return pixel[1]
+        }
+
+        let ordinary = try sample(at: CACurrentMediaTime())
+        let effects = DesktopFocusEffects()
+        defer { effects.stop() }
+        effects.hover(at: a, in: video, on: parent)
+        let first = try XCTUnwrap(parent.sublayers?.first)
+        let mask = try XCTUnwrap(first.mask)
+        let start = CACurrentMediaTime()
+        let arriving = try sample(at: start + 0.08)
+        let magnified = try sample(at: start + 0.32)
+        XCTAssertGreaterThan(ordinary, arriving)
+        XCTAssertGreaterThan(arriving, magnified)
+        let nearby = CGPoint(x: a.x + 30, y: a.y + 8)
+        effects.hover(at: nearby, in: video, on: parent)
+        XCTAssertEqual(parent.sublayers?.count, 1)
+        XCTAssertTrue(first.mask === mask)
+        let retarget = CACurrentMediaTime()
+        let following = try sample(at: retarget + 0.015)
+        let followed = try sample(at: retarget + 0.24)
+        XCTAssertGreaterThan(following, magnified)
+        XCTAssertGreaterThan(followed, following)
+
+        effects.hover(at: b, in: video, on: parent)
+        let second = try XCTUnwrap(parent.sublayers?.last)
+        XCTAssertFalse(first === second)
+        for point in [a, b, a, b, a] {
+            effects.hover(at: point, in: video, on: parent)
+            XCTAssertEqual(parent.sublayers?.count, 2)
+            XCTAssertTrue(first.superlayer === parent && second.superlayer === parent)
+        }
+        effects.leave()
+        effects.leave()
+        XCTAssertEqual(parent.sublayers?.count, 2)
+        effects.stop()
         XCTAssertTrue(parent.sublayers?.isEmpty ?? true)
     }
 
