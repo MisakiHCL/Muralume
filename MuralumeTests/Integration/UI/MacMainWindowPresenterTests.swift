@@ -94,31 +94,26 @@ final class MacMainWindowPresenterTests: XCTestCase {
         window.orderOut(nil)
     }
 
-    func testShowRestoresMiniaturizedBoundWindow() async {
-        let window = makeWindow()
+    func testShowRestoresMiniaturizedBoundWindow() {
+        let window = RecordingWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_120, height: 720),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
         let presenter = MacMainWindowPresenter()
         presenter.attach(window)
-        window.orderFront(nil)
-        let didMiniaturize = expectation(
-            forNotification: NSWindow.didMiniaturizeNotification,
-            object: window
-        )
 
         presenter.minimize()
-
-        await fulfillment(of: [didMiniaturize], timeout: 2)
         XCTAssertTrue(window.isMiniaturized)
-
-        let didDeminiaturize = expectation(
-            forNotification: NSWindow.didDeminiaturizeNotification,
-            object: window
-        )
         presenter.show()
 
-        await fulfillment(of: [didDeminiaturize], timeout: 2)
         XCTAssertFalse(window.isMiniaturized)
-        XCTAssertTrue(window.isVisible)
-        window.orderOut(nil)
+        XCTAssertEqual(
+            window.presentationActions,
+            [.miniaturize, .deminiaturize, .makeKeyAndOrderFront]
+        )
+        XCTAssertTrue(presenter.isPresenting(window))
     }
 
     func testPublishesMiniaturizationForOnlyTheAttachedWindow() {
@@ -983,9 +978,17 @@ private final class TestDesktopSurfaceReadiness {
 
 @MainActor
 private final class RecordingWindow: NSWindow {
+    enum PresentationAction {
+        case miniaturize, deminiaturize, makeKeyAndOrderFront
+    }
+
     private(set) var performDragCount = 0
     private(set) var performZoomCount = 0
+    private(set) var presentationActions: [PresentationAction] = []
+    private var recordedMiniaturization = false
     var styleMaskOverride: NSWindow.StyleMask?
+
+    override var isMiniaturized: Bool { recordedMiniaturization }
 
     override var styleMask: NSWindow.StyleMask {
         get {
@@ -1002,5 +1005,19 @@ private final class RecordingWindow: NSWindow {
 
     override func performZoom(_ sender: Any?) {
         performZoomCount += 1
+    }
+
+    override func miniaturize(_ sender: Any?) {
+        presentationActions.append(.miniaturize)
+        recordedMiniaturization = true
+    }
+
+    override func deminiaturize(_ sender: Any?) {
+        presentationActions.append(.deminiaturize)
+        recordedMiniaturization = false
+    }
+
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        presentationActions.append(.makeKeyAndOrderFront)
     }
 }
