@@ -349,7 +349,6 @@
 "settings.smartPause.accessibilityHint" = "変更はすぐに反映され、手動の再生・一時停止は維持されます。";
 "menu.actions" = "操作";
 "menu.window" = "ウインドウ";
-"menu.help" = "ヘルプ";
 "menu.about" = "Muralumeについて";
 "about.website" = "公式Webサイト";
 "about.privacyPolicy" = "プライバシーポリシー";
@@ -364,7 +363,6 @@
 "menu.minimizeWindow" = "しまう";
 "menu.zoomWindow" = "拡大／縮小";
 "menu.bringAllToFront" = "すべてを手前に移動";
-"menu.showHelp" = "Muralumeヘルプ";
 "screenshot.menu" = "スクリーンショットを保存…";
 "screenshot.contextMenu" = "スクリーンショットを保存";
 "screenshot.folder.title" = "スクリーンショットの保存先";
@@ -434,7 +432,6 @@
 "playlists.import.failed.title" = "動画を追加できませんでした";
 "playlists.import.limit" = "一度に選択できる動画は%d本までです。動画は追加されませんでした。";
 "playlists.media.picker.message" = "このプレイリストに追加する動画を選択してください。";
-"menu.edit" = "編集";
 "menu.undo" = "取り消す";
 "menu.redo" = "やり直す";
 "menu.cut" = "カット";

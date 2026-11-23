@@ -349,7 +349,6 @@
 "settings.smartPause.accessibilityHint" = "바로 적용되며 수동 재생 및 일시 정지 상태는 유지됩니다.";
 "menu.actions" = "작업";
 "menu.window" = "윈도우";
-"menu.help" = "도움말";
 "menu.about" = "Muralume에 관하여";
 "about.website" = "공식 웹사이트";
 "about.privacyPolicy" = "개인정보 처리방침";
@@ -364,7 +363,6 @@
 "menu.minimizeWindow" = "최소화";
 "menu.zoomWindow" = "확대/축소";
 "menu.bringAllToFront" = "모두 앞으로 가져오기";
-"menu.showHelp" = "Muralume 도움말";
 "screenshot.menu" = "스크린샷 저장…";
 "screenshot.contextMenu" = "스크린샷 저장";
 "screenshot.folder.title" = "스크린샷 저장 위치";
@@ -434,7 +432,6 @@
 "playlists.import.failed.title" = "동영상을 추가할 수 없음";
 "playlists.import.limit" = "한 번에 동영상을 최대 %d개까지 선택할 수 있습니다. 추가된 동영상은 없습니다.";
 "playlists.media.picker.message" = "이 재생목록에 추가할 동영상을 선택하세요.";
-"menu.edit" = "편집";
 "menu.undo" = "실행 취소";
 "menu.redo" = "실행 복귀";
 "menu.cut" = "오려두기";

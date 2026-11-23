@@ -349,7 +349,6 @@
 "settings.smartPause.accessibilityHint" = "設定立即生效，並保留手動播放或暫停的狀態。";
 "menu.actions" = "操作";
 "menu.window" = "視窗";
-"menu.help" = "輔助說明";
 "menu.about" = "關於 Muralume";
 "about.website" = "官方網站";
 "about.privacyPolicy" = "隱私權政策";
@@ -364,7 +363,6 @@
 "menu.minimizeWindow" = "縮小";
 "menu.zoomWindow" = "縮放";
 "menu.bringAllToFront" = "將所有視窗移到最上層";
-"menu.showHelp" = "Muralume 輔助說明";
 "screenshot.menu" = "儲存截圖…";
 "screenshot.contextMenu" = "儲存截圖";
 "screenshot.folder.title" = "截圖儲存位置";
@@ -434,7 +432,6 @@
 "playlists.import.failed.title" = "無法加入影片";
 "playlists.import.limit" = "每次最多選取 %d 部影片。本次未加入任何影片。";
 "playlists.media.picker.message" = "選取要加入此播放清單的影片。";
-"menu.edit" = "編輯";
 "menu.undo" = "還原";
 "menu.redo" = "重做";
 "menu.cut" = "剪下";

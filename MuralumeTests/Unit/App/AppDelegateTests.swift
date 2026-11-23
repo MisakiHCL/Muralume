@@ -325,7 +325,7 @@ final class AppDelegateTests: XCTestCase {
         )
     }
 
-    func testMainMenuControllerBuildsOnlyCanonicalTopLevelMenus() {
+    func testMainMenuControllerInstallsCanonicalMenusAndKeepsHelpOffBar() throws {
         let commandHandler = TestMainMenuCommandHandler()
         let window = NSWindow()
         let controller = makeMainMenuController(
@@ -335,13 +335,24 @@ final class AppDelegateTests: XCTestCase {
 
         XCTAssertEqual(
             controller.canonicalMenu.items.map(\.title),
-            ["Muralume", "Edit", "Actions", "Window", "Help"]
+            ["Muralume", "Actions", "Window"]
         )
-        XCTAssertFalse(
-            controller.canonicalMenu.items.contains {
-                ["File", "Format", "View"].contains($0.title)
-            }
-        )
+        let previousMainMenu = NSApp.mainMenu
+        let previousWindowsMenu = NSApp.windowsMenu
+        let previousServicesMenu = NSApp.servicesMenu
+        let previousHelpMenu = NSApp.helpMenu
+        defer {
+            controller.stop()
+            NSApp.servicesMenu = previousServicesMenu
+            NSApp.windowsMenu = previousWindowsMenu
+            NSApp.helpMenu = previousHelpMenu
+            NSApp.mainMenu = previousMainMenu
+        }
+
+        controller.install()
+        XCTAssertTrue(NSApp.mainMenu === controller.canonicalMenu)
+        let helpMenu = try XCTUnwrap(NSApp.helpMenu)
+        XCTAssertNil(helpMenu.supermenu)
     }
 
     func testRuntimeMainWindowIsExcludedFromAutomaticWindowMenu() {
@@ -379,7 +390,7 @@ final class AppDelegateTests: XCTestCase {
 
         XCTAssertEqual(
             applicationMenu.items
-                .filter { !$0.isSeparatorItem }
+                .filter { !$0.isSeparatorItem && !$0.isHidden }
                 .map(\.title),
             [
                 "About Muralume",
@@ -492,7 +503,7 @@ final class AppDelegateTests: XCTestCase {
         )
         XCTAssertEqual(
             applicationMenu.items
-                .filter { !$0.isSeparatorItem }
+                .filter { !$0.isSeparatorItem && !$0.isHidden }
                 .map(\.title),
             [
                 "About Muralume",

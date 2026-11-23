@@ -349,7 +349,6 @@
 "settings.smartPause.accessibilityHint" = "Änderungen gelten sofort. Manuelle Wiedergabe- und Pausenentscheidungen bleiben erhalten.";
 "menu.actions" = "Aktionen";
 "menu.window" = "Fenster";
-"menu.help" = "Hilfe";
 "menu.about" = "Über Muralume";
 "about.website" = "Offizielle Website";
 "about.privacyPolicy" = "Datenschutzrichtlinie";
@@ -364,7 +363,6 @@
 "menu.minimizeWindow" = "Minimieren";
 "menu.zoomWindow" = "Zoomen";
 "menu.bringAllToFront" = "Alle nach vorne bringen";
-"menu.showHelp" = "Muralume-Hilfe";
 "screenshot.menu" = "Bildschirmfoto sichern…";
 "screenshot.contextMenu" = "Bildschirmfoto sichern";
 "screenshot.folder.title" = "Ordner für Bildschirmfotos";
@@ -434,7 +432,6 @@
 "playlists.import.failed.title" = "Videos konnten nicht hinzugefügt werden";
 "playlists.import.limit" = "Wählen Sie höchstens %d Videos gleichzeitig aus. Es wurden keine Videos hinzugefügt.";
 "playlists.media.picker.message" = "Wählen Sie Videos für diese Wiedergabeliste aus.";
-"menu.edit" = "Bearbeiten";
 "menu.undo" = "Widerrufen";
 "menu.redo" = "Wiederholen";
 "menu.cut" = "Ausschneiden";

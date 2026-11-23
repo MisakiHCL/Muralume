@@ -4,23 +4,26 @@ import XCTest
 
 @MainActor
 final class NativeEditMenuTests: XCTestCase {
-    func testEditMenuUsesNativeResponderActionsWithoutPlayerFocusGating() throws {
+    func testHiddenEditingShortcutsUseNativeResponderActionsWithoutPlayerFocusGating() throws {
         let commandHandler = TestMainMenuCommandHandler()
         let controller = makeMainMenuController(commandHandler: commandHandler, mainWindow: NSWindow())
-        let menu = try XCTUnwrap(controller.canonicalMenu.items.first { $0.title == "Edit" }?.submenu)
-        let items = menu.items.filter { !$0.isSeparatorItem }
+        let menu = try XCTUnwrap(controller.canonicalMenu.items.first?.submenu)
+        let items = menu.items.filter(\.isHidden)
         XCTAssertTrue(menu.autoenablesItems)
+        XCTAssertTrue(items.allSatisfy(\.allowsKeyEquivalentWhenHidden))
         XCTAssertEqual(items.map(\.title), ["Undo", "Redo", "Cut", "Copy", "Paste", "Select All"])
         XCTAssertEqual(items.compactMap(\.action).map(NSStringFromSelector), ["undo:", "redo:", "cut:", "copy:", "paste:", "selectAll:"])
         XCTAssertEqual(items.map(\.keyEquivalent), ["z", "z", "x", "c", "v", "a"])
         XCTAssertTrue(items.allSatisfy { $0.target == nil }, "Editing must follow the current first responder, including system panels")
-        XCTAssertEqual(items[1].keyEquivalentModifierMask, [.command, .shift])
-        for index in [0, 2, 3, 4, 5] { XCTAssertEqual(items[index].keyEquivalentModifierMask, [.command]) }
+        XCTAssertEqual(
+            items.map(\.keyEquivalentModifierMask),
+            [.command, [.command, .shift], .command, .command, .command, .command]
+        )
     }
 
     func testSelectAllMenuKeyEquivalentOperatesOnNativeMultipleSelectionTable() throws {
         let controller = makeMainMenuController(commandHandler: TestMainMenuCommandHandler(), mainWindow: NSWindow())
-        let menu = try XCTUnwrap(controller.canonicalMenu.items.first { $0.title == "Edit" }?.submenu)
+        let menu = try XCTUnwrap(controller.canonicalMenu.items.first?.submenu)
         let selectAll = try XCTUnwrap(menu.items.first { $0.action == #selector(NSResponder.selectAll(_:)) })
         let table = NSTableView()
         let rows = TestEditMenuRows()
@@ -45,20 +48,18 @@ final class NativeEditMenuTests: XCTestCase {
         withExtendedLifetime(rows) {}
     }
 
-    func testEditMenuTitlesUseEachSupportedLanguage() throws {
-        let titles: [(AppLanguage, String)] = [
-            (.english, "Edit"), (.simplifiedChinese, "编辑"), (.traditionalChinese, "編輯"),
-            (.japanese, "編集"), (.korean, "편집"), (.french, "Édition"),
-            (.german, "Bearbeiten"), (.spanish, "Edición"), (.brazilianPortuguese, "Editar"), (.italian, "Modifica")
-        ]
-        for (language, title) in titles {
+    func testHiddenEditingCommandsUseEachSupportedLanguage() throws {
+        let keys = ["menu.undo", "menu.redo", "menu.cut", "menu.copy", "menu.paste", "menu.selectAll"]
+        for language in AppLanguage.allCases where language != .system {
+            let localization = AppLocalizationController(initialLanguage: language)
             let controller = MacMainMenuController(
-                application: NSApp, localization: AppLocalizationController(initialLanguage: language),
+                application: NSApp, localization: localization,
                 commandHandler: TestMainMenuCommandHandler(), mainWindow: NSWindow()
             )
-            let menu = try XCTUnwrap(controller.canonicalMenu.items.first { $0.title == title }?.submenu)
-            XCTAssertEqual(menu.items.filter { !$0.isSeparatorItem }.count, 6)
-            XCTAssertTrue(menu.items.filter { !$0.isSeparatorItem }.allSatisfy { !$0.title.isEmpty && !$0.title.hasPrefix("menu.") })
+            let menu = try XCTUnwrap(controller.canonicalMenu.items.first?.submenu)
+            let titles = menu.items.filter(\.isHidden).map(\.title)
+            XCTAssertEqual(titles, keys.map { localization.localized($0) })
+            XCTAssertTrue(titles.allSatisfy { !$0.isEmpty && !$0.hasPrefix("menu.") })
         }
     }
 
